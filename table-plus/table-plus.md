@@ -144,13 +144,16 @@ end
   z-index: 3;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
 }
-/* The header color may be see-through (dark theme): lay it over the page color */
+/* The header color may be see-through (dark theme): lay it over the page color.
+   The shadow upwards fills the gap above the held header (STICKY_GAP in the
+   script) with the page color, so no row shows there. */
 .sb-table-widget thead.tp-stuck td {
   background: linear-gradient(
       var(--editor-table-head-background-color, transparent),
       var(--editor-table-head-background-color, transparent)
     ),
     var(--root-background-color, #fff);
+  box-shadow: 0 -38px 0 0 var(--root-background-color, #fff);
 }
 
 /* Ctrl held in a cell editor: arrows move between cells */

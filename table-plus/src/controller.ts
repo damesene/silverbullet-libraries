@@ -110,6 +110,13 @@ const SORT_GLYPH = { asc: "▲", desc: "▼", none: "⇅" } as const;
 // Pointer travel that turns a press on a grip into a drag instead of a click
 const DRAG_THRESHOLD = 4;
 
+// Space between the top of the view and a header held there, room for the
+// toolbar (25px) above the header. The CSS covers it with the page color, so no
+// row shows above the header; keep both in step.
+const STICKY_GAP = 38;
+// Toolbar distance above the header: clear of the column grip on the header's top edge
+const BAR_GAP = 10;
+
 // Middle-button autoscroll: no movement within this distance of the start point
 const AUTOSCROLL_DEAD_ZONE = 12;
 
@@ -688,7 +695,7 @@ export class Controller {
       if (!info || !head || renderedTable(widget) !== info.table) continue;
       const viewTop = this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0;
       const table = info.table.getBoundingClientRect();
-      const offset = Math.max(0, Math.min(viewTop - table.top, table.height - head.offsetHeight));
+      const offset = Math.max(0, Math.min(viewTop + STICKY_GAP - table.top, table.height - head.offsetHeight));
       head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
       head.classList.toggle("tp-stuck", offset > 0);
     }
@@ -1020,7 +1027,7 @@ export class Controller {
     rect = cell.getBoundingClientRect();
     const view = scroller.getBoundingClientRect();
     const head = this.infos.get(widget)?.table.tHead;
-    const top = view.top + (head && !head.contains(cell) ? head.offsetHeight : 0);
+    const top = view.top + (head && !head.contains(cell) ? STICKY_GAP + head.offsetHeight : 0);
     if (rect.top < top) scroller.scrollTop -= top - rect.top;
     else if (rect.bottom > view.bottom) scroller.scrollTop += rect.bottom - view.bottom;
   }
@@ -1241,10 +1248,11 @@ export class Controller {
     const headerRect = info.table.rows[0]!.getBoundingClientRect();
     const viewTop = this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0;
     bar.classList.add("tp-visible");
-    const above = headerRect.top - bar.offsetHeight - 14;
+    const above = headerRect.top - bar.offsetHeight - BAR_GAP;
     // No room above the header: over the header's right end instead
-    const top = above >= viewTop + 4 ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
-    this.place(bar, rect.right - bar.offsetWidth - (above >= viewTop + 4 ? 0 : 6), top);
+    const fits = above >= viewTop + 2;
+    const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
+    this.place(bar, rect.right - bar.offsetWidth - (fits ? 0 : 6), top);
 
     this.addRow.classList.add("tp-visible");
     this.place(this.addRow, this.shownRect(widget, info).left, tableRect.bottom + 4);
