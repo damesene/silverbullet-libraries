@@ -211,6 +211,68 @@ describe("Controller", () => {
     expect(document.body.classList.contains("tp-navigating")).toBe(false);
   });
 
+  it("moves rows and columns with Ctrl+Shift+arrows, the editor following", async () => {
+    await setup(PAGE);
+    const editing = () => {
+      const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+      const td = field.closest("td")!;
+      return { field, at: [(td.parentElement as HTMLTableRowElement).rowIndex, td.cellIndex] };
+    };
+    const press = async (k: string) => {
+      key(editing().field, k, { ctrlKey: true, shiftKey: true });
+      await flush();
+      await controller.scan();
+    };
+    clickOn(cell(1, 0)); // Pear
+    editing().field.value = "Pears"; // saved together with the move
+    await press("ArrowDown");
+    expect(text).toBe("Intro\n\n| Name | Qty |\n|---|---|\n| apple | 10 |\n| Pears | 3 |\n| Fig | 2 |\n");
+    expect(editing().at).toEqual([2, 0]);
+    await press("ArrowDown");
+    await press("ArrowDown"); // already the last row
+    expect(text).toBe("Intro\n\n| Name | Qty |\n|---|---|\n| apple | 10 |\n| Fig | 2 |\n| Pears | 3 |\n");
+    expect(editing().at).toEqual([3, 0]);
+    await press("ArrowRight");
+    expect(text).toBe("Intro\n\n| Qty | Name |\n|---|---|\n| 10 | apple |\n| 2 | Fig |\n| 3 | Pears |\n");
+    expect(editing().at).toEqual([3, 1]);
+    expect(editing().field.value).toBe("Pears");
+  });
+
+  it("moves a column to the start or the end with Ctrl+Shift+Home and End", async () => {
+    await setup("| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n");
+    const at = () => editor.querySelector(".tp-cell-editor")!.closest("td")!.cellIndex;
+    const press = async (k: string) => {
+      key(editor.querySelector(".tp-cell-editor")!, k, { ctrlKey: true, shiftKey: true });
+      await flush();
+      await controller.scan();
+    };
+    clickOn(cell(1, 1)); // B
+    await press("End");
+    expect(text).toBe("| A | C | B |\n|---|---|---|\n| 1 | 3 | 2 |\n");
+    expect(at()).toBe(2);
+    await press("End"); // already last
+    expect(text).toBe("| A | C | B |\n|---|---|---|\n| 1 | 3 | 2 |\n");
+    await press("Home");
+    expect(text).toBe("| B | A | C |\n|---|---|---|\n| 2 | 1 | 3 |\n");
+    expect(at()).toBe(0);
+  });
+
+  it("does not move the header row, nor rows while sorted", async () => {
+    await setup(PAGE);
+    clickOn(cell(0, 0));
+    key(editor.querySelector(".tp-cell-editor")!, "ArrowDown", { ctrlKey: true, shiftKey: true });
+    await flush();
+    expect(text).toBe(PAGE);
+    key(editor.querySelector(".tp-cell-editor")!, "Escape");
+    await flush();
+    clickOn(cell(0, 0).querySelector(".tp-sort")!);
+    clickOn(cell(1, 0));
+    key(editor.querySelector(".tp-cell-editor")!, "ArrowDown", { ctrlKey: true, shiftKey: true });
+    await flush();
+    expect(text).toBe(PAGE);
+    expect(flashes.length).toBe(1);
+  });
+
   it("keeps plain arrows, Home and End inside the field", async () => {
     await setup(PAGE);
     clickOn(cell(1, 0));

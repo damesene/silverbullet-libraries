@@ -700,6 +700,7 @@ var DRAG_THRESHOLD = 4;
 var STICKY_GAP = 38;
 var BAR_GAP = 10;
 var AUTOSCROLL_DEAD_ZONE = 12;
+var MOVE_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 var NAVIGATION_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 var FILTER_HINT = "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
@@ -1345,7 +1346,10 @@ var Controller = class {
     field.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
       if (e.key === "Control") this.setNavigating(true);
-      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && NAVIGATION_KEYS.has(e.key)) {
+      if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && MOVE_KEYS.has(e.key)) {
+        e.preventDefault();
+        void this.moveWithKeyboard(e.key);
+      } else if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && NAVIGATION_KEYS.has(e.key)) {
         e.preventDefault();
         void this.navigate(e.key);
       } else if (e.key === "Escape") {
@@ -1441,6 +1445,43 @@ var Controller = class {
       info.table.rows[0],
       ...Array.from(info.table.querySelectorAll("tr[data-tp-row]:not(.tp-hidden)"))
     ];
+  }
+  /**
+   * Ctrl+Shift+arrows: move the edited cell's row up / down, or its column
+   * left / right; Ctrl+Shift+Home / End: its column to the first / last place.
+   * The cell is saved in the same edit and the editor stays on it. Rows cannot
+   * move while sorted or filtered, nor the header row.
+   */
+  async moveWithKeyboard(key) {
+    const active = this.editor;
+    const info = active && this.infos.get(active.widget);
+    if (!active || !info) return;
+    const vertical = key === "ArrowUp" || key === "ArrowDown";
+    const step = key === "ArrowUp" || key === "ArrowLeft" ? -1 : 1;
+    const from = vertical ? active.row : active.column;
+    const to = key === "Home" ? 0 : key === "End" ? info.columns - 1 : from + step;
+    if (to === from) return;
+    if (vertical) {
+      if (from === 0) return;
+      if (this.rearranged(info)) {
+        void this.bridge.flash(`Table Plus: ${MOVE_BLOCKED.toLowerCase()}`, "info");
+        return;
+      }
+      if (to < 1 || to >= parseTable(info.source).rows.length) return;
+    } else if (to < 0 || to >= info.columns) {
+      return;
+    }
+    const closed = this.closeEditor();
+    await this.write(
+      closed.widget,
+      (t) => {
+        const edited = closed.value !== closed.original ? this.withCellEdit(t, closed) : t;
+        if (!edited) return void 0;
+        return vertical ? moveRow(edited, from, to) : moveColumn(edited, from, to);
+      },
+      vertical ? { row: to, column: closed.column } : { row: closed.row, column: to },
+      vertical ? void 0 : (c) => columnAfterMove(c, from, to)
+    );
   }
   /**
    * Ctrl+arrows: save and edit the neighbouring shown cell; Ctrl+Home / End:

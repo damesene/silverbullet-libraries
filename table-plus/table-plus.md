@@ -12,7 +12,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 ## At a glance
 
 * **Edit a cell**: click it, type, press Enter. See [[#Editing cells]].
-* **Move between cells**: Tab / Shift+Tab, or Ctrl+arrows while editing. See [[#Keyboard]].
+* **Move between cells**: Tab / Shift+Tab, or Ctrl+arrows while editing; Ctrl+Shift+arrows move the row or column. See [[#Keyboard]].
 * **See the markdown**: hover the table and click *Edit markdown*, or Alt+click a cell. See [[#Showing the markdown]].
 * **Sort**: click ⇅ in a column header. See [[#Sorting]].
 * **Filter**: hover the table and click *Filter*; `>10`, `/regex/`, `=text` and `!text` work too. See [[#Filtering]].
@@ -36,8 +36,12 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Ctrl+arrows | Save, edit the cell beside |
 | Ctrl+Home | Save, edit the row's first cell |
 | Ctrl+End | Save, edit the row's last cell |
+| Ctrl+Shift+↑ / ↓ | Move the row up / down |
+| Ctrl+Shift+← / → | Move the column left / right |
+| Ctrl+Shift+Home / End | Move the column to the start / end |
 
 * Tab on the last cell adds a row.
+* Ctrl+Shift+arrows save the cell and move it with its row or column, and keep editing it. Rows cannot move while sorted or filtered, nor the header row.
 * With the `moveDown` setting, Enter also moves to the cell below and Shift+Enter to the cell above. See [[#Settings]].
 * While Ctrl is held, the pointer shows a move cursor. Without Ctrl, arrows, Home and End move within the cell's text as usual.
 
