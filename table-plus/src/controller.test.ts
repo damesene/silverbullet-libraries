@@ -22,6 +22,8 @@ function renderPage(text: string, editor: HTMLElement, cursorMoves: number[]): v
       const tr = document.createElement("tr");
       tr.dataset.pos = String(range.from + r);
       for (const cell of row.cells) {
+        // SilverBullet leaves out empty header cells
+        if (r === 0 && cell === "") continue;
         const td = document.createElement("td");
         if (cell.startsWith("[[")) {
           const a = document.createElement("a");
@@ -99,12 +101,12 @@ describe("Controller", () => {
   it("edits a cell in place without showing the markdown", async () => {
     await setup(PAGE);
     clickOn(cell(1, 1));
-    const textarea = editor.querySelector<HTMLTextAreaElement>("textarea.tp-cell-editor")!;
-    expect(textarea.value).toBe("3");
+    const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+    expect(field.value).toBe("3");
     expect(cursorMoves).toEqual([]);
 
-    textarea.value = "4 | 5";
-    key(textarea, "Enter");
+    field.value = "4 | 5";
+    key(field, "Enter");
     await flush();
     expect(text).toBe("Intro\n\n| Name | Qty |\n|---|---|\n| Pear | 4 \\| 5 |\n| apple | 10 |\n| Fig | 2 |\n");
     expect(cursorMoves).toEqual([]);
@@ -113,9 +115,9 @@ describe("Controller", () => {
   it("cancels an edit with Escape", async () => {
     await setup(PAGE);
     clickOn(cell(1, 0));
-    const textarea = editor.querySelector<HTMLTextAreaElement>("textarea.tp-cell-editor")!;
-    textarea.value = "changed";
-    key(textarea, "Escape");
+    const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+    field.value = "changed";
+    key(field, "Escape");
     await flush();
     expect(text).toBe(PAGE);
     expect(cell(1, 0).textContent).toBe("Pear");
@@ -124,12 +126,12 @@ describe("Controller", () => {
   it("moves on with Tab and adds a row after the last cell", async () => {
     await setup(PAGE);
     clickOn(cell(3, 1));
-    key(editor.querySelector("textarea")!, "Tab");
+    key(editor.querySelector(".tp-cell-editor")!, "Tab");
     await flush();
     await controller.scan();
     expect(text).toBe("Intro\n\n| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| Fig | 2 |\n| | |\n");
-    const textarea = editor.querySelector<HTMLTextAreaElement>("textarea.tp-cell-editor");
-    expect(textarea?.closest("tr")?.dataset.tpRow).toBe("4");
+    const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor");
+    expect(field?.closest("tr")?.dataset.tpRow).toBe("4");
   });
 
   it("sorts and restores the order without touching the markdown", async () => {
@@ -145,6 +147,18 @@ describe("Controller", () => {
     expect(cursorMoves).toEqual([]);
   });
 
+  it("clears the sorting with the cross next to the sort status", async () => {
+    await setup(PAGE);
+    clickOn(cell(0, 0).querySelector(".tp-sort")!);
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const chip = document.querySelector(".tp-bar .tp-chip")!;
+    expect(chip.textContent).toBe("Sorted by Name ↑");
+    expect(document.querySelector(".tp-bar")!.textContent).not.toContain("Original order");
+    chip.querySelector<HTMLElement>(".tp-chip-clear")!.click();
+    expect(bodyTexts()).toEqual(["Pear", "apple", "Fig"]);
+    expect(document.querySelector(".tp-bar .tp-chip")).toBeNull();
+  });
+
   it("sorts numbers numerically", async () => {
     await setup(PAGE);
     clickOn(cell(0, 1).querySelector(".tp-sort")!);
@@ -155,10 +169,10 @@ describe("Controller", () => {
     await setup(PAGE);
     clickOn(cell(0, 0).querySelector(".tp-sort")!);
     clickOn(cell(1, 0)); // shown first: apple
-    const textarea = editor.querySelector<HTMLTextAreaElement>("textarea")!;
-    expect(textarea.value).toBe("apple");
-    textarea.value = "Zucchini";
-    key(textarea, "Enter");
+    const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+    expect(field.value).toBe("apple");
+    field.value = "Zucchini";
+    key(field, "Enter");
     await flush();
     await controller.scan();
     expect(text).toContain("| Zucchini | 10 |");
@@ -172,14 +186,14 @@ describe("Controller", () => {
     await flush();
     expect(cursorMoves.length).toBe(1);
     expect(text.slice(cursorMoves[0])).toMatch(/^10 \|/);
-    expect(editor.querySelector("textarea")).toBeNull();
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
   });
 
   it("leaves link clicks to SilverBullet", async () => {
     await setup("| Page |\n|---|\n| [[Other]] |\n");
     const link = editor.querySelector("a[data-ref]")!;
     clickOn(link);
-    expect(editor.querySelector("textarea")).toBeNull();
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
     expect(cursorMoves.length).toBe(1);
   });
 
@@ -187,11 +201,70 @@ describe("Controller", () => {
     await setup(PAGE);
     clickOn(cell(1, 0));
     text = text.replace("| Pear | 3 |", "| Plum | 3 |");
-    const textarea = editor.querySelector<HTMLTextAreaElement>("textarea")!;
-    textarea.value = "Kiwi";
-    key(textarea, "Enter");
+    const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+    field.value = "Kiwi";
+    key(field, "Enter");
     await flush();
     expect(text).not.toContain("Kiwi");
+    expect(flashes.length).toBe(1);
+  });
+
+  it("opens a row menu from the row grip and runs its actions", async () => {
+    await setup(PAGE);
+    cell(2, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const grip = document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+    expect(grip.classList.contains("tp-visible")).toBe(true);
+    grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    const menu = document.querySelector(".tp-menu")!;
+    expect(menu.querySelector(".tp-menu-title")?.textContent).toBe("Row 2");
+    const item = Array.from(menu.querySelectorAll<HTMLElement>(".tp-menu-item")).find(
+      (b) => b.textContent === "Duplicate row",
+    )!;
+    item.click();
+    await flush();
+    expect(text).toBe(
+      "Intro\n\n| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| apple | 10 |\n| Fig | 2 |\n",
+    );
+    expect(document.querySelector(".tp-menu")).toBeNull();
+  });
+
+  it("blocks moving rows while sorted", async () => {
+    await setup(PAGE);
+    clickOn(cell(0, 0).querySelector(".tp-sort")!);
+    cell(2, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const grip = document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+    grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    const moveUp = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find(
+      (b) => b.textContent === "Move up",
+    )!;
+    expect(moveUp.getAttribute("aria-disabled")).toBe("true");
+    moveUp.click();
+    await flush();
+    expect(text).toBe(PAGE);
+  });
+
+  it("offers to name unnamed columns instead of enhancing a shifted table", async () => {
+    await setup("| A | | C |\n|---|---|---|\n| 1 | 2 | 3 |\n");
+    expect(editor.querySelector(".sb-table-widget")!.classList.contains("tp-table")).toBe(false);
+    const button = editor.querySelector<HTMLElement>(".tp-notice button")!;
+    button.click();
+    await flush();
+    expect(text).toBe("| A | Column 2 | C |\n|---|---|---|\n| 1 | 2 | 3 |\n");
+    expect(cursorMoves).toEqual([]);
+    await controller.scan();
+    expect(editor.querySelector(".sb-table-widget")!.classList.contains("tp-table")).toBe(true);
+  });
+
+  it("keeps a column's name when it is edited to nothing", async () => {
+    await setup(PAGE);
+    clickOn(cell(0, 1));
+    const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+    field.value = "  ";
+    key(field, "Enter");
+    await flush();
+    expect(text).toBe(PAGE);
     expect(flashes.length).toBe(1);
   });
 
@@ -206,7 +279,7 @@ describe("Controller", () => {
     await controller.scan();
     await controller.scan();
     clickOn(cell(1, 0));
-    expect(editor.querySelector("textarea")).toBeNull();
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
     expect(cursorMoves.length).toBe(1);
     expect(flashes.length).toBe(1);
   });

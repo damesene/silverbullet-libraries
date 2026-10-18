@@ -328,6 +328,26 @@ export function locateByShape(
   return nearest(sameHeaders.length ? sameHeaders : candidates, hint);
 }
 
+/**
+ * A table SilverBullet renders incompletely: it leaves out empty header cells,
+ * so the rendered header has fewer cells than the table has columns. Matches
+ * tables whose named header cells are exactly the rendered ones.
+ */
+export function locateWithEmptyHeaders(
+  text: string,
+  hint: number,
+  shape: TableShape,
+): TableRange | undefined {
+  return nearest(
+    findTables(text).filter((range) => {
+      const table = parseTable(range.text);
+      const named = (table.rows[0]?.cells ?? []).filter((cell) => cell !== "").length;
+      return table.rows.length === shape.rows && named === shape.columns && named < table.align.length;
+    }),
+    hint,
+  );
+}
+
 /** The table whose source is exactly `source`, nearest to the hint */
 export function locateBySource(
   text: string,

@@ -4,10 +4,12 @@ import {
   columnAfterMove,
   deleteColumn,
   deleteRow,
+  duplicateRow,
   insertColumn,
   insertRow,
   moveColumn,
   moveRow,
+  nameEmptyHeaders,
   setAlign,
 } from "./ops.ts";
 
@@ -28,6 +30,11 @@ describe("row operations", () => {
     expect(deleteRow(base, 0)).toBe(base);
   });
 
+  it("duplicates a body row below itself", () => {
+    expect(md(duplicateRow(base, 1))).toBe("| A | B |\n|---|---|\n| 1 | 2 |\n| 1 | 2 |\n| 3 | 4 |");
+    expect(duplicateRow(base, 0)).toBe(base);
+  });
+
   it("moves rows, keeping their source text", () => {
     expect(md(moveRow(base, 2, 1))).toBe("| A | B |\n|---|---|\n| 3 | 4 |\n| 1 | 2 |");
     expect(moveRow(base, 1, 0)).toBe(base);
@@ -35,8 +42,20 @@ describe("row operations", () => {
 });
 
 describe("column operations", () => {
-  it("inserts an empty column", () => {
-    expect(md(insertColumn(base, 1))).toBe("| A | | B |\n|---|---|---|\n| 1 | | 2 |\n| 3 | | 4 |");
+  it("inserts a column with a generated header", () => {
+    expect(md(insertColumn(base, 1))).toBe("| A | Column 3 | B |\n|---|---|---|\n| 1 | | 2 |\n| 3 | | 4 |");
+  });
+
+  it("names empty header cells after their position", () => {
+    const t = parseTable("| A | | Column 3 | |\n|---|---|---|---|\n| 1 | 2 | 3 | 4 |");
+    expect(nameEmptyHeaders(t).rows[0]?.cells).toEqual(["A", "Column 2", "Column 3", "Column 4"]);
+    const clash = parseTable("| Column 2 | |\n|---|---|\n| 1 | 2 |");
+    expect(nameEmptyHeaders(clash).rows[0]?.cells).toEqual(["Column 2", "Column 3"]);
+  });
+
+  it("generates a header name that is not taken", () => {
+    const taken = parseTable("| Column 3 | B |\n|---|---|\n| 1 | 2 |");
+    expect(insertColumn(taken, 2).rows[0]?.cells).toEqual(["Column 3", "B", "Column 4"]);
   });
 
   it("deletes a column but never the last one", () => {

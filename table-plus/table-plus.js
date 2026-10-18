@@ -59,6 +59,33 @@ function caretTextOffset(cell, x, y) {
   return before.replace(/\s+/g, " ").trimStart().length;
 }
 
+// table-plus/src/icons.ts
+var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var ICONS = {
+  grip: svg(
+    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
+    true
+  ),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
+  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
+  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
+  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
+  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
+  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
+  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
+  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
+  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>')
+};
+
 // table-plus/src/markdown.ts
 var DELIMITER_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 var FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
@@ -280,6 +307,16 @@ function locateByShape(text, hint, shape) {
   }) : [];
   return nearest(sameHeaders.length ? sameHeaders : candidates, hint);
 }
+function locateWithEmptyHeaders(text, hint, shape) {
+  return nearest(
+    findTables(text).filter((range) => {
+      const table = parseTable(range.text);
+      const named = (table.rows[0]?.cells ?? []).filter((cell) => cell !== "").length;
+      return table.rows.length === shape.rows && named === shape.columns && named < table.align.length;
+    }),
+    hint
+  );
+}
 function locateBySource(text, hint, source) {
   return nearest(
     findTables(text).filter((range) => range.text === source),
@@ -299,6 +336,97 @@ function minimalEdit(before, after) {
     to: before.length - end,
     insert: after.slice(start, after.length - end)
   };
+}
+
+// table-plus/src/menu.ts
+function renderMenu(doc, title, entries) {
+  const menu = doc.createElement("div");
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", title);
+  const heading = doc.createElement("div");
+  heading.className = "tp-menu-title";
+  heading.textContent = title;
+  menu.append(heading);
+  const button = (className, run, disabled) => {
+    const b = doc.createElement("button");
+    b.type = "button";
+    b.className = className;
+    if (disabled) {
+      b.setAttribute("aria-disabled", "true");
+      b.title = disabled;
+    }
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!disabled) run();
+    });
+    return b;
+  };
+  for (const entry of entries) {
+    if (entry.kind === "separator") {
+      const separator = doc.createElement("div");
+      separator.className = "tp-menu-separator";
+      separator.setAttribute("role", "separator");
+      menu.append(separator);
+    } else if (entry.kind === "item") {
+      const item = button("tp-menu-item", entry.run, entry.disabled);
+      item.setAttribute("role", entry.checked === void 0 ? "menuitem" : "menuitemcheckbox");
+      if (entry.checked !== void 0) item.setAttribute("aria-checked", String(entry.checked));
+      if (entry.danger) item.classList.add("tp-danger");
+      item.innerHTML = `<span class="tp-icon">${entry.icon}</span>`;
+      const label = doc.createElement("span");
+      label.className = "tp-label";
+      label.textContent = entry.label;
+      item.append(label);
+      menu.append(item);
+    } else {
+      const row = doc.createElement("div");
+      row.className = "tp-menu-segmented";
+      const label = doc.createElement("span");
+      label.className = "tp-label";
+      label.textContent = entry.label;
+      const group = doc.createElement("div");
+      group.className = "tp-segments";
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-label", entry.label);
+      for (const option of entry.options) {
+        const b = button("tp-segment", option.run);
+        b.setAttribute("role", "menuitemradio");
+        b.setAttribute("aria-checked", String(option.active));
+        b.title = option.title;
+        b.setAttribute("aria-label", option.title);
+        b.innerHTML = option.icon;
+        group.append(b);
+      }
+      row.append(label, group);
+      menu.append(row);
+    }
+  }
+  menu.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    const buttons = Array.from(
+      menu.querySelectorAll("button:not([aria-disabled])")
+    );
+    const index = buttons.indexOf(doc.activeElement);
+    const focus = (i) => buttons[(i + buttons.length) % buttons.length]?.focus({ preventScroll: true });
+    if (e.key === "ArrowDown" || e.key === "ArrowRight" && index >= 0 && buttons[index].classList.contains("tp-segment")) {
+      e.preventDefault();
+      focus(index + 1);
+    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft" && index >= 0 && buttons[index].classList.contains("tp-segment")) {
+      e.preventDefault();
+      focus(index < 0 ? -1 : index - 1);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      focus(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      focus(-1);
+    }
+  });
+  return menu;
+}
+function focusMenu(menu) {
+  menu.tabIndex = -1;
+  menu.focus({ preventScroll: true });
 }
 
 // table-plus/src/ops.ts
@@ -345,21 +473,49 @@ function deleteRow(table, row) {
     table.rows.filter((_, i) => i !== row)
   );
 }
+function duplicateRow(table, row) {
+  const original = table.rows[row];
+  if (row < 1 || !original) return table;
+  const rows = [...table.rows];
+  rows.splice(row + 1, 0, { cells: [...original.cells] });
+  return withRows(table, rows);
+}
 function moveRow(table, from, to) {
   const last = table.rows.length - 1;
   if (from < 1 || from > last || to < 1 || to > last || from === to) return table;
   return withRows(table, moved(table.rows, from, to));
 }
+function newColumnName(table) {
+  const names = new Set(table.rows[0]?.cells ?? []);
+  let n = table.align.length + 1;
+  while (names.has(`Column ${n}`)) n++;
+  return `Column ${n}`;
+}
+function nameEmptyHeaders(table) {
+  const header = table.rows[0];
+  if (!header) return table;
+  const names = new Set(header.cells);
+  const cells = header.cells.map((cell, i) => {
+    if (cell !== "") return cell;
+    let n = i + 1;
+    while (names.has(`Column ${n}`)) n++;
+    const name = `Column ${n}`;
+    names.add(name);
+    return name;
+  });
+  return { ...table, rows: [{ ...header, cells }, ...table.rows.slice(1)] };
+}
 function insertColumn(table, at) {
   const column = Math.max(0, Math.min(at, table.align.length));
+  const header = newColumnName(table);
   const align = [...table.align];
   align.splice(column, 0, "");
   return {
     ...table,
     align,
-    rows: table.rows.map((r) => {
+    rows: table.rows.map((r, i) => {
       const cells = padded(r.cells, column);
-      cells.splice(column, 0, "");
+      cells.splice(column, 0, i === 0 ? header : "");
       return withCells(r, cells);
     })
   };
@@ -421,9 +577,6 @@ function withFilter(view, column, value) {
   while (filters.length <= column) filters.push("");
   filters[column] = value;
   return { ...view, filters };
-}
-function resetView(view) {
-  return { filters: [], showFilters: view.showFilters };
 }
 function remapColumns(view, map) {
   const filters = [];
@@ -488,31 +641,36 @@ var STOPPED_EVENTS = [
   "compositionend"
 ];
 var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
-var MENU_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>';
-var GRIP_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
+var DRAG_THRESHOLD = 4;
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
+var MOVE_BLOCKED = "Clear sorting and filters to move rows";
 var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
     this.bridge = bridge;
     this.bar = this.floating("div", "tp-bar");
-    this.cellHandle = this.floatingButton("tp-handle", "Row and column actions", MENU_ICON);
-    this.rowGrip = this.floatingButton("tp-handle tp-grip", "Drag to move the row", GRIP_ICON);
+    this.rowGrip = this.floatingButton("tp-handle tp-grip", "Row: click for actions, drag to move", ICONS.grip);
     this.columnGrip = this.floatingButton(
       "tp-handle tp-grip tp-grip-column",
-      "Drag to move the column",
-      GRIP_ICON
+      "Column: click for actions, drag to move",
+      ICONS.grip
     );
+    this.addRow = this.floatingButton("tp-add tp-add-row", "Add a row at the end", ICONS.plus);
+    this.addRow.insertAdjacentText("beforeend", "Row");
+    this.addColumn = this.floatingButton("tp-add tp-add-column", "Add a column at the end", ICONS.plus);
   }
   doc;
   bridge;
   infos = /* @__PURE__ */ new WeakMap();
   enhancing = /* @__PURE__ */ new WeakSet();
   views = /* @__PURE__ */ new Map();
+  // Horizontal scroll of a wide table, carried over to its next rendering after an edit
+  scrollLefts = /* @__PURE__ */ new Map();
   editor;
   pendingFocus;
   hoverWidget;
   hoverCell;
+  handleTarget;
   menu;
   dragging = false;
   hideTimer;
@@ -520,9 +678,10 @@ var Controller = class {
   warnedIncompatible = false;
   observer;
   bar;
-  cellHandle;
   rowGrip;
   columnGrip;
+  addRow;
+  addColumn;
   setBridge(bridge) {
     this.bridge = bridge;
   }
@@ -534,12 +693,13 @@ var Controller = class {
     win.addEventListener("scroll", this.onScroll, true);
     win.addEventListener("keydown", this.onKeyDown, true);
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
-    this.cellHandle.addEventListener("click", this.onCellHandleClick);
-    this.rowGrip.addEventListener("pointerdown", (e) => this.startDrag(e, "row"));
-    this.columnGrip.addEventListener("pointerdown", (e) => this.startDrag(e, "column"));
+    this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
+    this.columnGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "column"));
+    this.addRow.addEventListener("click", () => this.appendRow());
+    this.addColumn.addEventListener("click", () => this.appendColumn());
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
-    this.scan();
+    void this.scan();
   }
   // ---- discovering rendered tables --------------------------------------
   queueScan() {
@@ -547,7 +707,7 @@ var Controller = class {
     this.scanQueued = true;
     const run = () => {
       this.scanQueued = false;
-      this.scan();
+      void this.scan();
     };
     const win = this.doc.defaultView;
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
@@ -583,6 +743,8 @@ var Controller = class {
       if (renderedTable(widget) !== table) return;
       const range = locateByShape(text, hint, shape);
       if (!range) {
+        const broken = locateWithEmptyHeaders(text, hint, shape);
+        if (broken) this.offerHeaderFix(widget, broken.text, broken.from);
         this.markUnsupported(widget, false);
         return;
       }
@@ -597,6 +759,11 @@ var Controller = class {
       this.infos.set(widget, info);
       this.decorate(widget, info);
       this.applyView(widget, info);
+      const scrollLeft = this.scrollLefts.get(info.key);
+      if (scrollLeft !== void 0) {
+        this.scrollLefts.delete(info.key);
+        widget.scrollLeft = scrollLeft;
+      }
       this.takePendingFocus(widget, info);
     } catch (e) {
       console.error("Table Plus: could not enhance a table", e);
@@ -611,6 +778,42 @@ var Controller = class {
     const message = "Table Plus is inactive: this SilverBullet version renders tables differently than expected";
     console.warn(message);
     void this.bridge.flash(message, "error");
+  }
+  /**
+   * A table with unnamed columns renders with its header shifted against its
+   * data, so Table Plus leaves it alone and offers to name those columns
+   */
+  offerHeaderFix(widget, source, hint) {
+    if (widget.querySelector(".tp-notice")) return;
+    const notice = this.doc.createElement("div");
+    notice.className = `${UI_CLASS} tp-notice`;
+    notice.textContent = "Some columns of this table have no name, so SilverBullet shifts the header against the data. ";
+    const button = this.doc.createElement("button");
+    button.type = "button";
+    button.textContent = "Name them";
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      button.addEventListener(type, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (type === "click") void this.fixHeaders(source, hint);
+      });
+    }
+    notice.append(button);
+    widget.prepend(notice);
+  }
+  async fixHeaders(source, hint) {
+    try {
+      const range = locateBySource(await this.bridge.getText(), hint, source);
+      if (!range) {
+        void this.bridge.flash(NOT_SAVED, "error");
+        return;
+      }
+      const edit = minimalEdit(range.text, serializeTable(nameEmptyHeaders(parseTable(range.text))));
+      await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
+    } catch (e) {
+      console.error("Table Plus: could not name the columns", e);
+      void this.bridge.flash(`Table Plus: could not name the columns (${String(e)})`, "error");
+    }
   }
   decorate(widget, info) {
     widget.classList.add("tp-table");
@@ -669,7 +872,7 @@ var Controller = class {
     });
     this.applyFilterRow(widget, info, view);
     widget.classList.toggle("tp-rearranged", isRearranged(view));
-    if (this.hoverWidget === widget) this.renderBar(widget, info);
+    if (this.hoverWidget === widget) this.showTableControls(widget, info);
   }
   applyFilterRow(widget, info, view) {
     let row = info.table.querySelector("tr.tp-filter-row");
@@ -719,8 +922,15 @@ var Controller = class {
     const info = widget && this.infos.get(widget);
     return widget && info && renderedTable(widget) === info.table ? [widget, info] : void 0;
   }
+  tableCellOf(info, target) {
+    if (!(target instanceof Element)) return void 0;
+    const cell = target.closest("td, th");
+    if (!cell || cell.closest("table") !== info.table) return void 0;
+    return cell.parentElement?.classList.contains("tp-filter-row") ? void 0 : cell;
+  }
   onMouseDown = (e) => {
-    if (this.menu && !(e.target instanceof Node && this.menu.contains(e.target))) this.closeMenu();
+    const target = e.target instanceof Node ? e.target : null;
+    if (this.menu && target && !this.isFloating(target)) this.closeMenu(false);
     if (e.button !== 0) return;
     if (e.altKey) {
       this.onAltMouseDown(e);
@@ -729,23 +939,19 @@ var Controller = class {
     const hit = this.enhancedWidgetOf(e.target);
     if (!hit) return;
     const [widget, info] = hit;
-    const target = e.target;
-    if (target.closest(NATIVE_ACTION_SELECTOR)) return;
+    const element = e.target;
+    if (element.closest(NATIVE_ACTION_SELECTOR)) return;
     e.stopPropagation();
-    if (target.closest("[data-tp-action]")) {
+    if (element.closest("[data-tp-action]")) {
       e.preventDefault();
       return;
     }
-    if (target.closest(".tp-cell-editor, .tp-filter-row") || target.closest(INTERACTIVE_SELECTOR)) {
+    if (element.closest(".tp-cell-editor, .tp-filter-row") || element.closest(INTERACTIVE_SELECTOR)) {
       return;
     }
     e.preventDefault();
-    const cell = target.closest("td, th");
-    if (!cell || cell.closest("table") !== info.table || cell.parentElement?.classList.contains("tp-filter-row")) {
-      return;
-    }
-    if (this.editor?.cell === cell) return;
-    this.closeMenu();
+    const cell = this.tableCellOf(info, element);
+    if (!cell || this.editor?.cell === cell) return;
     const ref = this.cellRef(info, cell);
     if (!ref) return;
     if (this.editor) void this.finishEditing(true, { widget, ...ref });
@@ -772,25 +978,18 @@ var Controller = class {
     const within = cellText(cell) === source ? caretTextOffset(cell, e.clientX, e.clientY) : void 0;
     void this.showMarkdown(info, { ...ref, within: within ?? 0 });
   }
-  tableCellOf(info, target) {
-    if (!(target instanceof Element)) return void 0;
-    const cell = target.closest("td, th");
-    if (!cell || cell.closest("table") !== info.table) return void 0;
-    return cell.parentElement?.classList.contains("tp-filter-row") ? void 0 : cell;
-  }
   onClick = (e) => {
+    const hit = this.enhancedWidgetOf(e.target);
+    if (!hit) return;
+    const [widget, info] = hit;
+    const target = e.target;
     if (e.altKey) {
-      const hit2 = this.enhancedWidgetOf(e.target);
-      if (hit2 && this.tableCellOf(hit2[1], e.target)) {
+      if (this.tableCellOf(info, target)) {
         e.preventDefault();
         e.stopPropagation();
       }
       return;
     }
-    const hit = this.enhancedWidgetOf(e.target);
-    if (!hit) return;
-    const [widget, info] = hit;
-    const target = e.target;
     if (target.closest(NATIVE_ACTION_SELECTOR)) return;
     e.stopPropagation();
     const action = target.closest("[data-tp-action]");
@@ -804,16 +1003,16 @@ var Controller = class {
     const hit = this.enhancedWidgetOf(e.target);
     if (hit && !e.target.closest(NATIVE_ACTION_SELECTOR)) e.stopPropagation();
   };
-  onScroll = () => {
-    if (this.dragging) return;
-    this.closeMenu();
+  onScroll = (e) => {
+    if (this.dragging || e.target instanceof Node && this.menu?.element.contains(e.target)) return;
+    this.closeMenu(false);
     this.hideFloating();
   };
   onKeyDown = (e) => {
     if (e.key === "Escape" && this.menu) {
       e.preventDefault();
       e.stopPropagation();
-      this.closeMenu();
+      this.closeMenu(true);
     }
   };
   onMouseMove = (e) => {
@@ -832,14 +1031,14 @@ var Controller = class {
     this.cancelHide();
     if (this.hoverWidget !== widget) {
       this.hoverWidget = widget;
-      this.renderBar(widget, info);
+      this.showTableControls(widget, info);
     }
-    const cell = target.closest("td, th");
-    if (!cell || this.editor || cell.closest("table") !== info.table || cell.parentElement?.classList.contains("tp-filter-row")) {
+    const cell = this.tableCellOf(info, target);
+    if (!cell || this.editor) {
       this.hideHandles();
       return;
     }
-    if (cell !== this.hoverCell) this.showHandles(info, cell);
+    if (cell !== this.hoverCell) this.showHandles(widget, info, cell);
   };
   // ---- cell editing ------------------------------------------------------
   cellRef(info, cell) {
@@ -853,30 +1052,37 @@ var Controller = class {
     if (!tr || tr.classList.contains("tp-hidden")) return void 0;
     return tr.cells[ref.column];
   }
-  openEditor(widget, info, cell) {
+  openEditor(widget, info, cell, select = false) {
     const ref = this.cellRef(info, cell);
     if (!ref || this.editor) return;
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
-    const textarea = this.doc.createElement("textarea");
-    textarea.className = `${UI_CLASS} tp-cell-editor`;
-    textarea.rows = 1;
-    textarea.value = unescapeCell(original);
+    const cellStyle = cell.getAttribute("style");
+    const rect = cell.getBoundingClientRect();
+    if (rect.width > 0) {
+      cell.style.boxSizing = "border-box";
+      cell.style.width = `${rect.width}px`;
+      cell.style.minWidth = `${rect.width}px`;
+      cell.style.maxWidth = `${rect.width}px`;
+      cell.style.height = `${rect.height}px`;
+    }
+    const field = this.doc.createElement("input");
+    field.type = "text";
+    field.className = `${UI_CLASS} tp-cell-editor`;
+    field.size = 1;
+    field.spellcheck = true;
+    field.value = unescapeCell(original);
     const kept = this.doc.createDocumentFragment();
     while (cell.firstChild) kept.append(cell.firstChild);
     cell.classList.add("tp-editing");
-    cell.append(textarea);
-    this.editor = { widget, cell, ...ref, original, textarea, kept };
+    cell.append(field);
+    this.editor = { widget, cell, ...ref, original, field, kept, cellStyle };
+    this.reveal(widget, cell);
     this.hideHandles();
-    const fit = () => {
-      textarea.style.height = "auto";
-      textarea.style.height = `${textarea.scrollHeight}px`;
-    };
-    this.isolate(textarea);
-    textarea.addEventListener("input", fit);
-    textarea.addEventListener("blur", () => {
-      if (this.editor?.textarea === textarea) void this.finishEditing(true, void 0, false);
+    this.isolate(field);
+    field.addEventListener("blur", () => {
+      if (this.editor?.field === field) void this.finishEditing(true, void 0, false);
     });
-    textarea.addEventListener("keydown", (e) => {
+    field.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
       if (e.key === "Escape") {
         e.preventDefault();
@@ -889,18 +1095,24 @@ var Controller = class {
         void this.step(e.shiftKey ? -1 : 1);
       }
     });
-    textarea.focus();
-    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    fit();
+    field.focus({ preventScroll: true });
+    if (select) field.select();
+    else field.setSelectionRange(field.value.length, field.value.length);
   }
   /** Puts the rendered cell back; returns what was being edited */
   closeEditor() {
     const active = this.editor;
     if (!active) return void 0;
     this.editor = void 0;
-    const value = escapeCell(active.textarea.value);
-    active.textarea.remove();
+    let value = escapeCell(active.field.value);
+    if (active.row === 0 && value === "" && active.original !== "") {
+      value = active.original;
+      void this.bridge.flash("Table Plus: a column needs a name; the old name was kept", "info");
+    }
+    active.field.remove();
     active.cell.classList.remove("tp-editing");
+    if (active.cellStyle === null) active.cell.removeAttribute("style");
+    else active.cell.setAttribute("style", active.cellStyle);
     active.cell.append(active.kept);
     return { ...active, value };
   }
@@ -915,11 +1127,7 @@ var Controller = class {
     const sameTable = next?.widget === closed.widget;
     let result = "unchanged";
     if (changed) {
-      result = await this.write(
-        closed.widget,
-        (t) => this.withCellEdit(t, closed),
-        sameTable ? next : void 0
-      );
+      result = await this.write(closed.widget, (t) => this.withCellEdit(t, closed), sameTable ? next : void 0);
     }
     if (next && (result === "unchanged" || !sameTable)) {
       const info = this.infos.get(next.widget);
@@ -979,7 +1187,14 @@ var Controller = class {
     this.pendingFocus = void 0;
     if (Date.now() > pending.until || this.editor) return;
     const cell = this.cellAt(info, pending);
-    if (cell) this.openEditor(widget, info, cell);
+    if (cell) this.openEditor(widget, info, cell, pending.select);
+  }
+  /** Scrolls a wide table sideways so that the cell is fully visible */
+  reveal(widget, cell) {
+    const view = widget.getBoundingClientRect();
+    const rect = cell.getBoundingClientRect();
+    if (rect.right > view.right) widget.scrollLeft += rect.right - view.right;
+    else if (rect.left < view.left) widget.scrollLeft -= view.left - rect.left;
   }
   focusEditor(widget) {
     widget.closest(EDITOR_SELECTOR)?.focus({ preventScroll: true });
@@ -1004,6 +1219,7 @@ var Controller = class {
       if (markdown === range.text) return "unchanged";
       if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
       if (focus) this.pendingFocus = { key: info.key, ...focus, until: Date.now() + 3e3 };
+      this.scrollLefts.set(info.key, widget.scrollLeft);
       const edit = minimalEdit(range.text, markdown);
       await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
       return "written";
@@ -1022,11 +1238,24 @@ var Controller = class {
       return;
     }
     this.hideFloating();
-    this.closeMenu();
+    this.closeMenu(false);
     const offset = at ? cellSourceOffset(range.text, at.row, at.column, at.within) : 0;
     await this.bridge.moveCursor(range.from + offset);
   }
-  // ---- floating UI: toolbar, handles, menu, drag -------------------------
+  appendRow() {
+    const widget = this.hoverWidget;
+    const info = widget && this.infos.get(widget);
+    if (!widget || !info) return;
+    const rows = parseTable(info.source).rows.length;
+    void this.write(widget, (t) => insertRow(t, t.rows.length), { row: rows, column: 0 });
+  }
+  appendColumn() {
+    const widget = this.hoverWidget;
+    const info = widget && this.infos.get(widget);
+    if (!widget || !info) return;
+    void this.write(widget, (t) => insertColumn(t, t.align.length), { row: 0, column: info.columns, select: true });
+  }
+  // ---- floating UI: toolbar, grips, add buttons --------------------------
   floating(tag, className) {
     const element = this.doc.createElement(tag);
     element.className = `tp-floating ${className}`;
@@ -1041,14 +1270,17 @@ var Controller = class {
     button.type = "button";
     button.tabIndex = -1;
     button.title = title;
+    button.setAttribute("aria-label", title);
     button.innerHTML = icon;
     return button;
   }
   isFloating(node) {
-    return [this.bar, this.cellHandle, this.rowGrip, this.columnGrip].some((el) => el.contains(node)) || !!this.menu?.contains(node);
+    return [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn].some((el) => el.contains(node)) || !!this.menu?.element.contains(node);
   }
   place(element, left, top) {
-    element.style.left = `${Math.round(left)}px`;
+    const win = this.doc.defaultView;
+    const maxLeft = Math.max(4, win.innerWidth - element.offsetWidth - 4);
+    element.style.left = `${Math.round(Math.max(4, Math.min(left, maxLeft)))}px`;
     element.style.top = `${Math.round(top)}px`;
     element.classList.add("tp-visible");
   }
@@ -1064,30 +1296,46 @@ var Controller = class {
     }, 300);
   }
   hideHandles() {
-    for (const el of [this.cellHandle, this.rowGrip, this.columnGrip]) el.classList.remove("tp-visible");
+    for (const el of [this.rowGrip, this.columnGrip]) el.classList.remove("tp-visible");
     this.hoverCell = void 0;
+    this.handleTarget = void 0;
   }
   hideFloating() {
     this.hideHandles();
-    this.bar.classList.remove("tp-visible");
+    for (const el of [this.bar, this.addRow, this.addColumn]) el.classList.remove("tp-visible");
     this.hoverWidget = void 0;
   }
-  renderBar(widget, info) {
+  /** The toolbar above the table and the add-row / add-column buttons */
+  showTableControls(widget, info) {
     const view = this.viewOf(info);
     const bar = this.bar;
     bar.replaceChildren();
-    if (isRearranged(view)) {
-      const rows = this.bodyRows(info);
-      const shown = rows.filter((tr) => !tr.classList.contains("tp-hidden")).length;
+    if (view.sort) {
+      const { column, direction } = view.sort;
+      const name = cellText(info.table.rows[0].cells[column]) || `column ${column + 1}`;
+      const chip = this.doc.createElement("span");
+      chip.className = "tp-status tp-chip";
+      chip.textContent = `Sorted by ${name} ${direction === "asc" ? "\u2191" : "\u2193"}`;
+      const clear = this.doc.createElement("button");
+      clear.type = "button";
+      clear.tabIndex = -1;
+      clear.className = "tp-chip-clear";
+      clear.title = "Clear sorting: show the rows as written";
+      clear.setAttribute("aria-label", clear.title);
+      clear.innerHTML = ICONS.clear;
+      clear.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.setView(widget, info, withoutSort(this.viewOf(info)));
+      });
+      chip.append(clear);
+      bar.append(chip);
+    }
+    const rows = this.bodyRows(info);
+    const shown = rows.filter((tr) => !tr.classList.contains("tp-hidden")).length;
+    if (shown !== rows.length) {
       const status = this.doc.createElement("span");
       status.className = "tp-status";
-      const parts = [];
-      if (view.sort) {
-        const name = cellText(info.table.rows[0].cells[view.sort.column]) || `column ${view.sort.column + 1}`;
-        parts.push(`Sorted by ${name} ${view.sort.direction === "asc" ? "\u2191" : "\u2193"}`);
-      }
-      if (shown !== rows.length) parts.push(`${shown} of ${rows.length} rows`);
-      status.textContent = parts.join(" \xB7 ");
+      status.textContent = `${shown} of ${rows.length} rows`;
       bar.append(status);
     }
     const button = (label, title, run, pressed) => {
@@ -1103,193 +1351,104 @@ var Controller = class {
       });
       bar.append(b);
     };
-    button("Filter", "Show or hide the filter row", () => {
-      const current = this.viewOf(info);
-      this.setView(
-        widget,
-        info,
-        current.showFilters ? { ...current, filters: [], showFilters: false } : { ...current, showFilters: true }
-      );
-    }, view.showFilters);
-    if (isRearranged(view)) {
-      button(
-        "Original order",
-        "Clear sorting and filters: show the rows as written",
-        () => this.setView(widget, info, resetView(this.viewOf(info)))
-      );
-    }
+    button(
+      "Filter",
+      "Show or hide the filter row",
+      () => {
+        const current = this.viewOf(info);
+        this.setView(
+          widget,
+          info,
+          current.showFilters ? { ...current, filters: [], showFilters: false } : { ...current, showFilters: true }
+        );
+      },
+      view.showFilters
+    );
     button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(info));
     const rect = widget.getBoundingClientRect();
     bar.classList.add("tp-visible");
-    const height = bar.offsetHeight;
-    const width = bar.offsetWidth;
-    const above = rect.top - height - 14;
-    this.place(bar, Math.max(4, rect.right - width), above >= 4 ? above : rect.bottom + 4);
-  }
-  showHandles(info, cell) {
-    this.hoverCell = cell;
-    const tr = cell.parentElement;
-    const cellRect = cell.getBoundingClientRect();
+    const above = rect.top - bar.offsetHeight - 14;
+    this.place(bar, rect.right - bar.offsetWidth, above >= 4 ? above : rect.bottom + 4);
     const tableRect = info.table.getBoundingClientRect();
-    this.place(this.cellHandle, cellRect.right - 9, cellRect.top + (cellRect.height - 18) / 2);
+    const headerRect = info.table.rows[0].getBoundingClientRect();
+    this.addRow.classList.add("tp-visible");
+    this.place(this.addRow, tableRect.left, tableRect.bottom + 4);
+    this.addColumn.classList.add("tp-visible");
+    this.place(
+      this.addColumn,
+      Math.min(tableRect.right, rect.right) + 4,
+      headerRect.top + (headerRect.height - this.addColumn.offsetHeight) / 2
+    );
+  }
+  showHandles(widget, info, cell) {
+    this.hoverCell = cell;
+    const ref = this.cellRef(info, cell);
+    if (!ref) return;
+    this.handleTarget = { widget, info, column: ref.column, ...ref.row > 0 ? { row: ref.row } : {} };
+    const tr = cell.parentElement;
+    const tableRect = info.table.getBoundingClientRect();
     const rearranged = isRearranged(this.viewOf(info));
-    if (tr !== info.table.rows[0] && !rearranged) {
+    if (ref.row > 0) {
       const rowRect = tr.getBoundingClientRect();
-      this.place(this.rowGrip, tableRect.left - 20, rowRect.top + (rowRect.height - 18) / 2);
+      this.rowGrip.classList.toggle("tp-no-drag", rearranged);
+      this.rowGrip.title = rearranged ? `Row: click for actions (${MOVE_BLOCKED.toLowerCase()})` : "Row: click for actions, drag to move";
+      this.place(this.rowGrip, tableRect.left - 22, rowRect.top + (rowRect.height - 18) / 2);
     } else {
       this.rowGrip.classList.remove("tp-visible");
     }
-    const headerCell = info.table.rows[0].cells[cell.cellIndex];
+    const headerCell = info.table.rows[0].cells[ref.column];
     if (headerCell) {
       const h = headerCell.getBoundingClientRect();
       this.place(this.columnGrip, h.left + (h.width - 18) / 2, h.top - 9);
     }
   }
-  onCellHandleClick = (e) => {
+  // ---- grips: click opens a menu, drag moves -----------------------------
+  onGripPointerDown(e, axis) {
+    const target = this.handleTarget;
+    if (e.button !== 0 || !target || axis === "row" && target.row === void 0) return;
     e.preventDefault();
-    const cell = this.hoverCell;
-    const hit = cell && this.enhancedWidgetOf(cell);
-    if (!cell || !hit) return;
-    const [widget, info] = hit;
-    const ref = this.cellRef(info, cell);
-    if (!ref) return;
-    const rect = this.cellHandle.getBoundingClientRect();
-    this.openMenu(widget, info, ref, rect.right, rect.bottom + 2);
-  };
-  menuItems(widget, info, ref) {
-    const { row, column } = ref;
-    const rows = parseTable(info.source).rows.length;
-    const view = this.viewOf(info);
-    const rearranged = isRearranged(view);
-    const header = row === 0;
-    const run = (change, focus, columnMap) => () => {
-      this.closeMenu();
-      void this.write(widget, change, focus, columnMap);
-    };
-    const items = [
-      { heading: "Row" },
-      !header && { label: "Insert row above", run: run((t) => insertRow(t, row), { row, column }) },
-      { label: "Insert row below", run: run((t) => insertRow(t, row + 1), { row: row + 1, column }) },
-      !header && !rearranged && row > 1 && { label: "Move row up", run: run((t) => moveRow(t, row, row - 1)) },
-      !header && !rearranged && row < rows - 1 && { label: "Move row down", run: run((t) => moveRow(t, row, row + 1)) },
-      !header && { label: "Delete row", danger: true, run: run((t) => deleteRow(t, row)) },
-      { heading: "Column" },
-      {
-        label: "Insert column left",
-        run: run((t) => insertColumn(t, column), { row: 0, column }, (c) => c >= column ? c + 1 : c)
-      },
-      {
-        label: "Insert column right",
-        run: run(
-          (t) => insertColumn(t, column + 1),
-          { row: 0, column: column + 1 },
-          (c) => c > column ? c + 1 : c
-        )
-      },
-      column > 0 && {
-        label: "Move column left",
-        run: run((t) => moveColumn(t, column, column - 1), void 0, (c) => columnAfterMove(c, column, column - 1))
-      },
-      column < info.columns - 1 && {
-        label: "Move column right",
-        run: run((t) => moveColumn(t, column, column + 1), void 0, (c) => columnAfterMove(c, column, column + 1))
-      },
-      info.columns > 1 && {
-        label: "Delete column",
-        danger: true,
-        run: run((t) => deleteColumn(t, column), void 0, (c) => c === column ? void 0 : c > column ? c - 1 : c)
-      },
-      { heading: "Sort (view only)" },
-      {
-        label: "Sort ascending",
-        checked: view.sort?.column === column && view.sort.direction === "asc",
-        run: () => {
-          this.closeMenu();
-          this.setView(widget, info, withSort(this.viewOf(info), column, "asc"));
-        }
-      },
-      {
-        label: "Sort descending",
-        checked: view.sort?.column === column && view.sort.direction === "desc",
-        run: () => {
-          this.closeMenu();
-          this.setView(widget, info, withSort(this.viewOf(info), column, "desc"));
-        }
-      },
-      !!view.sort && {
-        label: "Original order",
-        run: () => {
-          this.closeMenu();
-          this.setView(widget, info, withoutSort(this.viewOf(info)));
-        }
-      },
-      { heading: "Align column" }
-    ];
-    const current = parseTable(info.source).align[column] ?? "";
-    const aligns = [
-      ["Default", ""],
-      ["Left", "left"],
-      ["Center", "center"],
-      ["Right", "right"]
-    ];
-    for (const [label, align] of aligns) {
-      items.push({ label, checked: align === current, run: run((t) => setAlign(t, column, align)) });
-    }
-    return items.filter((item) => !!item);
-  }
-  openMenu(widget, info, ref, x, y) {
-    this.closeMenu();
-    const menu = this.floating("div", "tp-menu");
-    menu.setAttribute("role", "menu");
-    for (const item of this.menuItems(widget, info, ref)) {
-      if ("heading" in item) {
-        const heading = this.doc.createElement("div");
-        heading.className = "tp-menu-heading";
-        heading.textContent = item.heading;
-        menu.append(heading);
-        continue;
-      }
-      const button = this.doc.createElement("button");
-      button.type = "button";
-      button.setAttribute("role", "menuitem");
-      button.textContent = item.label;
-      if (item.danger) button.classList.add("tp-danger");
-      if (item.checked) button.classList.add("tp-checked");
-      button.addEventListener("click", (e) => {
-        e.preventDefault();
-        item.run();
-      });
-      menu.append(button);
-    }
-    this.menu = menu;
+    const grip = axis === "row" ? this.rowGrip : this.columnGrip;
+    const canDrag = axis === "column" || !isRearranged(this.viewOf(target.info));
     const win = this.doc.defaultView;
-    menu.classList.add("tp-visible");
-    const rect = menu.getBoundingClientRect();
-    const left = Math.max(4, Math.min(x - rect.width, win.innerWidth - rect.width - 4));
-    const top = y + rect.height > win.innerHeight - 4 ? Math.max(4, y - rect.height - 24) : y;
-    this.place(menu, left, top);
-    this.cellHandle.classList.add("tp-visible");
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let drag;
+    const move = (ev) => {
+      if (!drag) {
+        if (!canDrag || Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
+        this.closeMenu(false);
+        drag = this.beginDrag(target, axis);
+      }
+      drag.move(ev);
+    };
+    const cleanup = () => {
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", up);
+      win.removeEventListener("keydown", escape, true);
+    };
+    const up = () => {
+      cleanup();
+      if (drag) drag.finish(true);
+      else this.toggleMenu(axis, target, grip);
+    };
+    const escape = (ev) => {
+      if (ev.key !== "Escape" || !drag) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      cleanup();
+      drag.finish(false);
+    };
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", up);
+    win.addEventListener("keydown", escape, true);
   }
-  closeMenu() {
-    if (!this.menu) return;
-    this.menu.remove();
-    this.menu = void 0;
-    this.hideHandles();
-  }
-  startDrag(e, axis) {
-    const cell = this.hoverCell;
-    const hit = cell && this.enhancedWidgetOf(cell);
-    if (e.button !== 0 || !cell || !hit) return;
-    e.preventDefault();
-    const [widget, info] = hit;
-    const ref = this.cellRef(info, cell);
-    if (!ref) return;
-    if (axis === "row" && (ref.row === 0 || isRearranged(this.viewOf(info)))) return;
-    const from = axis === "row" ? ref.row : ref.column;
+  beginDrag(target, axis) {
+    const { widget, info } = target;
+    const from = axis === "row" ? target.row : target.column;
     const table = info.table;
     const header = table.rows[0];
     const bodyRows = this.bodyRows(info);
-    const carried = axis === "row" ? [cell.parentElement] : [header, ...bodyRows].map((tr) => tr.cells[from]).filter((c) => !!c);
+    const carried = axis === "row" ? bodyRows.filter((tr) => Number(tr.dataset.tpRow) === from) : [header, ...bodyRows].map((tr) => tr.cells[from]).filter((c) => !!c);
     carried.forEach((el) => el.classList.add("tp-dragged"));
     const line = this.floating("div", "tp-drop tp-visible");
     this.doc.body.classList.add("tp-dragging");
@@ -1332,11 +1491,7 @@ var Controller = class {
         });
       }
     };
-    const win = this.doc.defaultView;
     const finish = (commit) => {
-      win.removeEventListener("pointermove", move);
-      win.removeEventListener("pointerup", up);
-      win.removeEventListener("keydown", escape, true);
       carried.forEach((el) => el.classList.remove("tp-dragged"));
       line.remove();
       this.doc.body.classList.remove("tp-dragging");
@@ -1347,17 +1502,174 @@ var Controller = class {
       if (axis === "row") void this.write(widget, (t) => moveRow(t, from, to));
       else void this.write(widget, (t) => moveColumn(t, from, to), void 0, (c) => columnAfterMove(c, from, to));
     };
-    const up = () => finish(true);
-    const escape = (ev) => {
-      if (ev.key !== "Escape") return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      finish(false);
+    return { move, finish };
+  }
+  // ---- menus -------------------------------------------------------------
+  toggleMenu(axis, target, anchor) {
+    if (this.menu?.axis === axis) {
+      this.closeMenu(true);
+      return;
+    }
+    this.closeMenu(false);
+    const { widget, info } = target;
+    const element = axis === "row" ? renderMenu(this.doc, `Row ${target.row}`, this.rowMenu(widget, info, target.row)) : renderMenu(
+      this.doc,
+      `Column: ${cellText(info.table.rows[0].cells[target.column]) || target.column + 1}`,
+      this.columnMenu(widget, info, target.column)
+    );
+    element.classList.add("tp-floating", "tp-menu", "tp-visible");
+    element.addEventListener("mousedown", (e) => e.preventDefault());
+    this.doc.body.append(element);
+    this.menu = { element, axis, widget };
+    const win = this.doc.defaultView;
+    const a = anchor.getBoundingClientRect();
+    const m = element.getBoundingClientRect();
+    let left = axis === "row" ? a.right + 4 : a.left + a.width / 2 - m.width / 2;
+    let top = axis === "row" ? a.top - 6 : a.bottom + 4;
+    left = Math.max(4, Math.min(left, win.innerWidth - m.width - 4));
+    if (top + m.height > win.innerHeight - 4) top = Math.max(4, win.innerHeight - m.height - 4);
+    element.style.left = `${Math.round(left)}px`;
+    element.style.top = `${Math.round(top)}px`;
+    anchor.classList.add("tp-active");
+    focusMenu(element);
+  }
+  closeMenu(refocus) {
+    const menu = this.menu;
+    if (!menu) return;
+    this.menu = void 0;
+    const hadFocus = menu.element.contains(this.doc.activeElement);
+    menu.element.remove();
+    this.rowGrip.classList.remove("tp-active");
+    this.columnGrip.classList.remove("tp-active");
+    this.hideHandles();
+    if (refocus && hadFocus) this.focusEditor(menu.widget);
+  }
+  runAndClose(run) {
+    return () => {
+      this.closeMenu(false);
+      run();
     };
-    move(e);
-    win.addEventListener("pointermove", move);
-    win.addEventListener("pointerup", up);
-    win.addEventListener("keydown", escape, true);
+  }
+  rowMenu(widget, info, row) {
+    const rows = parseTable(info.source).rows.length;
+    const rearranged = isRearranged(this.viewOf(info));
+    const edit = (change, focus) => this.runAndClose(() => void this.write(widget, change, focus));
+    return [
+      { kind: "item", label: "Insert row above", icon: ICONS.rowAbove, run: edit((t) => insertRow(t, row), { row, column: 0 }) },
+      {
+        kind: "item",
+        label: "Insert row below",
+        icon: ICONS.rowBelow,
+        run: edit((t) => insertRow(t, row + 1), { row: row + 1, column: 0 })
+      },
+      { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: edit((t) => duplicateRow(t, row)) },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Move up",
+        icon: ICONS.arrowUp,
+        run: edit((t) => moveRow(t, row, row - 1)),
+        disabled: rearranged ? MOVE_BLOCKED : row <= 1 ? "Already the first row" : void 0
+      },
+      {
+        kind: "item",
+        label: "Move down",
+        icon: ICONS.arrowDown,
+        run: edit((t) => moveRow(t, row, row + 1)),
+        disabled: rearranged ? MOVE_BLOCKED : row >= rows - 1 ? "Already the last row" : void 0
+      },
+      { kind: "separator" },
+      { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: edit((t) => deleteRow(t, row)) }
+    ];
+  }
+  columnMenu(widget, info, column) {
+    const view = this.viewOf(info);
+    const sorted = view.sort?.column === column ? view.sort.direction : void 0;
+    const align = parseTable(info.source).align[column] ?? "";
+    const edit = (change, focus, columnMap) => this.runAndClose(() => void this.write(widget, change, focus, columnMap));
+    const sortBy = (next) => this.runAndClose(() => this.setView(widget, info, next));
+    const alignTo = (target) => edit((t) => setAlign(t, column, align === target ? "" : target));
+    const entries = [
+      {
+        kind: "item",
+        label: "Sort ascending",
+        icon: ICONS.sortAsc,
+        checked: sorted === "asc",
+        run: sortBy(withSort(view, column, "asc"))
+      },
+      {
+        kind: "item",
+        label: "Sort descending",
+        icon: ICONS.sortDesc,
+        checked: sorted === "desc",
+        run: sortBy(withSort(view, column, "desc"))
+      }
+    ];
+    if (view.sort) {
+      entries.push({ kind: "item", label: "Clear sorting", icon: ICONS.clear, run: sortBy(withoutSort(view)) });
+    }
+    entries.push(
+      {
+        kind: "item",
+        label: "Filter",
+        icon: ICONS.filter,
+        run: this.runAndClose(() => {
+          this.setView(widget, info, { ...this.viewOf(info), showFilters: true });
+          info.table.querySelector(`.tp-filter[data-tp-column="${column}"]`)?.focus();
+        })
+      },
+      { kind: "separator" },
+      {
+        kind: "segmented",
+        label: "Align",
+        options: [
+          { icon: ICONS.alignLeft, title: "Align left", active: align === "left", run: alignTo("left") },
+          { icon: ICONS.alignCenter, title: "Align center", active: align === "center", run: alignTo("center") },
+          { icon: ICONS.alignRight, title: "Align right", active: align === "right", run: alignTo("right") }
+        ]
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Insert column left",
+        icon: ICONS.columnLeft,
+        run: edit((t) => insertColumn(t, column), { row: 0, column, select: true }, (c) => c >= column ? c + 1 : c)
+      },
+      {
+        kind: "item",
+        label: "Insert column right",
+        icon: ICONS.columnRight,
+        run: edit(
+          (t) => insertColumn(t, column + 1),
+          { row: 0, column: column + 1, select: true },
+          (c) => c > column ? c + 1 : c
+        )
+      },
+      {
+        kind: "item",
+        label: "Move left",
+        icon: ICONS.arrowLeft,
+        run: edit((t) => moveColumn(t, column, column - 1), void 0, (c) => columnAfterMove(c, column, column - 1)),
+        disabled: column === 0 ? "Already the first column" : void 0
+      },
+      {
+        kind: "item",
+        label: "Move right",
+        icon: ICONS.arrowRight,
+        run: edit((t) => moveColumn(t, column, column + 1), void 0, (c) => columnAfterMove(c, column, column + 1)),
+        disabled: column >= info.columns - 1 ? "Already the last column" : void 0
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Delete column",
+        icon: ICONS.trash,
+        danger: true,
+        run: edit((t) => deleteColumn(t, column), void 0, (c) => c === column ? void 0 : c > column ? c - 1 : c),
+        disabled: info.columns <= 1 ? "A table needs at least one column" : void 0
+      }
+    );
+    return entries;
   }
 };
 

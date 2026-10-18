@@ -38,11 +38,6 @@ export function withFilter(view: ViewState, column: number, value: string): View
   return { ...view, filters };
 }
 
-/** Back to the source order with nothing hidden */
-export function resetView(view: ViewState): ViewState {
-  return { filters: [], showFilters: view.showFilters };
-}
-
 /**
  * Moves the view's per-column state along with a column change. `map` returns
  * a column's new index, or undefined when the column was deleted.

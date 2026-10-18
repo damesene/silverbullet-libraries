@@ -54,6 +54,15 @@ export function deleteRow(table: Table, row: number): Table {
   );
 }
 
+/** Inserts a copy of body row `row` right below it */
+export function duplicateRow(table: Table, row: number): Table {
+  const original = table.rows[row];
+  if (row < 1 || !original) return table;
+  const rows = [...table.rows];
+  rows.splice(row + 1, 0, { cells: [...original.cells] });
+  return withRows(table, rows);
+}
+
 /** Moves body row `from` so that it ends up at index `to` */
 export function moveRow(table: Table, from: number, to: number): Table {
   const last = table.rows.length - 1;
@@ -62,16 +71,42 @@ export function moveRow(table: Table, from: number, to: number): Table {
 }
 
 /** Inserts an empty column so that it becomes column `at` */
+// SilverBullet does not render an empty header cell, so a new column gets a name
+export function newColumnName(table: Table): string {
+  const names = new Set(table.rows[0]?.cells ?? []);
+  let n = table.align.length + 1;
+  while (names.has(`Column ${n}`)) n++;
+  return `Column ${n}`;
+}
+
+/** Names every empty header cell "Column N" (N its position, or the next free number) */
+export function nameEmptyHeaders(table: Table): Table {
+  const header = table.rows[0];
+  if (!header) return table;
+  const names = new Set(header.cells);
+  const cells = header.cells.map((cell, i) => {
+    if (cell !== "") return cell;
+    let n = i + 1;
+    while (names.has(`Column ${n}`)) n++;
+    const name = `Column ${n}`;
+    names.add(name);
+    return name;
+  });
+  return { ...table, rows: [{ ...header, cells }, ...table.rows.slice(1)] };
+}
+
+/** Inserts a column so that it becomes column `at`, with a generated header */
 export function insertColumn(table: Table, at: number): Table {
   const column = Math.max(0, Math.min(at, table.align.length));
+  const header = newColumnName(table);
   const align = [...table.align];
   align.splice(column, 0, "");
   return {
     ...table,
     align,
-    rows: table.rows.map((r) => {
+    rows: table.rows.map((r, i) => {
       const cells = padded(r.cells, column);
-      cells.splice(column, 0, "");
+      cells.splice(column, 0, i === 0 ? header : "");
       return withCells(r, cells);
     }),
   };
