@@ -645,6 +645,7 @@ var STOPPED_EVENTS = [
 ];
 var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
 var DRAG_THRESHOLD = 4;
+var AUTOSCROLL_DEAD_ZONE = 12;
 var NAVIGATION_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
@@ -677,6 +678,7 @@ var Controller = class {
   handleTarget;
   menu;
   dragging = false;
+  stopAutoscroll;
   hideTimer;
   scanQueued = false;
   stickyQueued = false;
@@ -935,7 +937,15 @@ var Controller = class {
   }
   onMouseDown = (e) => {
     const target = e.target instanceof Node ? e.target : null;
+    if (this.stopAutoscroll) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.stopAutoscroll();
+      this.swallowNextClick();
+      return;
+    }
     if (this.menu && target && !this.isFloating(target)) this.closeMenu(false);
+    if (e.button === 1) this.onMiddleMouseDown(e);
     if (e.button !== 0) return;
     if (e.altKey) {
       this.onAltMouseDown(e);
@@ -962,6 +972,90 @@ var Controller = class {
     if (this.editor) void this.finishEditing(true, { widget, ...ref });
     else this.openEditor(widget, info, cell);
   };
+  /**
+   * Middle-button autoscroll over a table that scrolls sideways. The browser's
+   * own autoscroll locks onto one scrolling box, so it moves either the table
+   * sideways or the page up and down; this one moves both. Hold and drag, or
+   * click and move; the next click, key or wheel turn ends it.
+   */
+  onMiddleMouseDown(e) {
+    const hit = this.enhancedWidgetOf(e.target);
+    const widget = hit?.[0];
+    if (!widget || e.target.closest("a") || widget.scrollWidth <= widget.clientWidth) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const win = this.doc.defaultView;
+    const page = this.scrollParentOf(widget) ?? this.doc.scrollingElement;
+    const origin = { x: e.clientX, y: e.clientY };
+    const pointer = { ...origin };
+    let held = false;
+    let carry = { x: 0, y: 0 };
+    const marker = this.floating("div", "tp-autoscroll tp-visible");
+    marker.style.left = `${origin.x - 12}px`;
+    marker.style.top = `${origin.y - 12}px`;
+    this.doc.body.classList.add("tp-autoscrolling");
+    const speed = (d) => {
+      const beyond = Math.abs(d) - AUTOSCROLL_DEAD_ZONE;
+      return beyond > 0 ? Math.sign(d) * (beyond / 16) ** 1.3 : 0;
+    };
+    let frame = 0;
+    const tick = () => {
+      carry = { x: carry.x + speed(pointer.x - origin.x), y: carry.y + speed(pointer.y - origin.y) };
+      const dx = Math.trunc(carry.x);
+      const dy = Math.trunc(carry.y);
+      carry = { x: carry.x - dx, y: carry.y - dy };
+      if (dx) widget.scrollLeft += dx;
+      if (dy && page) page.scrollTop += dy;
+      frame = win.requestAnimationFrame(tick);
+    };
+    const move = (ev) => {
+      pointer.x = ev.clientX;
+      pointer.y = ev.clientY;
+      if (Math.hypot(pointer.x - origin.x, pointer.y - origin.y) > AUTOSCROLL_DEAD_ZONE) held = true;
+    };
+    const up = (ev) => {
+      if (ev.button === 1 && held) stop();
+    };
+    const end = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      stop();
+    };
+    const stop = () => {
+      win.cancelAnimationFrame(frame);
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", up, true);
+      win.removeEventListener("keydown", end, true);
+      win.removeEventListener("wheel", end, true);
+      marker.remove();
+      this.doc.body.classList.remove("tp-autoscrolling");
+      this.stopAutoscroll = void 0;
+    };
+    this.stopAutoscroll = stop;
+    setTimeout(() => {
+      if (this.stopAutoscroll !== stop) return;
+      win.addEventListener("mousemove", move, true);
+      win.addEventListener("mouseup", up, true);
+      win.addEventListener("keydown", end, true);
+      win.addEventListener("wheel", end, { capture: true, passive: false });
+    }, 0);
+    frame = win.requestAnimationFrame(tick);
+  }
+  swallowNextClick() {
+    const win = this.doc.defaultView;
+    const swallow = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clear();
+    };
+    const clear = () => {
+      win.removeEventListener("click", swallow, true);
+      win.removeEventListener("auxclick", swallow, true);
+    };
+    win.addEventListener("click", swallow, true);
+    win.addEventListener("auxclick", swallow, true);
+    setTimeout(clear, 500);
+  }
   /**
    * Alt+click shows the markdown, as in SilverBullet, but with the cursor in
    * the clicked cell instead of at the start of the table
@@ -1012,10 +1106,39 @@ var Controller = class {
     this.queueStickyUpdate();
     const scrolled = e.target instanceof HTMLElement ? this.infos.get(e.target) : void 0;
     if (scrolled && e.target instanceof HTMLElement) this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
-    if (this.dragging || e.target instanceof Node && this.menu?.element.contains(e.target)) return;
-    this.closeMenu(false);
-    this.hideFloating();
   };
+  /**
+   * Keeps the toolbar, grips and an open menu on what they belong to while the
+   * page or the table scrolls; hides them only once that is out of view
+   */
+  followScroll() {
+    if (this.dragging) return;
+    const widget = this.hoverWidget;
+    const info = widget && this.infos.get(widget);
+    if (!widget || !info || renderedTable(widget) !== info.table || !this.isShown(widget, info, info.table)) {
+      this.closeMenu(false);
+      this.hideFloating();
+      return;
+    }
+    this.showTableControls(widget, info);
+    const cell = this.hoverCell;
+    if (cell && cell.isConnected && this.isShown(widget, info, cell)) this.showHandles(widget, info, cell);
+    else {
+      this.closeMenu(false);
+      this.hideHandles();
+    }
+    if (this.menu) this.positionMenu();
+  }
+  /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
+  isShown(widget, info, element) {
+    const rect = element.getBoundingClientRect();
+    const view = this.scrollParentOf(widget)?.getBoundingClientRect();
+    const box = widget.getBoundingClientRect();
+    const head = info.table.tHead;
+    const top = Math.max(view?.top ?? 0, head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity);
+    const bottom = view?.bottom ?? this.doc.defaultView.innerHeight;
+    return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
+  }
   // ---- sticky header -----------------------------------------------------
   queueStickyUpdate() {
     if (this.stickyQueued) return;
@@ -1023,6 +1146,7 @@ var Controller = class {
     const run = () => {
       this.stickyQueued = false;
       this.updateStickyHeaders();
+      this.followScroll();
     };
     const win = this.doc.defaultView;
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
@@ -1068,7 +1192,7 @@ var Controller = class {
     this.doc.body.classList.toggle("tp-navigating", on);
   }
   onMouseMove = (e) => {
-    if (this.dragging || this.menu) return;
+    if (this.dragging || this.menu || e.buttons !== 0) return;
     const target = e.target;
     if (target instanceof Node && this.isFloating(target)) {
       this.cancelHide();
@@ -1076,7 +1200,7 @@ var Controller = class {
     }
     const hit = this.enhancedWidgetOf(target);
     if (!hit) {
-      this.scheduleHide();
+      if (!this.overScrollbar(e)) this.scheduleHide();
       return;
     }
     const [widget, info] = hit;
@@ -1085,13 +1209,22 @@ var Controller = class {
       this.hoverWidget = widget;
       this.showTableControls(widget, info);
     }
-    const cell = this.tableCellOf(info, target);
-    if (!cell || this.editor) {
+    if (this.editor) {
       this.hideHandles();
       return;
     }
-    if (cell !== this.hoverCell) this.showHandles(widget, info, cell);
+    const cell = this.tableCellOf(info, target);
+    if (cell && cell !== this.hoverCell) this.showHandles(widget, info, cell);
   };
+  /** Whether the pointer is over the scrollbar of the element under it */
+  overScrollbar(e) {
+    const el = e.target;
+    if (!(el instanceof Element)) return false;
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left - el.clientLeft;
+    const y = e.clientY - rect.top - el.clientTop;
+    return el.clientWidth > 0 && x >= el.clientWidth || el.clientHeight > 0 && y >= el.clientHeight;
+  }
   // ---- cell editing ------------------------------------------------------
   cellRef(info, cell) {
     const tr = cell.parentElement;
@@ -1663,7 +1796,15 @@ var Controller = class {
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     this.doc.body.append(element);
-    this.menu = { element, axis, widget };
+    this.menu = { element, axis, widget, anchor };
+    this.positionMenu();
+    anchor.classList.add("tp-active");
+    focusMenu(element);
+  }
+  /** Rows: to the right of the grip; columns: below it; always inside the window */
+  positionMenu() {
+    if (!this.menu) return;
+    const { element, axis, anchor } = this.menu;
     const win = this.doc.defaultView;
     const a = anchor.getBoundingClientRect();
     const m = element.getBoundingClientRect();
@@ -1673,8 +1814,6 @@ var Controller = class {
     if (top + m.height > win.innerHeight - 4) top = Math.max(4, win.innerHeight - m.height - 4);
     element.style.left = `${Math.round(left)}px`;
     element.style.top = `${Math.round(top)}px`;
-    anchor.classList.add("tp-active");
-    focusMenu(element);
   }
   closeMenu(refocus) {
     const menu = this.menu;

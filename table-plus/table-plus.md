@@ -20,6 +20,7 @@ Makes the markdown tables in your pages interactive, while they stay plain markd
 * **Column actions**: hover a column and click the grip above its header: sort, filter, align, insert left or right, move, delete. Drag the grip to move the column.
 * **Add**: *+ Row* below the table adds a row at the end, *+* right of the header adds a column.
 * Rows can be moved only in the original order (no sort, no filter), so a row always lands where you see it. Esc cancels a drag.
+* **Autoscroll**: the middle mouse button over a wide table scrolls the table sideways and the page up and down together (hold and drag, or click and move; the next click ends it).
 * Links, tasks and buttons in cells work as before.
 * Every change is one ordinary edit: Ctrl+Z undoes it. Tables with aligned pipes stay aligned; compact tables stay compact, and untouched rows are kept byte for byte.
 
@@ -422,6 +423,25 @@ body.tp-navigating .sb-table-widget.tp-table * {
   color: var(--ui-accent-color);
   background: var(--root-background-color);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Middle-button autoscroll over a wide table: the start point */
+.tp-autoscroll {
+  z-index: 70;
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 2px solid var(--root-color);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, var(--root-color) 2px, transparent 3px),
+    var(--root-background-color);
+  opacity: 0.8;
+}
+body.tp-autoscrolling,
+body.tp-autoscrolling * {
+  cursor: all-scroll !important;
 }
 
 /* Dragging */

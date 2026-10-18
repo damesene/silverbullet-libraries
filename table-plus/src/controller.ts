@@ -110,6 +110,9 @@ const SORT_GLYPH = { asc: "▲", desc: "▼", none: "⇅" } as const;
 // Pointer travel that turns a press on a grip into a drag instead of a click
 const DRAG_THRESHOLD = 4;
 
+// Middle-button autoscroll: no movement within this distance of the start point
+const AUTOSCROLL_DEAD_ZONE = 12;
+
 // Ctrl + these keys move the cell editor to another cell
 const NAVIGATION_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 
@@ -127,8 +130,9 @@ export class Controller {
   private hoverWidget: HTMLElement | undefined;
   private hoverCell: HTMLTableCellElement | undefined;
   private handleTarget: HandleTarget | undefined;
-  private menu: { element: HTMLElement; axis: Axis; widget: HTMLElement } | undefined;
+  private menu: { element: HTMLElement; axis: Axis; widget: HTMLElement; anchor: HTMLElement } | undefined;
   private dragging = false;
+  private stopAutoscroll: (() => void) | undefined;
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
   private scanQueued = false;
   private stickyQueued = false;
@@ -433,7 +437,16 @@ export class Controller {
 
   private onMouseDown = (e: MouseEvent): void => {
     const target = e.target instanceof Node ? e.target : null;
+    if (this.stopAutoscroll) {
+      // Any click ends the autoscroll and does nothing else
+      e.preventDefault();
+      e.stopPropagation();
+      this.stopAutoscroll();
+      this.swallowNextClick();
+      return;
+    }
     if (this.menu && target && !this.isFloating(target)) this.closeMenu(false);
+    if (e.button === 1) this.onMiddleMouseDown(e);
     if (e.button !== 0) return;
     if (e.altKey) {
       this.onAltMouseDown(e);
@@ -461,6 +474,97 @@ export class Controller {
     if (this.editor) void this.finishEditing(true, { widget, ...ref });
     else this.openEditor(widget, info, cell);
   };
+
+  /**
+   * Middle-button autoscroll over a table that scrolls sideways. The browser's
+   * own autoscroll locks onto one scrolling box, so it moves either the table
+   * sideways or the page up and down; this one moves both. Hold and drag, or
+   * click and move; the next click, key or wheel turn ends it.
+   */
+  private onMiddleMouseDown(e: MouseEvent): void {
+    const hit = this.enhancedWidgetOf(e.target);
+    const widget = hit?.[0];
+    // A middle click on a link opens it in a new tab
+    if (!widget || (e.target as Element).closest("a") || widget.scrollWidth <= widget.clientWidth) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const win = this.doc.defaultView!;
+    const page = this.scrollParentOf(widget) ?? this.doc.scrollingElement;
+    const origin = { x: e.clientX, y: e.clientY };
+    const pointer = { ...origin };
+    let held = false;
+    let carry = { x: 0, y: 0 };
+    const marker = this.floating("div", "tp-autoscroll tp-visible");
+    marker.style.left = `${origin.x - 12}px`;
+    marker.style.top = `${origin.y - 12}px`;
+    this.doc.body.classList.add("tp-autoscrolling");
+
+    // Pixels per frame: grows with the distance from the start point
+    const speed = (d: number) => {
+      const beyond = Math.abs(d) - AUTOSCROLL_DEAD_ZONE;
+      return beyond > 0 ? Math.sign(d) * (beyond / 16) ** 1.3 : 0;
+    };
+    let frame = 0;
+    const tick = () => {
+      carry = { x: carry.x + speed(pointer.x - origin.x), y: carry.y + speed(pointer.y - origin.y) };
+      const dx = Math.trunc(carry.x);
+      const dy = Math.trunc(carry.y);
+      carry = { x: carry.x - dx, y: carry.y - dy };
+      if (dx) widget.scrollLeft += dx;
+      if (dy && page) page.scrollTop += dy;
+      frame = win.requestAnimationFrame(tick);
+    };
+    const move = (ev: MouseEvent) => {
+      pointer.x = ev.clientX;
+      pointer.y = ev.clientY;
+      if (Math.hypot(pointer.x - origin.x, pointer.y - origin.y) > AUTOSCROLL_DEAD_ZONE) held = true;
+    };
+    const up = (ev: MouseEvent) => {
+      // Released after dragging: hold-and-drag ends here; a plain click keeps it going
+      if (ev.button === 1 && held) stop();
+    };
+    const end = (ev: Event) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      stop();
+    };
+    const stop = () => {
+      win.cancelAnimationFrame(frame);
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", up, true);
+      win.removeEventListener("keydown", end, true);
+      win.removeEventListener("wheel", end, true);
+      marker.remove();
+      this.doc.body.classList.remove("tp-autoscrolling");
+      this.stopAutoscroll = undefined;
+    };
+    this.stopAutoscroll = stop;
+    // Listeners start after this press, so it does not end the autoscroll at once
+    setTimeout(() => {
+      if (this.stopAutoscroll !== stop) return;
+      win.addEventListener("mousemove", move, true);
+      win.addEventListener("mouseup", up, true);
+      win.addEventListener("keydown", end, true);
+      win.addEventListener("wheel", end, { capture: true, passive: false });
+    }, 0);
+    frame = win.requestAnimationFrame(tick);
+  }
+
+  private swallowNextClick(): void {
+    const win = this.doc.defaultView!;
+    const swallow = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clear();
+    };
+    const clear = () => {
+      win.removeEventListener("click", swallow, true);
+      win.removeEventListener("auxclick", swallow, true);
+    };
+    win.addEventListener("click", swallow, true);
+    win.addEventListener("auxclick", swallow, true);
+    setTimeout(clear, 500);
+  }
 
   /**
    * Alt+click shows the markdown, as in SilverBullet, but with the cursor in
@@ -518,10 +622,42 @@ export class Controller {
     // after edits and when they scroll far out of view
     const scrolled = e.target instanceof HTMLElement ? this.infos.get(e.target) : undefined;
     if (scrolled && e.target instanceof HTMLElement) this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
-    if (this.dragging || (e.target instanceof Node && this.menu?.element.contains(e.target))) return;
-    this.closeMenu(false);
-    this.hideFloating();
   };
+
+  /**
+   * Keeps the toolbar, grips and an open menu on what they belong to while the
+   * page or the table scrolls; hides them only once that is out of view
+   */
+  private followScroll(): void {
+    if (this.dragging) return;
+    const widget = this.hoverWidget;
+    const info = widget && this.infos.get(widget);
+    if (!widget || !info || renderedTable(widget) !== info.table || !this.isShown(widget, info, info.table)) {
+      this.closeMenu(false);
+      this.hideFloating();
+      return;
+    }
+    this.showTableControls(widget, info);
+    const cell = this.hoverCell;
+    if (cell && cell.isConnected && this.isShown(widget, info, cell)) this.showHandles(widget, info, cell);
+    else {
+      this.closeMenu(false);
+      this.hideHandles();
+    }
+    if (this.menu) this.positionMenu();
+  }
+
+  /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
+  private isShown(widget: HTMLElement, info: WidgetInfo, element: Element): boolean {
+    const rect = element.getBoundingClientRect();
+    const view = this.scrollParentOf(widget)?.getBoundingClientRect();
+    const box = widget.getBoundingClientRect();
+    const head = info.table.tHead;
+    // A body cell under the header held at the top is out of view
+    const top = Math.max(view?.top ?? 0, head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity);
+    const bottom = view?.bottom ?? this.doc.defaultView!.innerHeight;
+    return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
+  }
 
   // ---- sticky header -----------------------------------------------------
 
@@ -531,6 +667,8 @@ export class Controller {
     const run = () => {
       this.stickyQueued = false;
       this.updateStickyHeaders();
+      // After the header has moved: controls that point at it follow
+      this.followScroll();
     };
     const win = this.doc.defaultView;
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
@@ -582,7 +720,8 @@ export class Controller {
   }
 
   private onMouseMove = (e: MouseEvent): void => {
-    if (this.dragging || this.menu) return;
+    // A pressed button: dragging a scrollbar or selecting; the controls stay where they are
+    if (this.dragging || this.menu || e.buttons !== 0) return;
     const target = e.target;
     if (target instanceof Node && this.isFloating(target)) {
       this.cancelHide();
@@ -590,7 +729,7 @@ export class Controller {
     }
     const hit = this.enhancedWidgetOf(target);
     if (!hit) {
-      this.scheduleHide();
+      if (!this.overScrollbar(e)) this.scheduleHide();
       return;
     }
     const [widget, info] = hit;
@@ -599,13 +738,24 @@ export class Controller {
       this.hoverWidget = widget;
       this.showTableControls(widget, info);
     }
-    const cell = this.tableCellOf(info, target);
-    if (!cell || this.editor) {
+    if (this.editor) {
       this.hideHandles();
       return;
     }
-    if (cell !== this.hoverCell) this.showHandles(widget, info, cell);
+    // Not over a cell (e.g. the table's own scrollbar): the grips stay on the last cell
+    const cell = this.tableCellOf(info, target);
+    if (cell && cell !== this.hoverCell) this.showHandles(widget, info, cell);
   };
+
+  /** Whether the pointer is over the scrollbar of the element under it */
+  private overScrollbar(e: MouseEvent): boolean {
+    const el = e.target;
+    if (!(el instanceof Element)) return false;
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left - el.clientLeft;
+    const y = e.clientY - rect.top - el.clientTop;
+    return (el.clientWidth > 0 && x >= el.clientWidth) || (el.clientHeight > 0 && y >= el.clientHeight);
+  }
 
   // ---- cell editing ------------------------------------------------------
 
@@ -1272,20 +1422,25 @@ export class Controller {
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     this.doc.body.append(element);
-    this.menu = { element, axis, widget };
+    this.menu = { element, axis, widget, anchor };
+    this.positionMenu();
+    anchor.classList.add("tp-active");
+    focusMenu(element);
+  }
 
+  /** Rows: to the right of the grip; columns: below it; always inside the window */
+  private positionMenu(): void {
+    if (!this.menu) return;
+    const { element, axis, anchor } = this.menu;
     const win = this.doc.defaultView!;
     const a = anchor.getBoundingClientRect();
     const m = element.getBoundingClientRect();
-    // Rows: to the right of the grip; columns: below it
     let left = axis === "row" ? a.right + 4 : a.left + a.width / 2 - m.width / 2;
     let top = axis === "row" ? a.top - 6 : a.bottom + 4;
     left = Math.max(4, Math.min(left, win.innerWidth - m.width - 4));
     if (top + m.height > win.innerHeight - 4) top = Math.max(4, win.innerHeight - m.height - 4);
     element.style.left = `${Math.round(left)}px`;
     element.style.top = `${Math.round(top)}px`;
-    anchor.classList.add("tp-active");
-    focusMenu(element);
   }
 
   private closeMenu(refocus: boolean): void {
