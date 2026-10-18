@@ -116,7 +116,18 @@ end
 
 /* Header held at the top of the view while the table scrolls past (moved by script) */
 .sb-table-widget thead.tp-stuck {
+  /* above the rows it is moved over */
+  position: relative;
+  z-index: 3;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
+}
+/* The header color may be see-through (dark theme): lay it over the page color */
+.sb-table-widget thead.tp-stuck td {
+  background: linear-gradient(
+      var(--editor-table-head-background-color, transparent),
+      var(--editor-table-head-background-color, transparent)
+    ),
+    var(--root-background-color, #fff);
 }
 
 /* Inline editing: same place and size as the text, with an accent underline */
