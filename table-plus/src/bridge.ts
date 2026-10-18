@@ -1,12 +1,19 @@
 // The SilverBullet API Table Plus uses, handed over by the library page's
-// Space Lua (`editor.*` syscalls), so no SilverBullet internals are needed.
+// Space Lua (`editor.*` and `config.get`), so no SilverBullet internals are needed.
 export type Bridge = {
   readonly getText: () => string | Promise<string>;
   readonly replaceRange: (from: number, to: number, text: string) => unknown;
   readonly moveCursor: (pos: number, center?: boolean) => unknown;
   readonly getCurrentPage: () => string | Promise<string>;
   readonly flash: (message: string, type?: "info" | "error") => unknown;
+  // Optional: without it, settings keep their defaults
+  readonly getConfig?: (path: string, defaultValue: unknown) => unknown;
 };
+
+/** Settings, registered with `config.define` on the library page */
+export const SETTINGS = {
+  enterKey: { path: "tablePlus.enterKey", values: ["save", "moveDown"], default: "save" },
+} as const;
 
 const REQUIRED: readonly (keyof Bridge)[] = [
   "getText",

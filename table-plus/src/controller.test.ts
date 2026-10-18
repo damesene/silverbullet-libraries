@@ -50,7 +50,7 @@ describe("Controller", () => {
   let flashes: string[];
   let controller: Controller;
 
-  const setup = async (page: string) => {
+  const setup = async (page: string, config: Record<string, unknown> = {}) => {
     text = page;
     editor = document.createElement("div");
     editor.className = "cm-content";
@@ -68,6 +68,7 @@ describe("Controller", () => {
       moveCursor: (pos) => cursorMoves.push(pos),
       getCurrentPage: () => "Test",
       flash: (message) => flashes.push(message),
+      getConfig: (path, defaultValue) => (path in config ? config[path] : defaultValue),
     };
     controller = new Controller(document, bridge);
     controller.start();
@@ -110,6 +111,45 @@ describe("Controller", () => {
     await flush();
     expect(text).toBe("Intro\n\n| Name | Qty |\n|---|---|\n| Pear | 4 \\| 5 |\n| apple | 10 |\n| Fig | 2 |\n");
     expect(cursorMoves).toEqual([]);
+  });
+
+  it("moves down on Enter with the 'moveDown' setting", async () => {
+    await setup(PAGE, { "tablePlus.enterKey": "moveDown" });
+    const editing = () => editor.querySelector<HTMLInputElement>(".tp-cell-editor");
+    const at = () => {
+      const td = editing()?.closest("td");
+      return td ? [(td.parentElement as HTMLTableRowElement).rowIndex, td.cellIndex] : null;
+    };
+    const waitFor = async (done: () => boolean) => {
+      for (let i = 0; i < 50 && !done(); i++) {
+        await flush();
+        await controller.scan();
+      }
+    };
+    clickOn(cell(1, 1));
+    editing()!.value = "4";
+    key(editing()!, "Enter");
+    await waitFor(() => at()?.[0] === 2);
+    expect(text).toContain("| Pear | 4 |");
+    expect(at()).toEqual([2, 1]);
+    key(editing()!, "Enter", { shiftKey: true });
+    await waitFor(() => at()?.[0] === 1);
+    expect(at()).toEqual([1, 1]);
+    // the last row: Enter just saves
+    clickOn(cell(3, 0));
+    await waitFor(() => at()?.[0] === 3);
+    key(editing()!, "Enter");
+    await waitFor(() => editing() === null);
+    expect(editing()).toBeNull();
+  });
+
+  it("only saves on Enter by default and with an unknown setting", async () => {
+    await setup(PAGE, { "tablePlus.enterKey": "nonsense" });
+    clickOn(cell(1, 1));
+    key(editor.querySelector(".tp-cell-editor")!, "Enter");
+    await flush();
+    await flush();
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
   });
 
   it("cancels an edit with Escape", async () => {

@@ -1,4 +1,7 @@
 // table-plus/src/bridge.ts
+var SETTINGS = {
+  enterKey: { path: "tablePlus.enterKey", values: ["save", "moveDown"], default: "save" }
+};
 var REQUIRED = [
   "getText",
   "replaceRange",
@@ -1142,7 +1145,7 @@ var Controller = class {
         void this.finishEditing(false);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        void this.finishEditing(true);
+        void this.enter(e.shiftKey);
       } else if (e.key === "Tab") {
         e.preventDefault();
         void this.step(e.shiftKey ? -1 : 1);
@@ -1195,6 +1198,35 @@ var Controller = class {
     return setCell(table, edit.row, edit.column, edit.value);
   }
   /** Tab / Shift+Tab: save and move to the next / previous shown cell */
+  /** A setting's value, falling back to its default when unset or not valid */
+  async setting(name) {
+    const { path, values, default: fallback } = SETTINGS[name];
+    try {
+      const value = await this.bridge.getConfig?.(path, fallback);
+      return values.includes(value) ? value : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  /**
+   * Enter saves the cell. With the "moveDown" setting it then edits
+   * the cell below (Shift+Enter: above), as in a spreadsheet; at the table's
+   * edge it just saves.
+   */
+  async enter(up) {
+    const active = this.editor;
+    const info = active && this.infos.get(active.widget);
+    if (!active || !info) return;
+    if (await this.setting("enterKey") !== "moveDown" || this.editor !== active) {
+      if (this.editor === active) await this.finishEditing(true);
+      return;
+    }
+    const shown = this.shownRows(info);
+    const target = shown[shown.indexOf(active.cell.parentElement) + (up ? -1 : 1)];
+    const cell = target?.cells[active.column];
+    const ref = cell && this.cellRef(info, cell);
+    await this.finishEditing(true, ref ? { widget: active.widget, ...ref } : void 0);
+  }
   /** The header row and the shown body rows, in display order */
   shownRows(info) {
     return [

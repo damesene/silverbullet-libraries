@@ -11,7 +11,7 @@ Makes the markdown tables in your pages interactive, while they stay plain markd
 
 ## Usage
 
-* **Edit a cell**: click it. Enter or clicking elsewhere saves, Esc cancels, Tab / Shift+Tab save and move to the next / previous cell. Tab on the last cell adds a row. Hold Ctrl to move between cells: Ctrl+arrows to the neighbouring cell, Ctrl+Home / Ctrl+End to the first / last cell of the row.
+* **Edit a cell**: click it. Enter or clicking elsewhere saves, Esc cancels, Tab / Shift+Tab save and move to the next / previous cell. Tab on the last cell adds a row. With the *Enter in a cell editor* setting set to `moveDown`, Enter saves and edits the cell below, Shift+Enter the cell above. Hold Ctrl to move between cells: Ctrl+arrows to the neighbouring cell, Ctrl+Home / Ctrl+End to the first / last cell of the row.
 * **Show the markdown**: hover the table and click *Edit markdown*. A plain click no longer switches the table to markdown. Alt+click still does, with the cursor in the clicked cell.
 * **Sort**: click the ⇅ control that appears in a column header on hover: ascending, descending, then back to the order as written. Sorting only changes what you see, never the markdown.
 * **Filter**: hover the table and click *Filter* (or *Filter* in a column menu) to show a filter field under each header. Matching ignores case and diacritics. Hiding the filter row clears the filters.
@@ -32,7 +32,28 @@ Makes the markdown tables in your pages interactive, while they stay plain markd
 ## Implementation
 
 ```space-lua
--- Table Plus only uses the public editor API, handed over here
+-- Settings, shown in the Configuration Manager (Configuration: Open)
+config.defineCategory {
+  name = "Table Plus",
+  description = "Interactive markdown tables.",
+  priority = 5,
+}
+
+config.define("tablePlus", {
+  description = "Table Plus settings",
+  type = "object",
+  properties = {
+    enterKey = {
+      type = "string",
+      enum = { "save", "moveDown" },
+      default = "save",
+      description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: the cell above).",
+      ui = { category = "Table Plus", label = "Enter in a cell editor", priority = 1 },
+    },
+  },
+})
+
+-- Table Plus only uses the public editor and config API, handed over here
 if js and js.window then
   local tablePlus = js.importFromSpace("Library/damesene/table-plus.js")
   tablePlus.init({
@@ -41,6 +62,7 @@ if js and js.window then
     moveCursor = editor.moveCursor,
     getCurrentPage = editor.getCurrentPage,
     flash = editor.flashNotification,
+    getConfig = config.get,
   })
 end
 ```
