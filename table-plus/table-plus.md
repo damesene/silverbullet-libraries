@@ -11,7 +11,7 @@ Makes the markdown tables in your pages interactive, while they stay plain markd
 
 ## Usage
 
-* **Edit a cell**: click it. Enter or clicking elsewhere saves, Esc cancels, Tab / Shift+Tab save and move to the next / previous cell. Tab on the last cell adds a row.
+* **Edit a cell**: click it. Enter or clicking elsewhere saves, Esc cancels, Tab / Shift+Tab save and move to the next / previous cell. Tab on the last cell adds a row. Hold Ctrl to move between cells: Ctrl+arrows to the neighbouring cell, Ctrl+Home / Ctrl+End to the first / last cell of the row.
 * **Show the markdown**: hover the table and click *Edit markdown*. A plain click no longer switches the table to markdown. Alt+click still does, with the cursor in the clicked cell.
 * **Sort**: click the ⇅ control that appears in a column header on hover: ascending, descending, then back to the order as written. Sorting only changes what you see, never the markdown.
 * **Filter**: hover the table and click *Filter* (or *Filter* in a column menu) to show a filter field under each header. Matching ignores case and diacritics. Hiding the filter row clears the filters.
@@ -128,6 +128,12 @@ end
       var(--editor-table-head-background-color, transparent)
     ),
     var(--root-background-color, #fff);
+}
+
+/* Ctrl held in a cell editor: arrows move between cells */
+body.tp-navigating .sb-table-widget.tp-table,
+body.tp-navigating .sb-table-widget.tp-table * {
+  cursor: move !important;
 }
 
 /* Inline editing: same place and size as the text, with an accent underline */

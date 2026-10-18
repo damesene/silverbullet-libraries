@@ -642,6 +642,7 @@ var STOPPED_EVENTS = [
 ];
 var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
 var DRAG_THRESHOLD = 4;
+var NAVIGATION_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
 var Controller = class {
@@ -693,6 +694,8 @@ var Controller = class {
     win.addEventListener("dblclick", this.onDoubleClick, true);
     win.addEventListener("scroll", this.onScroll, true);
     win.addEventListener("keydown", this.onKeyDown, true);
+    win.addEventListener("keyup", this.onKeyUp, true);
+    win.addEventListener("blur", () => this.setNavigating(false));
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
     this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
     this.columnGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "column"));
@@ -1054,6 +1057,13 @@ var Controller = class {
       this.closeMenu(true);
     }
   };
+  onKeyUp = (e) => {
+    if (e.key === "Control") this.setNavigating(false);
+  };
+  // While Ctrl is held in a cell editor, arrows move between cells: the pointer shows it
+  setNavigating(on) {
+    this.doc.body.classList.toggle("tp-navigating", on);
+  }
   onMouseMove = (e) => {
     if (this.dragging || this.menu) return;
     const target = e.target;
@@ -1123,7 +1133,11 @@ var Controller = class {
     });
     field.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
-      if (e.key === "Escape") {
+      if (e.key === "Control") this.setNavigating(true);
+      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && NAVIGATION_KEYS.has(e.key)) {
+        e.preventDefault();
+        void this.navigate(e.key);
+      } else if (e.key === "Escape") {
         e.preventDefault();
         void this.finishEditing(false);
       } else if (e.key === "Enter") {
@@ -1181,14 +1195,40 @@ var Controller = class {
     return setCell(table, edit.row, edit.column, edit.value);
   }
   /** Tab / Shift+Tab: save and move to the next / previous shown cell */
+  /** The header row and the shown body rows, in display order */
+  shownRows(info) {
+    return [
+      info.table.rows[0],
+      ...Array.from(info.table.querySelectorAll("tr[data-tp-row]:not(.tp-hidden)"))
+    ];
+  }
+  /**
+   * Ctrl+arrows: save and edit the neighbouring shown cell; Ctrl+Home / End:
+   * the first / last cell of the row. Nothing happens at the table's edge.
+   */
+  async navigate(key) {
+    const active = this.editor;
+    const info = active && this.infos.get(active.widget);
+    if (!active || !info) return;
+    const shown = this.shownRows(info);
+    let r = shown.indexOf(active.cell.parentElement);
+    let column = active.column;
+    if (key === "ArrowLeft") column--;
+    else if (key === "ArrowRight") column++;
+    else if (key === "ArrowUp") r--;
+    else if (key === "ArrowDown") r++;
+    else if (key === "Home") column = 0;
+    else if (key === "End") column = info.columns - 1;
+    const target = shown[r]?.cells[column];
+    if (!target || target === active.cell) return;
+    const ref = this.cellRef(info, target);
+    if (ref) await this.finishEditing(true, { widget: active.widget, ...ref });
+  }
   async step(direction) {
     const active = this.editor;
     const info = active && this.infos.get(active.widget);
     if (!active || !info) return;
-    const shown = [
-      info.table.rows[0],
-      ...Array.from(info.table.querySelectorAll("tr[data-tp-row]:not(.tp-hidden)"))
-    ];
+    const shown = this.shownRows(info);
     const rowIndex = shown.indexOf(active.cell.parentElement);
     let r = rowIndex;
     let column = active.column + direction;
@@ -1229,11 +1269,23 @@ var Controller = class {
     if (cell) this.openEditor(widget, info, cell, pending.select);
   }
   /** Scrolls a wide table sideways so that the cell is fully visible */
+  /**
+   * Scrolls so that the cell is fully visible: a wide table sideways, the page
+   * up or down, keeping a body cell clear of the header held at the top
+   */
   reveal(widget, cell) {
-    const view = widget.getBoundingClientRect();
-    const rect = cell.getBoundingClientRect();
-    if (rect.right > view.right) widget.scrollLeft += rect.right - view.right;
-    else if (rect.left < view.left) widget.scrollLeft -= view.left - rect.left;
+    const box = widget.getBoundingClientRect();
+    let rect = cell.getBoundingClientRect();
+    if (rect.right > box.right) widget.scrollLeft += rect.right - box.right;
+    else if (rect.left < box.left) widget.scrollLeft -= box.left - rect.left;
+    const scroller = this.scrollParentOf(widget);
+    if (!scroller) return;
+    rect = cell.getBoundingClientRect();
+    const view = scroller.getBoundingClientRect();
+    const head = this.infos.get(widget)?.table.tHead;
+    const top = view.top + (head && !head.contains(cell) ? head.offsetHeight : 0);
+    if (rect.top < top) scroller.scrollTop -= top - rect.top;
+    else if (rect.bottom > view.bottom) scroller.scrollTop += rect.bottom - view.bottom;
   }
   focusEditor(widget) {
     widget.closest(EDITOR_SELECTOR)?.focus({ preventScroll: true });

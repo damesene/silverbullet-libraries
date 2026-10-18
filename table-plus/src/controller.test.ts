@@ -134,6 +134,54 @@ describe("Controller", () => {
     expect(field?.closest("tr")?.dataset.tpRow).toBe("4");
   });
 
+  it("moves the editor between cells with Ctrl+arrows, Home and End", async () => {
+    await setup(PAGE);
+    clickOn(cell(1, 0));
+    const editing = () => {
+      const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+      const td = field.closest("td")!;
+      return { field, at: [(td.parentElement as HTMLTableRowElement).rowIndex, td.cellIndex] };
+    };
+    key(editing().field, "Control");
+    expect(document.body.classList.contains("tp-navigating")).toBe(true);
+
+    key(editing().field, "ArrowDown", { ctrlKey: true });
+    await flush();
+    expect(editing().at).toEqual([2, 0]);
+    key(editing().field, "End", { ctrlKey: true });
+    await flush();
+    expect(editing().at).toEqual([2, 1]);
+    key(editing().field, "ArrowRight", { ctrlKey: true }); // the table's edge: stays
+    await flush();
+    expect(editing().at).toEqual([2, 1]);
+    key(editing().field, "ArrowUp", { ctrlKey: true });
+    key(editing().field, "ArrowUp", { ctrlKey: true });
+    await flush();
+    expect(editing().at).toEqual([0, 1]);
+
+    // a changed cell is saved on the way
+    editing().field.value = "Count";
+    key(editing().field, "Home", { ctrlKey: true });
+    await flush();
+    await controller.scan();
+    expect(text).toContain("| Name | Count |");
+    expect(editing().at).toEqual([0, 0]);
+
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: "Control" }));
+    expect(document.body.classList.contains("tp-navigating")).toBe(false);
+  });
+
+  it("keeps plain arrows, Home and End inside the field", async () => {
+    await setup(PAGE);
+    clickOn(cell(1, 0));
+    const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+    for (const k of ["ArrowDown", "ArrowRight", "Home", "End"]) {
+      expect(key(field, k)).toBe(true); // not prevented: the field handles it
+    }
+    await flush();
+    expect(editor.querySelector(".tp-cell-editor")).toBe(field);
+  });
+
   it("sorts and restores the order without touching the markdown", async () => {
     await setup(PAGE);
     const sort = cell(0, 0).querySelector(".tp-sort")!;
