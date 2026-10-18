@@ -142,6 +142,8 @@ export class Controller {
   private filterOptions: FilterOptions = DEFAULT_FILTER_OPTIONS;
   // Sideways scroll of each wide table, carried over to its next rendering
   private readonly scrollLefts = new Map<string, number>();
+  // Editor cursor positions set before table edits (see placeHistoryMarker)
+  private readonly historyMarkers = new Set<number>();
   private editor: ActiveEditor | undefined;
   private pendingFocus: (FocusTarget & { key: string; until: number }) | undefined;
   private hoverWidget: HTMLElement | undefined;
@@ -152,6 +154,8 @@ export class Controller {
   private stopAutoscroll: (() => void) | undefined;
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
   private scanQueued = false;
+  // Set by stop(): work already scheduled then does nothing
+  private stopped = false;
   private stickyQueued = false;
   private warnedIncompatible = false;
   private observer: MutationObserver | undefined;
@@ -189,7 +193,7 @@ export class Controller {
     win.addEventListener("scroll", this.onScroll, true);
     win.addEventListener("keydown", this.onKeyDown, true);
     win.addEventListener("keyup", this.onKeyUp, true);
-    win.addEventListener("blur", () => this.setNavigating(false));
+    win.addEventListener("blur", this.onBlur);
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
 
     this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
@@ -203,10 +207,30 @@ export class Controller {
     void this.refreshSettings();
   }
 
+  /** Detaches from the page: listeners, observer and floating controls */
+  stop(): void {
+    this.stopped = true;
+    const win = this.doc.defaultView!;
+    win.removeEventListener("mousedown", this.onMouseDown, true);
+    win.removeEventListener("click", this.onClick, true);
+    win.removeEventListener("dblclick", this.onDoubleClick, true);
+    win.removeEventListener("scroll", this.onScroll, true);
+    win.removeEventListener("keydown", this.onKeyDown, true);
+    win.removeEventListener("keyup", this.onKeyUp, true);
+    win.removeEventListener("blur", this.onBlur);
+    this.doc.removeEventListener("mousemove", this.onMouseMove);
+    this.observer?.disconnect();
+    this.stopAutoscroll?.();
+    this.closeMenu(false);
+    for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
+  }
+
+  private onBlur = (): void => this.setNavigating(false);
+
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   private async refreshSettings(): Promise<void> {
     const smart = (await this.setting("smartFilters")) === true;
-    if (smart === this.filterOptions.smart) return;
+    if (this.stopped || smart === this.filterOptions.smart) return;
     this.filterOptions = { smart };
     for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
@@ -234,6 +258,7 @@ export class Controller {
 
   /** Enhances every rendered table that is not enhanced yet */
   scan(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
     const pending: Promise<void>[] = [];
     for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(WIDGET_SELECTOR))) {
       const table = renderedTable(widget);
@@ -260,7 +285,7 @@ export class Controller {
         headers: Array.from(header.cells).map(cellText),
       };
       const text = await this.bridge.getText();
-      if (renderedTable(widget) !== table) return;
+      if (this.stopped || renderedTable(widget) !== table) return;
       const range = locateByShape(text, hint, shape);
       if (!range) {
         const broken = locateWithEmptyHeaders(text, hint, shape);
@@ -270,6 +295,7 @@ export class Controller {
         return;
       }
       const page = await this.bridge.getCurrentPage();
+      if (this.stopped || renderedTable(widget) !== table) return;
       const info: WidgetInfo = {
         table,
         source: range.text,
@@ -705,6 +731,7 @@ export class Controller {
     this.stickyQueued = true;
     const run = () => {
       this.stickyQueued = false;
+      if (this.stopped) return;
       this.updateStickyHeaders();
       // After the header has moved: controls that point at it follow
       this.followScroll();
@@ -746,8 +773,57 @@ export class Controller {
       e.preventDefault();
       e.stopPropagation();
       this.closeMenu(true);
+      return;
+    }
+    const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
+    const key = e.key.toLowerCase();
+    const step = mod && key === "z" ? (e.shiftKey ? "redo" : "undo") : mod && key === "y" && !e.shiftKey ? "redo" : undefined;
+    const inEditor = e.target instanceof Element && !!e.target.closest(EDITOR_SELECTOR);
+    if (step && inEditor && this.bridge[step] && this.bridge.getCursor) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.historyStep(step);
     }
   };
+
+  // ---- undo / redo of table edits ----------------------------------------
+
+  /**
+   * Undo moves the editor's cursor back to where it was before an edit and
+   * scrolls to it. Table Plus edits away from that cursor, so before each edit
+   * it puts the cursor right after the table (outside it, so the table stays
+   * rendered) and remembers that position: an undo or redo that lands there
+   * undid a table edit, and the page is scrolled back to where it was.
+   */
+  private async placeHistoryMarker(text: string, from: number, to: number): Promise<number | undefined> {
+    if (!this.bridge.setSelection) return undefined;
+    const marker = to < text.length ? to + 1 : from > 0 ? from - 1 : undefined;
+    if (marker === undefined) return undefined;
+    await this.bridge.setSelection(marker, marker);
+    this.historyMarkers.add(marker);
+    if (this.historyMarkers.size > 500) this.historyMarkers.delete(this.historyMarkers.values().next().value!);
+    return marker;
+  }
+
+  private async historyStep(step: "undo" | "redo"): Promise<void> {
+    const editor = this.doc.querySelector<HTMLElement>(EDITOR_SELECTOR);
+    const scroller = editor && this.scrollParentOf(editor);
+    const top = scroller?.scrollTop;
+    await this.bridge[step]!();
+    const cursor = await this.bridge.getCursor!();
+    if (!scroller || top === undefined || !this.historyMarkers.has(cursor)) return;
+    // After the editor's own scroll, which runs in the next animation frame
+    const restore = () => {
+      scroller.scrollTop = top;
+    };
+    const win = this.doc.defaultView!;
+    restore();
+    if (!win.requestAnimationFrame) return;
+    win.requestAnimationFrame(() => {
+      restore();
+      win.requestAnimationFrame(restore);
+    });
+  }
 
   private onKeyUp = (e: KeyboardEvent): void => {
     if (e.key === "Control") this.setNavigating(false);
@@ -1137,7 +1213,12 @@ export class Controller {
       if (focus) this.pendingFocus = { key: info.key, ...focus, until: Date.now() + 3000 };
       this.scrollLefts.set(info.key, widget.scrollLeft);
       const edit = minimalEdit(range.text, markdown);
+      const marker = await this.placeHistoryMarker(text, range.from, range.to);
       await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
+      if (marker !== undefined) {
+        // Redo restores the cursor where the edit left it: the marker, moved by the edit
+        this.historyMarkers.add(marker + (marker > range.from + edit.from ? markdown.length - range.text.length : 0));
+      }
       return "written";
     } catch (e) {
       this.pendingFocus = undefined;

@@ -165,6 +165,10 @@ if js and js.window then
     getCurrentPage = editor.getCurrentPage,
     flash = editor.flashNotification,
     getConfig = config.get,
+    setSelection = editor.setSelection,
+    getCursor = editor.getCursor,
+    undo = editor.undo,
+    redo = editor.redo,
   })
 end
 ```

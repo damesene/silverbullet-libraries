@@ -95,7 +95,10 @@ describe("Controller", () => {
     document.body.replaceChildren();
     delete (globalThis as Record<string, unknown>).__tablePlus;
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    controller?.stop();
+    vi.restoreAllMocks();
+  });
 
   const PAGE = "Intro\n\n| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| Fig | 2 |\n";
 
@@ -311,6 +314,7 @@ describe("Controller", () => {
 
   it("filters with number comparisons unless smart filters are off", async () => {
     const filterRows = async (config: Record<string, unknown>) => {
+      controller?.stop();
       document.body.replaceChildren();
       delete (globalThis as Record<string, unknown>).__tablePlus;
       await setup(PAGE, config);

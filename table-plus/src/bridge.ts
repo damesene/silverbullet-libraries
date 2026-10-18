@@ -8,6 +8,11 @@ export type Bridge = {
   readonly flash: (message: string, type?: "info" | "error") => unknown;
   // Optional: without it, settings keep their defaults
   readonly getConfig?: (path: string, defaultValue: unknown) => unknown;
+  // Optional: without them, undoing a table edit scrolls to the editor's cursor
+  readonly setSelection?: (from: number, to: number) => unknown;
+  readonly getCursor?: () => number | Promise<number>;
+  readonly undo?: () => unknown;
+  readonly redo?: () => unknown;
 };
 
 /** Settings, registered with `config.define` on the library page */

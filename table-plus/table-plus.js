@@ -728,6 +728,8 @@ var Controller = class {
   filterOptions = DEFAULT_FILTER_OPTIONS;
   // Sideways scroll of each wide table, carried over to its next rendering
   scrollLefts = /* @__PURE__ */ new Map();
+  // Editor cursor positions set before table edits (see placeHistoryMarker)
+  historyMarkers = /* @__PURE__ */ new Set();
   editor;
   pendingFocus;
   hoverWidget;
@@ -738,6 +740,8 @@ var Controller = class {
   stopAutoscroll;
   hideTimer;
   scanQueued = false;
+  // Set by stop(): work already scheduled then does nothing
+  stopped = false;
   stickyQueued = false;
   warnedIncompatible = false;
   observer;
@@ -757,7 +761,7 @@ var Controller = class {
     win.addEventListener("scroll", this.onScroll, true);
     win.addEventListener("keydown", this.onKeyDown, true);
     win.addEventListener("keyup", this.onKeyUp, true);
-    win.addEventListener("blur", () => this.setNavigating(false));
+    win.addEventListener("blur", this.onBlur);
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
     this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
     this.columnGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "column"));
@@ -768,10 +772,28 @@ var Controller = class {
     void this.scan();
     void this.refreshSettings();
   }
+  /** Detaches from the page: listeners, observer and floating controls */
+  stop() {
+    this.stopped = true;
+    const win = this.doc.defaultView;
+    win.removeEventListener("mousedown", this.onMouseDown, true);
+    win.removeEventListener("click", this.onClick, true);
+    win.removeEventListener("dblclick", this.onDoubleClick, true);
+    win.removeEventListener("scroll", this.onScroll, true);
+    win.removeEventListener("keydown", this.onKeyDown, true);
+    win.removeEventListener("keyup", this.onKeyUp, true);
+    win.removeEventListener("blur", this.onBlur);
+    this.doc.removeEventListener("mousemove", this.onMouseMove);
+    this.observer?.disconnect();
+    this.stopAutoscroll?.();
+    this.closeMenu(false);
+    for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
+  }
+  onBlur = () => this.setNavigating(false);
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   async refreshSettings() {
     const smart = await this.setting("smartFilters") === true;
-    if (smart === this.filterOptions.smart) return;
+    if (this.stopped || smart === this.filterOptions.smart) return;
     this.filterOptions = { smart };
     for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
@@ -795,6 +817,7 @@ var Controller = class {
   }
   /** Enhances every rendered table that is not enhanced yet */
   scan() {
+    if (this.stopped) return Promise.resolve();
     const pending = [];
     for (const widget of Array.from(this.doc.querySelectorAll(WIDGET_SELECTOR))) {
       const table = renderedTable(widget);
@@ -820,7 +843,7 @@ var Controller = class {
         headers: Array.from(header.cells).map(cellText)
       };
       const text = await this.bridge.getText();
-      if (renderedTable(widget) !== table) return;
+      if (this.stopped || renderedTable(widget) !== table) return;
       const range = locateByShape(text, hint, shape);
       if (!range) {
         const broken = locateWithEmptyHeaders(text, hint, shape);
@@ -829,6 +852,7 @@ var Controller = class {
         return;
       }
       const page = await this.bridge.getCurrentPage();
+      if (this.stopped || renderedTable(widget) !== table) return;
       const info = {
         table,
         source: range.text,
@@ -1221,6 +1245,7 @@ var Controller = class {
     this.stickyQueued = true;
     const run = () => {
       this.stickyQueued = false;
+      if (this.stopped) return;
       this.updateStickyHeaders();
       this.followScroll();
     };
@@ -1258,8 +1283,53 @@ var Controller = class {
       e.preventDefault();
       e.stopPropagation();
       this.closeMenu(true);
+      return;
+    }
+    const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
+    const key = e.key.toLowerCase();
+    const step = mod && key === "z" ? e.shiftKey ? "redo" : "undo" : mod && key === "y" && !e.shiftKey ? "redo" : void 0;
+    const inEditor = e.target instanceof Element && !!e.target.closest(EDITOR_SELECTOR);
+    if (step && inEditor && this.bridge[step] && this.bridge.getCursor) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.historyStep(step);
     }
   };
+  // ---- undo / redo of table edits ----------------------------------------
+  /**
+   * Undo moves the editor's cursor back to where it was before an edit and
+   * scrolls to it. Table Plus edits away from that cursor, so before each edit
+   * it puts the cursor right after the table (outside it, so the table stays
+   * rendered) and remembers that position: an undo or redo that lands there
+   * undid a table edit, and the page is scrolled back to where it was.
+   */
+  async placeHistoryMarker(text, from, to) {
+    if (!this.bridge.setSelection) return void 0;
+    const marker = to < text.length ? to + 1 : from > 0 ? from - 1 : void 0;
+    if (marker === void 0) return void 0;
+    await this.bridge.setSelection(marker, marker);
+    this.historyMarkers.add(marker);
+    if (this.historyMarkers.size > 500) this.historyMarkers.delete(this.historyMarkers.values().next().value);
+    return marker;
+  }
+  async historyStep(step) {
+    const editor = this.doc.querySelector(EDITOR_SELECTOR);
+    const scroller = editor && this.scrollParentOf(editor);
+    const top = scroller?.scrollTop;
+    await this.bridge[step]();
+    const cursor = await this.bridge.getCursor();
+    if (!scroller || top === void 0 || !this.historyMarkers.has(cursor)) return;
+    const restore = () => {
+      scroller.scrollTop = top;
+    };
+    const win = this.doc.defaultView;
+    restore();
+    if (!win.requestAnimationFrame) return;
+    win.requestAnimationFrame(() => {
+      restore();
+      win.requestAnimationFrame(restore);
+    });
+  }
   onKeyUp = (e) => {
     if (e.key === "Control") this.setNavigating(false);
   };
@@ -1593,7 +1663,11 @@ var Controller = class {
       if (focus) this.pendingFocus = { key: info.key, ...focus, until: Date.now() + 3e3 };
       this.scrollLefts.set(info.key, widget.scrollLeft);
       const edit = minimalEdit(range.text, markdown);
+      const marker = await this.placeHistoryMarker(text, range.from, range.to);
       await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
+      if (marker !== void 0) {
+        this.historyMarkers.add(marker + (marker > range.from + edit.from ? markdown.length - range.text.length : 0));
+      }
       return "written";
     } catch (e) {
       this.pendingFocus = void 0;
