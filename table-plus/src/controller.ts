@@ -117,7 +117,7 @@ export class Controller {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
   private readonly enhancing = new WeakSet<HTMLElement>();
   private readonly views = new Map<string, ViewState>();
-  // Horizontal scroll of a wide table, carried over to its next rendering after an edit
+  // Sideways scroll of each wide table, carried over to its next rendering
   private readonly scrollLefts = new Map<string, number>();
   private editor: ActiveEditor | undefined;
   private pendingFocus: (FocusTarget & { key: string; until: number }) | undefined;
@@ -128,6 +128,7 @@ export class Controller {
   private dragging = false;
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
   private scanQueued = false;
+  private stickyQueued = false;
   private warnedIncompatible = false;
   private observer: MutationObserver | undefined;
   private readonly bar: HTMLElement;
@@ -238,11 +239,9 @@ export class Controller {
       this.decorate(widget, info);
       this.applyView(widget, info);
       const scrollLeft = this.scrollLefts.get(info.key);
-      if (scrollLeft !== undefined) {
-        this.scrollLefts.delete(info.key);
-        widget.scrollLeft = scrollLeft;
-      }
+      if (scrollLeft) widget.scrollLeft = scrollLeft;
       this.takePendingFocus(widget, info);
+      this.queueStickyUpdate();
     } catch (e) {
       console.error("Table Plus: could not enhance a table", e);
     } finally {
@@ -509,10 +508,56 @@ export class Controller {
   };
 
   private onScroll = (e: Event): void => {
+    this.queueStickyUpdate();
+    // Remember a wide table's sideways scroll: the editor re-renders tables
+    // after edits and when they scroll far out of view
+    const scrolled = e.target instanceof HTMLElement ? this.infos.get(e.target) : undefined;
+    if (scrolled && e.target instanceof HTMLElement) this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
     if (this.dragging || (e.target instanceof Node && this.menu?.element.contains(e.target))) return;
     this.closeMenu(false);
     this.hideFloating();
   };
+
+  // ---- sticky header -----------------------------------------------------
+
+  private queueStickyUpdate(): void {
+    if (this.stickyQueued) return;
+    this.stickyQueued = true;
+    const run = () => {
+      this.stickyQueued = false;
+      this.updateStickyHeaders();
+    };
+    const win = this.doc.defaultView;
+    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
+    else setTimeout(run, 0);
+  }
+
+  /**
+   * Keeps each table's header in view while the page scrolls past the table.
+   * CSS `position: sticky` cannot do it: the table sits in a sideways
+   * scrolling box, which captures sticky positioning. So the header is moved
+   * down with a transform, never past the table's last row.
+   */
+  private updateStickyHeaders(): void {
+    for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.infos.get(widget);
+      const head = info?.table.tHead;
+      if (!info || !head || renderedTable(widget) !== info.table) continue;
+      const viewTop = this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0;
+      const table = info.table.getBoundingClientRect();
+      const offset = Math.max(0, Math.min(viewTop - table.top, table.height - head.offsetHeight));
+      head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
+      head.classList.toggle("tp-stuck", offset > 0);
+    }
+  }
+
+  private scrollParentOf(element: HTMLElement): HTMLElement | undefined {
+    const win = this.doc.defaultView!;
+    for (let el = element.parentElement; el; el = el.parentElement) {
+      if (/(auto|scroll)/.test(win.getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight) return el;
+    }
+    return undefined;
+  }
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === "Escape" && this.menu) {
@@ -798,7 +843,18 @@ export class Controller {
     const info = widget && this.infos.get(widget);
     if (!widget || !info) return;
     const rows = parseTable(info.source).rows.length;
-    void this.write(widget, (t) => insertRow(t, t.rows.length), { row: rows, column: 0 });
+    void this.write(widget, (t) => insertRow(t, t.rows.length), {
+      row: rows,
+      column: this.firstVisibleColumn(widget, info),
+    });
+  }
+
+  /** The leftmost column in view, so editing a new row does not scroll a wide table back */
+  private firstVisibleColumn(widget: HTMLElement, info: WidgetInfo): number {
+    const left = widget.getBoundingClientRect().left;
+    const cells = Array.from(info.table.rows[0]!.cells);
+    const index = cells.findIndex((cell) => cell.getBoundingClientRect().left >= left - 1);
+    return Math.max(0, index);
   }
 
   private appendColumn(): void {
@@ -938,14 +994,18 @@ export class Controller {
     button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(info));
 
     const rect = widget.getBoundingClientRect();
-    bar.classList.add("tp-visible");
-    const above = rect.top - bar.offsetHeight - 14;
-    this.place(bar, rect.right - bar.offsetWidth, above >= 4 ? above : rect.bottom + 4);
-
     const tableRect = info.table.getBoundingClientRect();
+    // The header as shown, which may be held at the top of the view
     const headerRect = info.table.rows[0]!.getBoundingClientRect();
+    const viewTop = this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0;
+    bar.classList.add("tp-visible");
+    const above = headerRect.top - bar.offsetHeight - 14;
+    // No room above the header: over the header's right end instead
+    const top = above >= viewTop + 4 ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
+    this.place(bar, rect.right - bar.offsetWidth - (above >= viewTop + 4 ? 0 : 6), top);
+
     this.addRow.classList.add("tp-visible");
-    this.place(this.addRow, tableRect.left, tableRect.bottom + 4);
+    this.place(this.addRow, this.shownRect(widget, info).left, tableRect.bottom + 4);
     this.addColumn.classList.add("tp-visible");
     this.place(
       this.addColumn,
@@ -960,22 +1020,32 @@ export class Controller {
     if (!ref) return;
     this.handleTarget = { widget, info, column: ref.column, ...(ref.row > 0 ? { row: ref.row } : {}) };
     const tr = cell.parentElement as HTMLTableRowElement;
-    const tableRect = info.table.getBoundingClientRect();
+    // The part of a wide table in view: the table itself may be scrolled sideways
+    const shown = this.shownRect(widget, info);
     const rearranged = isRearranged(this.viewOf(info));
 
     if (ref.row > 0) {
       const rowRect = tr.getBoundingClientRect();
       this.rowGrip.classList.toggle("tp-no-drag", rearranged);
       this.rowGrip.title = rearranged ? `Row: click for actions (${MOVE_BLOCKED.toLowerCase()})` : "Row: click for actions, drag to move";
-      this.place(this.rowGrip, tableRect.left - 22, rowRect.top + (rowRect.height - 18) / 2);
+      this.place(this.rowGrip, shown.left - 22, rowRect.top + (rowRect.height - 18) / 2);
     } else {
       this.rowGrip.classList.remove("tp-visible");
     }
     const headerCell = info.table.rows[0]!.cells[ref.column];
     if (headerCell) {
       const h = headerCell.getBoundingClientRect();
-      this.place(this.columnGrip, h.left + (h.width - 18) / 2, h.top - 9);
+      // Centered on the column, as far as the column is in view
+      const center = Math.max(shown.left + 9, Math.min(h.left + h.width / 2, shown.right - 9));
+      this.place(this.columnGrip, center - 9, h.top - 9);
     }
+  }
+
+  /** Where a table is in view: the table, cut to the box that scrolls it sideways */
+  private shownRect(widget: HTMLElement, info: WidgetInfo): { left: number; right: number } {
+    const box = widget.getBoundingClientRect();
+    const table = info.table.getBoundingClientRect();
+    return { left: Math.max(box.left, table.left), right: Math.min(box.right, table.right) };
   }
 
   // ---- grips: click opens a menu, drag moves -----------------------------
@@ -1040,6 +1110,7 @@ export class Controller {
     // A slot is "before item i"; one past the last item means "at the end"
     const move = (ev: PointerEvent) => {
       const tableRect = table.getBoundingClientRect();
+      const shown = this.shownRect(widget, info);
       if (axis === "row") {
         slot = bodyRows.length + 1;
         for (let i = 0; i < bodyRows.length; i++) {
@@ -1051,9 +1122,9 @@ export class Controller {
         }
         const y = slot <= bodyRows.length ? bodyRows[slot - 1]!.getBoundingClientRect().top : tableRect.bottom;
         Object.assign(line.style, {
-          left: `${tableRect.left}px`,
+          left: `${shown.left}px`,
           top: `${y - 1}px`,
-          width: `${tableRect.width}px`,
+          width: `${shown.right - shown.left}px`,
           height: "2px",
         });
       } else {
@@ -1100,7 +1171,7 @@ export class Controller {
     const { widget, info } = target;
     const element =
       axis === "row"
-        ? renderMenu(this.doc, `Row ${target.row}`, this.rowMenu(widget, info, target.row!))
+        ? renderMenu(this.doc, `Row ${target.row}`, this.rowMenu(widget, info, target.row!, target.column))
         : renderMenu(
             this.doc,
             `Column: ${cellText(info.table.rows[0]!.cells[target.column]!) || target.column + 1}`,
@@ -1144,18 +1215,19 @@ export class Controller {
     };
   }
 
-  private rowMenu(widget: HTMLElement, info: WidgetInfo, row: number): MenuEntry[] {
+  // `column`: the hovered column, where editing a new row starts
+  private rowMenu(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
     const rows = parseTable(info.source).rows.length;
     const rearranged = isRearranged(this.viewOf(info));
     const edit = (change: (t: Table) => Table | undefined, focus?: FocusTarget) =>
       this.runAndClose(() => void this.write(widget, change, focus));
     return [
-      { kind: "item", label: "Insert row above", icon: ICONS.rowAbove, run: edit((t) => insertRow(t, row), { row, column: 0 }) },
+      { kind: "item", label: "Insert row above", icon: ICONS.rowAbove, run: edit((t) => insertRow(t, row), { row, column }) },
       {
         kind: "item",
         label: "Insert row below",
         icon: ICONS.rowBelow,
-        run: edit((t) => insertRow(t, row + 1), { row: row + 1, column: 0 }),
+        run: edit((t) => insertRow(t, row + 1), { row: row + 1, column }),
       },
       { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: edit((t) => duplicateRow(t, row)) },
       { kind: "separator" },

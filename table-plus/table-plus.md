@@ -114,6 +114,11 @@ end
   display: none !important;
 }
 
+/* Header held at the top of the view while the table scrolls past (moved by script) */
+.sb-table-widget thead.tp-stuck {
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
+}
+
 /* Inline editing: same place and size as the text, with an accent underline */
 .sb-table-widget td.tp-editing {
   background-color: color-mix(in srgb, var(--ui-accent-color) 7%, transparent);
