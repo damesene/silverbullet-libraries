@@ -247,6 +247,26 @@ describe("Controller", () => {
     expect(document.querySelector(".tp-bar .tp-chip")).toBeNull();
   });
 
+  it("filters with number comparisons unless smart filters are off", async () => {
+    const filterRows = async (config: Record<string, unknown>) => {
+      document.body.replaceChildren();
+      delete (globalThis as Record<string, unknown>).__tablePlus;
+      await setup(PAGE, config);
+      await flush();
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button"))
+        .find((b) => b.textContent === "Filter")!
+        .click();
+      const input = editor.querySelector<HTMLInputElement>('.tp-filter[data-tp-column="1"]')!;
+      input.value = ">2";
+      input.dispatchEvent(new Event("input"));
+      await flush();
+      return bodyTexts();
+    };
+    expect(await filterRows({})).toEqual(["Pear", "apple"]);
+    expect(await filterRows({ "tablePlus.smartFilters": false })).toEqual([]);
+  });
+
   it("sorts numbers numerically", async () => {
     await setup(PAGE);
     clickOn(cell(0, 1).querySelector(".tp-sort")!);

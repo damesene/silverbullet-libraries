@@ -13,6 +13,7 @@ export type Bridge = {
 /** Settings, registered with `config.define` on the library page */
 export const SETTINGS = {
   enterKey: { path: "tablePlus.enterKey", values: ["save", "moveDown"], default: "save" },
+  smartFilters: { path: "tablePlus.smartFilters", values: [true, false], default: true },
 } as const;
 
 const REQUIRED: readonly (keyof Bridge)[] = [

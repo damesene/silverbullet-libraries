@@ -43,8 +43,11 @@ import {
 } from "./ops.ts";
 import {
   cycleSort,
+  DEFAULT_FILTER_OPTIONS,
   DEFAULT_VIEW,
+  type FilterOptions,
   isRearranged,
+  parseFilter,
   remapColumns,
   type ViewState,
   visibleRows,
@@ -123,6 +126,9 @@ const AUTOSCROLL_DEAD_ZONE = 12;
 // Ctrl + these keys move the cell editor to another cell
 const NAVIGATION_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 
+const FILTER_HINT =
+  "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
+
 const NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 const MOVE_BLOCKED = "Clear sorting and filters to move rows";
 
@@ -130,6 +136,7 @@ export class Controller {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
   private readonly enhancing = new WeakSet<HTMLElement>();
   private readonly views = new Map<string, ViewState>();
+  private filterOptions: FilterOptions = DEFAULT_FILTER_OPTIONS;
   // Sideways scroll of each wide table, carried over to its next rendering
   private readonly scrollLefts = new Map<string, number>();
   private editor: ActiveEditor | undefined;
@@ -190,6 +197,22 @@ export class Controller {
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
     void this.scan();
+    void this.refreshSettings();
+  }
+
+  /** Re-reads settings the view depends on, and re-applies the views if they changed */
+  private async refreshSettings(): Promise<void> {
+    const smart = (await this.setting("smartFilters")) === true;
+    if (smart === this.filterOptions.smart) return;
+    this.filterOptions = { smart };
+    for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.infos.get(widget);
+      if (info && renderedTable(widget) === info.table) this.applyView(widget, info);
+    }
+  }
+
+  private rearranged(info: WidgetInfo): boolean {
+    return isRearranged(this.viewOf(info), this.filterOptions);
   }
 
   // ---- discovering rendered tables --------------------------------------
@@ -258,6 +281,7 @@ export class Controller {
       if (scrollLeft) widget.scrollLeft = scrollLeft;
       this.takePendingFocus(widget, info);
       this.queueStickyUpdate();
+      void this.refreshSettings();
     } catch (e) {
       console.error("Table Plus: could not enhance a table", e);
     } finally {
@@ -353,7 +377,7 @@ export class Controller {
     const view = this.viewOf(info);
     const rows = this.bodyRows(info);
     const values = rows.map((tr) => Array.from(tr.cells).map(cellText));
-    const order = visibleRows(values, view);
+    const order = visibleRows(values, view, this.filterOptions);
     const shown = new Set(order);
     const parent = rows[0]?.parentElement;
     if (parent) {
@@ -379,7 +403,7 @@ export class Controller {
     });
 
     this.applyFilterRow(widget, info, view);
-    widget.classList.toggle("tp-rearranged", isRearranged(view));
+    widget.classList.toggle("tp-rearranged", isRearranged(view, this.filterOptions));
     if (this.hoverWidget === widget) this.showTableControls(widget, info);
   }
 
@@ -403,6 +427,7 @@ export class Controller {
         input.addEventListener("input", () => {
           const current = this.infos.get(widget);
           if (current) this.setView(widget, current, withFilter(this.viewOf(current), column, input.value));
+          void this.refreshSettings();
         });
         input.addEventListener("keydown", (e) => {
           if (e.key === "Escape") {
@@ -418,6 +443,10 @@ export class Controller {
     for (const input of Array.from(row.querySelectorAll<HTMLInputElement>("input"))) {
       const value = view.filters[Number(input.dataset.tpColumn)] ?? "";
       if (input.value !== value && this.doc.activeElement !== input) input.value = value;
+      // A filter that cannot be used filters nothing; the field says why
+      const { error } = parseFilter(input.value, this.filterOptions);
+      input.classList.toggle("tp-invalid", !!error);
+      input.title = error ?? (this.filterOptions.smart ? FILTER_HINT : "Text to find");
     }
   }
 
@@ -1272,7 +1301,7 @@ export class Controller {
     const tr = cell.parentElement as HTMLTableRowElement;
     // The part of a wide table in view: the table itself may be scrolled sideways
     const shown = this.shownRect(widget, info);
-    const rearranged = isRearranged(this.viewOf(info));
+    const rearranged = this.rearranged(info);
 
     if (ref.row > 0) {
       const rowRect = tr.getBoundingClientRect();
@@ -1305,7 +1334,7 @@ export class Controller {
     if (e.button !== 0 || !target || (axis === "row" && target.row === undefined)) return;
     e.preventDefault();
     const grip = axis === "row" ? this.rowGrip : this.columnGrip;
-    const canDrag = axis === "column" || !isRearranged(this.viewOf(target.info));
+    const canDrag = axis === "column" || !this.rearranged(target.info);
     const win = this.doc.defaultView!;
     const startX = e.clientX;
     const startY = e.clientY;
@@ -1473,7 +1502,7 @@ export class Controller {
   // `column`: the hovered column, where editing a new row starts
   private rowMenu(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
     const rows = parseTable(info.source).rows.length;
-    const rearranged = isRearranged(this.viewOf(info));
+    const rearranged = this.rearranged(info);
     const edit = (change: (t: Table) => Table | undefined, focus?: FocusTarget) =>
       this.runAndClose(() => void this.write(widget, change, focus));
     return [

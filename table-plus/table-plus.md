@@ -7,27 +7,118 @@ files:
 ---
 # Table Plus
 
-Makes the markdown tables in your pages interactive, while they stay plain markdown.
+Makes the markdown tables in your pages interactive: edit cells in place, sort, filter, and add, move or delete rows and columns. The tables stay plain markdown, and every change is an ordinary edit you can undo.
 
-## Usage
+## At a glance
 
-* **Edit a cell**: click it. Enter or clicking elsewhere saves, Esc cancels, Tab / Shift+Tab save and move to the next / previous cell. Tab on the last cell adds a row. With the *Enter in a cell editor* setting set to `moveDown`, Enter saves and edits the cell below, Shift+Enter the cell above. Hold Ctrl to move between cells: Ctrl+arrows to the neighbouring cell, Ctrl+Home / Ctrl+End to the first / last cell of the row.
-* **Show the markdown**: hover the table and click *Edit markdown*. A plain click no longer switches the table to markdown. Alt+click still does, with the cursor in the clicked cell.
-* **Sort**: click the ⇅ control that appears in a column header on hover: ascending, descending, then back to the order as written. Sorting only changes what you see, never the markdown.
-* **Filter**: hover the table and click *Filter* (or *Filter* in a column menu) to show a filter field under each header. Matching ignores case and diacritics. Hiding the filter row clears the filters.
-* **Clear sorting**: while sorted, the toolbar shows *Sorted by …* with a × that shows the rows as written again.
-* **Row actions**: hover a row and click the grip ⠿ left of it: insert above or below, duplicate, move up or down, delete. Drag the grip to move the row.
-* **Column actions**: hover a column and click the grip above its header: sort, filter, align, insert left or right, move, delete. Drag the grip to move the column.
-* **Add**: *+ Row* below the table adds a row at the end, *+* right of the header adds a column.
-* Rows can be moved only in the original order (no sort, no filter), so a row always lands where you see it. Esc cancels a drag.
-* **Autoscroll**: the middle mouse button over a wide table scrolls the table sideways and the page up and down together (hold and drag, or click and move; the next click ends it).
-* Links, tasks and buttons in cells work as before.
-* Every change is one ordinary edit: Ctrl+Z undoes it. Tables with aligned pipes stay aligned; compact tables stay compact, and untouched rows are kept byte for byte.
+* **Edit a cell**: click it, type, press Enter. See [[#Editing cells]].
+* **Move between cells**: Tab / Shift+Tab, or Ctrl+arrows while editing. See [[#Keyboard]].
+* **See the markdown**: hover the table and click *Edit markdown*, or Alt+click a cell. See [[#Showing the markdown]].
+* **Sort**: click ⇅ in a column header. See [[#Sorting]].
+* **Filter**: hover the table and click *Filter*; `>10`, `/regex/`, `=text` and `!text` work too. See [[#Filtering]].
+* **Add, move or delete rows and columns**: click the ⠿ grip next to a row or above a column. See [[#Rows and columns]].
+* **Change how Enter or filters work**: *Configuration: Open*, category *Table Plus*. See [[#Settings]].
+
+## Editing cells
+
+* Click a cell to edit it in place. Enter or clicking elsewhere saves, Esc cancels.
+* Links, tasks and buttons in cells work as before: clicking them does not start editing.
+* A column always needs a name: emptying a header cell keeps the old name.
+
+### Keyboard
+
+| Key | While editing a cell |
+|---|---|
+| Enter | Save |
+| Esc | Cancel |
+| Tab | Save, edit the next cell |
+| Shift+Tab | Save, edit the previous cell |
+| Ctrl+arrows | Save, edit the cell beside |
+| Ctrl+Home | Save, edit the row's first cell |
+| Ctrl+End | Save, edit the row's last cell |
+
+* Tab on the last cell adds a row.
+* With the `moveDown` setting, Enter also moves to the cell below and Shift+Enter to the cell above. See [[#Settings]].
+* While Ctrl is held, the pointer shows a move cursor. Without Ctrl, arrows, Home and End move within the cell's text as usual.
+
+## Showing the markdown
+
+A plain click edits a cell and no longer switches the table to its markdown. To see or edit the markdown:
+* hover the table and click *Edit markdown* in the toolbar above it, or
+* Alt+click a cell: the cursor lands in that cell (at the clicked character, for plain text).
+
+## Sorting
+
+* Click the ⇅ control that appears in a column header on hover: ascending, descending, then back to the order as written. The column menu (see [[#Rows and columns]]) has the same options.
+* Sorting only changes what you see, never the markdown.
+* While sorted, the toolbar shows *Sorted by …*; its × shows the rows as written again.
+* Numbers sort as numbers (`1 000`, `2,5`, `-3`, `15 %` included); empty cells always come last.
+
+## Filtering
+
+Hover the table and click *Filter* (or *Filter* in a column menu) to show a filter field under each header. The toolbar shows how many rows match. Hiding the filter row clears the filters.
+
+Plain text is found anywhere in a cell, ignoring case and diacritics (`cesky` finds `Český`). With *Smart filters* (on by default, see [[#Settings]]) a field also understands:
+
+| Filter | Shows cells that |
+|---|---|
+| `>10` `>=10` | are numbers above 10 |
+| `<10` `<=10` | are numbers below 10 |
+| `/pattern/` | match a regular expression |
+| `/pattern/c` | match it, with case |
+| `=text` | are exactly `text` |
+| `!filter` | do **not** match `filter` |
+
+* Number filters hide cells that are not numbers. Numbers are read as for sorting.
+* Regular expressions ignore case unless flagged `c` (other flags: `m`, `s`, `u`), and see the cell text as shown, e.g. the alias of a link. Example: `/^item 1[0-9]$/`.
+* `=text` ignores case and diacritics, like plain text.
+* `!` works in front of any filter: `!done`, `!>10`, `!/^$/` (cells that are not empty).
+* A filter that is still being typed (only `>`, or a regular expression without its closing `/`) does not filter yet.
+* An invalid regular expression filters nothing; its field turns red and its tooltip says why.
+
+## Rows and columns
+
+Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column.
+
+* **Click a grip** for a menu:
+  * Row: insert above or below, duplicate, move up or down, delete.
+  * Column: sort, filter, align (left, center, right), insert left or right, move, delete.
+* **Drag a grip** to move the row or column; Esc cancels the drag.
+* **Add at the end**: *+ Row* below the table adds a row, *+* right of the header adds a column (named *Column N*, ready to rename).
+* Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.
+
+## Large tables
+
+* **Sticky header**: while you scroll past a long table, its header stays at the top of the view, with the toolbar above it.
+* **Wide tables** scroll sideways; Table Plus keeps the scroll position after edits, and new rows open their editor in a column you can see.
+* **Autoscroll**: the middle mouse button over a wide table scrolls the table sideways and the page up and down together. Hold and drag, or click and move; the next click ends it.
+
+## Settings
+
+Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, or set them in your [[CONFIG]]:
+
+* **Enter in a cell editor** (`tablePlus.enterKey`), default `save`
+  * `save`: Enter saves the cell.
+  * `moveDown`: Enter saves and edits the cell below, Shift+Enter the cell above.
+* **Smart filters** (`tablePlus.smartFilters`), default `true`
+  * `true`: filter fields understand `>10`, `/pattern/`, `=text` and `!filter`.
+  * `false`: everything typed in a filter field is text to find.
+
+```lua
+config.set("tablePlus.enterKey", "moveDown")
+config.set("tablePlus.smartFilters", false)
+```
+
+## How your markdown is kept
+
+* Every change is one ordinary edit: Ctrl+Z undoes it.
+* Rows you did not change are kept byte for byte. Tables with aligned pipes stay aligned; compact tables stay compact.
+* Sorting, filters and scroll positions are views only: they are remembered per table until the page is reloaded, and never written to the page.
+* SilverBullet does not show columns without a name, which shifts the header against the data. For such a table Table Plus shows a notice with a *Name them* button instead of enhancing it.
 
 ## Limits
 
 * Works on tables written in the page. Query and Lua output, and tables in block quotes, are left as they are.
-* Sorting and filters are remembered per table until the page is reloaded.
 * If a SilverBullet update renders tables differently, Table Plus switches itself off with one notification, and tables behave as without it.
 
 ## Implementation
@@ -50,6 +141,12 @@ config.define("tablePlus", {
       default = "save",
       description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: the cell above).",
       ui = { category = "Table Plus", label = "Enter in a cell editor", priority = 1 },
+    },
+    smartFilters = {
+      type = "boolean",
+      default = true,
+      description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell) and !filter (not). Off: everything typed is text to find.",
+      ui = { category = "Table Plus", label = "Smart filters", priority = 0 },
     },
   },
 })
@@ -145,7 +242,7 @@ end
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
 }
 /* The header color may be see-through (dark theme): lay it over the page color.
-   The shadow upwards fills the gap above the held header (STICKY_GAP in the
+   A shadow upwards fills the gap above the held header (STICKY_GAP in the
    script) with the page color, so no row shows there. */
 .sb-table-widget thead.tp-stuck td {
   background: linear-gradient(
@@ -153,6 +250,9 @@ end
       var(--editor-table-head-background-color, transparent)
     ),
     var(--root-background-color, #fff);
+}
+/* Only the top row casts it: from the filter row it would cover the header row */
+.sb-table-widget thead.tp-stuck tr:first-child td {
   box-shadow: 0 -38px 0 0 var(--root-background-color, #fff);
 }
 
@@ -208,6 +308,11 @@ body.tp-navigating .sb-table-widget.tp-table * {
 .tp-filter:focus {
   border-bottom-color: var(--ui-accent-color);
   box-shadow: 0 1px 0 0 var(--ui-accent-color);
+}
+/* An invalid regular expression: it filters nothing, the tooltip says why */
+.tp-filter.tp-invalid {
+  border-bottom-color: var(--danger-color, #c62828);
+  box-shadow: 0 1px 0 0 var(--danger-color, #c62828);
 }
 .tp-filter::placeholder {
   color: inherit;

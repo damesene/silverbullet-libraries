@@ -1,6 +1,7 @@
 // table-plus/src/bridge.ts
 var SETTINGS = {
-  enterKey: { path: "tablePlus.enterKey", values: ["save", "moveDown"], default: "save" }
+  enterKey: { path: "tablePlus.enterKey", values: ["save", "moveDown"], default: "save" },
+  smartFilters: { path: "tablePlus.smartFilters", values: [true, false], default: true }
 };
 var REQUIRED = [
   "getText",
@@ -560,8 +561,9 @@ function columnAfterMove(c, from, to) {
 
 // table-plus/src/view.ts
 var DEFAULT_VIEW = { filters: [], showFilters: false };
-function isRearranged(view) {
-  return !!view.sort || view.filters.some((f) => f.trim() !== "");
+var DEFAULT_FILTER_OPTIONS = { smart: true };
+function isRearranged(view, options = DEFAULT_FILTER_OPTIONS) {
+  return !!view.sort || view.filters.some((f) => filterMatcher(f, options) !== void 0);
 }
 function cycleSort(view, column) {
   if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
@@ -609,13 +611,63 @@ function compareValues(a, b) {
   if (na !== void 0 && nb !== void 0) return na - nb;
   return collator.compare(a.trim(), b.trim());
 }
-function visibleRows(values, view) {
-  const filters = view.filters.map((f) => normalizeForFilter(f.trim()));
-  const indexes = values.map((_, i) => i).filter(
-    (i) => filters.every(
-      (filter, column) => filter === "" || normalizeForFilter(values[i][column] ?? "").includes(filter)
-    )
-  );
+var REGEX_RE = /^\/(.*)\/([cimsu]*)$/s;
+var COMPARISON_RE = /^(<=|>=|<|>)\s*(.*)$/s;
+function parseFilter(filter, options = DEFAULT_FILTER_OPTIONS) {
+  const text = filter.trim();
+  if (text === "") return {};
+  if (options.smart) {
+    if (text.startsWith("!")) {
+      const inner = parseFilter(text.slice(1), options);
+      const match = inner.match;
+      return match ? { match: (value) => !match(value) } : inner;
+    }
+    if (text.startsWith("=")) {
+      const whole = normalizeForFilter(text.slice(1).trim());
+      return whole === "" ? {} : { match: (value) => normalizeForFilter(value.trim()) === whole };
+    }
+    const regex = REGEX_RE.exec(text);
+    if (regex) return parseRegex(regex[1], regex[2]);
+    if (text.startsWith("/")) return {};
+    const comparison = COMPARISON_RE.exec(text);
+    if (comparison) {
+      const [, operator, rest] = comparison;
+      if (rest.trim() === "") return {};
+      const limit = asNumber(rest);
+      if (limit !== void 0) {
+        return {
+          match: (value) => {
+            const n = asNumber(value);
+            if (n === void 0) return false;
+            if (operator === ">") return n > limit;
+            if (operator === "<") return n < limit;
+            if (operator === ">=") return n >= limit;
+            return n <= limit;
+          }
+        };
+      }
+    }
+  }
+  const needle = normalizeForFilter(text);
+  return { match: (value) => normalizeForFilter(value).includes(needle) };
+}
+function parseRegex(pattern, flags) {
+  if (pattern === "") return {};
+  const caseSensitive = flags.includes("c");
+  const jsFlags = [...new Set(flags.replace(/[ci]/g, "") + (caseSensitive ? "" : "i"))].join("");
+  try {
+    const re = new RegExp(pattern, jsFlags);
+    return { match: (value) => re.test(value) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+function filterMatcher(filter, options = DEFAULT_FILTER_OPTIONS) {
+  return parseFilter(filter, options).match;
+}
+function visibleRows(values, view, options = DEFAULT_FILTER_OPTIONS) {
+  const matchers = view.filters.map((filter) => filterMatcher(filter, options));
+  const indexes = values.map((_, i) => i).filter((i) => matchers.every((match, column) => !match || match(values[i][column] ?? "")));
   const sort = view.sort;
   if (!sort) return indexes;
   const sign = sort.direction === "asc" ? 1 : -1;
@@ -649,6 +701,7 @@ var STICKY_GAP = 38;
 var BAR_GAP = 10;
 var AUTOSCROLL_DEAD_ZONE = 12;
 var NAVIGATION_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
+var FILTER_HINT = "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
 var Controller = class {
@@ -671,6 +724,7 @@ var Controller = class {
   infos = /* @__PURE__ */ new WeakMap();
   enhancing = /* @__PURE__ */ new WeakSet();
   views = /* @__PURE__ */ new Map();
+  filterOptions = DEFAULT_FILTER_OPTIONS;
   // Sideways scroll of each wide table, carried over to its next rendering
   scrollLefts = /* @__PURE__ */ new Map();
   editor;
@@ -711,6 +765,20 @@ var Controller = class {
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
     void this.scan();
+    void this.refreshSettings();
+  }
+  /** Re-reads settings the view depends on, and re-applies the views if they changed */
+  async refreshSettings() {
+    const smart = await this.setting("smartFilters") === true;
+    if (smart === this.filterOptions.smart) return;
+    this.filterOptions = { smart };
+    for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.infos.get(widget);
+      if (info && renderedTable(widget) === info.table) this.applyView(widget, info);
+    }
+  }
+  rearranged(info) {
+    return isRearranged(this.viewOf(info), this.filterOptions);
   }
   // ---- discovering rendered tables --------------------------------------
   queueScan() {
@@ -774,6 +842,7 @@ var Controller = class {
       if (scrollLeft) widget.scrollLeft = scrollLeft;
       this.takePendingFocus(widget, info);
       this.queueStickyUpdate();
+      void this.refreshSettings();
     } catch (e) {
       console.error("Table Plus: could not enhance a table", e);
     } finally {
@@ -857,7 +926,7 @@ var Controller = class {
     const view = this.viewOf(info);
     const rows = this.bodyRows(info);
     const values = rows.map((tr) => Array.from(tr.cells).map(cellText));
-    const order = visibleRows(values, view);
+    const order = visibleRows(values, view, this.filterOptions);
     const shown = new Set(order);
     const parent = rows[0]?.parentElement;
     if (parent) {
@@ -880,7 +949,7 @@ var Controller = class {
       else cell.removeAttribute("aria-sort");
     });
     this.applyFilterRow(widget, info, view);
-    widget.classList.toggle("tp-rearranged", isRearranged(view));
+    widget.classList.toggle("tp-rearranged", isRearranged(view, this.filterOptions));
     if (this.hoverWidget === widget) this.showTableControls(widget, info);
   }
   applyFilterRow(widget, info, view) {
@@ -903,6 +972,7 @@ var Controller = class {
         input.addEventListener("input", () => {
           const current = this.infos.get(widget);
           if (current) this.setView(widget, current, withFilter(this.viewOf(current), column, input.value));
+          void this.refreshSettings();
         });
         input.addEventListener("keydown", (e) => {
           if (e.key === "Escape") {
@@ -918,6 +988,9 @@ var Controller = class {
     for (const input of Array.from(row.querySelectorAll("input"))) {
       const value = view.filters[Number(input.dataset.tpColumn)] ?? "";
       if (input.value !== value && this.doc.activeElement !== input) input.value = value;
+      const { error } = parseFilter(input.value, this.filterOptions);
+      input.classList.toggle("tp-invalid", !!error);
+      input.title = error ?? (this.filterOptions.smart ? FILTER_HINT : "Text to find");
     }
   }
   // ---- event routing -----------------------------------------------------
@@ -1658,7 +1731,7 @@ var Controller = class {
     this.handleTarget = { widget, info, column: ref.column, ...ref.row > 0 ? { row: ref.row } : {} };
     const tr = cell.parentElement;
     const shown = this.shownRect(widget, info);
-    const rearranged = isRearranged(this.viewOf(info));
+    const rearranged = this.rearranged(info);
     if (ref.row > 0) {
       const rowRect = tr.getBoundingClientRect();
       this.rowGrip.classList.toggle("tp-no-drag", rearranged);
@@ -1686,7 +1759,7 @@ var Controller = class {
     if (e.button !== 0 || !target || axis === "row" && target.row === void 0) return;
     e.preventDefault();
     const grip = axis === "row" ? this.rowGrip : this.columnGrip;
-    const canDrag = axis === "column" || !isRearranged(this.viewOf(target.info));
+    const canDrag = axis === "column" || !this.rearranged(target.info);
     const win = this.doc.defaultView;
     const startX = e.clientX;
     const startY = e.clientY;
@@ -1838,7 +1911,7 @@ var Controller = class {
   // `column`: the hovered column, where editing a new row starts
   rowMenu(widget, info, row, column) {
     const rows = parseTable(info.source).rows.length;
-    const rearranged = isRearranged(this.viewOf(info));
+    const rearranged = this.rearranged(info);
     const edit = (change, focus) => this.runAndClose(() => void this.write(widget, change, focus));
     return [
       { kind: "item", label: "Insert row above", icon: ICONS.rowAbove, run: edit((t) => insertRow(t, row), { row, column }) },
