@@ -105,5 +105,19 @@ export function followMetaSort(
   return withMetaSort(after, sort && column !== undefined ? { column, direction: sort.direction } : undefined);
 }
 
+/**
+ * The step every table edit goes through for the metadata row: a stored
+ * sorting follows its column (`columnMap`), and edits that change the pins
+ * store them
+ */
+export function metadataAfterEdit(
+  before: Table,
+  after: Table,
+  edit: { readonly columnMap?: (column: number) => number | undefined; readonly pins?: Pins },
+): Table {
+  const followed = followMetaSort(before, after, edit.columnMap ?? ((c) => c));
+  return edit.pins ? withMetaPins(followed, edit.pins) : followed;
+}
+
 export { NO_PINS };
 export type { Row };

@@ -767,6 +767,19 @@ export function withoutFormulas(table: Table): Table {
   return result;
 }
 
+/**
+ * The step every table edit goes through for formulas: references follow the
+ * rows and columns the edit moved (see shiftReferences), then every formula
+ * cell shows its result for the table as edited
+ */
+export function formulasAfterEdit(
+  before: Table,
+  after: Table,
+  edit: { readonly rowMap?: IndexMap; readonly columnMap?: IndexMap },
+): Table {
+  return recalculate(shiftReferences(before, after, edit.rowMap, edit.columnMap));
+}
+
 /** Why formula cells show errors: "row,column" (rows of the markdown, header 0) → code and detail */
 export function formulaErrors(table: Table): Map<string, string> {
   const errors = new Map<string, string>();

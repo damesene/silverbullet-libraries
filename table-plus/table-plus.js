@@ -104,6 +104,273 @@ function caretTextOffset(cell, x, y) {
   return before.replace(/\s+/g, " ").trimStart().length;
 }
 
+// table-plus/src/ops.ts
+function withRows(table, rows) {
+  return { ...table, rows };
+}
+function emptyRow(columns) {
+  return { cells: Array.from({ length: columns }, () => "") };
+}
+function withCells(row, cells) {
+  return { ...row, cells };
+}
+function padded(cells, length) {
+  const result = [...cells];
+  while (result.length < length) result.push("");
+  return result;
+}
+function moved(items, from, to) {
+  const result = [...items];
+  const [item] = result.splice(from, 1);
+  result.splice(to, 0, item);
+  return result;
+}
+function setCell(table, row, column, value) {
+  return withRows(
+    table,
+    table.rows.map((r, i) => {
+      if (i !== row) return r;
+      const cells = padded(r.cells, column + 1);
+      cells[column] = value;
+      return withCells(r, cells);
+    })
+  );
+}
+function insertRow(table, at, cells) {
+  const rows = [...table.rows];
+  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, cells ? { cells: [...cells] } : emptyRow(table.align.length));
+  return withRows(table, rows);
+}
+function deleteRow(table, row) {
+  if (row < 1 || row >= table.rows.length) return table;
+  return withRows(
+    table,
+    table.rows.filter((_, i) => i !== row)
+  );
+}
+function reorderRows(table, order) {
+  const body = order.map((i) => table.rows[i]).filter((r) => !!r);
+  if (body.length !== table.rows.length - 1) return table;
+  return withRows(table, [table.rows[0], ...body]);
+}
+function moveRow(table, from, to) {
+  const last = table.rows.length - 1;
+  if (from < 1 || from > last || to < 1 || to > last || from === to) return table;
+  return withRows(table, moved(table.rows, from, to));
+}
+function newColumnName(table) {
+  const names = new Set(table.rows[0]?.cells ?? []);
+  let n = table.align.length + 1;
+  while (names.has(`Column ${n}`)) n++;
+  return `Column ${n}`;
+}
+function nameEmptyHeaders(table) {
+  const header = table.rows[0];
+  if (!header) return table;
+  const names = new Set(header.cells);
+  const cells = header.cells.map((cell, i) => {
+    if (cell !== "") return cell;
+    let n = i + 1;
+    while (names.has(`Column ${n}`)) n++;
+    const name = `Column ${n}`;
+    names.add(name);
+    return name;
+  });
+  return { ...table, rows: [{ ...header, cells }, ...table.rows.slice(1)] };
+}
+function insertColumn(table, at) {
+  const column = Math.max(0, Math.min(at, table.align.length));
+  const header = newColumnName(table);
+  const align = [...table.align];
+  align.splice(column, 0, "");
+  return {
+    ...table,
+    align,
+    rows: table.rows.map((r, i) => {
+      const cells = padded(r.cells, column);
+      cells.splice(column, 0, i === 0 ? header : "");
+      return withCells(r, cells);
+    })
+  };
+}
+function deleteColumn(table, column) {
+  if (table.align.length <= 1 || column < 0 || column >= table.align.length) return table;
+  return {
+    ...table,
+    align: table.align.filter((_, i) => i !== column),
+    rows: table.rows.map(
+      (r) => withCells(
+        r,
+        r.cells.filter((_, i) => i !== column)
+      )
+    )
+  };
+}
+function moveColumn(table, from, to) {
+  const columns = table.align.length;
+  if (from < 0 || from >= columns || to < 0 || to >= columns || from === to) return table;
+  return {
+    ...table,
+    align: moved(table.align, from, to),
+    rows: table.rows.map((r) => withCells(r, moved(padded(r.cells, columns), from, to)))
+  };
+}
+function setAlign(table, column, align) {
+  return {
+    ...table,
+    align: table.align.map((a, i) => i === column ? align : a)
+  };
+}
+function columnAfterMove(c, from, to) {
+  if (c === from) return to;
+  if (from < to && c > from && c <= to) return c - 1;
+  if (from > to && c >= to && c < from) return c + 1;
+  return c;
+}
+
+// table-plus/src/features/selection.ts
+function clipboardText(values) {
+  const quote = (v) => /[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+  return values.map((row) => row.map(quote).join("	")).join("\n");
+}
+function clipboardHtml(values) {
+  const escape = (v) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
+  return `<table>${rows}</table>`;
+}
+var Selection = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // The cells selected (rows of the markdown, header 0), in the table with this key
+  selection;
+  stopSelecting;
+  start() {
+    this.host.doc.defaultView.addEventListener("copy", this.onCopy, true);
+  }
+  stop() {
+    this.host.doc.defaultView.removeEventListener("copy", this.onCopy, true);
+    this.stopSelecting?.();
+  }
+  // Any click ends a selection (one on Table Plus' own controls aside)
+  beforeMouseDown(e) {
+    if (this.selection && !(e.target instanceof Node && this.host.isFloating(e.target))) this.clear();
+  }
+  /**
+   * After a press on a cell: dragging on to another cell of the table, with
+   * the button held, selects the cells between the two as shown (sorting and
+   * filters included), and closes the cell editor the press opened, unchanged
+   */
+  afterCellPress(info, anchor) {
+    this.stopSelecting?.();
+    const { key } = info;
+    const win = this.host.doc.defaultView;
+    const move = (ev) => {
+      if (ev.buttons === 0) {
+        end();
+        return;
+      }
+      const hit = this.host.enhancedWidgetOf(ev.target);
+      const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], ev.target) : void 0;
+      const ref = hit && cell ? this.host.cellRef(hit[1], cell) : void 0;
+      if (!ref) return;
+      const current = this.selection;
+      if (!current) {
+        if (ref.row === anchor.row && ref.column === anchor.column) return;
+        this.host.cancelEditing();
+        this.selection = { key, anchor, focus: ref };
+      } else if (current.focus.row === ref.row && current.focus.column === ref.column) return;
+      else current.focus = ref;
+      this.show();
+    };
+    const end = () => {
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", end, true);
+      this.stopSelecting = void 0;
+    };
+    win.addEventListener("mousemove", move, true);
+    win.addEventListener("mouseup", end, true);
+    this.stopSelecting = end;
+  }
+  keyDown(e) {
+    if (!this.selection) return false;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      this.clear();
+      return true;
+    }
+    const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    if (e.key === "Delete" && !inField && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.emptyCells();
+      return true;
+    }
+    return false;
+  }
+  // A table rendered again (after a write) shows the selection again
+  enhanced(_widget, info) {
+    if (this.selection?.key === info.key) this.show();
+  }
+  /** The selected cells as shown: rows top to bottom (the header first), columns left to right */
+  cells() {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!selection || !info) return void 0;
+    const shown = this.host.shownRows(info);
+    const index = (row) => shown.findIndex((tr) => row === 0 ? tr === info.table.rows[0] : tr.dataset.tpRow === String(row));
+    const a = index(selection.anchor.row);
+    const b = index(selection.focus.row);
+    if (a < 0 || b < 0) return void 0;
+    const left = Math.min(selection.anchor.column, selection.focus.column);
+    const right = Math.max(selection.anchor.column, selection.focus.column);
+    return shown.slice(Math.min(a, b), Math.max(a, b) + 1).map((tr) => Array.from(tr.cells).slice(left, right + 1));
+  }
+  show() {
+    this.unmark();
+    for (const row of this.cells() ?? []) for (const cell of row) cell.classList.add("tp-selected");
+  }
+  clear() {
+    this.selection = void 0;
+    this.unmark();
+  }
+  unmark() {
+    for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
+  }
+  /**
+   * Empties the selected cells, formulas included, as one edit; header cells
+   * keep their names (a column needs one). The selection stays.
+   */
+  async emptyCells() {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    const cells = this.cells();
+    if (!widget || !info || !cells) return;
+    const refs = cells.flat().map((cell) => this.host.cellRef(info, cell)).filter((ref) => ref !== void 0 && ref.row > 0);
+    await this.host.write(widget, (t) => refs.reduce((table, ref) => setCell(table, ref.row, ref.column, ""), t));
+  }
+  /**
+   * Ctrl+C with cells selected copies them as a spreadsheet does: as text with
+   * a tab between cells and a line break between rows, and as an HTML table,
+   * so Excel and Google Sheets paste them into cells. Cells copy what they
+   * show (a formula's result, a link's text).
+   */
+  onCopy = (e) => {
+    const cells = this.selection && this.cells();
+    const active = this.host.doc.activeElement;
+    if (!cells || !e.clipboardData || active instanceof HTMLInputElement && active.selectionStart !== active.selectionEnd) return;
+    const values = cells.map((row) => row.map(cellText));
+    e.clipboardData.setData("text/plain", clipboardText(values));
+    e.clipboardData.setData("text/html", clipboardHtml(values));
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    void this.host.bridge.flash(`Table Plus: copied ${values.length} \xD7 ${values[0]?.length ?? 0} cells`, "info");
+  };
+};
+
 // table-plus/src/markdown.ts
 var DELIMITER_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 var FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
@@ -858,130 +1125,6 @@ var concat_default = {
 var ALL = [sum_default, average_default, min_default, max_default, product_default, count_default, counta_default, round_default, abs_default, if_default, iferror_default, and_default, or_default, not_default, concat_default];
 var FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
 
-// table-plus/src/ops.ts
-function withRows(table, rows) {
-  return { ...table, rows };
-}
-function emptyRow(columns) {
-  return { cells: Array.from({ length: columns }, () => "") };
-}
-function withCells(row, cells) {
-  return { ...row, cells };
-}
-function padded(cells, length) {
-  const result = [...cells];
-  while (result.length < length) result.push("");
-  return result;
-}
-function moved(items, from, to) {
-  const result = [...items];
-  const [item] = result.splice(from, 1);
-  result.splice(to, 0, item);
-  return result;
-}
-function setCell(table, row, column, value) {
-  return withRows(
-    table,
-    table.rows.map((r, i) => {
-      if (i !== row) return r;
-      const cells = padded(r.cells, column + 1);
-      cells[column] = value;
-      return withCells(r, cells);
-    })
-  );
-}
-function insertRow(table, at, cells) {
-  const rows = [...table.rows];
-  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, cells ? { cells: [...cells] } : emptyRow(table.align.length));
-  return withRows(table, rows);
-}
-function deleteRow(table, row) {
-  if (row < 1 || row >= table.rows.length) return table;
-  return withRows(
-    table,
-    table.rows.filter((_, i) => i !== row)
-  );
-}
-function reorderRows(table, order) {
-  const body = order.map((i) => table.rows[i]).filter((r) => !!r);
-  if (body.length !== table.rows.length - 1) return table;
-  return withRows(table, [table.rows[0], ...body]);
-}
-function moveRow(table, from, to) {
-  const last = table.rows.length - 1;
-  if (from < 1 || from > last || to < 1 || to > last || from === to) return table;
-  return withRows(table, moved(table.rows, from, to));
-}
-function newColumnName(table) {
-  const names = new Set(table.rows[0]?.cells ?? []);
-  let n = table.align.length + 1;
-  while (names.has(`Column ${n}`)) n++;
-  return `Column ${n}`;
-}
-function nameEmptyHeaders(table) {
-  const header = table.rows[0];
-  if (!header) return table;
-  const names = new Set(header.cells);
-  const cells = header.cells.map((cell, i) => {
-    if (cell !== "") return cell;
-    let n = i + 1;
-    while (names.has(`Column ${n}`)) n++;
-    const name = `Column ${n}`;
-    names.add(name);
-    return name;
-  });
-  return { ...table, rows: [{ ...header, cells }, ...table.rows.slice(1)] };
-}
-function insertColumn(table, at) {
-  const column = Math.max(0, Math.min(at, table.align.length));
-  const header = newColumnName(table);
-  const align = [...table.align];
-  align.splice(column, 0, "");
-  return {
-    ...table,
-    align,
-    rows: table.rows.map((r, i) => {
-      const cells = padded(r.cells, column);
-      cells.splice(column, 0, i === 0 ? header : "");
-      return withCells(r, cells);
-    })
-  };
-}
-function deleteColumn(table, column) {
-  if (table.align.length <= 1 || column < 0 || column >= table.align.length) return table;
-  return {
-    ...table,
-    align: table.align.filter((_, i) => i !== column),
-    rows: table.rows.map(
-      (r) => withCells(
-        r,
-        r.cells.filter((_, i) => i !== column)
-      )
-    )
-  };
-}
-function moveColumn(table, from, to) {
-  const columns = table.align.length;
-  if (from < 0 || from >= columns || to < 0 || to >= columns || from === to) return table;
-  return {
-    ...table,
-    align: moved(table.align, from, to),
-    rows: table.rows.map((r) => withCells(r, moved(padded(r.cells, columns), from, to)))
-  };
-}
-function setAlign(table, column, align) {
-  return {
-    ...table,
-    align: table.align.map((a, i) => i === column ? align : a)
-  };
-}
-function columnAfterMove(c, from, to) {
-  if (c === from) return to;
-  if (from < to && c > from && c <= to) return c - 1;
-  if (from > to && c >= to && c < from) return c + 1;
-  return c;
-}
-
 // table-plus/src/formula/index.ts
 var FORMULA_TAG_RE = /<meta\s+f\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
 function formulaOf(cell) {
@@ -1564,6 +1707,9 @@ function withoutFormulas(table) {
   });
   return result;
 }
+function formulasAfterEdit(before, after, edit) {
+  return recalculate(shiftReferences(before, after, edit.rowMap, edit.columnMap));
+}
 function formulaErrors(table) {
   const errors = /* @__PURE__ */ new Map();
   if (!hasFormulas(table)) return errors;
@@ -2092,6 +2238,10 @@ function followMetaSort(before, after, map) {
   const column = sort && map(sort.column);
   return withMetaSort(after, sort && column !== void 0 ? { column, direction: sort.direction } : void 0);
 }
+function metadataAfterEdit(before, after, edit) {
+  const followed = followMetaSort(before, after, edit.columnMap ?? ((c) => c));
+  return edit.pins ? withMetaPins(followed, edit.pins) : followed;
+}
 
 // table-plus/src/controller.ts
 function withoutMetadata(table) {
@@ -2100,15 +2250,6 @@ function withoutMetadata(table) {
 }
 function plural(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-function clipboardText(values) {
-  const quote = (v) => /[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
-  return values.map((row) => row.map(quote).join("	")).join("\n");
-}
-function clipboardHtml(values) {
-  const escape = (v) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
-  return `<table>${rows}</table>`;
 }
 function rowAfterInsert(at) {
   return (r) => r >= at ? r + 1 : r;
@@ -2163,6 +2304,7 @@ var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
     this.bridge = bridge;
+    this.features = [new Selection(this)];
     this.bar = this.floating("div", "tp-bar");
     this.rowGrip = this.floatingButton("tp-handle tp-grip", "Row: click for actions, drag to move", ICONS.grip);
     this.columnGrip = this.floatingButton(
@@ -2227,9 +2369,10 @@ var Controller = class {
   stopPointing;
   // The paste on its way was asked for with Ctrl+Shift+V: as new rows
   pasteInserts = false;
-  // Cells selected by dragging across them (rows of the markdown, header 0), for copying
-  selection;
-  stopSelecting;
+  // Features that keep their own state and work through this controller (core/feature.ts)
+  features;
+  // Steps every write goes through after the edit, in this order
+  writeSteps = [formulasAfterEdit, metadataAfterEdit];
   setBridge(bridge) {
     this.bridge = bridge;
   }
@@ -2240,7 +2383,6 @@ var Controller = class {
     win.addEventListener("dblclick", this.onDoubleClick, true);
     win.addEventListener("scroll", this.onScroll, true);
     win.addEventListener("keydown", this.onKeyDown, true);
-    win.addEventListener("copy", this.onCopy, true);
     win.addEventListener("keyup", this.onKeyUp, true);
     win.addEventListener("blur", this.onBlur);
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
@@ -2250,6 +2392,7 @@ var Controller = class {
     this.addColumn.addEventListener("click", () => this.appendColumn());
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
+    for (const feature of this.features) feature.start?.();
     void this.scan();
     void this.refreshSettings();
   }
@@ -2262,8 +2405,7 @@ var Controller = class {
     win.removeEventListener("dblclick", this.onDoubleClick, true);
     win.removeEventListener("scroll", this.onScroll, true);
     win.removeEventListener("keydown", this.onKeyDown, true);
-    win.removeEventListener("copy", this.onCopy, true);
-    this.stopSelecting?.();
+    for (const feature of this.features) feature.stop?.();
     win.removeEventListener("keyup", this.onKeyUp, true);
     win.removeEventListener("blur", this.onBlur);
     this.doc.removeEventListener("mousemove", this.onMouseMove);
@@ -2326,14 +2468,9 @@ var Controller = class {
     ];
     this.views.set(info.key, withoutSort(view));
     const position = new Map(order.map((row, i) => [row, i + 1]));
-    await this.write(
-      widget,
-      (t) => withMetaSort(reorderRows(t, order), void 0),
-      void 0,
-      void 0,
-      void 0,
-      (r) => r === 0 ? 0 : position.get(r)
-    );
+    await this.write(widget, (t) => withMetaSort(reorderRows(t, order), void 0), {
+      rowMap: (r) => r === 0 ? 0 : position.get(r)
+    });
     this.focusEditor(widget);
   }
   /**
@@ -2495,7 +2632,7 @@ var Controller = class {
       const scrollTop = this.scrollTops.get(info.key);
       if (scrollTop) widget.scrollTop = scrollTop;
       this.takePendingFocus(widget, info);
-      if (this.selection?.key === info.key) this.showSelection();
+      for (const feature of this.features) feature.enhanced?.(widget, info);
       this.queueStickyUpdate();
       void this.refreshSettings();
     } catch (e) {
@@ -2625,6 +2762,14 @@ ${error}` : stored.formula;
     const view = this.views.get(key) ?? DEFAULT_VIEW;
     const sort = view.sort ? { column: view.sort.column, direction: view.sort.direction } : void 0;
     await this.write(widget, (t) => withMetaSort(t, sort));
+  }
+  // ---- host API for features (core/feature.ts) ----------------------------
+  infoOf(widget) {
+    return this.infos.get(widget);
+  }
+  cancelEditing() {
+    this.pendingFocus = void 0;
+    if (this.editor) void this.finishEditing(false);
   }
   /** The rendered table a view key belongs to, if it is enhanced and on screen */
   widgetForKey(key) {
@@ -2795,7 +2940,7 @@ ${error}` : stored.formula;
       return;
     }
     if (this.menu && target && !this.isFloating(target)) this.closeMenu(false);
-    if (this.selection && !(target && this.isFloating(target))) this.clearSelection();
+    if (e.button === 0) for (const feature of this.features) feature.beforeMouseDown?.(e);
     if (e.button === 1) this.onMiddleMouseDown(e);
     if (e.button !== 0) return;
     if (e.altKey) {
@@ -2824,7 +2969,7 @@ ${error}` : stored.formula;
     const select = e.shiftKey !== this.selectOnClick;
     if (this.editor) void this.finishEditing(true, { widget, ...ref, select });
     else this.openEditor(widget, info, cell, select);
-    this.trackSelection(info.key, ref);
+    for (const feature of this.features) feature.afterCellPress?.(info, ref, e);
   };
   /**
    * Middle-button autoscroll over a table that scrolls sideways. The browser's
@@ -3075,18 +3220,7 @@ ${error}` : stored.formula;
     return void 0;
   }
   onKeyDown = (e) => {
-    if (e.key === "Escape" && this.selection) {
-      e.preventDefault();
-      this.clearSelection();
-      return;
-    }
-    const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
-    if (e.key === "Delete" && this.selection && !inField && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      void this.emptySelectedCells();
-      return;
-    }
+    for (const feature of this.features) if (feature.keyDown?.(e)) return;
     if (e.key === "Escape" && this.menu) {
       e.preventDefault();
       e.stopPropagation();
@@ -3365,7 +3499,7 @@ ${error}` : stored.formula;
     const sameTable = next?.widget === closed.widget;
     let result = "unchanged";
     if (changed) {
-      result = await this.write(closed.widget, (t) => this.withCellEdit(t, closed), sameTable ? next : void 0);
+      result = await this.write(closed.widget, (t) => this.withCellEdit(t, closed), { focus: sameTable ? next : void 0 });
     }
     if (next && (result === "unchanged" || !sameTable)) {
       const info = this.infos.get(next.widget);
@@ -3479,10 +3613,7 @@ ${error}` : stored.formula;
         if (!edited) return void 0;
         return vertical ? moveRow(edited, from, to) : moveColumn(edited, from, to);
       },
-      vertical ? { row: to, column: closed.column } : { row: closed.row, column: to },
-      vertical ? void 0 : (c) => columnAfterMove(c, from, to),
-      void 0,
-      vertical ? (r) => columnAfterMove(r, from, to) : void 0
+      vertical ? { focus: { row: to, column: closed.column }, rowMap: (r) => columnAfterMove(r, from, to) } : { focus: { row: closed.row, column: to }, columnMap: (c) => columnAfterMove(c, from, to) }
     );
   }
   /**
@@ -3575,96 +3706,6 @@ ${error}` : stored.formula;
   focusEditor(widget) {
     widget.closest(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
-  // ---- selecting cells to copy ------------------------------------------------
-  /**
-   * After a press on a cell: dragging on to another cell of the table, with
-   * the button held, selects the cells between the two as shown (sorting and
-   * filters included), and closes the cell editor the press opened, unchanged
-   */
-  trackSelection(key, anchor) {
-    this.stopSelecting?.();
-    const win = this.doc.defaultView;
-    const move = (ev) => {
-      if (ev.buttons === 0) {
-        end();
-        return;
-      }
-      const hit = this.enhancedWidgetOf(ev.target);
-      const cell = hit && hit[1].key === key ? this.tableCellOf(hit[1], ev.target) : void 0;
-      const ref = hit && cell ? this.cellRef(hit[1], cell) : void 0;
-      if (!ref) return;
-      const current = this.selection;
-      if (!current) {
-        if (ref.row === anchor.row && ref.column === anchor.column) return;
-        this.pendingFocus = void 0;
-        if (this.editor) void this.finishEditing(false);
-        this.selection = { key, anchor, focus: ref };
-      } else if (current.focus.row === ref.row && current.focus.column === ref.column) return;
-      else current.focus = ref;
-      this.showSelection();
-    };
-    const end = () => {
-      win.removeEventListener("mousemove", move, true);
-      win.removeEventListener("mouseup", end, true);
-      this.stopSelecting = void 0;
-    };
-    win.addEventListener("mousemove", move, true);
-    win.addEventListener("mouseup", end, true);
-    this.stopSelecting = end;
-  }
-  /** The selected cells as shown: rows top to bottom (the header first), columns left to right */
-  selectedCells() {
-    const selection = this.selection;
-    const widget = selection && this.widgetForKey(selection.key);
-    const info = widget && this.infos.get(widget);
-    if (!selection || !info) return void 0;
-    const shown = this.shownRows(info);
-    const index = (row) => shown.findIndex((tr) => row === 0 ? tr === info.table.rows[0] : tr.dataset.tpRow === String(row));
-    const a = index(selection.anchor.row);
-    const b = index(selection.focus.row);
-    if (a < 0 || b < 0) return void 0;
-    const left = Math.min(selection.anchor.column, selection.focus.column);
-    const right = Math.max(selection.anchor.column, selection.focus.column);
-    return shown.slice(Math.min(a, b), Math.max(a, b) + 1).map((tr) => Array.from(tr.cells).slice(left, right + 1));
-  }
-  showSelection() {
-    for (const cell of Array.from(this.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
-    for (const row of this.selectedCells() ?? []) for (const cell of row) cell.classList.add("tp-selected");
-  }
-  /**
-   * Empties the selected cells, formulas included, as one edit; header cells
-   * keep their names (a column needs one). The selection stays.
-   */
-  async emptySelectedCells() {
-    const selection = this.selection;
-    const widget = selection && this.widgetForKey(selection.key);
-    const info = widget && this.infos.get(widget);
-    const cells = this.selectedCells();
-    if (!widget || !info || !cells) return;
-    const refs = cells.flat().map((cell) => this.cellRef(info, cell)).filter((ref) => ref !== void 0 && ref.row > 0);
-    await this.write(widget, (t) => refs.reduce((table, ref) => setCell(table, ref.row, ref.column, ""), t));
-  }
-  clearSelection() {
-    this.selection = void 0;
-    for (const cell of Array.from(this.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
-  }
-  /**
-   * Ctrl+C with cells selected copies them as a spreadsheet does: as text with
-   * a tab between cells and a line break between rows, and as an HTML table,
-   * so Excel and Google Sheets paste them into cells. Cells copy what they
-   * show (a formula's result, a link's text).
-   */
-  onCopy = (e) => {
-    const cells = this.selection && this.selectedCells();
-    const active = this.doc.activeElement;
-    if (!cells || !e.clipboardData || active instanceof HTMLInputElement && active.selectionStart !== active.selectionEnd) return;
-    const values = cells.map((row) => row.map(cellText));
-    e.clipboardData.setData("text/plain", clipboardText(values));
-    e.clipboardData.setData("text/html", clipboardHtml(values));
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    void this.bridge.flash(`Table Plus: copied ${values.length} \xD7 ${values[0]?.length ?? 0} cells`, "info");
-  };
   // ---- formula editing: help and references -------------------------------
   /**
    * While a formula is edited: the help for what is typed under the cell, and
@@ -3814,10 +3855,11 @@ ${error}` : stored.formula;
         skipped = pasted.skipped;
         return pasted.table;
       },
-      void 0,
-      newColumns.count ? (c) => c >= newColumns.at ? c + newColumns.count : c : void 0,
-      plan.pins,
-      newRows.count ? (r) => r >= newRows.at ? r + newRows.count : r : void 0
+      {
+        columnMap: newColumns.count ? (c) => c >= newColumns.at ? c + newColumns.count : c : void 0,
+        pins: plan.pins,
+        rowMap: newRows.count ? (r) => r >= newRows.at ? r + newRows.count : r : void 0
+      }
     );
     if (result !== "written") return;
     const width = Math.max(...data.map((r) => r.length));
@@ -4070,25 +4112,24 @@ ${error}` : stored.formula;
   }
   // ---- writing markdown --------------------------------------------------
   /**
-   * Re-reads the table from the page, applies `change` and writes the result
-   * back as one edit. `change` returns undefined to abort.
+   * Re-reads the table from the page, applies `change`, then the write steps
+   * (formulas, metadata), and writes the result back as one edit. `change`
+   * returns undefined to abort.
    */
-  async write(widget, change, focus, columnMap, pins, rowMap) {
+  async write(widget, change, options = {}) {
+    const { focus, columnMap } = options;
     const info = this.infos.get(widget);
     if (!info) return "failed";
     try {
       const text = await this.bridge.getText();
       const range = locateBySource(text, info.hint, info.source);
       const before = range && parseTable(range.text);
-      const changedTable = before && change(before);
-      const shifted = changedTable && shiftReferences(before, changedTable, rowMap, columnMap);
-      const edited = shifted && recalculate(shifted);
+      const edited = before && change(before);
       if (!range || !before || !edited) {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
-      const followed = followMetaSort(before, edited, columnMap ?? ((c) => c));
-      const changed = pins ? withMetaPins(followed, pins) : followed;
+      const changed = this.writeSteps.reduce((table, step) => step(before, table, options), edited);
       const format = await this.setting("autoFormat");
       const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
       if (markdown === range.text) return "unchanged";
@@ -4151,10 +4192,7 @@ ${error}` : stored.formula;
         const prepared = prepare(t);
         return prepared && withCalculatedCells(insertRow(prepared, insert.at), insert.at);
       },
-      { row: insert.at, column },
-      void 0,
-      insert.pins,
-      rowAfterInsert(insert.at)
+      { focus: { row: insert.at, column }, pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
     );
   }
   duplicateRowAt(widget, info, row) {
@@ -4165,62 +4203,54 @@ ${error}` : stored.formula;
         const cells = t.rows[row]?.cells;
         return cells ? insertRow(t, insert.at, cells) : void 0;
       },
-      void 0,
-      void 0,
-      insert.pins,
-      rowAfterInsert(insert.at)
+      { pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
     );
   }
   deleteRowAt(widget, info, row) {
-    return this.write(
-      widget,
-      (t) => deleteRow(t, row),
-      void 0,
-      void 0,
-      deleteRowPins(info.pins, info.rows, row),
-      (r) => r === row ? void 0 : r > row ? r - 1 : r
-    );
+    return this.write(widget, (t) => deleteRow(t, row), {
+      pins: deleteRowPins(info.pins, info.rows, row),
+      rowMap: (r) => r === row ? void 0 : r > row ? r - 1 : r
+    });
   }
   /** Moves a row, within its zone when pinned, outside the zones when not */
   moveRowTo(widget, info, from, asked) {
     const to = clampRowMove(info.pins, info.rows, from, asked);
     if (to === from) return Promise.resolve("unchanged");
-    return this.write(widget, (t) => moveRow(t, from, to), void 0, void 0, void 0, (r) => columnAfterMove(r, from, to));
+    return this.write(widget, (t) => moveRow(t, from, to), { rowMap: (r) => columnAfterMove(r, from, to) });
   }
   insertColumnWith(widget, info, at) {
     const insert = insertColumnAt(info.pins, info.columns, at);
     return this.write(
       widget,
       (t) => insertColumn(t, insert.at),
-      { row: 0, column: insert.at, select: true },
-      (c) => c >= insert.at ? c + 1 : c,
-      insert.pins
+      { focus: { row: 0, column: insert.at, select: true }, columnMap: (c) => c >= insert.at ? c + 1 : c, pins: insert.pins }
     );
   }
   deleteColumnAt(widget, info, column) {
     return this.write(
       widget,
       (t) => deleteColumn(t, column),
-      void 0,
-      (c) => c === column ? void 0 : c > column ? c - 1 : c,
-      deleteColumnPins(info.pins, info.columns, column)
+      {
+        columnMap: (c) => c === column ? void 0 : c > column ? c - 1 : c,
+        pins: deleteColumnPins(info.pins, info.columns, column)
+      }
     );
   }
   moveColumnTo(widget, info, from, asked) {
     const to = clampColumnMove(info.pins, info.columns, from, asked);
     if (to === from) return Promise.resolve("unchanged");
-    return this.write(widget, (t) => moveColumn(t, from, to), void 0, (c) => columnAfterMove(c, from, to));
+    return this.write(widget, (t) => moveColumn(t, from, to), { columnMap: (c) => columnAfterMove(c, from, to) });
   }
   /** Pins a row to the top or bottom (moving it there), or unpins it; pinning needs the metadata setting */
   async pinRowAt(widget, info, row, pin) {
     if (pin && !await this.setting("metadata")) return;
     const { to, pins } = pinRow(info.pins, info.rows, row, pin);
-    await this.write(widget, (t) => moveRow(t, row, to), void 0, void 0, pins, (r) => columnAfterMove(r, row, to));
+    await this.write(widget, (t) => moveRow(t, row, to), { pins, rowMap: (r) => columnAfterMove(r, row, to) });
   }
   async pinColumnAt(widget, info, column, pin) {
     if (pin && !await this.setting("metadata")) return;
     const { to, pins } = pinColumn(info.pins, info.columns, column, pin);
-    await this.write(widget, (t) => moveColumn(t, column, to), void 0, (c) => columnAfterMove(c, column, to), pins);
+    await this.write(widget, (t) => moveColumn(t, column, to), { columnMap: (c) => columnAfterMove(c, column, to), pins });
   }
   // ---- floating UI: toolbar, grips, add buttons --------------------------
   floating(tag, className) {
@@ -4627,7 +4657,7 @@ ${error}` : stored.formula;
     const view = this.viewOf(info);
     const sorted = view.sort?.column === column ? view.sort.direction : void 0;
     const align = parseTable(info.source).align[column] ?? "";
-    const edit = (change, focus, columnMap) => this.runAndClose(() => void this.write(widget, change, focus, columnMap));
+    const edit = (change, focus, columnMap) => this.runAndClose(() => void this.write(widget, change, { focus, columnMap }));
     const sortBy = (next) => this.runAndClose(() => this.setSort(widget, info, next));
     const alignTo = (target) => edit((t) => setAlign(t, column, align === target ? "" : target));
     const act = (run) => this.runAndClose(() => void run());

@@ -2,6 +2,17 @@
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
 import { type Bridge, SETTINGS, type SettingValue } from "./bridge.ts";
+import type {
+  CellRef,
+  Feature,
+  FocusTarget,
+  TableHost,
+  WidgetInfo,
+  WriteOptions,
+  WriteResult,
+  WriteStep,
+} from "./core/feature.ts";
+import { Selection } from "./features/selection.ts";
 import {
   caretTextOffset,
   cellText,
@@ -25,6 +36,7 @@ import {
   formulaCell,
   formulaCount,
   formulaErrors,
+  formulasAfterEdit,
   formulaHelp,
   formulaOf,
   type IndexMap,
@@ -36,7 +48,6 @@ import {
   referenceSlot,
   referencedColumn,
   references,
-  shiftReferences,
   withCalculatedCells,
   withColumnKeys,
   withoutFormulas,
@@ -58,7 +69,7 @@ import {
 } from "./markdown.ts";
 import { focusMenu, type MenuEntry, renderMenu } from "./menu.ts";
 import { parseClipboardCells, pasteCells, planPaste } from "./paste.ts";
-import { followMetaSort, metaPins, metaSort, withMetaPins, withMetaSort } from "./meta.ts";
+import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import {
   appendColumnAt,
   appendRowAt,
@@ -107,26 +118,6 @@ import {
   withSort,
 } from "./view.ts";
 
-type WidgetInfo = {
-  readonly table: HTMLTableElement;
-  // The table's markdown when it was rendered: the editor only reuses a
-  // rendered table while its markdown stays exactly the same
-  readonly source: string;
-  readonly hint: number;
-  readonly key: string;
-  readonly columns: number;
-  // The table ends with a metadata row (`<meta …>`), rendered as its last row
-  readonly metaRow: boolean;
-  // Rows in the markdown, the header included
-  readonly rows: number;
-  // Pinned rows and columns, as stored in the metadata row
-  readonly pins: Pins;
-  // Some formula cells show results from before the table was changed outside Table Plus
-  readonly stale: boolean;
-  // How many cells hold a formula (a <meta f> tag)
-  readonly formulas: number;
-};
-
 type ActiveEditor = {
   readonly widget: HTMLElement;
   readonly cell: HTMLTableCellElement;
@@ -140,11 +131,6 @@ type ActiveEditor = {
   readonly cellStyle: string | null;
 };
 
-type CellRef = { readonly row: number; readonly column: number };
-
-// A cell to edit once the table is rendered again; `select` selects its text
-type FocusTarget = CellRef & { readonly select?: boolean };
-
 type Axis = "row" | "column";
 
 // What the row and column grips currently belong to
@@ -155,8 +141,6 @@ type HandleTarget = {
   readonly column: number;
 };
 
-type WriteResult = "written" | "unchanged" | "failed";
-
 /** A table without its metadata row and without formulas (their cells keep their results) */
 function withoutMetadata(table: Table): Table {
   const { meta: _meta, metaSource: _source, ...rest } = withoutFormulas(table);
@@ -165,18 +149,6 @@ function withoutMetadata(table: Table): Table {
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-
-/** Cells as spreadsheets copy them: tabs and line breaks between; a cell with either or a quote in quotes */
-function clipboardText(values: readonly (readonly string[])[]): string {
-  const quote = (v: string) => (/[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
-  return values.map((row) => row.map(quote).join("\t")).join("\n");
-}
-
-function clipboardHtml(values: readonly (readonly string[])[]): string {
-  const escape = (v: string) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-  const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
-  return `<table>${rows}</table>`;
 }
 
 /** Where the rows of the markdown go when a row is inserted at `at` */
@@ -262,7 +234,7 @@ function placeAtEnd(parent: Element, rows: readonly HTMLTableRowElement[]): void
   }
 }
 
-export class Controller {
+export class Controller implements TableHost {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
   private readonly enhancing = new WeakSet<HTMLElement>();
   private readonly views = new Map<string, ViewState>();
@@ -313,14 +285,16 @@ export class Controller {
   private stopPointing: (() => void) | undefined;
   // The paste on its way was asked for with Ctrl+Shift+V: as new rows
   private pasteInserts = false;
-  // Cells selected by dragging across them (rows of the markdown, header 0), for copying
-  private selection: { readonly key: string; readonly anchor: CellRef; focus: CellRef } | undefined;
-  private stopSelecting: (() => void) | undefined;
+  // Features that keep their own state and work through this controller (core/feature.ts)
+  private readonly features: readonly Feature[];
+  // Steps every write goes through after the edit, in this order
+  private readonly writeSteps: readonly WriteStep[] = [formulasAfterEdit, metadataAfterEdit];
 
   constructor(
-    private readonly doc: Document,
-    private bridge: Bridge,
+    readonly doc: Document,
+    public bridge: Bridge,
   ) {
+    this.features = [new Selection(this)];
     this.bar = this.floating("div", "tp-bar");
     this.rowGrip = this.floatingButton("tp-handle tp-grip", "Row: click for actions, drag to move", ICONS.grip);
     this.columnGrip = this.floatingButton(
@@ -345,7 +319,6 @@ export class Controller {
     win.addEventListener("dblclick", this.onDoubleClick, true);
     win.addEventListener("scroll", this.onScroll, true);
     win.addEventListener("keydown", this.onKeyDown, true);
-    win.addEventListener("copy", this.onCopy, true);
     win.addEventListener("keyup", this.onKeyUp, true);
     win.addEventListener("blur", this.onBlur);
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
@@ -357,6 +330,7 @@ export class Controller {
 
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
+    for (const feature of this.features) feature.start?.();
     void this.scan();
     void this.refreshSettings();
   }
@@ -370,8 +344,7 @@ export class Controller {
     win.removeEventListener("dblclick", this.onDoubleClick, true);
     win.removeEventListener("scroll", this.onScroll, true);
     win.removeEventListener("keydown", this.onKeyDown, true);
-    win.removeEventListener("copy", this.onCopy, true);
-    this.stopSelecting?.();
+    for (const feature of this.features) feature.stop?.();
     win.removeEventListener("keyup", this.onKeyUp, true);
     win.removeEventListener("blur", this.onBlur);
     this.doc.removeEventListener("mousemove", this.onMouseMove);
@@ -442,14 +415,9 @@ export class Controller {
     ];
     this.views.set(info.key, withoutSort(view));
     const position = new Map(order.map((row, i) => [row, i + 1]));
-    await this.write(
-      widget,
-      (t) => withMetaSort(reorderRows(t, order), undefined),
-      undefined,
-      undefined,
-      undefined,
-      (r) => (r === 0 ? 0 : position.get(r)),
-    );
+    await this.write(widget, (t) => withMetaSort(reorderRows(t, order), undefined), {
+      rowMap: (r) => (r === 0 ? 0 : position.get(r)),
+    });
     this.focusEditor(widget);
   }
 
@@ -634,7 +602,7 @@ export class Controller {
       const scrollTop = this.scrollTops.get(info.key);
       if (scrollTop) widget.scrollTop = scrollTop;
       this.takePendingFocus(widget, info);
-      if (this.selection?.key === info.key) this.showSelection();
+      for (const feature of this.features) feature.enhanced?.(widget, info);
       this.queueStickyUpdate();
       void this.refreshSettings();
     } catch (e) {
@@ -780,8 +748,19 @@ export class Controller {
     await this.write(widget, (t) => withMetaSort(t, sort));
   }
 
+  // ---- host API for features (core/feature.ts) ----------------------------
+
+  infoOf(widget: HTMLElement): WidgetInfo | undefined {
+    return this.infos.get(widget);
+  }
+
+  cancelEditing(): void {
+    this.pendingFocus = undefined;
+    if (this.editor) void this.finishEditing(false);
+  }
+
   /** The rendered table a view key belongs to, if it is enhanced and on screen */
-  private widgetForKey(key: string): HTMLElement | undefined {
+  widgetForKey(key: string): HTMLElement | undefined {
     for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
       if (info?.key === key && renderedTable(widget) === info.table) return widget;
@@ -942,14 +921,14 @@ export class Controller {
     for (const type of STOPPED_EVENTS) element.addEventListener(type, (e) => e.stopPropagation());
   }
 
-  private enhancedWidgetOf(target: EventTarget | null): [HTMLElement, WidgetInfo] | undefined {
+  enhancedWidgetOf(target: EventTarget | null): [HTMLElement, WidgetInfo] | undefined {
     if (!(target instanceof Element)) return undefined;
     const widget = target.closest<HTMLElement>(WIDGET_SELECTOR);
     const info = widget && this.infos.get(widget);
     return widget && info && renderedTable(widget) === info.table ? [widget, info] : undefined;
   }
 
-  private tableCellOf(info: WidgetInfo, target: EventTarget | null): HTMLTableCellElement | undefined {
+  tableCellOf(info: WidgetInfo, target: EventTarget | null): HTMLTableCellElement | undefined {
     if (!(target instanceof Element)) return undefined;
     const cell = target.closest<HTMLTableCellElement>("td, th");
     if (!cell || cell.closest("table") !== info.table) return undefined;
@@ -968,7 +947,7 @@ export class Controller {
       return;
     }
     if (this.menu && target && !this.isFloating(target)) this.closeMenu(false);
-    if (this.selection && !(target && this.isFloating(target))) this.clearSelection();
+    if (e.button === 0) for (const feature of this.features) feature.beforeMouseDown?.(e);
     if (e.button === 1) this.onMiddleMouseDown(e);
     if (e.button !== 0) return;
     if (e.altKey) {
@@ -1000,8 +979,7 @@ export class Controller {
     const select = e.shiftKey !== this.selectOnClick;
     if (this.editor) void this.finishEditing(true, { widget, ...ref, select });
     else this.openEditor(widget, info, cell, select);
-    // Dragging on to another cell selects the cells in between instead
-    this.trackSelection(info.key, ref);
+    for (const feature of this.features) feature.afterCellPress?.(info, ref, e);
   };
 
   /**
@@ -1284,19 +1262,7 @@ export class Controller {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === "Escape" && this.selection) {
-      e.preventDefault();
-      this.clearSelection();
-      return;
-    }
-    // Delete empties the selected cells; in a field (a cell editor, a filter) it deletes text as usual
-    const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
-    if (e.key === "Delete" && this.selection && !inField && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      void this.emptySelectedCells();
-      return;
-    }
+    for (const feature of this.features) if (feature.keyDown?.(e)) return;
     if (e.key === "Escape" && this.menu) {
       e.preventDefault();
       e.stopPropagation();
@@ -1402,7 +1368,7 @@ export class Controller {
 
   // ---- cell editing ------------------------------------------------------
 
-  private cellRef(info: WidgetInfo, cell: HTMLTableCellElement): CellRef | undefined {
+  cellRef(info: WidgetInfo, cell: HTMLTableCellElement): CellRef | undefined {
     const tr = cell.parentElement as HTMLTableRowElement | null;
     if (!tr) return undefined;
     const row = tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow);
@@ -1630,7 +1596,7 @@ export class Controller {
     const sameTable = next?.widget === closed.widget;
     let result: WriteResult = "unchanged";
     if (changed) {
-      result = await this.write(closed.widget, (t) => this.withCellEdit(t, closed), sameTable ? next : undefined);
+      result = await this.write(closed.widget, (t) => this.withCellEdit(t, closed), { focus: sameTable ? next : undefined });
     }
     if (next && (result === "unchanged" || !sameTable)) {
       // The other table was not re-rendered by this edit unless they share text
@@ -1717,7 +1683,7 @@ export class Controller {
   }
 
   /** The header row and the shown body rows, in display order */
-  private shownRows(info: WidgetInfo): HTMLTableRowElement[] {
+  shownRows(info: WidgetInfo): HTMLTableRowElement[] {
     return [
       info.table.rows[0]!,
       ...Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]:not(.tp-hidden)")),
@@ -1768,10 +1734,9 @@ export class Controller {
         if (!edited) return undefined;
         return vertical ? moveRow(edited, from, to) : moveColumn(edited, from, to);
       },
-      vertical ? { row: to, column: closed.column } : { row: closed.row, column: to },
-      vertical ? undefined : (c) => columnAfterMove(c, from, to),
-      undefined,
-      vertical ? (r) => columnAfterMove(r, from, to) : undefined,
+      vertical
+        ? { focus: { row: to, column: closed.column }, rowMap: (r) => columnAfterMove(r, from, to) }
+        : { focus: { row: closed.row, column: to }, columnMap: (c) => columnAfterMove(c, from, to) },
     );
   }
 
@@ -1873,107 +1838,6 @@ export class Controller {
   private focusEditor(widget: HTMLElement): void {
     widget.closest<HTMLElement>(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
-
-  // ---- selecting cells to copy ------------------------------------------------
-
-  /**
-   * After a press on a cell: dragging on to another cell of the table, with
-   * the button held, selects the cells between the two as shown (sorting and
-   * filters included), and closes the cell editor the press opened, unchanged
-   */
-  private trackSelection(key: string, anchor: CellRef): void {
-    this.stopSelecting?.();
-    const win = this.doc.defaultView!;
-    const move = (ev: MouseEvent) => {
-      if (ev.buttons === 0) {
-        end();
-        return;
-      }
-      const hit = this.enhancedWidgetOf(ev.target);
-      const cell = hit && hit[1].key === key ? this.tableCellOf(hit[1], ev.target) : undefined;
-      const ref = hit && cell ? this.cellRef(hit[1], cell) : undefined;
-      if (!ref) return;
-      const current = this.selection;
-      if (!current) {
-        if (ref.row === anchor.row && ref.column === anchor.column) return;
-        // The press opened the anchor's editor: it goes, nothing was typed in it
-        this.pendingFocus = undefined;
-        if (this.editor) void this.finishEditing(false);
-        this.selection = { key, anchor, focus: ref };
-      } else if (current.focus.row === ref.row && current.focus.column === ref.column) return;
-      else current.focus = ref;
-      this.showSelection();
-    };
-    const end = () => {
-      win.removeEventListener("mousemove", move, true);
-      win.removeEventListener("mouseup", end, true);
-      this.stopSelecting = undefined;
-    };
-    win.addEventListener("mousemove", move, true);
-    win.addEventListener("mouseup", end, true);
-    this.stopSelecting = end;
-  }
-
-  /** The selected cells as shown: rows top to bottom (the header first), columns left to right */
-  private selectedCells(): HTMLTableCellElement[][] | undefined {
-    const selection = this.selection;
-    const widget = selection && this.widgetForKey(selection.key);
-    const info = widget && this.infos.get(widget);
-    if (!selection || !info) return undefined;
-    const shown = this.shownRows(info);
-    const index = (row: number) => shown.findIndex((tr) => (row === 0 ? tr === info.table.rows[0] : tr.dataset.tpRow === String(row)));
-    const a = index(selection.anchor.row);
-    const b = index(selection.focus.row);
-    if (a < 0 || b < 0) return undefined;
-    const left = Math.min(selection.anchor.column, selection.focus.column);
-    const right = Math.max(selection.anchor.column, selection.focus.column);
-    return shown.slice(Math.min(a, b), Math.max(a, b) + 1).map((tr) => Array.from(tr.cells).slice(left, right + 1));
-  }
-
-  private showSelection(): void {
-    for (const cell of Array.from(this.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
-    for (const row of this.selectedCells() ?? []) for (const cell of row) cell.classList.add("tp-selected");
-  }
-
-  /**
-   * Empties the selected cells, formulas included, as one edit; header cells
-   * keep their names (a column needs one). The selection stays.
-   */
-  private async emptySelectedCells(): Promise<void> {
-    const selection = this.selection;
-    const widget = selection && this.widgetForKey(selection.key);
-    const info = widget && this.infos.get(widget);
-    const cells = this.selectedCells();
-    if (!widget || !info || !cells) return;
-    const refs = cells
-      .flat()
-      .map((cell) => this.cellRef(info, cell))
-      .filter((ref): ref is CellRef => ref !== undefined && ref.row > 0);
-    await this.write(widget, (t) => refs.reduce((table, ref) => setCell(table, ref.row, ref.column, ""), t));
-  }
-
-  private clearSelection(): void {
-    this.selection = undefined;
-    for (const cell of Array.from(this.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
-  }
-
-  /**
-   * Ctrl+C with cells selected copies them as a spreadsheet does: as text with
-   * a tab between cells and a line break between rows, and as an HTML table,
-   * so Excel and Google Sheets paste them into cells. Cells copy what they
-   * show (a formula's result, a link's text).
-   */
-  private onCopy = (e: ClipboardEvent): void => {
-    const cells = this.selection && this.selectedCells();
-    const active = this.doc.activeElement;
-    if (!cells || !e.clipboardData || (active instanceof HTMLInputElement && active.selectionStart !== active.selectionEnd)) return;
-    const values = cells.map((row) => row.map(cellText));
-    e.clipboardData.setData("text/plain", clipboardText(values));
-    e.clipboardData.setData("text/html", clipboardHtml(values));
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    void this.bridge.flash(`Table Plus: copied ${values.length} × ${values[0]?.length ?? 0} cells`, "info");
-  };
 
   // ---- formula editing: help and references -------------------------------
 
@@ -2136,10 +2000,11 @@ export class Controller {
         skipped = pasted.skipped;
         return pasted.table;
       },
-      undefined,
-      newColumns.count ? (c) => (c >= newColumns.at ? c + newColumns.count : c) : undefined,
-      plan.pins,
-      newRows.count ? (r) => (r >= newRows.at ? r + newRows.count : r) : undefined,
+      {
+        columnMap: newColumns.count ? (c) => (c >= newColumns.at ? c + newColumns.count : c) : undefined,
+        pins: plan.pins,
+        rowMap: newRows.count ? (r) => (r >= newRows.at ? r + newRows.count : r) : undefined,
+      },
     );
     if (result !== "written") return;
     const width = Math.max(...data.map((r) => r.length));
@@ -2416,36 +2281,28 @@ export class Controller {
   // ---- writing markdown --------------------------------------------------
 
   /**
-   * Re-reads the table from the page, applies `change` and writes the result
-   * back as one edit. `change` returns undefined to abort.
+   * Re-reads the table from the page, applies `change`, then the write steps
+   * (formulas, metadata), and writes the result back as one edit. `change`
+   * returns undefined to abort.
    */
-  private async write(
+  async write(
     widget: HTMLElement,
     change: (table: Table) => Table | undefined,
-    focus?: FocusTarget,
-    columnMap?: (column: number) => number | undefined,
-    // The pins after the edit, for edits that change them
-    pins?: Pins,
-    // Where each row of the markdown (header 0) goes, for edits that move rows
-    rowMap?: IndexMap,
+    options: WriteOptions = {},
   ): Promise<WriteResult> {
+    const { focus, columnMap } = options;
     const info = this.infos.get(widget);
     if (!info) return "failed";
     try {
       const text = await this.bridge.getText();
       const range = locateBySource(text, info.hint, info.source);
       const before = range && parseTable(range.text);
-      const changedTable = before && change(before);
-      // Formula references follow moved rows and columns, then the results are written
-      const shifted = changedTable && shiftReferences(before, changedTable, rowMap, columnMap);
-      const edited = shifted && recalculate(shifted);
+      const edited = before && change(before);
       if (!range || !before || !edited) {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
-      // A stored sorting stays on its column: renamed, moved, or gone with it
-      const followed = followMetaSort(before, edited, columnMap ?? ((c) => c));
-      const changed = pins ? withMetaPins(followed, pins) : followed;
+      const changed = this.writeSteps.reduce((table, step) => step(before, table, options), edited);
       // With the autoFormat setting every edited table is written aligned
       const format = await this.setting("autoFormat");
       const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
@@ -2523,10 +2380,7 @@ export class Controller {
         // Columns that compute every row with the same formula compute the new row too
         return prepared && withCalculatedCells(insertRow(prepared, insert.at), insert.at);
       },
-      { row: insert.at, column },
-      undefined,
-      insert.pins,
-      rowAfterInsert(insert.at),
+      { focus: { row: insert.at, column }, pins: insert.pins, rowMap: rowAfterInsert(insert.at) },
     );
   }
 
@@ -2539,29 +2393,22 @@ export class Controller {
         const cells = t.rows[row]?.cells;
         return cells ? insertRow(t, insert.at, cells) : undefined;
       },
-      undefined,
-      undefined,
-      insert.pins,
-      rowAfterInsert(insert.at),
+      { pins: insert.pins, rowMap: rowAfterInsert(insert.at) },
     );
   }
 
   private deleteRowAt(widget: HTMLElement, info: WidgetInfo, row: number): Promise<WriteResult> {
-    return this.write(
-      widget,
-      (t) => deleteRow(t, row),
-      undefined,
-      undefined,
-      deleteRowPins(info.pins, info.rows, row),
-      (r) => (r === row ? undefined : r > row ? r - 1 : r),
-    );
+    return this.write(widget, (t) => deleteRow(t, row), {
+      pins: deleteRowPins(info.pins, info.rows, row),
+      rowMap: (r) => (r === row ? undefined : r > row ? r - 1 : r),
+    });
   }
 
   /** Moves a row, within its zone when pinned, outside the zones when not */
   private moveRowTo(widget: HTMLElement, info: WidgetInfo, from: number, asked: number): Promise<WriteResult> {
     const to = clampRowMove(info.pins, info.rows, from, asked);
     if (to === from) return Promise.resolve("unchanged");
-    return this.write(widget, (t) => moveRow(t, from, to), undefined, undefined, undefined, (r) => columnAfterMove(r, from, to));
+    return this.write(widget, (t) => moveRow(t, from, to), { rowMap: (r) => columnAfterMove(r, from, to) });
   }
 
   private insertColumnWith(widget: HTMLElement, info: WidgetInfo, at: number): Promise<WriteResult> {
@@ -2569,9 +2416,7 @@ export class Controller {
     return this.write(
       widget,
       (t) => insertColumn(t, insert.at),
-      { row: 0, column: insert.at, select: true },
-      (c) => (c >= insert.at ? c + 1 : c),
-      insert.pins,
+      { focus: { row: 0, column: insert.at, select: true }, columnMap: (c) => (c >= insert.at ? c + 1 : c), pins: insert.pins },
     );
   }
 
@@ -2579,23 +2424,24 @@ export class Controller {
     return this.write(
       widget,
       (t) => deleteColumn(t, column),
-      undefined,
-      (c) => (c === column ? undefined : c > column ? c - 1 : c),
-      deleteColumnPins(info.pins, info.columns, column),
+      {
+        columnMap: (c) => (c === column ? undefined : c > column ? c - 1 : c),
+        pins: deleteColumnPins(info.pins, info.columns, column),
+      },
     );
   }
 
   private moveColumnTo(widget: HTMLElement, info: WidgetInfo, from: number, asked: number): Promise<WriteResult> {
     const to = clampColumnMove(info.pins, info.columns, from, asked);
     if (to === from) return Promise.resolve("unchanged");
-    return this.write(widget, (t) => moveColumn(t, from, to), undefined, (c) => columnAfterMove(c, from, to));
+    return this.write(widget, (t) => moveColumn(t, from, to), { columnMap: (c) => columnAfterMove(c, from, to) });
   }
 
   /** Pins a row to the top or bottom (moving it there), or unpins it; pinning needs the metadata setting */
   private async pinRowAt(widget: HTMLElement, info: WidgetInfo, row: number, pin: RowZone | undefined): Promise<void> {
     if (pin && !(await this.setting("metadata"))) return;
     const { to, pins } = pinRow(info.pins, info.rows, row, pin);
-    await this.write(widget, (t) => moveRow(t, row, to), undefined, undefined, pins, (r) => columnAfterMove(r, row, to));
+    await this.write(widget, (t) => moveRow(t, row, to), { pins, rowMap: (r) => columnAfterMove(r, row, to) });
   }
 
   private async pinColumnAt(
@@ -2606,7 +2452,7 @@ export class Controller {
   ): Promise<void> {
     if (pin && !(await this.setting("metadata"))) return;
     const { to, pins } = pinColumn(info.pins, info.columns, column, pin);
-    await this.write(widget, (t) => moveColumn(t, column, to), undefined, (c) => columnAfterMove(c, column, to), pins);
+    await this.write(widget, (t) => moveColumn(t, column, to), { columnMap: (c) => columnAfterMove(c, column, to), pins });
   }
 
   // ---- floating UI: toolbar, grips, add buttons --------------------------
@@ -2635,7 +2481,7 @@ export class Controller {
     return button;
   }
 
-  private isFloating(node: Node): boolean {
+  isFloating(node: Node): boolean {
     return (
       [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn].some((el) => el.contains(node)) ||
       !!this.menu?.element.contains(node)
@@ -3082,7 +2928,7 @@ export class Controller {
       change: (t: Table) => Table | undefined,
       focus?: FocusTarget,
       columnMap?: (c: number) => number | undefined,
-    ) => this.runAndClose(() => void this.write(widget, change, focus, columnMap));
+    ) => this.runAndClose(() => void this.write(widget, change, { focus, columnMap }));
     const sortBy = (next: ViewState) => this.runAndClose(() => this.setSort(widget, info, next));
     const alignTo = (target: Align) => edit((t) => setAlign(t, column, align === target ? "" : target));
     const act = (run: () => unknown) => this.runAndClose(() => void run());
