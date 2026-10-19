@@ -15,6 +15,7 @@ import type {
 import { CellEditing } from "./core/editor.ts";
 import { insertColumnWith, insertRowWith } from "./core/structure.ts";
 import { Autoscroll } from "./features/autoscroll.ts";
+import { ColumnTypes } from "./features/types.ts";
 import { Expressions } from "./features/expressions.ts";
 import { Formulas } from "./features/formulas.ts";
 import { Grips } from "./features/grips.ts";
@@ -26,6 +27,7 @@ import { Sticky } from "./features/sticky.ts";
 import {
   caretTextOffset,
   cellText,
+  cellValue,
   EDITOR_SELECTOR,
   INTERACTIVE_SELECTOR,
   NATIVE_ACTION_SELECTOR,
@@ -163,6 +165,8 @@ export class Controller implements TableHost {
       new Autoscroll(this),
       new Grips(this),
       new Formulas(this),
+      // After formulas: a formula's result is shown in its column's type
+      new ColumnTypes(this),
       this.metadata,
       new Paste(this),
       new Selection(this),
@@ -271,7 +275,7 @@ export class Controller implements TableHost {
     this.sortTimers.delete(shownInfo.key);
     const [widget, info] = this.current(shownWidget, shownInfo);
     const rows = this.bodyRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map(cellText));
+    const values = rows.map((tr) => Array.from(tr.cells).map(cellValue));
     const { top, bottom } = info.pins;
     const middle = visibleRows(values, withPins({ ...view, filters: [] }, info.pins), this.filterOptions);
     const order = [
@@ -595,7 +599,7 @@ export class Controller implements TableHost {
     const view = this.viewOf(info);
     const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map(cellText));
+    const values = rows.map((tr) => Array.from(tr.cells).map(cellValue));
     const order = visibleRows(values, withPins(view, info.pins), this.filterOptions);
     const shown = new Set(order);
     const body = info.table.tBodies[0] ?? info.table;

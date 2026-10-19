@@ -883,6 +883,14 @@ body.tp-autoscrolling * {
 }
 
 /* Formulas */
+/* Column types: the type's hashtag is hidden; a value not of the type is red */
+.sb-table-widget .tp-type-tag {
+  display: none;
+}
+.sb-table-widget.tp-table td.tp-type-invalid {
+  color: var(--danger-color);
+}
+
 /* Cells selected by dragging, to copy */
 .sb-table-widget.tp-table td.tp-selected {
   background-color: color-mix(in srgb, var(--ui-accent-color) 18%, transparent);

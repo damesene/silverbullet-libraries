@@ -54,7 +54,9 @@ function markup(text: string): string {
     .replace(/\[\[([^\]]+)\]\]/g, '<a data-ref="$1">$1</a>')
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
-    .replace(/(^|\s)_([^_]+)_/g, "$1<em>$2</em>");
+    .replace(/(^|\s)_([^_]+)_/g, "$1<em>$2</em>")
+    // Hashtags are links, as SilverBullet renders them
+    .replace(/(^|\s)#([^\s#<&]+)/g, '$1<a class="hashtag sb-hashtag" data-tag-name="$2" data-ref="tag:$2">#$2</a>');
 }
 
 function renderTable(from: number, text: string): HTMLElement {

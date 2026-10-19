@@ -1,7 +1,7 @@
 // Selecting cells by dragging across them, to copy them for a spreadsheet
 // (Ctrl+C) or empty them (Delete).
 import type { CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
-import { cellText } from "../dom.ts";
+import { cellValue } from "../dom.ts";
 import { setCell } from "../ops.ts";
 
 /** Cells as spreadsheets copy them: tabs and line breaks between; a cell with either or a quote in quotes */
@@ -150,13 +150,13 @@ export class Selection implements Feature {
    * Ctrl+C with cells selected copies them as a spreadsheet does: as text with
    * a tab between cells and a line break between rows, and as an HTML table,
    * so Excel and Google Sheets paste them into cells. Cells copy what they
-   * show (a formula's result, a link's text).
+   * show (a formula's result, a link's text), a typed cell its value.
    */
   private onCopy = (e: ClipboardEvent): void => {
     const cells = this.selection && this.cells();
     const active = this.host.doc.activeElement;
     if (!cells || !e.clipboardData || (active instanceof HTMLInputElement && active.selectionStart !== active.selectionEnd)) return;
-    const values = cells.map((row) => row.map(cellText));
+    const values = cells.map((row) => row.map(cellValue));
     e.clipboardData.setData("text/plain", clipboardText(values));
     e.clipboardData.setData("text/html", clipboardHtml(values));
     e.preventDefault();

@@ -571,13 +571,17 @@ function positionHint(table) {
   const pos = element instanceof HTMLElement ? Number(element.dataset.pos) : NaN;
   return Number.isFinite(pos) ? pos : void 0;
 }
+var TYPE_TAG_CLASS = "tp-type-tag";
 function cellText(cell) {
   let text = "";
   for (const node of Array.from(cell.childNodes)) {
-    if (node instanceof Element && node.classList.contains(UI_CLASS)) continue;
+    if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
     text += node.textContent ?? "";
   }
   return text.replace(/\s+/g, " ").trim();
+}
+function cellValue(cell) {
+  return cell.dataset.tpValue ?? cellText(cell);
 }
 function caretTextOffset(cell, x, y) {
   const doc = cell.ownerDocument;
@@ -1108,79 +1112,6 @@ var Autoscroll = class {
   }
 };
 
-// table-plus/src/format.ts
-function formatLuaNumber(n) {
-  if (Number.isInteger(n)) return String(n);
-  if (Number.isNaN(n)) return "-nan";
-  if (n === Infinity) return "inf";
-  if (n === -Infinity) return "-inf";
-  const [mantissa, exp] = n.toExponential(13).split("e");
-  const exponent = Number(exp);
-  if (exponent < -4 || exponent >= 14) {
-    const digits = Math.abs(exponent) < 10 ? `0${Math.abs(exponent)}` : String(Math.abs(exponent));
-    return `${trimZeros(mantissa)}e${exponent < 0 ? "-" : "+"}${digits}`;
-  }
-  return trimZeros(n.toFixed(13 - exponent));
-}
-function trimZeros(s) {
-  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
-}
-
-// table-plus/src/features/expressions.ts
-var INDEX_SETTLE_MS = 500;
-var Expressions = class {
-  constructor(host) {
-    this.host = host;
-  }
-  host;
-  timer;
-  stopped = false;
-  stop() {
-    this.stopped = true;
-    clearTimeout(this.timer);
-  }
-  /** SilverBullet's `page:index` event for a page */
-  async pageIndexed(name) {
-    const { bridge } = this.host;
-    if (this.stopped || !bridge.evalExpression) return;
-    if (name !== await bridge.getCurrentPage()) return;
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.refresh(), INDEX_SETTLE_MS);
-  }
-  async refresh() {
-    const { bridge, doc } = this.host;
-    for (const widget of Array.from(doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
-      const info = this.host.infoOf(widget);
-      if (this.stopped || !info || !info.source.includes("${")) continue;
-      const rows = parseTable(info.source).rows;
-      let changed = false;
-      for (let row = 0; row < rows.length; row++) {
-        const cells = rows[row].cells;
-        for (let column = 0; column < cells.length; column++) {
-          const expression = /^\$\{([\s\S]+)\}$/.exec(cells[column].trim())?.[1];
-          if (!expression) continue;
-          let value;
-          try {
-            value = await bridge.evalExpression(expression.replaceAll("\\|", "|"));
-          } catch {
-            continue;
-          }
-          const text = value === null || value === void 0 ? "" : typeof value === "number" ? formatLuaNumber(value) : typeof value === "string" || typeof value === "boolean" ? String(value) : void 0;
-          const cell = this.host.cellAt(info, { row, column }, true);
-          if (text === void 0 || !cell || cell === this.host.editing?.cell || renderedTable(widget) !== info.table) continue;
-          if (cellText(cell) === text) continue;
-          for (const node of Array.from(cell.childNodes)) {
-            if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
-          }
-          cell.prepend(doc.createTextNode(text));
-          changed = true;
-        }
-      }
-      if (changed && renderedTable(widget) === info.table) this.host.applyView(widget, info);
-    }
-  }
-};
-
 // table-plus/src/columns.ts
 var HASHTAG_RE = /(^|\s)#[^\s#]+/g;
 function columnName(header) {
@@ -1212,6 +1143,24 @@ function followColumn(before, after, id, map = (c) => c) {
 }
 function sameColumnId(a, b) {
   return columnKey(a.name) === columnKey(b.name) && a.nth === b.nth;
+}
+
+// table-plus/src/format.ts
+function formatLuaNumber(n) {
+  if (Number.isInteger(n)) return String(n);
+  if (Number.isNaN(n)) return "-nan";
+  if (n === Infinity) return "inf";
+  if (n === -Infinity) return "-inf";
+  const [mantissa, exp] = n.toExponential(13).split("e");
+  const exponent = Number(exp);
+  if (exponent < -4 || exponent >= 14) {
+    const digits = Math.abs(exponent) < 10 ? `0${Math.abs(exponent)}` : String(Math.abs(exponent));
+    return `${trimZeros(mantissa)}e${exponent < 0 ? "-" : "+"}${digits}`;
+  }
+  return trimZeros(n.toFixed(13 - exponent));
+}
+function trimZeros(s) {
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
 }
 
 // table-plus/src/view.ts
@@ -2363,6 +2312,328 @@ function formulaHelp(text, caret) {
   }
   return [REFERENCE_HELP];
 }
+
+// table-plus/src/types/check.ts
+var YES = /* @__PURE__ */ new Set(["yes", "y", "true", "1", "x", "\u2713", "\u2714", "\u2705", "done", "ok"]);
+var NO = /* @__PURE__ */ new Set(["no", "n", "false", "0", "\u2717", "\u274C", "-"]);
+var check_default = {
+  name: "check",
+  syntax: "#check",
+  description: "Yes or no as a check mark: yes, true, 1, x or \u2705 shows \u2705; no, false, 0 or \u274C shows \u274C.",
+  aliases: { logical: "" },
+  check: (text) => YES.has(text.trim().toLowerCase()) || NO.has(text.trim().toLowerCase()) ? void 0 : `"${text}" is not yes or no`,
+  format: (text) => YES.has(text.trim().toLowerCase()) ? "\u2705" : "\u274C",
+  sortValue: (text) => YES.has(text.trim().toLowerCase()) ? "1" : "0",
+  choices: () => [
+    { value: "yes", label: "\u2705 yes" },
+    { value: "no", label: "\u274C no" }
+  ]
+};
+
+// table-plus/src/types/helpers.ts
+function numberOf(text) {
+  return asNumber(text);
+}
+function notANumber(text) {
+  return numberOf(text) === void 0 ? `"${text}" is not a number` : void 0;
+}
+function formatNumber2(n, locale, options = {}) {
+  return new Intl.NumberFormat(locale, options).format(n);
+}
+
+// table-plus/src/types/currency.ts
+var currency_default = {
+  name: "currency",
+  syntax: "#currency, #currency-usd",
+  description: "An amount of money: the currency's three-letter code after the dash (default EUR).",
+  param: /^[a-z]{3}$/i,
+  aliases: { euro: "eur", eur: "eur", usd: "usd", czk: "czk", gbp: "gbp" },
+  check: notANumber,
+  format: (text, param, locale) => formatNumber2(numberOf(text), locale, { style: "currency", currency: (param ?? "eur").toUpperCase() })
+};
+
+// table-plus/src/types/date.ts
+var DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/;
+function dateOf(text) {
+  const m = DATE_RE.exec(text.trim());
+  if (!m) return void 0;
+  const [y, mo, d, h, mi] = m.slice(1).map((part) => part === void 0 ? void 0 : Number(part));
+  const date = new Date(y, mo - 1, d, h ?? 0, mi ?? 0);
+  return date.getMonth() === mo - 1 && date.getDate() === d ? { date, time: h !== void 0 } : void 0;
+}
+var date_default = {
+  name: "date",
+  syntax: "#date, #date-long",
+  description: "A date written as 2025-11-06 (with a time: 2025-11-06 14:30), shown as the locale writes it: short, medium (default) or long after the dash.",
+  param: /^(short|medium|long)$/i,
+  check: (text) => dateOf(text) ? void 0 : `"${text}" is not a date written as 2025-11-06`,
+  format: (text, param, locale) => {
+    const { date, time } = dateOf(text);
+    const dateStyle = param?.toLowerCase() ?? "medium";
+    return new Intl.DateTimeFormat(locale, { dateStyle, ...time ? { timeStyle: "short" } : {} }).format(date);
+  }
+};
+
+// table-plus/src/types/link.ts
+var link_default = {
+  name: "link",
+  syntax: "#link",
+  description: "A web address as a link, shown without its https://.",
+  check: (text) => /^https?:\/\/\S+$/.test(text.trim()) ? void 0 : `"${text}" is not a web address starting with http:// or https://`,
+  format: (text) => ({ text: text.trim().replace(/^https?:\/\//, "").replace(/\/$/, ""), href: text.trim() })
+};
+
+// table-plus/src/types/number.ts
+var number_default = {
+  name: "number",
+  syntax: "#number, #number-2",
+  description: "A number with thousands separators: the decimal places after the dash (default: as written).",
+  param: /^\d$/,
+  aliases: { int: "0", float: "2" },
+  check: notANumber,
+  format: (text, param, locale) => {
+    const digits = param === void 0 ? void 0 : Number(param);
+    return formatNumber2(numberOf(text), locale, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits ?? 10
+    });
+  }
+};
+
+// table-plus/src/types/percent.ts
+function fraction(text) {
+  const n = numberOf(text);
+  return text.includes("%") ? n / 100 : n;
+}
+var percent_default = {
+  name: "percent",
+  syntax: "#percent, #percent-1",
+  description: "A fraction as a percentage, 0.15 is 15 % (15 % stays 15 %): the decimal places after the dash (default 0).",
+  param: /^\d$/,
+  check: notANumber,
+  format: (text, param, locale) => {
+    const digits = Number(param ?? 0);
+    return formatNumber2(fraction(text), locale, { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits });
+  },
+  sortValue: (text) => String(fraction(text))
+};
+
+// table-plus/src/types/progress.ts
+var most = (param) => Number(param ?? 100);
+var progress_default = {
+  name: "progress",
+  syntax: "#progress, #progress-10",
+  description: "Progress as a bar: a number from 0 to the maximum after the dash (default 100).",
+  param: /^[1-9]\d*$/,
+  aliases: { gauge: "100" },
+  check: (text, param) => {
+    const n = numberOf(text);
+    return n !== void 0 && n >= 0 && n <= most(param) ? void 0 : `"${text}" is not a number from 0 to ${most(param)}`;
+  },
+  format: (text, param, locale) => {
+    const share = numberOf(text) / most(param);
+    const filled = Math.round(share * 10);
+    return `${"\u25B0".repeat(filled)}${"\u25B1".repeat(10 - filled)} ${formatNumber2(share, locale, { style: "percent" })}`;
+  }
+};
+
+// table-plus/src/types/stars.ts
+var most2 = (param) => Number(param ?? 5);
+var stars_default = {
+  name: "stars",
+  syntax: "#stars, #stars-10",
+  description: "A rating as stars: a whole number from 0 to the most stars after the dash (default 5).",
+  param: /^[1-9]\d?$/,
+  aliases: { evaluation: "5" },
+  check: (text, param) => {
+    const n = numberOf(text);
+    return n !== void 0 && Number.isInteger(n) && n >= 0 && n <= most2(param) ? void 0 : `"${text}" is not a whole number from 0 to ${most2(param)}`;
+  },
+  format: (text, param) => {
+    const n = numberOf(text);
+    return "\u2605".repeat(n) + "\u2606".repeat(most2(param) - n);
+  },
+  choices: (param) => Array.from({ length: most2(param) + 1 }, (_, n) => ({ value: String(n), label: `${n} ${"\u2605".repeat(n)}` }))
+};
+
+// table-plus/src/types/trend.ts
+var ARROWS = { "+": "\u{1F53C}", "-": "\u{1F53D}", "=": "\u27A1\uFE0F" };
+var trend_default = {
+  name: "trend",
+  syntax: "#trend",
+  description: "A trend as an arrow: + shows \u{1F53C}, - shows \u{1F53D}, = shows \u27A1\uFE0F.",
+  check: (text) => ARROWS[text.trim()] ? void 0 : `"${text}" is not +, - or =`,
+  format: (text) => ARROWS[text.trim()],
+  choices: () => Object.entries(ARROWS).map(([value, arrow]) => ({ value, label: `${arrow} ${value}` }))
+};
+
+// table-plus/src/types/unit.ts
+var unit_default = {
+  name: "unit",
+  syntax: "#unit-kg",
+  description: "A number with a unit: the unit after the dash.",
+  param: /^[^\s#]+$/,
+  aliases: { kg: "kg", km: "km", watt: "W" },
+  check: (text, param) => param === void 0 ? "#unit needs a unit, e.g. #unit-kg" : notANumber(text),
+  format: (text, param, locale) => `${formatNumber2(numberOf(text), locale, { maximumFractionDigits: 10 })} ${param}`
+};
+
+// table-plus/src/types/index.ts
+var ALL2 = [currency_default, number_default, percent_default, unit_default, stars_default, check_default, date_default, trend_default, progress_default, link_default];
+var TYPES = new Map(ALL2.map((t) => [t.name, t]));
+var ALIASES = new Map(
+  ALL2.flatMap((t) => Object.entries(t.aliases ?? {}).map(([alias, param]) => [alias, { type: t, param: param || void 0 }]))
+);
+var HASHTAG_RE2 = /(^|\s)#([^\s#]+)/g;
+function typeOfTag(tag) {
+  const lower = tag.toLowerCase();
+  const alias = ALIASES.get(lower);
+  if (alias) return { ...alias, tag };
+  const dash = lower.indexOf("-");
+  const type = TYPES.get(dash < 0 ? lower : lower.slice(0, dash));
+  const param = dash < 0 ? void 0 : tag.slice(dash + 1);
+  if (!type || param !== void 0 && !type.param?.test(param)) return void 0;
+  return { type, param, tag };
+}
+function columnTypeOf(header) {
+  for (const match of header.matchAll(HASHTAG_RE2)) {
+    const typed = typeOfTag(match[2]);
+    if (typed) return typed;
+  }
+  return void 0;
+}
+function typeTagPatterns() {
+  return {
+    exact: [...ALL2.map((t) => t.name), ...ALIASES.keys()],
+    prefixes: ALL2.filter((t) => t.param).map((t) => `${t.name}-`)
+  };
+}
+
+// table-plus/src/features/types.ts
+function hiddenTagsCss() {
+  const { exact, prefixes } = typeTagPatterns();
+  const selectors = [
+    ...exact.map((tag) => `.sb-table-widget thead [data-tag-name="${tag}" i]`),
+    ...prefixes.map((prefix) => `.sb-table-widget thead [data-tag-name^="${prefix}" i]`)
+  ];
+  return `${selectors.join(",\n")} {
+  display: none;
+}
+`;
+}
+var ColumnTypes = class {
+  constructor(host) {
+    this.host = host;
+    this.style = host.doc.createElement("style");
+    this.style.dataset.tablePlus = "types";
+    this.style.textContent = hiddenTagsCss();
+    host.doc.head.append(this.style);
+  }
+  host;
+  style;
+  stop() {
+    this.style.remove();
+  }
+  decorate(_widget, info) {
+    const model = parseTable(info.source);
+    const header = info.table.rows[0];
+    model.rows[0]?.cells.forEach((name, column) => {
+      const typed = columnTypeOf(unescapeCell(name));
+      if (!typed) return;
+      for (const tag of Array.from(header?.cells[column]?.querySelectorAll("[data-tag-name]") ?? [])) {
+        if (typeOfTag(tag.dataset.tagName ?? "")) tag.classList.add(TYPE_TAG_CLASS);
+      }
+      for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
+        const raw = model.rows[Number(tr.dataset.tpRow)]?.cells[column];
+        const cell = tr.cells[column];
+        if (raw === void 0 || !cell) continue;
+        const text = unescapeCell(formulaOf(raw)?.value ?? raw).trim();
+        if (text === "" || cellText(cell) !== text) continue;
+        const { type, param } = typed;
+        const error = type.check(text, param);
+        cell.dataset.tpValue = error ? text : type.sortValue?.(text, param) ?? text;
+        if (error) {
+          cell.classList.add("tp-type-invalid");
+          cell.title = cell.title ? `${cell.title}
+${error}` : error;
+          continue;
+        }
+        this.show(cell, type.format(text, param));
+      }
+    });
+  }
+  /** Puts what a typed cell shows in place of its text, Table Plus' own elements kept */
+  show(cell, shown) {
+    for (const node of Array.from(cell.childNodes)) {
+      if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
+    }
+    if (typeof shown === "string") {
+      cell.prepend(this.host.doc.createTextNode(shown));
+      return;
+    }
+    const link = this.host.doc.createElement("a");
+    link.href = shown.href;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = shown.text;
+    cell.prepend(link);
+  }
+};
+
+// table-plus/src/features/expressions.ts
+var INDEX_SETTLE_MS = 500;
+var Expressions = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  timer;
+  stopped = false;
+  stop() {
+    this.stopped = true;
+    clearTimeout(this.timer);
+  }
+  /** SilverBullet's `page:index` event for a page */
+  async pageIndexed(name) {
+    const { bridge } = this.host;
+    if (this.stopped || !bridge.evalExpression) return;
+    if (name !== await bridge.getCurrentPage()) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.refresh(), INDEX_SETTLE_MS);
+  }
+  async refresh() {
+    const { bridge, doc } = this.host;
+    for (const widget of Array.from(doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.host.infoOf(widget);
+      if (this.stopped || !info || !info.source.includes("${")) continue;
+      const rows = parseTable(info.source).rows;
+      let changed = false;
+      for (let row = 0; row < rows.length; row++) {
+        const cells = rows[row].cells;
+        for (let column = 0; column < cells.length; column++) {
+          const expression = /^\$\{([\s\S]+)\}$/.exec(cells[column].trim())?.[1];
+          if (!expression) continue;
+          let value;
+          try {
+            value = await bridge.evalExpression(expression.replaceAll("\\|", "|"));
+          } catch {
+            continue;
+          }
+          const text = value === null || value === void 0 ? "" : typeof value === "number" ? formatLuaNumber(value) : typeof value === "string" || typeof value === "boolean" ? String(value) : void 0;
+          const cell = this.host.cellAt(info, { row, column }, true);
+          if (text === void 0 || !cell || cell === this.host.editing?.cell || renderedTable(widget) !== info.table) continue;
+          if (cellText(cell) === text) continue;
+          for (const node of Array.from(cell.childNodes)) {
+            if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
+          }
+          cell.prepend(doc.createTextNode(text));
+          changed = true;
+        }
+      }
+      if (changed && renderedTable(widget) === info.table) this.host.applyView(widget, info);
+    }
+  }
+};
 
 // table-plus/src/features/formulas.ts
 var FORMULAS_NEED_METADATA = "Formulas are stored in the table: turn on the Store table metadata setting to add them (existing ones keep working)";
@@ -3900,13 +4171,13 @@ var Selection = class {
    * Ctrl+C with cells selected copies them as a spreadsheet does: as text with
    * a tab between cells and a line break between rows, and as an HTML table,
    * so Excel and Google Sheets paste them into cells. Cells copy what they
-   * show (a formula's result, a link's text).
+   * show (a formula's result, a link's text), a typed cell its value.
    */
   onCopy = (e) => {
     const cells = this.selection && this.cells();
     const active = this.host.doc.activeElement;
     if (!cells || !e.clipboardData || active instanceof HTMLInputElement && active.selectionStart !== active.selectionEnd) return;
-    const values = cells.map((row) => row.map(cellText));
+    const values = cells.map((row) => row.map(cellValue));
     e.clipboardData.setData("text/plain", clipboardText(values));
     e.clipboardData.setData("text/html", clipboardHtml(values));
     e.preventDefault();
@@ -3993,6 +4264,8 @@ var Controller = class {
       new Autoscroll(this),
       new Grips(this),
       new Formulas(this),
+      // After formulas: a formula's result is shown in its column's type
+      new ColumnTypes(this),
       this.metadata,
       new Paste(this),
       new Selection(this),
@@ -4126,7 +4399,7 @@ var Controller = class {
     this.sortTimers.delete(shownInfo.key);
     const [widget, info] = this.current(shownWidget, shownInfo);
     const rows = this.bodyRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map(cellText));
+    const values = rows.map((tr) => Array.from(tr.cells).map(cellValue));
     const { top, bottom } = info.pins;
     const middle = visibleRows(values, withPins({ ...view, filters: [] }, info.pins), this.filterOptions);
     const order = [
@@ -4413,7 +4686,7 @@ var Controller = class {
     const view = this.viewOf(info);
     const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map(cellText));
+    const values = rows.map((tr) => Array.from(tr.cells).map(cellValue));
     const order = visibleRows(values, withPins(view, info.pins), this.filterOptions);
     const shown = new Set(order);
     const body = info.table.tBodies[0] ?? info.table;

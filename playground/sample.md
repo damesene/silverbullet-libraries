@@ -25,6 +25,16 @@ Click a result to edit its formula: each reference is outlined in its own color;
 | Total | 15 <meta f="=SUM([qty])"> | | 132,5 <meta f="=SUM([amount])"> |
 | Average | 5 <meta f="=AVERAGE(B1:B3)"> | 14 <meta f="=ROUND(AVERAGE(C1:C3), 2)"> | |
 
+## Column types
+
+A hashtag in a header gives its column a type: the markdown keeps the values, the cells show them as the type. `lots` and `maybe` are not values of their types.
+
+| Item | Price #currency-usd | Rating #stars | Done #check | Due #date | Trend #trend | Progress #progress | Site #link |
+|---|--:|---|:-:|---|:-:|---|---|
+| Pear | 12.99 | 4 | yes | 2026-10-20 | + | 80 | https://silverbullet.md |
+| Fig | 3.5 | 1 | no | 2026-11-02 | - | 25 | https://github.com |
+| Plum | lots | 2 | maybe | 2026-12-15 | = | 50 | https://example.com |
+
 ## Tasks
 
 | Task | Owner | Due | Status | Notes |

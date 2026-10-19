@@ -34,14 +34,25 @@ export function positionHint(table: HTMLTableElement): number | undefined {
   return Number.isFinite(pos) ? pos : undefined;
 }
 
-/** A cell's text as shown, without anything Table Plus added */
+// A header's hashtag that gives its column a type (features/types.ts): hidden, not part of its name
+export const TYPE_TAG_CLASS = "tp-type-tag";
+
+/** A cell's text as shown, without anything Table Plus added (or hid) */
 export function cellText(cell: Element): string {
   let text = "";
   for (const node of Array.from(cell.childNodes)) {
-    if (node instanceof Element && node.classList.contains(UI_CLASS)) continue;
+    if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
     text += node.textContent ?? "";
   }
   return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * A cell's value for sorting, filtering and copying: what a column type
+ * keeps of it (data-tp-value), else its text as shown
+ */
+export function cellValue(cell: HTMLElement): string {
+  return cell.dataset.tpValue ?? cellText(cell);
 }
 
 /**

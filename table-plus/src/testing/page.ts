@@ -47,8 +47,20 @@ export function renderPage(page: string, into: HTMLElement, moves: number[]): vo
           a.textContent = cell.slice(2, -2);
           td.append(a);
         } else {
-          // A formula's <meta> tag is not shown
-          td.textContent = cell.replace(/<meta\b[^>]*>/gi, "").replace(/\*/g, "").trim();
+          // A formula's <meta> tag is not shown; hashtags are links, as SilverBullet renders them
+          const shown = cell.replace(/<meta\b[^>]*>/gi, "").replace(/\*/g, "").trim();
+          for (const part of shown.split(/((?:^|(?<=\s))#[^\s#]+)/)) {
+            if (!part.startsWith("#")) {
+              if (part) td.append(part);
+              continue;
+            }
+            const tag = document.createElement("a");
+            tag.className = "hashtag sb-hashtag";
+            tag.dataset.tagName = part.slice(1);
+            tag.dataset.ref = `tag:${part.slice(1)}`;
+            tag.textContent = part;
+            td.append(tag);
+          }
         }
         tr.append(td);
       }
