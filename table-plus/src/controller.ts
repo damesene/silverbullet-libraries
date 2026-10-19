@@ -13,6 +13,7 @@ import {
   UI_CLASS,
   WIDGET_SELECTOR,
 } from "./dom.ts";
+import { formatLuaNumber } from "./format.ts";
 import { ICONS } from "./icons.ts";
 import {
   type Align,
@@ -1293,9 +1294,11 @@ export class Controller {
           const text =
             value === null || value === undefined
               ? ""
-              : typeof value === "number" || typeof value === "string" || typeof value === "boolean"
-                ? String(value)
-                : undefined;
+              : typeof value === "number"
+                ? formatLuaNumber(value)
+                : typeof value === "string" || typeof value === "boolean"
+                  ? String(value)
+                  : undefined;
           const cell = this.cellAt(info, { row, column }, true);
           if (text === undefined || !cell || cell === this.editor?.cell || renderedTable(widget) !== info.table) continue;
           if (cellText(cell) === text) continue;
