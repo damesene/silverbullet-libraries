@@ -33,8 +33,11 @@ describe("Column types", () => {
     expect(cell(0, 1).querySelector(".tp-type-tag")!.textContent).toBe("#currency-usd");
     // The type's icon goes after the column's name, before the sort button, and is not part of the name
     const icon = cell(0, 1).querySelector(".tp-type-icon")!;
-    expect(cell(0, 1).firstChild!.textContent).toContain("Price");
     expect(icon.nextElementSibling!.classList.contains("tp-sort")).toBe(true);
+    // Kept with the name's last word, so a narrow column never wraps the icons apart
+    const kept = icon.parentElement!;
+    expect(kept.classList.contains("tp-keep")).toBe(true);
+    expect(kept.firstChild!.textContent).toBe("Price ");
     expect(icon.innerHTML).toBe(iconHtml("currency"));
     expect((icon as HTMLElement).title).toContain("Currency (#currency-usd)");
     expect(cell(0, 0).querySelector(".tp-type-icon")).toBeNull();

@@ -85,7 +85,7 @@ A plain click edits a cell and no longer switches the table to its markdown. To 
 
 ## Sorting
 
-* Click the ⇅ control that appears in a column header on hover: ascending, descending, then back to the order as written. The column menu (see [[#Rows and columns]]) has the same options.
+* Click the ⇅ control that appears in a column header on hover (on a touch screen it is always shown): ascending, descending, then back to the order as written. The column menu (see [[#Rows and columns]]) has the same options.
 * Sorting only changes what you see, never the markdown, unless the *Store table metadata* setting is on: then the sorting is also stored in the table, see [[#Table metadata]].
 * While sorted, the toolbar shows *Sorted by …*; its × shows the rows as written again, and its ✓ sorts the rows in the markdown that way (after asking) and ends the sorting view. Rows a filter hides are sorted too, pinned rows stay where they are, and one Ctrl+Z undoes it.
 * Numbers sort as numbers (`1 000`, `2,5`, `-3`, `15 %`, `12,99 €`, `$5`, `3 kg` included); empty cells always come last.
@@ -258,7 +258,7 @@ Numbers and dates are written as your browser's language writes them.
 
 ## Rows and columns
 
-Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column.
+Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column. While a cell is edited, they stay with it.
 
 * **Click a grip** for a menu:
   * Row: insert above or below, duplicate, move up or down, delete.
@@ -279,6 +279,15 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 * Unpinning moves the row (column) out of its edge, next to the unpinned ones; it does not go back to where it was before pinning (Ctrl+Z does).
 * "Pinned" means a number of rows (columns) at an edge: a row typed by hand above the first pinned row becomes the pinned one.
 * Rows pinned to the top look like the header.
+
+## Touch screens
+
+On a phone or a tablet:
+
+* Tap a cell to edit it. The handles of its row and column show next to it: tap one for the row's or column's menu, or drag it to move the row or column.
+* The sort buttons in the header are always shown (there is no hover to show them on). The toolbar (*Filter*, *Edit markdown*) shows while a cell of the table is edited.
+* Swiping scrolls a wide table sideways and the page up and down, as usual.
+* Not on touch screens: selecting cells by dragging, the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
 
 ## Large tables
 
@@ -646,9 +655,13 @@ end
   cursor: pointer;
 }
 
+/* The last word of a header's name and the icons after it: never wrapped apart */
+.tp-keep {
+  white-space: nowrap;
+}
 /* Sort control: shown on header hover, always while it sorts */
 .tp-sort {
-  margin-left: 4px;
+  margin-left: 6px;
   padding: 0 2px;
   border: 0;
   background: none;
@@ -662,6 +675,13 @@ end
 }
 .sb-table-widget.tp-table thead tr:hover .tp-sort {
   opacity: 0.5;
+}
+/* A touch screen has no hover to show it on: always shown there, faint
+   (lighter than a column type's icon, so the two do not compete) */
+@media (hover: none) {
+  .sb-table-widget.tp-table thead tr .tp-sort:not(.tp-active) {
+    opacity: 0.3;
+  }
 }
 .sb-table-widget.tp-table thead tr .tp-sort:hover,
 .sb-table-widget.tp-table thead tr .tp-sort.tp-active {
@@ -758,6 +778,11 @@ end
 .tp-pin-mark svg {
   width: 14px;
   height: 14px;
+}
+/* In a header the name ends in the sort control: the pin icon gets its own
+   room there instead of covering it (SilverBullet's header padding is 8px) */
+.sb-table-widget thead tr:first-child > td:has(> .tp-pin-mark) {
+  padding-right: 22px !important;
 }
 
 /* Ctrl held in a cell editor: arrows move between cells */
@@ -1197,10 +1222,6 @@ body.tp-autoscrolling * {
    column's name; a value not of the type is red */
 .sb-table-widget .tp-type-tag {
   display: none;
-}
-/* the icon stays on the name's line */
-.sb-table-widget thead :is(th, td):has(> .tp-type-icon) {
-  white-space: nowrap;
 }
 .tp-type-icon {
   display: inline-flex;

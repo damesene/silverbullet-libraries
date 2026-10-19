@@ -37,14 +37,45 @@ export function positionHint(table: HTMLTableElement): number | undefined {
 // A header's hashtag that gives its column a type (features/types.ts): hidden, not part of its name
 export const TYPE_TAG_CLASS = "tp-type-tag";
 
-/** A cell's text as shown, without anything Table Plus added (or hid) */
+/** A cell's text as shown, without anything Table Plus added (or hid), wherever in the cell it is */
 export function cellText(cell: Element): string {
   let text = "";
-  for (const node of Array.from(cell.childNodes)) {
-    if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
-    text += node.textContent ?? "";
-  }
+  const walk = (parent: Node) => {
+    for (const node of Array.from(parent.childNodes)) {
+      if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
+      if (node.nodeType === 3) text += node.textContent ?? "";
+      else walk(node);
+    }
+  };
+  walk(cell);
   return text.replace(/\s+/g, " ").trim();
+}
+
+// The last word of a header's name, kept on one line with the icons after it
+export const KEEP_CLASS = "tp-keep";
+
+/**
+ * Keeps the icons after a header's name (its type's icon, the sort control) on
+ * the line of the name's last word: a narrow column wraps the name between
+ * words, never the icons onto a line of their own. Done once per rendering.
+ */
+export function keepIconsWithName(cell: HTMLTableCellElement): void {
+  if (cell.querySelector(`:scope > .${KEEP_CLASS}`)) return;
+  const nodes = Array.from(cell.childNodes);
+  let last = nodes.length - 1;
+  while (last >= 0 && !(nodes[last]!.nodeType === 3 && nodes[last]!.textContent!.trim() !== "")) last--;
+  // A name that ends in markup (a link, emphasis) is left as it is
+  if (last < 0) return;
+  // The pin mark sits out of the line, at the cell's edge
+  const after = nodes.slice(last + 1).filter((n) => !(n instanceof Element && n.classList.contains("tp-pin-mark")));
+  if (!after.some((n) => n instanceof Element && n.classList.contains(UI_CLASS))) return;
+  const text = nodes[last] as Text;
+  const word = /\S+\s*$/.exec(text.data)!;
+  const keep = cell.ownerDocument.createElement("span");
+  keep.className = KEEP_CLASS;
+  keep.append(text.data.slice(word.index), ...after);
+  text.data = text.data.slice(0, word.index);
+  cell.insertBefore(keep, text.nextSibling);
 }
 
 /**

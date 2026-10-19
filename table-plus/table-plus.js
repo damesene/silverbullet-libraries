@@ -580,11 +580,32 @@ function positionHint(table) {
 var TYPE_TAG_CLASS = "tp-type-tag";
 function cellText(cell) {
   let text = "";
-  for (const node of Array.from(cell.childNodes)) {
-    if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
-    text += node.textContent ?? "";
-  }
+  const walk = (parent) => {
+    for (const node of Array.from(parent.childNodes)) {
+      if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
+      if (node.nodeType === 3) text += node.textContent ?? "";
+      else walk(node);
+    }
+  };
+  walk(cell);
   return text.replace(/\s+/g, " ").trim();
+}
+var KEEP_CLASS = "tp-keep";
+function keepIconsWithName(cell) {
+  if (cell.querySelector(`:scope > .${KEEP_CLASS}`)) return;
+  const nodes = Array.from(cell.childNodes);
+  let last = nodes.length - 1;
+  while (last >= 0 && !(nodes[last].nodeType === 3 && nodes[last].textContent.trim() !== "")) last--;
+  if (last < 0) return;
+  const after = nodes.slice(last + 1).filter((n) => !(n instanceof Element && n.classList.contains("tp-pin-mark")));
+  if (!after.some((n) => n instanceof Element && n.classList.contains(UI_CLASS))) return;
+  const text = nodes[last];
+  const word = /\S+\s*$/.exec(text.data);
+  const keep = cell.ownerDocument.createElement("span");
+  keep.className = KEEP_CLASS;
+  keep.append(text.data.slice(word.index), ...after);
+  text.data = text.data.slice(0, word.index);
+  cell.insertBefore(keep, text.nextSibling);
 }
 function cellValue(cell) {
   return cell.dataset.tpValue ?? cellText(cell);
@@ -4280,7 +4301,12 @@ var Grips = class {
     const cleanup = () => {
       win.removeEventListener("pointermove", move);
       win.removeEventListener("pointerup", up);
+      win.removeEventListener("pointercancel", cancel);
       win.removeEventListener("keydown", escape, true);
+    };
+    const cancel = () => {
+      cleanup();
+      drag?.finish(false);
     };
     const up = () => {
       cleanup();
@@ -4296,6 +4322,7 @@ var Grips = class {
     };
     win.addEventListener("pointermove", move);
     win.addEventListener("pointerup", up);
+    win.addEventListener("pointercancel", cancel);
     win.addEventListener("keydown", escape, true);
   }
   beginDrag(target, axis) {
@@ -5205,7 +5232,7 @@ var Controller = class {
     this.cellEditor = new CellEditing(this, {
       features: this.features,
       isolate: (element) => this.isolate(element),
-      endHover: () => this.endHover(false),
+      endHover: () => this.hoverEdited(),
       movingRows: () => this.movingRows
     });
     this.bar = this.floating("div", "tp-bar");
@@ -5329,6 +5356,21 @@ var Controller = class {
     for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
   }
   onBlur = () => this.cellEditor.setNavigating(false);
+  /**
+   * A cell editor opened: the grips go to the edited cell and stay there while
+   * it is edited, so its row's and column's menus are a click away (and on a
+   * touch screen, where nothing hovers, the way to them)
+   */
+  hoverEdited() {
+    const active = this.cellEditor.active;
+    const info = active && this.infos.get(active.widget);
+    if (!active || !info) {
+      this.endHover(false);
+      return;
+    }
+    this.hoverCell = active.cell;
+    for (const feature of this.features) feature.cellHovered?.(active.widget, info, active.cell);
+  }
   /** Refreshes the settings at most once a second, the last request always served */
   queueSettingsRefresh() {
     if (this.settingsTimer !== void 0) return;
@@ -5581,6 +5623,7 @@ var Controller = class {
       cell.append(button);
     });
     for (const feature of this.features) feature.decorate?.(widget, info);
+    for (const cell of Array.from(rows[0].cells)) keepIconsWithName(cell);
   }
   // ---- view: sort and filter --------------------------------------------
   viewOf(info) {
@@ -5978,10 +6021,7 @@ var Controller = class {
       this.hoverWidget = widget;
       this.showTableControls(widget, info);
     }
-    if (this.cellEditor.active) {
-      this.endHover(false);
-      return;
-    }
+    if (this.cellEditor.active) return;
     const cell = this.tableCellOf(info, target);
     if (cell && cell !== this.hoverCell) {
       this.hoverCell = cell;
@@ -6244,7 +6284,8 @@ var Controller = class {
     const above = headerRect.top - bar.offsetHeight - BAR_GAP;
     const fits = above >= viewTop + 2;
     const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
-    this.place(bar, rect.right - bar.offsetWidth - (fits ? 0 : 6), top);
+    const viewRight = this.scrollParentOf(widget)?.getBoundingClientRect().right ?? this.doc.defaultView.innerWidth;
+    this.place(bar, Math.min(rect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
     this.addRow.classList.add("tp-visible");
     const inView = this.shownRect(widget, info);
     this.place(this.addRow, inView.left, inView.bottom + 4);

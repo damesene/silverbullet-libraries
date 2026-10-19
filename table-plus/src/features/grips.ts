@@ -155,7 +155,13 @@ export class Grips implements Feature {
     const cleanup = () => {
       win.removeEventListener("pointermove", move);
       win.removeEventListener("pointerup", up);
+      win.removeEventListener("pointercancel", cancel);
       win.removeEventListener("keydown", escape, true);
+    };
+    // The browser took the touch over (e.g. for scrolling): nothing is moved
+    const cancel = () => {
+      cleanup();
+      drag?.finish(false);
     };
     const up = () => {
       cleanup();
@@ -171,6 +177,7 @@ export class Grips implements Feature {
     };
     win.addEventListener("pointermove", move);
     win.addEventListener("pointerup", up);
+    win.addEventListener("pointercancel", cancel);
     win.addEventListener("keydown", escape, true);
   }
 

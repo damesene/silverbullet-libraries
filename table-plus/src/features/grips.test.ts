@@ -17,6 +17,22 @@ describe("Row and column grips", () => {
   const item = (menu: Element, label: string) =>
     Array.from(menu.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label)!;
 
+  it("keeps the grips with the edited cell, also while the pointer is over other cells", async () => {
+    await setup(PAGE);
+    const shown = () => document.querySelectorAll(".tp-grip.tp-visible").length;
+    // A tap on a touch screen: no hover first
+    clickOn(cell(2, 1));
+    expect(editor.querySelector(".tp-cell-editor")).not.toBeNull();
+    expect(shown()).toBe(2);
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(shown()).toBe(2);
+    // The row grip opens the edited cell's row menu
+    const grip = document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+    grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 2");
+  });
+
   it("offers pinning only with the metadata setting", async () => {
     await setup(PAGE);
     await flush();

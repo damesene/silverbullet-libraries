@@ -31,6 +31,7 @@ import {
   cellValue,
   EDITOR_SELECTOR,
   INTERACTIVE_SELECTOR,
+  keepIconsWithName,
   NATIVE_ACTION_SELECTOR,
   positionHint,
   renderedTable,
@@ -164,7 +165,7 @@ export class Controller implements TableHost {
     this.cellEditor = new CellEditing(this, {
       features: this.features,
       isolate: (element) => this.isolate(element),
-      endHover: () => this.endHover(false),
+      endHover: () => this.hoverEdited(),
       movingRows: () => this.movingRows,
     });
     this.bar = this.floating("div", "tp-bar");
@@ -257,6 +258,22 @@ export class Controller implements TableHost {
   }
 
   private onBlur = (): void => this.cellEditor.setNavigating(false);
+
+  /**
+   * A cell editor opened: the grips go to the edited cell and stay there while
+   * it is edited, so its row's and column's menus are a click away (and on a
+   * touch screen, where nothing hovers, the way to them)
+   */
+  private hoverEdited(): void {
+    const active = this.cellEditor.active;
+    const info = active && this.infos.get(active.widget);
+    if (!active || !info) {
+      this.endHover(false);
+      return;
+    }
+    this.hoverCell = active.cell;
+    for (const feature of this.features) feature.cellHovered?.(active.widget, info, active.cell);
+  }
 
   /** Refreshes the settings at most once a second, the last request always served */
   private queueSettingsRefresh(): void {
@@ -537,6 +554,8 @@ export class Controller implements TableHost {
       cell.append(button);
     });
     for (const feature of this.features) feature.decorate?.(widget, info);
+    // Last: the icons the features added stay with the header's name
+    for (const cell of Array.from(rows[0]!.cells)) keepIconsWithName(cell);
   }
 
   // ---- view: sort and filter --------------------------------------------
@@ -996,10 +1015,8 @@ export class Controller implements TableHost {
       this.hoverWidget = widget;
       this.showTableControls(widget, info);
     }
-    if (this.cellEditor.active) {
-      this.endHover(false);
-      return;
-    }
+    // The grips stay with the edited cell (hoverEdited)
+    if (this.cellEditor.active) return;
     // Not over a cell (e.g. the table's own scrollbar): the grips stay on the last cell
     const cell = this.tableCellOf(info, target);
     if (cell && cell !== this.hoverCell) {
@@ -1306,7 +1323,10 @@ export class Controller implements TableHost {
     // No room above the header: over the header's right end instead
     const fits = above >= viewTop + 2;
     const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
-    this.place(bar, rect.right - bar.offsetWidth - (fits ? 0 : 6), top);
+    // At the right edge of the table's box as far as it is in view: the page
+    // around a wide table may scroll sideways too, taking the box's edge along
+    const viewRight = this.scrollParentOf(widget)?.getBoundingClientRect().right ?? this.doc.defaultView!.innerWidth;
+    this.place(bar, Math.min(rect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
 
     this.addRow.classList.add("tp-visible");
     const inView = this.shownRect(widget, info);
