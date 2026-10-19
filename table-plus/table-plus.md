@@ -215,7 +215,7 @@ shows `$12.99`, `★★★★☆` and `✅`.
 
 | Type | Shows |
 |---|---|
-| `#currency, #currency-usd` | An amount of money: the currency's three-letter code after the dash (default EUR). |
+| `#currency, #currency-usd` | An amount of money: the currency's three-letter code after the dash (default EUR). Its sign goes where the currency's country writes it: $12.99, 12.99 €, 12.99 Kč. |
 | `#number, #number-2` | A number with thousands separators: the decimal places after the dash (default: as written). |
 | `#percent, #percent-1` | A fraction as a percentage, 0.15 is 15 % (15 % stays 15 %): the decimal places after the dash (default 0). |
 | `#unit-kg` | A number with a unit: the unit after the dash. |

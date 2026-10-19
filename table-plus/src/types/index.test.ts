@@ -42,9 +42,17 @@ describe("column types in headers", () => {
 });
 
 describe("the types", () => {
+  it("puts a currency's sign where its country writes it, the number as the locale writes it", () => {
+    expect(show("currency", "12.99", "gbp")).toBe("£12.99");
+    expect(show("currency", "12.99", "czk")).toBe("12.99\u00a0Kč");
+    expect(show("currency", "-5", "usd")).toBe("-$5.00");
+    expect(show("currency", "1234.5", "usd", "cs-CZ")).toBe("$1\u00a0234,50");
+    expect(show("currency", "1234.5", "eur", "cs-CZ")).toBe("1\u00a0234,50\u00a0€");
+  });
+
   it("formats numbers, money, percentages and units", () => {
     expect(show("currency", "12.99", "usd")).toBe("$12.99");
-    expect(show("currency", "1 234,5")).toBe("€1,234.50");
+    expect(show("currency", "1 234,5")).toBe("1,234.50\u00a0€");
     expect(show("number", "1234.5", "2")).toBe("1,234.50");
     expect(show("number", "1234.567")).toBe("1,234.567");
     expect(show("percent", "0.155", "1")).toBe("15.5%");

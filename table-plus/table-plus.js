@@ -2383,15 +2383,34 @@ function formatNumber2(n, locale, options = {}) {
 }
 
 // table-plus/src/types/currency.ts
+function homeOf(code) {
+  if (code === "EUR") return "de";
+  try {
+    return new Intl.Locale("und", { region: code.slice(0, 2) }).maximize().baseName;
+  } catch {
+    return "en";
+  }
+}
+function formatMoney(n, code, locale) {
+  const options = { style: "currency", currency: code, currencyDisplay: "narrowSymbol" };
+  const own = new Intl.NumberFormat(locale, options).formatToParts(n);
+  const home = new Intl.NumberFormat(homeOf(code), options).formatToParts(n);
+  const symbol = own.find((p) => p.type === "currency")?.value ?? code;
+  const sign = own.filter((p) => p.type === "minusSign" || p.type === "plusSign").map((p) => p.value).join("");
+  const digits = own.filter((p) => !["currency", "minusSign", "plusSign", "literal"].includes(p.type)).map((p) => p.value).join("");
+  const symbolFirst = home.findIndex((p) => p.type === "currency") < home.findIndex((p) => p.type === "integer");
+  const gap = home.find((p) => p.type === "literal" && /^\s+$/.test(p.value))?.value ?? "";
+  return symbolFirst ? `${sign}${symbol}${gap}${digits}` : `${sign}${digits}${gap}${symbol}`;
+}
 var currency_default = {
   name: "currency",
   syntax: "#currency, #currency-usd",
-  description: "An amount of money: the currency's three-letter code after the dash (default EUR).",
+  description: "An amount of money: the currency's three-letter code after the dash (default EUR). Its sign goes where the currency's country writes it: $12.99, 12.99 \u20AC, 12.99 K\u010D.",
   icon: lineIcon('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>'),
   param: /^[a-z]{3}$/i,
   aliases: { euro: "eur", eur: "eur", usd: "usd", czk: "czk", gbp: "gbp" },
   check: notANumber,
-  format: (text, param, locale) => formatNumber2(numberOf(text), locale, { style: "currency", currency: (param ?? "eur").toUpperCase() })
+  format: (text, param, locale) => formatMoney(numberOf(text), (param ?? "eur").toUpperCase(), locale)
 };
 
 // table-plus/src/types/date.ts
