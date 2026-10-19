@@ -55,322 +55,6 @@ function missingBridgeFunctions(bridge) {
   return REQUIRED.filter((name) => typeof bridge?.[name] !== "function");
 }
 
-// table-plus/src/dom.ts
-var WIDGET_SELECTOR = ".sb-table-widget";
-var EDITOR_SELECTOR = ".cm-content";
-var NATIVE_ACTION_SELECTOR = "a[data-ref], [data-mention-name], button[data-onclick], span.sb-task-state";
-var INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
-var UI_CLASS = "tp-ui";
-function renderedTable(widget) {
-  return widget.querySelector("table");
-}
-function positionHint(table) {
-  const element = table.dataset.pos !== void 0 ? table : table.querySelector("[data-pos]");
-  const pos = element instanceof HTMLElement ? Number(element.dataset.pos) : NaN;
-  return Number.isFinite(pos) ? pos : void 0;
-}
-function cellText(cell) {
-  let text = "";
-  for (const node of Array.from(cell.childNodes)) {
-    if (node instanceof Element && node.classList.contains(UI_CLASS)) continue;
-    text += node.textContent ?? "";
-  }
-  return text.replace(/\s+/g, " ").trim();
-}
-function caretTextOffset(cell, x, y) {
-  const doc = cell.ownerDocument;
-  let node;
-  let offset = 0;
-  if (typeof doc.caretPositionFromPoint === "function") {
-    const position = doc.caretPositionFromPoint(x, y);
-    node = position?.offsetNode;
-    offset = position?.offset ?? 0;
-  } else if (typeof doc.caretRangeFromPoint === "function") {
-    const range = doc.caretRangeFromPoint(x, y);
-    node = range?.startContainer;
-    offset = range?.startOffset ?? 0;
-  }
-  if (!node || node.nodeType !== Node.TEXT_NODE || !cell.contains(node)) return void 0;
-  let before = "";
-  const walker = doc.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
-  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
-    if (text.parentElement?.closest(`.${UI_CLASS}`)) continue;
-    if (text === node) {
-      before += (text.textContent ?? "").slice(0, offset);
-      break;
-    }
-    before += text.textContent ?? "";
-  }
-  return before.replace(/\s+/g, " ").trimStart().length;
-}
-
-// table-plus/src/ops.ts
-function withRows(table, rows) {
-  return { ...table, rows };
-}
-function emptyRow(columns) {
-  return { cells: Array.from({ length: columns }, () => "") };
-}
-function withCells(row, cells) {
-  return { ...row, cells };
-}
-function padded(cells, length) {
-  const result = [...cells];
-  while (result.length < length) result.push("");
-  return result;
-}
-function moved(items, from, to) {
-  const result = [...items];
-  const [item] = result.splice(from, 1);
-  result.splice(to, 0, item);
-  return result;
-}
-function setCell(table, row, column, value) {
-  return withRows(
-    table,
-    table.rows.map((r, i) => {
-      if (i !== row) return r;
-      const cells = padded(r.cells, column + 1);
-      cells[column] = value;
-      return withCells(r, cells);
-    })
-  );
-}
-function insertRow(table, at, cells) {
-  const rows = [...table.rows];
-  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, cells ? { cells: [...cells] } : emptyRow(table.align.length));
-  return withRows(table, rows);
-}
-function deleteRow(table, row) {
-  if (row < 1 || row >= table.rows.length) return table;
-  return withRows(
-    table,
-    table.rows.filter((_, i) => i !== row)
-  );
-}
-function reorderRows(table, order) {
-  const body = order.map((i) => table.rows[i]).filter((r) => !!r);
-  if (body.length !== table.rows.length - 1) return table;
-  return withRows(table, [table.rows[0], ...body]);
-}
-function moveRow(table, from, to) {
-  const last = table.rows.length - 1;
-  if (from < 1 || from > last || to < 1 || to > last || from === to) return table;
-  return withRows(table, moved(table.rows, from, to));
-}
-function newColumnName(table) {
-  const names = new Set(table.rows[0]?.cells ?? []);
-  let n = table.align.length + 1;
-  while (names.has(`Column ${n}`)) n++;
-  return `Column ${n}`;
-}
-function nameEmptyHeaders(table) {
-  const header = table.rows[0];
-  if (!header) return table;
-  const names = new Set(header.cells);
-  const cells = header.cells.map((cell, i) => {
-    if (cell !== "") return cell;
-    let n = i + 1;
-    while (names.has(`Column ${n}`)) n++;
-    const name = `Column ${n}`;
-    names.add(name);
-    return name;
-  });
-  return { ...table, rows: [{ ...header, cells }, ...table.rows.slice(1)] };
-}
-function insertColumn(table, at) {
-  const column = Math.max(0, Math.min(at, table.align.length));
-  const header = newColumnName(table);
-  const align = [...table.align];
-  align.splice(column, 0, "");
-  return {
-    ...table,
-    align,
-    rows: table.rows.map((r, i) => {
-      const cells = padded(r.cells, column);
-      cells.splice(column, 0, i === 0 ? header : "");
-      return withCells(r, cells);
-    })
-  };
-}
-function deleteColumn(table, column) {
-  if (table.align.length <= 1 || column < 0 || column >= table.align.length) return table;
-  return {
-    ...table,
-    align: table.align.filter((_, i) => i !== column),
-    rows: table.rows.map(
-      (r) => withCells(
-        r,
-        r.cells.filter((_, i) => i !== column)
-      )
-    )
-  };
-}
-function moveColumn(table, from, to) {
-  const columns = table.align.length;
-  if (from < 0 || from >= columns || to < 0 || to >= columns || from === to) return table;
-  return {
-    ...table,
-    align: moved(table.align, from, to),
-    rows: table.rows.map((r) => withCells(r, moved(padded(r.cells, columns), from, to)))
-  };
-}
-function setAlign(table, column, align) {
-  return {
-    ...table,
-    align: table.align.map((a, i) => i === column ? align : a)
-  };
-}
-function columnAfterMove(c, from, to) {
-  if (c === from) return to;
-  if (from < to && c > from && c <= to) return c - 1;
-  if (from > to && c >= to && c < from) return c + 1;
-  return c;
-}
-
-// table-plus/src/features/selection.ts
-function clipboardText(values) {
-  const quote = (v) => /[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
-  return values.map((row) => row.map(quote).join("	")).join("\n");
-}
-function clipboardHtml(values) {
-  const escape = (v) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
-  return `<table>${rows}</table>`;
-}
-var Selection = class {
-  constructor(host) {
-    this.host = host;
-  }
-  host;
-  // The cells selected (rows of the markdown, header 0), in the table with this key
-  selection;
-  stopSelecting;
-  start() {
-    this.host.doc.defaultView.addEventListener("copy", this.onCopy, true);
-  }
-  stop() {
-    this.host.doc.defaultView.removeEventListener("copy", this.onCopy, true);
-    this.stopSelecting?.();
-  }
-  // Any click ends a selection (one on Table Plus' own controls aside)
-  beforeMouseDown(e) {
-    if (this.selection && !(e.target instanceof Node && this.host.isFloating(e.target))) this.clear();
-  }
-  /**
-   * After a press on a cell: dragging on to another cell of the table, with
-   * the button held, selects the cells between the two as shown (sorting and
-   * filters included), and closes the cell editor the press opened, unchanged
-   */
-  afterCellPress(info, anchor) {
-    this.stopSelecting?.();
-    const { key } = info;
-    const win = this.host.doc.defaultView;
-    const move = (ev) => {
-      if (ev.buttons === 0) {
-        end();
-        return;
-      }
-      const hit = this.host.enhancedWidgetOf(ev.target);
-      const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], ev.target) : void 0;
-      const ref = hit && cell ? this.host.cellRef(hit[1], cell) : void 0;
-      if (!ref) return;
-      const current = this.selection;
-      if (!current) {
-        if (ref.row === anchor.row && ref.column === anchor.column) return;
-        this.host.cancelEditing();
-        this.selection = { key, anchor, focus: ref };
-      } else if (current.focus.row === ref.row && current.focus.column === ref.column) return;
-      else current.focus = ref;
-      this.show();
-    };
-    const end = () => {
-      win.removeEventListener("mousemove", move, true);
-      win.removeEventListener("mouseup", end, true);
-      this.stopSelecting = void 0;
-    };
-    win.addEventListener("mousemove", move, true);
-    win.addEventListener("mouseup", end, true);
-    this.stopSelecting = end;
-  }
-  keyDown(e) {
-    if (!this.selection) return false;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      this.clear();
-      return true;
-    }
-    const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
-    if (e.key === "Delete" && !inField && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      void this.emptyCells();
-      return true;
-    }
-    return false;
-  }
-  // A table rendered again (after a write) shows the selection again
-  enhanced(_widget, info) {
-    if (this.selection?.key === info.key) this.show();
-  }
-  /** The selected cells as shown: rows top to bottom (the header first), columns left to right */
-  cells() {
-    const selection = this.selection;
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
-    if (!selection || !info) return void 0;
-    const shown = this.host.shownRows(info);
-    const index = (row) => shown.findIndex((tr) => row === 0 ? tr === info.table.rows[0] : tr.dataset.tpRow === String(row));
-    const a = index(selection.anchor.row);
-    const b = index(selection.focus.row);
-    if (a < 0 || b < 0) return void 0;
-    const left = Math.min(selection.anchor.column, selection.focus.column);
-    const right = Math.max(selection.anchor.column, selection.focus.column);
-    return shown.slice(Math.min(a, b), Math.max(a, b) + 1).map((tr) => Array.from(tr.cells).slice(left, right + 1));
-  }
-  show() {
-    this.unmark();
-    for (const row of this.cells() ?? []) for (const cell of row) cell.classList.add("tp-selected");
-  }
-  clear() {
-    this.selection = void 0;
-    this.unmark();
-  }
-  unmark() {
-    for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
-  }
-  /**
-   * Empties the selected cells, formulas included, as one edit; header cells
-   * keep their names (a column needs one). The selection stays.
-   */
-  async emptyCells() {
-    const selection = this.selection;
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
-    const cells = this.cells();
-    if (!widget || !info || !cells) return;
-    const refs = cells.flat().map((cell) => this.host.cellRef(info, cell)).filter((ref) => ref !== void 0 && ref.row > 0);
-    await this.host.write(widget, (t) => refs.reduce((table, ref) => setCell(table, ref.row, ref.column, ""), t));
-  }
-  /**
-   * Ctrl+C with cells selected copies them as a spreadsheet does: as text with
-   * a tab between cells and a line break between rows, and as an HTML table,
-   * so Excel and Google Sheets paste them into cells. Cells copy what they
-   * show (a formula's result, a link's text).
-   */
-  onCopy = (e) => {
-    const cells = this.selection && this.cells();
-    const active = this.host.doc.activeElement;
-    if (!cells || !e.clipboardData || active instanceof HTMLInputElement && active.selectionStart !== active.selectionEnd) return;
-    const values = cells.map((row) => row.map(cellText));
-    e.clipboardData.setData("text/plain", clipboardText(values));
-    e.clipboardData.setData("text/html", clipboardHtml(values));
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    void this.host.bridge.flash(`Table Plus: copied ${values.length} \xD7 ${values[0]?.length ?? 0} cells`, "info");
-  };
-};
-
 // table-plus/src/markdown.ts
 var DELIMITER_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 var FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
@@ -1125,6 +809,130 @@ var concat_default = {
 var ALL = [sum_default, average_default, min_default, max_default, product_default, count_default, counta_default, round_default, abs_default, if_default, iferror_default, and_default, or_default, not_default, concat_default];
 var FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
 
+// table-plus/src/ops.ts
+function withRows(table, rows) {
+  return { ...table, rows };
+}
+function emptyRow(columns) {
+  return { cells: Array.from({ length: columns }, () => "") };
+}
+function withCells(row, cells) {
+  return { ...row, cells };
+}
+function padded(cells, length) {
+  const result = [...cells];
+  while (result.length < length) result.push("");
+  return result;
+}
+function moved(items, from, to) {
+  const result = [...items];
+  const [item] = result.splice(from, 1);
+  result.splice(to, 0, item);
+  return result;
+}
+function setCell(table, row, column, value) {
+  return withRows(
+    table,
+    table.rows.map((r, i) => {
+      if (i !== row) return r;
+      const cells = padded(r.cells, column + 1);
+      cells[column] = value;
+      return withCells(r, cells);
+    })
+  );
+}
+function insertRow(table, at, cells) {
+  const rows = [...table.rows];
+  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, cells ? { cells: [...cells] } : emptyRow(table.align.length));
+  return withRows(table, rows);
+}
+function deleteRow(table, row) {
+  if (row < 1 || row >= table.rows.length) return table;
+  return withRows(
+    table,
+    table.rows.filter((_, i) => i !== row)
+  );
+}
+function reorderRows(table, order) {
+  const body = order.map((i) => table.rows[i]).filter((r) => !!r);
+  if (body.length !== table.rows.length - 1) return table;
+  return withRows(table, [table.rows[0], ...body]);
+}
+function moveRow(table, from, to) {
+  const last = table.rows.length - 1;
+  if (from < 1 || from > last || to < 1 || to > last || from === to) return table;
+  return withRows(table, moved(table.rows, from, to));
+}
+function newColumnName(table) {
+  const names = new Set(table.rows[0]?.cells ?? []);
+  let n = table.align.length + 1;
+  while (names.has(`Column ${n}`)) n++;
+  return `Column ${n}`;
+}
+function nameEmptyHeaders(table) {
+  const header = table.rows[0];
+  if (!header) return table;
+  const names = new Set(header.cells);
+  const cells = header.cells.map((cell, i) => {
+    if (cell !== "") return cell;
+    let n = i + 1;
+    while (names.has(`Column ${n}`)) n++;
+    const name = `Column ${n}`;
+    names.add(name);
+    return name;
+  });
+  return { ...table, rows: [{ ...header, cells }, ...table.rows.slice(1)] };
+}
+function insertColumn(table, at) {
+  const column = Math.max(0, Math.min(at, table.align.length));
+  const header = newColumnName(table);
+  const align = [...table.align];
+  align.splice(column, 0, "");
+  return {
+    ...table,
+    align,
+    rows: table.rows.map((r, i) => {
+      const cells = padded(r.cells, column);
+      cells.splice(column, 0, i === 0 ? header : "");
+      return withCells(r, cells);
+    })
+  };
+}
+function deleteColumn(table, column) {
+  if (table.align.length <= 1 || column < 0 || column >= table.align.length) return table;
+  return {
+    ...table,
+    align: table.align.filter((_, i) => i !== column),
+    rows: table.rows.map(
+      (r) => withCells(
+        r,
+        r.cells.filter((_, i) => i !== column)
+      )
+    )
+  };
+}
+function moveColumn(table, from, to) {
+  const columns = table.align.length;
+  if (from < 0 || from >= columns || to < 0 || to >= columns || from === to) return table;
+  return {
+    ...table,
+    align: moved(table.align, from, to),
+    rows: table.rows.map((r) => withCells(r, moved(padded(r.cells, columns), from, to)))
+  };
+}
+function setAlign(table, column, align) {
+  return {
+    ...table,
+    align: table.align.map((a, i) => i === column ? align : a)
+  };
+}
+function columnAfterMove(c, from, to) {
+  if (c === from) return to;
+  if (from < to && c > from && c <= to) return c - 1;
+  if (from > to && c >= to && c < from) return c + 1;
+  return c;
+}
+
 // table-plus/src/formula/index.ts
 var FORMULA_TAG_RE = /<meta\s+f\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
 function formulaOf(cell) {
@@ -1708,7 +1516,16 @@ function withoutFormulas(table) {
   return result;
 }
 function formulasAfterEdit(before, after, edit) {
-  return recalculate(shiftReferences(before, after, edit.rowMap, edit.columnMap));
+  let table = after;
+  if (edit.rowMap) {
+    const kept = /* @__PURE__ */ new Set();
+    for (let r = 0; r < before.rows.length; r++) {
+      const moved2 = edit.rowMap(r);
+      if (moved2 !== void 0) kept.add(moved2);
+    }
+    for (let r = 1; r < after.rows.length; r++) if (!kept.has(r)) table = withCalculatedCells(table, r);
+  }
+  return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap));
 }
 function formulaErrors(table) {
   const errors = /* @__PURE__ */ new Map();
@@ -1845,6 +1662,662 @@ function formulaHelp(text, caret) {
   }
   return [REFERENCE_HELP];
 }
+
+// table-plus/src/features/formulas.ts
+var REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
+var Formulas = class {
+  constructor(host) {
+    this.host = host;
+    this.formulaHint = host.floating("div", "tp-formula-hint");
+  }
+  host;
+  formulaHint;
+  referenceMarks = [];
+  stopReferenceDrag;
+  // The reference last inserted by pointing at the table, and the cell its range started at
+  pointed;
+  stopPointing;
+  // Tables whose formula cells show results from before a change made outside Table Plus
+  stale = /* @__PURE__ */ new WeakSet();
+  stop() {
+    this.stopPointing?.();
+    this.hideFormulaUi();
+    this.formulaHint.remove();
+  }
+  // ---- the cell editor ----------------------------------------------------------
+  /** A formula cell is edited as its formula; a text starting with "=" as '=…, so it stays text */
+  editorText(_info, cell, original) {
+    if (cell.row === 0) return void 0;
+    const stored = formulaOf(original);
+    if (stored) return stored.formula;
+    const text = unescapeCell(original);
+    return text.startsWith("=") ? `'${text}` : void 0;
+  }
+  editorOpened(editor) {
+    const field = editor.field;
+    for (const type of ["input", "keyup", "click", "focus"]) {
+      field.addEventListener(type, () => {
+        if (this.host.editing?.field === field && !this.stopReferenceDrag) this.updateFormulaUi();
+      });
+    }
+    field.addEventListener("keydown", (e) => {
+      if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) this.pointed = void 0;
+    });
+    this.updateFormulaUi();
+  }
+  /** Tab while a function name is typed completes it (the editor stays) */
+  editorKeyDown(e) {
+    return e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && this.completeFunctionName();
+  }
+  /**
+   * What a typed formula is saved as: fixed where only one fix is possible
+   * (said so), its column references written by the columns' keys, as a
+   * formula cell whose result the write fills in. A text typed as '=… is that
+   * text. Undefined for anything else.
+   */
+  editorValue(editor, typed) {
+    if (editor.row === 0) return void 0;
+    if (isFormulaInput(typed)) {
+      const { formula, fixes } = autofixFormula(typed.trim());
+      if (fixes.length) void this.host.bridge.flash(`Table Plus: formula fixed: ${fixes.join(", ")}`, "info");
+      const headers = parseTable(this.host.infoOf(editor.widget)?.source ?? "").rows[0]?.cells ?? [];
+      return formulaCell("", withColumnKeys(formula, headers));
+    }
+    return typed.startsWith("'=") ? escapeCell(typed.slice(1)) : void 0;
+  }
+  editorClosed() {
+    this.stopPointing?.();
+    this.pointed = void 0;
+    this.hideFormulaUi();
+  }
+  // While a formula waits for a reference, a press in its table inserts one
+  beforeCellPress(widget, info, cell, e) {
+    return this.pointReference(widget, info, cell, e);
+  }
+  // The outlines follow the table when it scrolls or moves
+  layoutChanged() {
+    if (this.host.editing && !this.stopReferenceDrag) this.updateFormulaUi();
+  }
+  // ---- formula cells in the table -------------------------------------------------
+  /** Formula cells show that they hold one, and their formula (or error) on hover */
+  decorate(_widget, info) {
+    const model = parseTable(info.source);
+    if (recalculate(model) !== model) this.stale.add(info.table);
+    const errors = formulaErrors(model);
+    for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
+      const row = Number(tr.dataset.tpRow);
+      model.rows[row]?.cells.forEach((raw, column) => {
+        const stored = formulaOf(raw);
+        const cell = tr.cells[column];
+        if (!stored || !cell) return;
+        const error = isErrorText(stored.value) ? errors.get(`${row},${column}`) : void 0;
+        cell.classList.add("tp-formula");
+        cell.classList.toggle("tp-formula-error", !!error);
+        cell.title = error ? `${stored.formula}
+${error}` : stored.formula;
+      });
+    }
+  }
+  toolbarButtons(widget, info) {
+    if (!this.stale.has(info.table)) return [];
+    return [
+      {
+        label: "Recalculate",
+        title: "Some formula results are out of date (the table was changed outside Table Plus): write the current results",
+        // A write recalculates: an edit that changes nothing else
+        run: () => void this.host.write(this.host.widgetForKey(info.key) ?? widget, (t) => t)
+      }
+    ];
+  }
+  // ---- help and references while a formula is edited ------------------------
+  /**
+   * While a formula is edited: the help for what is typed under the cell, and
+   * each reference outlined in the table in its own color, as in a spreadsheet.
+   * An outline's edge moves the reference, its corner resizes a range.
+   */
+  updateFormulaUi() {
+    const active = this.host.editing;
+    const info = active && this.host.infoOf(active.widget);
+    const formula = active?.field.value ?? "";
+    if (!active || !info || active.row === 0 || !formula.trimStart().startsWith("=")) {
+      this.hideFormulaUi();
+      return;
+    }
+    const refs = references(formula);
+    active.widget.classList.toggle("tp-pointing", this.pointingSlot(active) !== void 0);
+    this.showFormulaHint(active, formula, refs);
+    for (const mark of this.referenceMarks) mark.remove();
+    this.referenceMarks = [];
+    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    refs.forEach((ref, index) => {
+      const area = this.referenceArea(info, headers, ref, active.row - 1);
+      if (!area) return;
+      const color = REFERENCE_COLORS[index % REFERENCE_COLORS.length];
+      const boxes = this.areaBoxes(active.widget, info, area);
+      boxes.forEach((box, b) => {
+        const mark = this.host.floating("div", "tp-ref-mark");
+        mark.style.setProperty("--tp-ref-color", color);
+        Object.assign(mark.style, {
+          left: `${box.left}px`,
+          top: `${box.top}px`,
+          width: `${box.right - box.left}px`,
+          height: `${box.bottom - box.top}px`
+        });
+        for (const side of ["top", "right", "bottom", "left"]) {
+          const edge = this.host.doc.createElement("div");
+          edge.className = `tp-ref-edge tp-ref-${side}`;
+          edge.title = "Drag to move the reference";
+          edge.addEventListener("pointerdown", (e) => this.dragReference(e, index, "move"));
+          mark.append(edge);
+        }
+        if (ref.kind === "area" && b === boxes.length - 1) {
+          const corner = this.host.doc.createElement("div");
+          corner.className = "tp-ref-corner";
+          corner.title = "Drag to resize the range";
+          corner.addEventListener("pointerdown", (e) => this.dragReference(e, index, "resize"));
+          mark.append(corner);
+        }
+        mark.classList.add("tp-visible");
+        this.referenceMarks.push(mark);
+      });
+    });
+  }
+  /**
+   * Pointing, as in a spreadsheet: while a formula is edited and its caret is
+   * where a reference can go, a click on a cell of the same table inserts the
+   * cell (A1), a drag the range (A1:B3), a click on a header the column
+   * ([Qty]). Pointing again replaces the reference just inserted. Returns
+   * whether the click was taken.
+   */
+  pointReference(widget, info, cell, e) {
+    const active = this.host.editing;
+    if (!active || active.widget !== widget) return false;
+    const slot = this.pointingSlot(active);
+    if (!slot) return false;
+    this.stopPointing?.();
+    const field = active.field;
+    let span = slot;
+    const put = (text, anchor2) => {
+      this.replaceInField(field, span.from, span.to, text);
+      span = { from: span.from, to: span.from + text.length };
+      field.setSelectionRange(span.to, span.to);
+      this.pointed = { field, ...span, text, anchor: anchor2 };
+      this.updateFormulaUi();
+    };
+    if (cell.row === 0) {
+      const headers = parseTable(info.source).rows[0]?.cells ?? [];
+      const text = columnRefText(columnIdOf(headers, cell.column), false);
+      if (text) put(text);
+      return true;
+    }
+    const last = this.pointed;
+    const anchor = e.shiftKey && last?.field === field && last.anchor && last.from === slot.from ? last.anchor : { row: cell.row - 1, column: cell.column };
+    const areaTo = (to) => ({
+      top: Math.min(anchor.row, to.row),
+      left: Math.min(anchor.column, to.column),
+      bottom: Math.max(anchor.row, to.row),
+      right: Math.max(anchor.column, to.column)
+    });
+    put(areaText(areaTo({ row: cell.row - 1, column: cell.column })), anchor);
+    const win = this.host.doc.defaultView;
+    const end = () => {
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", up, true);
+      win.removeEventListener("keydown", end, true);
+      win.removeEventListener("blur", end);
+      this.stopPointing = void 0;
+    };
+    const move = (ev) => {
+      if (this.host.editing?.field !== field || ev.buttons === 0) {
+        end();
+        return;
+      }
+      const to = this.bodyCellAt(info, ev.clientX, ev.clientY);
+      const text = to && areaText(areaTo(to));
+      if (text && text !== field.value.slice(span.from, span.to)) put(text, anchor);
+    };
+    const up = () => {
+      end();
+      if (this.host.editing?.field === field) field.focus({ preventScroll: true });
+    };
+    win.addEventListener("mousemove", move, true);
+    win.addEventListener("mouseup", up, true);
+    win.addEventListener("keydown", end, true);
+    win.addEventListener("blur", end);
+    this.stopPointing = end;
+    return true;
+  }
+  /** Tab while a function name is typed in a formula: completes it with its "(" */
+  completeFunctionName() {
+    const active = this.host.editing;
+    const completion = active && active.row > 0 ? this.functionCompletion(active) : void 0;
+    if (!active || !completion) return false;
+    const field = active.field;
+    this.replaceInField(field, completion.from, completion.to, completion.text);
+    const caret = completion.from + completion.text.length;
+    field.setSelectionRange(caret, caret);
+    this.updateFormulaUi();
+    return true;
+  }
+  functionCompletion(active) {
+    const field = active.field;
+    const length = field.value.length;
+    return completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+  }
+  /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
+  pointingSlot(active) {
+    if (active.row === 0) return void 0;
+    const field = active.field;
+    const length = field.value.length;
+    const pointed = this.pointed?.field === field ? this.pointed : void 0;
+    return referenceSlot(field.value, field.selectionStart ?? length, field.selectionEnd ?? length, pointed);
+  }
+  /**
+   * Replaces part of the field's text, as typing would where the browser
+   * allows it (so Ctrl+Z in the field undoes it), else directly
+   */
+  replaceInField(field, from, to, text) {
+    const expected = field.value.slice(0, from) + text + field.value.slice(to);
+    field.setSelectionRange(from, to);
+    try {
+      if (typeof this.host.doc.execCommand === "function") this.host.doc.execCommand("insertText", false, text);
+    } catch {
+    }
+    if (field.value !== expected) field.value = expected;
+  }
+  /** The formula with its references in their colors, and help for what is typed */
+  showFormulaHint(active, formula, refs) {
+    const hint = this.formulaHint;
+    hint.replaceChildren();
+    if (refs.length) {
+      const line = this.host.doc.createElement("div");
+      line.className = "tp-formula-preview";
+      let at = 0;
+      refs.forEach((ref, index) => {
+        line.append(formula.slice(at, ref.from));
+        const span = this.host.doc.createElement("span");
+        span.style.color = REFERENCE_COLORS[index % REFERENCE_COLORS.length];
+        span.textContent = formula.slice(ref.from, ref.to);
+        line.append(span);
+        at = ref.to;
+      });
+      line.append(formula.slice(at));
+      hint.append(line);
+    }
+    for (const help of formulaHelp(formula, active.field.selectionStart ?? formula.length).slice(0, 6)) {
+      const item = this.host.doc.createElement("div");
+      item.className = "tp-formula-help";
+      const syntax = this.host.doc.createElement("code");
+      syntax.textContent = help.syntax;
+      const description = this.host.doc.createElement("span");
+      description.textContent = help.description;
+      item.append(syntax, description);
+      hint.append(item);
+    }
+    const completion = this.functionCompletion(active);
+    if (completion) {
+      const tab = this.host.doc.createElement("div");
+      tab.className = "tp-formula-tab";
+      tab.textContent = `Tab: ${completion.text}`;
+      hint.append(tab);
+    }
+    const rect = active.cell.getBoundingClientRect();
+    this.host.place(hint, rect.left, rect.bottom + 4);
+    const viewHeight = this.host.doc.defaultView.innerHeight;
+    if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {
+      this.host.place(hint, rect.left, rect.top - 4 - hint.offsetHeight);
+    }
+  }
+  hideFormulaUi() {
+    this.stopReferenceDrag?.();
+    for (const widget of Array.from(this.host.doc.querySelectorAll(".tp-pointing"))) widget.classList.remove("tp-pointing");
+    this.formulaHint.classList.remove("tp-visible");
+    for (const mark of this.referenceMarks) mark.remove();
+    this.referenceMarks = [];
+  }
+  /** The body rows and columns a reference covers, within the table; undefined if none */
+  referenceArea(info, headers, ref, row) {
+    const lastRow = info.rows - 2;
+    const lastColumn = info.columns - 1;
+    if (ref.kind === "column") {
+      const column = referencedColumn(headers, ref.name);
+      if (column === void 0 || lastRow < 0) return void 0;
+      return ref.thisRow ? { top: row, left: column, bottom: row, right: column } : { top: 0, left: column, bottom: lastRow, right: column };
+    }
+    const { top, left, bottom, right } = ref.area;
+    if (top > lastRow || left > lastColumn) return void 0;
+    return { top, left, bottom: Math.min(bottom, lastRow), right: Math.min(right, lastColumn) };
+  }
+  /** The body rows as shown (header and filter row excluded), with their row in the markdown minus one */
+  shownBodyRows(info) {
+    return Array.from(info.table.rows).filter((tr) => tr.dataset.tpRow !== void 0 && !tr.classList.contains("tp-hidden")).map((tr) => ({ tr, row: Number(tr.dataset.tpRow) - 1 }));
+  }
+  /**
+   * Screen boxes outlining an area: one per run of its rows that are shown
+   * next to each other (sorting and filters can split an area), clipped to
+   * the table's visible box
+   */
+  areaBoxes(widget, info, area) {
+    const clip = this.host.innerBox(widget);
+    const boxes = [];
+    let run = [];
+    const flush = () => {
+      const first = run[0]?.cells[area.left];
+      const last = run[run.length - 1]?.cells[area.right];
+      run = [];
+      if (!first || !last) return;
+      const a = first.getBoundingClientRect();
+      const b = last.getBoundingClientRect();
+      const box = {
+        left: Math.max(Math.min(a.left, b.left), clip.left),
+        top: Math.max(Math.min(a.top, b.top), clip.top),
+        right: Math.min(Math.max(a.right, b.right), clip.right),
+        bottom: Math.min(Math.max(a.bottom, b.bottom), clip.bottom)
+      };
+      if (box.right > box.left && box.bottom > box.top) boxes.push(box);
+    };
+    for (const { tr, row } of this.shownBodyRows(info)) {
+      if (row >= area.top && row <= area.bottom) run.push(tr);
+      else flush();
+    }
+    flush();
+    return boxes;
+  }
+  /** The body cell (row in the markdown minus one, column) under a point, if any */
+  bodyCellAt(info, x, y) {
+    for (const { tr, row } of this.shownBodyRows(info)) {
+      const rect = tr.getBoundingClientRect();
+      if (y < rect.top || y > rect.bottom) continue;
+      const column = Array.from(tr.cells).findIndex((cell) => {
+        const r = cell.getBoundingClientRect();
+        return x >= r.left && x <= r.right;
+      });
+      return column < 0 ? void 0 : { row, column };
+    }
+    return void 0;
+  }
+  /**
+   * Dragging an outline's edge moves the reference to the cells under the
+   * pointer (a column reference to another column); dragging a range's corner
+   * resizes it. The formula in the editor changes as the pointer moves; Esc
+   * puts it back.
+   */
+  dragReference(e, index, mode) {
+    const active = this.host.editing;
+    const info = active && this.host.infoOf(active.widget);
+    if (e.button !== 0 || !active || !info) return;
+    e.stopPropagation();
+    const handle = e.currentTarget;
+    const field = active.field;
+    const originalFormula = field.value;
+    const ref = references(originalFormula)[index];
+    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    const start = this.bodyCellAt(info, e.clientX, e.clientY);
+    const startArea = ref && this.referenceArea(info, headers, ref, active.row - 1);
+    if (!ref || !start || !startArea) return;
+    const lastRow = info.rows - 2;
+    const lastColumn = info.columns - 1;
+    const clamp = (n, max) => Math.max(0, Math.min(n, max));
+    this.stopReferenceDrag?.();
+    this.host.doc.body.classList.add("tp-ref-dragging");
+    const textFor = (cell) => {
+      const dRow = cell.row - start.row;
+      const dColumn = cell.column - start.column;
+      if (ref.kind === "column") {
+        const column = clamp(startArea.left + dColumn, lastColumn);
+        return columnRefText(columnIdOf(headers, column), ref.thisRow);
+      }
+      if (mode === "resize") {
+        return areaText({
+          top: Math.min(startArea.top, cell.row),
+          left: Math.min(startArea.left, cell.column),
+          bottom: Math.max(startArea.top, cell.row),
+          right: Math.max(startArea.left, cell.column)
+        });
+      }
+      const height = startArea.bottom - startArea.top;
+      const width = startArea.right - startArea.left;
+      const top = clamp(startArea.top + dRow, lastRow - height);
+      const left = clamp(startArea.left + dColumn, lastColumn - width);
+      return areaText({ top, left, bottom: top + height, right: left + width });
+    };
+    const win = this.host.doc.defaultView;
+    const move = (ev) => {
+      const cell = this.bodyCellAt(info, ev.clientX, ev.clientY);
+      const current = references(field.value)[index];
+      const text = cell && current && textFor(cell);
+      if (!text || !current || field.value.slice(current.from, current.to) === text) return;
+      this.replaceInField(field, current.from, current.to, text);
+      const caret = current.from + text.length;
+      field.setSelectionRange(caret, caret);
+      this.updateFormulaUi();
+    };
+    const escape = (ev) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      field.value = originalFormula;
+      finish();
+    };
+    const finish = () => {
+      this.stopReferenceDrag?.();
+      if (this.host.editing?.field === field) {
+        field.focus({ preventScroll: true });
+        this.updateFormulaUi();
+      }
+    };
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+    }
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", finish);
+    win.addEventListener("pointercancel", finish);
+    handle.addEventListener("lostpointercapture", finish);
+    win.addEventListener("keydown", escape, true);
+    this.stopReferenceDrag = () => {
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", finish);
+      win.removeEventListener("pointercancel", finish);
+      handle.removeEventListener("lostpointercapture", finish);
+      win.removeEventListener("keydown", escape, true);
+      this.host.doc.body.classList.remove("tp-ref-dragging");
+      this.stopReferenceDrag = void 0;
+    };
+  }
+};
+
+// table-plus/src/dom.ts
+var WIDGET_SELECTOR = ".sb-table-widget";
+var EDITOR_SELECTOR = ".cm-content";
+var NATIVE_ACTION_SELECTOR = "a[data-ref], [data-mention-name], button[data-onclick], span.sb-task-state";
+var INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
+var UI_CLASS = "tp-ui";
+function renderedTable(widget) {
+  return widget.querySelector("table");
+}
+function positionHint(table) {
+  const element = table.dataset.pos !== void 0 ? table : table.querySelector("[data-pos]");
+  const pos = element instanceof HTMLElement ? Number(element.dataset.pos) : NaN;
+  return Number.isFinite(pos) ? pos : void 0;
+}
+function cellText(cell) {
+  let text = "";
+  for (const node of Array.from(cell.childNodes)) {
+    if (node instanceof Element && node.classList.contains(UI_CLASS)) continue;
+    text += node.textContent ?? "";
+  }
+  return text.replace(/\s+/g, " ").trim();
+}
+function caretTextOffset(cell, x, y) {
+  const doc = cell.ownerDocument;
+  let node;
+  let offset = 0;
+  if (typeof doc.caretPositionFromPoint === "function") {
+    const position = doc.caretPositionFromPoint(x, y);
+    node = position?.offsetNode;
+    offset = position?.offset ?? 0;
+  } else if (typeof doc.caretRangeFromPoint === "function") {
+    const range = doc.caretRangeFromPoint(x, y);
+    node = range?.startContainer;
+    offset = range?.startOffset ?? 0;
+  }
+  if (!node || node.nodeType !== Node.TEXT_NODE || !cell.contains(node)) return void 0;
+  let before = "";
+  const walker = doc.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    if (text.parentElement?.closest(`.${UI_CLASS}`)) continue;
+    if (text === node) {
+      before += (text.textContent ?? "").slice(0, offset);
+      break;
+    }
+    before += text.textContent ?? "";
+  }
+  return before.replace(/\s+/g, " ").trimStart().length;
+}
+
+// table-plus/src/features/selection.ts
+function clipboardText(values) {
+  const quote = (v) => /[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+  return values.map((row) => row.map(quote).join("	")).join("\n");
+}
+function clipboardHtml(values) {
+  const escape = (v) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
+  return `<table>${rows}</table>`;
+}
+var Selection = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // The cells selected (rows of the markdown, header 0), in the table with this key
+  selection;
+  stopSelecting;
+  start() {
+    this.host.doc.defaultView.addEventListener("copy", this.onCopy, true);
+  }
+  stop() {
+    this.host.doc.defaultView.removeEventListener("copy", this.onCopy, true);
+    this.stopSelecting?.();
+  }
+  // Any click ends a selection (one on Table Plus' own controls aside)
+  beforeMouseDown(e) {
+    if (this.selection && !(e.target instanceof Node && this.host.isFloating(e.target))) this.clear();
+  }
+  /**
+   * After a press on a cell: dragging on to another cell of the table, with
+   * the button held, selects the cells between the two as shown (sorting and
+   * filters included), and closes the cell editor the press opened, unchanged
+   */
+  afterCellPress(info, anchor) {
+    this.stopSelecting?.();
+    const { key } = info;
+    const win = this.host.doc.defaultView;
+    const move = (ev) => {
+      if (ev.buttons === 0) {
+        end();
+        return;
+      }
+      const hit = this.host.enhancedWidgetOf(ev.target);
+      const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], ev.target) : void 0;
+      const ref = hit && cell ? this.host.cellRef(hit[1], cell) : void 0;
+      if (!ref) return;
+      const current = this.selection;
+      if (!current) {
+        if (ref.row === anchor.row && ref.column === anchor.column) return;
+        this.host.cancelEditing();
+        this.selection = { key, anchor, focus: ref };
+      } else if (current.focus.row === ref.row && current.focus.column === ref.column) return;
+      else current.focus = ref;
+      this.show();
+    };
+    const end = () => {
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", end, true);
+      this.stopSelecting = void 0;
+    };
+    win.addEventListener("mousemove", move, true);
+    win.addEventListener("mouseup", end, true);
+    this.stopSelecting = end;
+  }
+  keyDown(e) {
+    if (!this.selection) return false;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      this.clear();
+      return true;
+    }
+    const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    if (e.key === "Delete" && !inField && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.emptyCells();
+      return true;
+    }
+    return false;
+  }
+  // A table rendered again (after a write) shows the selection again
+  enhanced(_widget, info) {
+    if (this.selection?.key === info.key) this.show();
+  }
+  /** The selected cells as shown: rows top to bottom (the header first), columns left to right */
+  cells() {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!selection || !info) return void 0;
+    const shown = this.host.shownRows(info);
+    const index = (row) => shown.findIndex((tr) => row === 0 ? tr === info.table.rows[0] : tr.dataset.tpRow === String(row));
+    const a = index(selection.anchor.row);
+    const b = index(selection.focus.row);
+    if (a < 0 || b < 0) return void 0;
+    const left = Math.min(selection.anchor.column, selection.focus.column);
+    const right = Math.max(selection.anchor.column, selection.focus.column);
+    return shown.slice(Math.min(a, b), Math.max(a, b) + 1).map((tr) => Array.from(tr.cells).slice(left, right + 1));
+  }
+  show() {
+    this.unmark();
+    for (const row of this.cells() ?? []) for (const cell of row) cell.classList.add("tp-selected");
+  }
+  clear() {
+    this.selection = void 0;
+    this.unmark();
+  }
+  unmark() {
+    for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
+  }
+  /**
+   * Empties the selected cells, formulas included, as one edit; header cells
+   * keep their names (a column needs one). The selection stays.
+   */
+  async emptyCells() {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    const cells = this.cells();
+    if (!widget || !info || !cells) return;
+    const refs = cells.flat().map((cell) => this.host.cellRef(info, cell)).filter((ref) => ref !== void 0 && ref.row > 0);
+    await this.host.write(widget, (t) => refs.reduce((table, ref) => setCell(table, ref.row, ref.column, ""), t));
+  }
+  /**
+   * Ctrl+C with cells selected copies them as a spreadsheet does: as text with
+   * a tab between cells and a line break between rows, and as an HTML table,
+   * so Excel and Google Sheets paste them into cells. Cells copy what they
+   * show (a formula's result, a link's text).
+   */
+  onCopy = (e) => {
+    const cells = this.selection && this.cells();
+    const active = this.host.doc.activeElement;
+    if (!cells || !e.clipboardData || active instanceof HTMLInputElement && active.selectionStart !== active.selectionEnd) return;
+    const values = cells.map((row) => row.map(cellText));
+    e.clipboardData.setData("text/plain", clipboardText(values));
+    e.clipboardData.setData("text/html", clipboardHtml(values));
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    void this.host.bridge.flash(`Table Plus: copied ${values.length} \xD7 ${values[0]?.length ?? 0} cells`, "info");
+  };
+};
 
 // table-plus/src/icons.ts
 var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
@@ -2254,7 +2727,6 @@ function plural(n, word) {
 function rowAfterInsert(at) {
   return (r) => r >= at ? r + 1 : r;
 }
-var REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
 var STOPPED_EVENTS = [
   "keydown",
   "keyup",
@@ -2304,7 +2776,7 @@ var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
     this.bridge = bridge;
-    this.features = [new Selection(this)];
+    this.features = [new Formulas(this), new Selection(this)];
     this.bar = this.floating("div", "tp-bar");
     this.rowGrip = this.floatingButton("tp-handle tp-grip", "Row: click for actions, drag to move", ICONS.grip);
     this.columnGrip = this.floatingButton(
@@ -2315,7 +2787,6 @@ var Controller = class {
     this.addRow = this.floatingButton("tp-add tp-add-row", "Add a row at the end", ICONS.plus);
     this.addRow.insertAdjacentText("beforeend", "Row");
     this.addColumn = this.floatingButton("tp-add tp-add-column", "Add a column at the end", ICONS.plus);
-    this.formulaHint = this.floating("div", "tp-formula-hint");
   }
   doc;
   bridge;
@@ -2361,12 +2832,6 @@ var Controller = class {
   columnGrip;
   addRow;
   addColumn;
-  formulaHint;
-  referenceMarks = [];
-  stopReferenceDrag;
-  // The reference last inserted by pointing at the table, and the cell its range started at
-  pointed;
-  stopPointing;
   // The paste on its way was asked for with Ctrl+Shift+V: as new rows
   pasteInserts = false;
   // Features that keep their own state and work through this controller (core/feature.ts)
@@ -2415,9 +2880,7 @@ var Controller = class {
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
-    this.stopPointing?.();
-    this.hideFormulaUi();
-    for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn, this.formulaHint]) el.remove();
+    for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
   }
   onBlur = () => this.setNavigating(false);
   /** Refreshes the settings at most once a second, the last request always served */
@@ -2479,9 +2942,10 @@ var Controller = class {
    * its cells, which keep their results as plain values
    */
   async removeMetadata(shownWidget, shownInfo) {
+    const formulas = formulaCount(parseTable(shownInfo.source));
     const removed = [
       ...shownInfo.metaRow ? ["its stored settings (sorting, pinning)"] : [],
-      ...shownInfo.formulas ? [`its ${plural(shownInfo.formulas, "formula")}: those cells keep their current results as plain values`] : []
+      ...formulas ? [`its ${plural(formulas, "formula")}: those cells keep their current results as plain values`] : []
     ];
     if (!await this.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
     const [widget, info] = this.current(shownWidget, shownInfo);
@@ -2616,9 +3080,7 @@ var Controller = class {
         columns: shape.columns,
         metaRow: model.meta !== void 0,
         rows: model.rows.length,
-        pins: metaPins(model),
-        stale: recalculate(model) !== model,
-        formulas: formulaCount(model)
+        pins: metaPins(model)
       };
       const stored = metaSort(model);
       if (stored && !this.views.has(info.key)) this.views.set(info.key, withSort(DEFAULT_VIEW, stored.column, stored.direction));
@@ -2698,12 +3160,9 @@ var Controller = class {
       return span;
     };
     const { top, bottom, left, right } = info.pins;
-    const model = parseTable(info.source);
-    const errors = formulaErrors(model);
     rows.slice(1).forEach((tr, i) => {
       const row = i + 1;
       tr.dataset.tpRow = String(row);
-      this.markFormulas(model, errors, row, tr);
       if (row <= top) tr.cells[0]?.append(mark(ICONS.pinTop, "Pinned to the top"));
       else if (row > rows.length - 1 - bottom) tr.cells[0]?.append(mark(ICONS.pinBottom, "Pinned to the bottom"));
     });
@@ -2718,19 +3177,7 @@ var Controller = class {
       button.dataset.tpColumn = String(column);
       cell.append(button);
     });
-  }
-  /** Formula cells show that they hold one, and their formula (or error) on hover */
-  markFormulas(model, errors, row, tr) {
-    model.rows[row]?.cells.forEach((raw, column) => {
-      const stored = formulaOf(raw);
-      const cell = tr.cells[column];
-      if (!stored || !cell) return;
-      const error = isErrorText(stored.value) ? errors.get(`${row},${column}`) : void 0;
-      cell.classList.add("tp-formula");
-      cell.classList.toggle("tp-formula-error", !!error);
-      cell.title = error ? `${stored.formula}
-${error}` : stored.formula;
-    });
+    for (const feature of this.features) feature.decorate?.(widget, info);
   }
   // ---- view: sort and filter --------------------------------------------
   viewOf(info) {
@@ -2766,6 +3213,9 @@ ${error}` : stored.formula;
   // ---- host API for features (core/feature.ts) ----------------------------
   infoOf(widget) {
     return this.infos.get(widget);
+  }
+  get editing() {
+    return this.editor;
   }
   cancelEditing() {
     this.pendingFocus = void 0;
@@ -2965,7 +3415,7 @@ ${error}` : stored.formula;
     if (!cell || this.editor?.cell === cell) return;
     const ref = this.cellRef(info, cell);
     if (!ref) return;
-    if (this.pointReference(widget, info, ref, e)) return;
+    for (const feature of this.features) if (feature.beforeCellPress?.(widget, info, ref, e)) return;
     const select = e.shiftKey !== this.selectOnClick;
     if (this.editor) void this.finishEditing(true, { widget, ...ref, select });
     else this.openEditor(widget, info, cell, select);
@@ -3160,7 +3610,7 @@ ${error}` : stored.formula;
       if (this.stopped) return;
       this.updateStickyHeaders();
       this.followScroll();
-      if (this.editor && !this.stopReferenceDrag) this.updateFormulaUi();
+      for (const feature of this.features) feature.layoutChanged?.();
     };
     const win = this.doc.defaultView;
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
@@ -3376,7 +3826,6 @@ ${error}` : stored.formula;
     const ref = this.cellRef(info, cell);
     if (!ref || this.editor) return;
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
-    const stored = ref.row > 0 ? formulaOf(original) : void 0;
     const cellStyle = cell.getAttribute("style");
     const rect = cell.getBoundingClientRect();
     if (rect.width > 0) {
@@ -3391,8 +3840,7 @@ ${error}` : stored.formula;
     field.className = `${UI_CLASS} tp-cell-editor`;
     field.size = 1;
     field.spellcheck = true;
-    const text = unescapeCell(original);
-    field.value = stored ? stored.formula : ref.row > 0 && text.startsWith("=") ? `'${text}` : text;
+    field.value = this.features.reduce((text, f) => text ?? f.editorText?.(info, ref, original), void 0) ?? unescapeCell(original);
     const kept = this.doc.createDocumentFragment();
     while (cell.firstChild) kept.append(cell.firstChild);
     cell.classList.add("tp-editing");
@@ -3401,13 +3849,7 @@ ${error}` : stored.formula;
     this.reveal(widget, cell);
     this.hideHandles();
     this.isolate(field);
-    for (const type of ["input", "keyup", "click", "focus"]) {
-      field.addEventListener(type, () => {
-        if (this.editor?.field === field && !this.stopReferenceDrag) this.updateFormulaUi();
-      });
-    }
     field.addEventListener("keydown", (e) => {
-      if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) this.pointed = void 0;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.pasteInserts = e.shiftKey;
     });
     field.addEventListener("paste", (e) => {
@@ -3423,6 +3865,11 @@ ${error}` : stored.formula;
     });
     field.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
+      const editing = this.editor;
+      if (editing?.field === field && this.features.some((f) => f.editorKeyDown?.(e, editing))) {
+        e.preventDefault();
+        return;
+      }
       if (e.key === "Control") this.setNavigating(true);
       const ctrl = e.ctrlKey && !e.metaKey;
       if (ctrl && e.altKey && !e.shiftKey && MOVE_KEYS.has(e.key)) {
@@ -3440,8 +3887,6 @@ ${error}` : stored.formula;
       } else if (e.key === "Enter") {
         e.preventDefault();
         void this.enter(e.shiftKey);
-      } else if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && this.completeFunctionName()) {
-        e.preventDefault();
       } else if (e.key === "Tab") {
         e.preventDefault();
         void this.step(e.shiftKey ? -1 : 1);
@@ -3450,16 +3895,15 @@ ${error}` : stored.formula;
     field.focus({ preventScroll: true });
     if (select) field.select();
     else field.setSelectionRange(field.value.length, field.value.length);
-    this.updateFormulaUi();
+    const opened = this.editor;
+    for (const feature of this.features) feature.editorOpened?.(opened);
   }
   /** Puts the rendered cell back; returns what was being edited */
   closeEditor() {
     const active = this.editor;
     if (!active) return void 0;
     this.editor = void 0;
-    this.stopPointing?.();
-    this.pointed = void 0;
-    this.hideFormulaUi();
+    for (const feature of this.features) feature.editorClosed?.(active);
     let value = this.cellValue(active);
     if (active.row === 0 && value === "" && active.original !== "") {
       value = active.original;
@@ -3474,19 +3918,12 @@ ${error}` : stored.formula;
   }
   /**
    * The markdown for what the editor holds: the cell as it was when nothing was
-   * changed, a formula cell for a formula (its result is written with the table),
-   * else the text; a text that starts with "=" is typed as '=...
+   * changed, what a feature makes of it (a formula), else the text
    */
   cellValue(active) {
     const typed = active.field.value;
     if (typed === active.initial) return active.original;
-    if (active.row > 0 && isFormulaInput(typed)) {
-      const { formula, fixes } = autofixFormula(typed.trim());
-      if (fixes.length) void this.bridge.flash(`Table Plus: formula fixed: ${fixes.join(", ")}`, "info");
-      const headers = parseTable(this.infos.get(active.widget)?.source ?? "").rows[0]?.cells ?? [];
-      return formulaCell("", withColumnKeys(formula, headers));
-    }
-    return escapeCell(active.row > 0 && typed.startsWith("'=") ? typed.slice(1) : typed);
+    return this.features.reduce((value, f) => value ?? f.editorValue?.(active, typed), void 0) ?? escapeCell(typed);
   }
   /**
    * Ends editing, saving the cell if asked and changed, then opens `next`
@@ -3706,124 +4143,7 @@ ${error}` : stored.formula;
   focusEditor(widget) {
     widget.closest(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
-  // ---- formula editing: help and references -------------------------------
-  /**
-   * While a formula is edited: the help for what is typed under the cell, and
-   * each reference outlined in the table in its own color, as in a spreadsheet.
-   * An outline's edge moves the reference, its corner resizes a range.
-   */
-  updateFormulaUi() {
-    const active = this.editor;
-    const info = active && this.infos.get(active.widget);
-    const formula = active?.field.value ?? "";
-    if (!active || !info || active.row === 0 || !formula.trimStart().startsWith("=")) {
-      this.hideFormulaUi();
-      return;
-    }
-    const refs = references(formula);
-    active.widget.classList.toggle("tp-pointing", this.pointingSlot(active) !== void 0);
-    this.showFormulaHint(active, formula, refs);
-    for (const mark of this.referenceMarks) mark.remove();
-    this.referenceMarks = [];
-    const headers = parseTable(info.source).rows[0]?.cells ?? [];
-    refs.forEach((ref, index) => {
-      const area = this.referenceArea(info, headers, ref, active.row - 1);
-      if (!area) return;
-      const color = REFERENCE_COLORS[index % REFERENCE_COLORS.length];
-      const boxes = this.areaBoxes(active.widget, info, area);
-      boxes.forEach((box, b) => {
-        const mark = this.floating("div", "tp-ref-mark");
-        mark.style.setProperty("--tp-ref-color", color);
-        Object.assign(mark.style, {
-          left: `${box.left}px`,
-          top: `${box.top}px`,
-          width: `${box.right - box.left}px`,
-          height: `${box.bottom - box.top}px`
-        });
-        for (const side of ["top", "right", "bottom", "left"]) {
-          const edge = this.doc.createElement("div");
-          edge.className = `tp-ref-edge tp-ref-${side}`;
-          edge.title = "Drag to move the reference";
-          edge.addEventListener("pointerdown", (e) => this.dragReference(e, index, "move"));
-          mark.append(edge);
-        }
-        if (ref.kind === "area" && b === boxes.length - 1) {
-          const corner = this.doc.createElement("div");
-          corner.className = "tp-ref-corner";
-          corner.title = "Drag to resize the range";
-          corner.addEventListener("pointerdown", (e) => this.dragReference(e, index, "resize"));
-          mark.append(corner);
-        }
-        mark.classList.add("tp-visible");
-        this.referenceMarks.push(mark);
-      });
-    });
-  }
-  /**
-   * Pointing, as in a spreadsheet: while a formula is edited and its caret is
-   * where a reference can go, a click on a cell of the same table inserts the
-   * cell (A1), a drag the range (A1:B3), a click on a header the column
-   * ([Qty]). Pointing again replaces the reference just inserted. Returns
-   * whether the click was taken.
-   */
-  pointReference(widget, info, cell, e) {
-    const active = this.editor;
-    if (!active || active.widget !== widget) return false;
-    const slot = this.pointingSlot(active);
-    if (!slot) return false;
-    this.stopPointing?.();
-    const field = active.field;
-    let span = slot;
-    const put = (text, anchor2) => {
-      this.replaceInField(field, span.from, span.to, text);
-      span = { from: span.from, to: span.from + text.length };
-      field.setSelectionRange(span.to, span.to);
-      this.pointed = { field, ...span, text, anchor: anchor2 };
-      this.updateFormulaUi();
-    };
-    if (cell.row === 0) {
-      const headers = parseTable(info.source).rows[0]?.cells ?? [];
-      const text = columnRefText(columnIdOf(headers, cell.column), false);
-      if (text) put(text);
-      return true;
-    }
-    const last = this.pointed;
-    const anchor = e.shiftKey && last?.field === field && last.anchor && last.from === slot.from ? last.anchor : { row: cell.row - 1, column: cell.column };
-    const areaTo = (to) => ({
-      top: Math.min(anchor.row, to.row),
-      left: Math.min(anchor.column, to.column),
-      bottom: Math.max(anchor.row, to.row),
-      right: Math.max(anchor.column, to.column)
-    });
-    put(areaText(areaTo({ row: cell.row - 1, column: cell.column })), anchor);
-    const win = this.doc.defaultView;
-    const end = () => {
-      win.removeEventListener("mousemove", move, true);
-      win.removeEventListener("mouseup", up, true);
-      win.removeEventListener("keydown", end, true);
-      win.removeEventListener("blur", end);
-      this.stopPointing = void 0;
-    };
-    const move = (ev) => {
-      if (this.editor?.field !== field || ev.buttons === 0) {
-        end();
-        return;
-      }
-      const to = this.bodyCellAt(info, ev.clientX, ev.clientY);
-      const text = to && areaText(areaTo(to));
-      if (text && text !== field.value.slice(span.from, span.to)) put(text, anchor);
-    };
-    const up = () => {
-      end();
-      if (this.editor?.field === field) field.focus({ preventScroll: true });
-    };
-    win.addEventListener("mousemove", move, true);
-    win.addEventListener("mouseup", up, true);
-    win.addEventListener("keydown", end, true);
-    win.addEventListener("blur", end);
-    this.stopPointing = end;
-    return true;
-  }
+  // ---- pasting cells from a spreadsheet ---------------------------------
   /**
    * Pastes cells copied from a spreadsheet from the edited cell, as one edit:
    * over the cells there (insert false), or as new rows at the cell's row
@@ -3871,244 +4191,6 @@ ${error}` : stored.formula;
     const what = insert ? `${plural(data.length, "new row")}` : `${data.length} \xD7 ${width} cells`;
     void this.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
     this.focusEditor(closed.widget);
-  }
-  /** Tab while a function name is typed in a formula: completes it with its "(" */
-  completeFunctionName() {
-    const active = this.editor;
-    const completion = active && active.row > 0 ? this.functionCompletion(active) : void 0;
-    if (!active || !completion) return false;
-    const field = active.field;
-    this.replaceInField(field, completion.from, completion.to, completion.text);
-    const caret = completion.from + completion.text.length;
-    field.setSelectionRange(caret, caret);
-    this.updateFormulaUi();
-    return true;
-  }
-  functionCompletion(active) {
-    const field = active.field;
-    const length = field.value.length;
-    return completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
-  }
-  /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
-  pointingSlot(active) {
-    if (active.row === 0) return void 0;
-    const field = active.field;
-    const length = field.value.length;
-    const pointed = this.pointed?.field === field ? this.pointed : void 0;
-    return referenceSlot(field.value, field.selectionStart ?? length, field.selectionEnd ?? length, pointed);
-  }
-  /**
-   * Replaces part of the field's text, as typing would where the browser
-   * allows it (so Ctrl+Z in the field undoes it), else directly
-   */
-  replaceInField(field, from, to, text) {
-    const expected = field.value.slice(0, from) + text + field.value.slice(to);
-    field.setSelectionRange(from, to);
-    try {
-      if (typeof this.doc.execCommand === "function") this.doc.execCommand("insertText", false, text);
-    } catch {
-    }
-    if (field.value !== expected) field.value = expected;
-  }
-  /** The formula with its references in their colors, and help for what is typed */
-  showFormulaHint(active, formula, refs) {
-    const hint = this.formulaHint;
-    hint.replaceChildren();
-    if (refs.length) {
-      const line = this.doc.createElement("div");
-      line.className = "tp-formula-preview";
-      let at = 0;
-      refs.forEach((ref, index) => {
-        line.append(formula.slice(at, ref.from));
-        const span = this.doc.createElement("span");
-        span.style.color = REFERENCE_COLORS[index % REFERENCE_COLORS.length];
-        span.textContent = formula.slice(ref.from, ref.to);
-        line.append(span);
-        at = ref.to;
-      });
-      line.append(formula.slice(at));
-      hint.append(line);
-    }
-    for (const help of formulaHelp(formula, active.field.selectionStart ?? formula.length).slice(0, 6)) {
-      const item = this.doc.createElement("div");
-      item.className = "tp-formula-help";
-      const syntax = this.doc.createElement("code");
-      syntax.textContent = help.syntax;
-      const description = this.doc.createElement("span");
-      description.textContent = help.description;
-      item.append(syntax, description);
-      hint.append(item);
-    }
-    const completion = this.functionCompletion(active);
-    if (completion) {
-      const tab = this.doc.createElement("div");
-      tab.className = "tp-formula-tab";
-      tab.textContent = `Tab: ${completion.text}`;
-      hint.append(tab);
-    }
-    const rect = active.cell.getBoundingClientRect();
-    this.place(hint, rect.left, rect.bottom + 4);
-    const viewHeight = this.doc.defaultView.innerHeight;
-    if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {
-      this.place(hint, rect.left, rect.top - 4 - hint.offsetHeight);
-    }
-  }
-  hideFormulaUi() {
-    this.stopReferenceDrag?.();
-    for (const widget of Array.from(this.doc.querySelectorAll(".tp-pointing"))) widget.classList.remove("tp-pointing");
-    this.formulaHint.classList.remove("tp-visible");
-    for (const mark of this.referenceMarks) mark.remove();
-    this.referenceMarks = [];
-  }
-  /** The body rows and columns a reference covers, within the table; undefined if none */
-  referenceArea(info, headers, ref, row) {
-    const lastRow = info.rows - 2;
-    const lastColumn = info.columns - 1;
-    if (ref.kind === "column") {
-      const column = referencedColumn(headers, ref.name);
-      if (column === void 0 || lastRow < 0) return void 0;
-      return ref.thisRow ? { top: row, left: column, bottom: row, right: column } : { top: 0, left: column, bottom: lastRow, right: column };
-    }
-    const { top, left, bottom, right } = ref.area;
-    if (top > lastRow || left > lastColumn) return void 0;
-    return { top, left, bottom: Math.min(bottom, lastRow), right: Math.min(right, lastColumn) };
-  }
-  /** The body rows as shown (header and filter row excluded), with their row in the markdown minus one */
-  shownBodyRows(info) {
-    return Array.from(info.table.rows).filter((tr) => tr.dataset.tpRow !== void 0 && !tr.classList.contains("tp-hidden")).map((tr) => ({ tr, row: Number(tr.dataset.tpRow) - 1 }));
-  }
-  /**
-   * Screen boxes outlining an area: one per run of its rows that are shown
-   * next to each other (sorting and filters can split an area), clipped to
-   * the table's visible box
-   */
-  areaBoxes(widget, info, area) {
-    const clip = this.innerBox(widget);
-    const boxes = [];
-    let run = [];
-    const flush = () => {
-      const first = run[0]?.cells[area.left];
-      const last = run[run.length - 1]?.cells[area.right];
-      run = [];
-      if (!first || !last) return;
-      const a = first.getBoundingClientRect();
-      const b = last.getBoundingClientRect();
-      const box = {
-        left: Math.max(Math.min(a.left, b.left), clip.left),
-        top: Math.max(Math.min(a.top, b.top), clip.top),
-        right: Math.min(Math.max(a.right, b.right), clip.right),
-        bottom: Math.min(Math.max(a.bottom, b.bottom), clip.bottom)
-      };
-      if (box.right > box.left && box.bottom > box.top) boxes.push(box);
-    };
-    for (const { tr, row } of this.shownBodyRows(info)) {
-      if (row >= area.top && row <= area.bottom) run.push(tr);
-      else flush();
-    }
-    flush();
-    return boxes;
-  }
-  /** The body cell (row in the markdown minus one, column) under a point, if any */
-  bodyCellAt(info, x, y) {
-    for (const { tr, row } of this.shownBodyRows(info)) {
-      const rect = tr.getBoundingClientRect();
-      if (y < rect.top || y > rect.bottom) continue;
-      const column = Array.from(tr.cells).findIndex((cell) => {
-        const r = cell.getBoundingClientRect();
-        return x >= r.left && x <= r.right;
-      });
-      return column < 0 ? void 0 : { row, column };
-    }
-    return void 0;
-  }
-  /**
-   * Dragging an outline's edge moves the reference to the cells under the
-   * pointer (a column reference to another column); dragging a range's corner
-   * resizes it. The formula in the editor changes as the pointer moves; Esc
-   * puts it back.
-   */
-  dragReference(e, index, mode) {
-    const active = this.editor;
-    const info = active && this.infos.get(active.widget);
-    if (e.button !== 0 || !active || !info) return;
-    e.stopPropagation();
-    const handle = e.currentTarget;
-    const field = active.field;
-    const originalFormula = field.value;
-    const ref = references(originalFormula)[index];
-    const headers = parseTable(info.source).rows[0]?.cells ?? [];
-    const start = this.bodyCellAt(info, e.clientX, e.clientY);
-    const startArea = ref && this.referenceArea(info, headers, ref, active.row - 1);
-    if (!ref || !start || !startArea) return;
-    const lastRow = info.rows - 2;
-    const lastColumn = info.columns - 1;
-    const clamp = (n, max) => Math.max(0, Math.min(n, max));
-    this.stopReferenceDrag?.();
-    this.doc.body.classList.add("tp-ref-dragging");
-    const textFor = (cell) => {
-      const dRow = cell.row - start.row;
-      const dColumn = cell.column - start.column;
-      if (ref.kind === "column") {
-        const column = clamp(startArea.left + dColumn, lastColumn);
-        return columnRefText(columnIdOf(headers, column), ref.thisRow);
-      }
-      if (mode === "resize") {
-        return areaText({
-          top: Math.min(startArea.top, cell.row),
-          left: Math.min(startArea.left, cell.column),
-          bottom: Math.max(startArea.top, cell.row),
-          right: Math.max(startArea.left, cell.column)
-        });
-      }
-      const height = startArea.bottom - startArea.top;
-      const width = startArea.right - startArea.left;
-      const top = clamp(startArea.top + dRow, lastRow - height);
-      const left = clamp(startArea.left + dColumn, lastColumn - width);
-      return areaText({ top, left, bottom: top + height, right: left + width });
-    };
-    const win = this.doc.defaultView;
-    const move = (ev) => {
-      const cell = this.bodyCellAt(info, ev.clientX, ev.clientY);
-      const current = references(field.value)[index];
-      const text = cell && current && textFor(cell);
-      if (!text || !current || field.value.slice(current.from, current.to) === text) return;
-      this.replaceInField(field, current.from, current.to, text);
-      const caret = current.from + text.length;
-      field.setSelectionRange(caret, caret);
-      this.updateFormulaUi();
-    };
-    const escape = (ev) => {
-      if (ev.key !== "Escape") return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      field.value = originalFormula;
-      finish();
-    };
-    const finish = () => {
-      this.stopReferenceDrag?.();
-      if (this.editor?.field === field) {
-        field.focus({ preventScroll: true });
-        this.updateFormulaUi();
-      }
-    };
-    try {
-      handle.setPointerCapture(e.pointerId);
-    } catch {
-    }
-    win.addEventListener("pointermove", move);
-    win.addEventListener("pointerup", finish);
-    win.addEventListener("pointercancel", finish);
-    handle.addEventListener("lostpointercapture", finish);
-    win.addEventListener("keydown", escape, true);
-    this.stopReferenceDrag = () => {
-      win.removeEventListener("pointermove", move);
-      win.removeEventListener("pointerup", finish);
-      win.removeEventListener("pointercancel", finish);
-      handle.removeEventListener("lostpointercapture", finish);
-      win.removeEventListener("keydown", escape, true);
-      this.doc.body.classList.remove("tp-ref-dragging");
-      this.stopReferenceDrag = void 0;
-    };
   }
   // ---- writing markdown --------------------------------------------------
   /**
@@ -4190,7 +4272,7 @@ ${error}` : stored.formula;
       widget,
       (t) => {
         const prepared = prepare(t);
-        return prepared && withCalculatedCells(insertRow(prepared, insert.at), insert.at);
+        return prepared && insertRow(prepared, insert.at);
       },
       { focus: { row: insert.at, column }, pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
     );
@@ -4370,14 +4452,10 @@ ${error}` : stored.formula;
       },
       view.showFilters
     );
-    if (info.stale) {
-      button(
-        "Recalculate",
-        "Some formula results are out of date (the table was changed outside Table Plus): write the current results",
-        () => void this.write(this.current(widget, info)[0], (t) => t)
-      );
+    for (const feature of this.features) {
+      for (const item of feature.toolbarButtons?.(widget, info) ?? []) button(item.label, item.title, item.run);
     }
-    if (info.metaRow || info.formulas) {
+    if (info.metaRow || formulaCount(parseTable(info.source)) > 0) {
       button(
         "Remove metadata",
         "Remove this table's <meta> tags: its stored settings (sorting, pinning) and the formulas of its cells, which keep their results",

@@ -768,16 +768,27 @@ export function withoutFormulas(table: Table): Table {
 }
 
 /**
- * The step every table edit goes through for formulas: references follow the
- * rows and columns the edit moved (see shiftReferences), then every formula
- * cell shows its result for the table as edited
+ * The step every table edit goes through for formulas: rows the edit added
+ * (those no row before maps to) get their calculated columns' formulas,
+ * references follow the rows and columns the edit moved (see
+ * shiftReferences), then every formula cell shows its result for the table
+ * as edited
  */
 export function formulasAfterEdit(
   before: Table,
   after: Table,
   edit: { readonly rowMap?: IndexMap; readonly columnMap?: IndexMap },
 ): Table {
-  return recalculate(shiftReferences(before, after, edit.rowMap, edit.columnMap));
+  let table = after;
+  if (edit.rowMap) {
+    const kept = new Set<number>();
+    for (let r = 0; r < before.rows.length; r++) {
+      const moved = edit.rowMap(r);
+      if (moved !== undefined) kept.add(moved);
+    }
+    for (let r = 1; r < after.rows.length; r++) if (!kept.has(r)) table = withCalculatedCells(table, r);
+  }
+  return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap));
 }
 
 /** Why formula cells show errors: "row,column" (rows of the markdown, header 0) → code and detail */
