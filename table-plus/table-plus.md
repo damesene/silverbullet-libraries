@@ -1035,9 +1035,9 @@ body.tp-navigating .sb-table-widget.tp-table * {
 .tp-filter-box:has(.tp-filter.tp-invalid) {
   border-color: var(--danger-color, #c62828);
 }
-/* Clears the field: shown while it holds something */
+/* Clears the field: shown while it holds something (!important: see .tp-floating) */
 .tp-filter-clear {
-  display: none;
+  display: none !important;
   flex: none;
   padding: 0;
   color: inherit;
@@ -1048,7 +1048,7 @@ body.tp-navigating .sb-table-widget.tp-table * {
   opacity: 0.6;
 }
 .tp-filter-typed .tp-filter-clear {
-  display: inline-flex;
+  display: inline-flex !important;
 }
 .tp-filter-clear:hover {
   opacity: 1;
@@ -1164,15 +1164,17 @@ body.tp-navigating .sb-table-widget.tp-table * {
   margin-right: 4px;
 }
 
-/* Floating controls */
+/* Floating controls. Shown and hidden with !important: themes may set display
+   on every button with !important (grips and the + are buttons), which would
+   leave them in view where they no longer act */
 .tp-floating {
   position: fixed;
   z-index: 50;
-  display: none;
+  display: none !important;
   font-family: var(--ui-font, system-ui, sans-serif);
 }
 .tp-floating.tp-visible {
-  display: flex;
+  display: flex !important;
 }
 .tp-bar {
   align-items: center;
@@ -1655,7 +1657,7 @@ body.tp-autoscrolling * {
   background: color-mix(in srgb, var(--tp-ref-color) 10%, transparent);
 }
 .tp-floating.tp-ref-mark.tp-visible {
-  display: block;
+  display: block !important;
 }
 .tp-ref-edge {
   position: absolute;
