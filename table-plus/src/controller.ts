@@ -13,7 +13,10 @@ import type {
   WriteResult,
   WriteStep,
 } from "./core/feature.ts";
+import { Expressions } from "./features/expressions.ts";
 import { Formulas } from "./features/formulas.ts";
+import { Metadata } from "./features/metadata.ts";
+import { Paste } from "./features/paste.ts";
 import { Selection } from "./features/selection.ts";
 import {
   caretTextOffset,
@@ -26,19 +29,15 @@ import {
   UI_CLASS,
   WIDGET_SELECTOR,
 } from "./dom.ts";
-import { formatLuaNumber } from "./format.ts";
 import {
-  formulaCount,
   formulasAfterEdit,
   type IndexMap,
-  withoutFormulas,
 } from "./formula/index.ts";
 import { ICONS } from "./icons.ts";
 import {
   type Align,
   cellSourceOffset,
   escapeCell,
-  findTables,
   locateBySource,
   locateByShape,
   locateWithEmptyHeaders,
@@ -49,7 +48,6 @@ import {
   unescapeCell,
 } from "./markdown.ts";
 import { focusMenu, type MenuEntry, renderMenu } from "./menu.ts";
-import { parseClipboardCells, pasteCells, planPaste } from "./paste.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import {
   appendColumnAt,
@@ -112,16 +110,6 @@ type HandleTarget = {
   readonly column: number;
 };
 
-/** A table without its metadata row and without formulas (their cells keep their results) */
-function withoutMetadata(table: Table): Table {
-  const { meta: _meta, metaSource: _source, ...rest } = withoutFormulas(table);
-  return rest;
-}
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-
 /** Where the rows of the markdown go when a row is inserted at `at` */
 function rowAfterInsert(at: number): IndexMap {
   return (r) => (r >= at ? r + 1 : r);
@@ -157,8 +145,6 @@ const BAR_GAP = 10;
 // A sorting is stored (metadata setting) once the clicks have settled
 const STORE_SORT_DELAY_MS = 400;
 
-// Time the indexers get to write the index after `page:index`
-const INDEX_SETTLE_MS = 500;
 
 // Middle-button autoscroll: no movement within this distance of the start point
 const AUTOSCROLL_DEAD_ZONE = 12;
@@ -186,7 +172,6 @@ const FILTER_HINT =
 
 const NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 const MOVE_BLOCKED = "Clear sorting and filters to move rows";
-const PASTE_BLOCKED = "Clear sorting and filters to paste cells: the rows shown are not where they would go";
 const PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 
 /**
@@ -236,7 +221,6 @@ export class Controller implements TableHost {
   private movingRows = false;
   private settingsTimer: ReturnType<typeof setTimeout> | undefined;
   private settingsReadAt = 0;
-  private expressionTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly sortTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private stickyQueued = false;
   private warnedIncompatible = false;
@@ -246,10 +230,10 @@ export class Controller implements TableHost {
   private readonly columnGrip: HTMLButtonElement;
   private readonly addRow: HTMLButtonElement;
   private readonly addColumn: HTMLButtonElement;
-  // The paste on its way was asked for with Ctrl+Shift+V: as new rows
-  private pasteInserts = false;
   // Features that keep their own state and work through this controller (core/feature.ts)
   private readonly features: readonly Feature[];
+  private readonly metadata: Metadata;
+  private readonly expressions: Expressions;
   // Steps every write goes through after the edit, in this order
   private readonly writeSteps: readonly WriteStep[] = [formulasAfterEdit, metadataAfterEdit];
 
@@ -257,7 +241,9 @@ export class Controller implements TableHost {
     readonly doc: Document,
     public bridge: Bridge,
   ) {
-    this.features = [new Formulas(this), new Selection(this)];
+    this.metadata = new Metadata(this);
+    this.expressions = new Expressions(this);
+    this.features = [new Formulas(this), this.metadata, new Paste(this), new Selection(this), this.expressions];
     this.bar = this.floating("div", "tp-bar");
     this.rowGrip = this.floatingButton("tp-handle tp-grip", "Row: click for actions, drag to move", ICONS.grip);
     this.columnGrip = this.floatingButton(
@@ -312,7 +298,6 @@ export class Controller implements TableHost {
     this.doc.removeEventListener("mousemove", this.onMouseMove);
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
-    clearTimeout(this.expressionTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
@@ -342,7 +327,7 @@ export class Controller implements TableHost {
   }
 
   /** Asks before a destructive change, with SilverBullet's dialog (else the browser's) */
-  private async ask(question: string): Promise<boolean> {
+  async ask(question: string): Promise<boolean> {
     return this.bridge.confirm
       ? await this.bridge.confirm(question, { destructive: true })
       : this.doc.defaultView!.confirm(question);
@@ -382,30 +367,11 @@ export class Controller implements TableHost {
   }
 
   /**
-   * Removes a table's metadata, once confirmed: its metadata row (a sorting
-   * stored there goes with it: the rows show as written) and the formulas of
-   * its cells, which keep their results as plain values
-   */
-  private async removeMetadata(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
-    const formulas = formulaCount(parseTable(shownInfo.source));
-    const removed = [
-      ...(shownInfo.metaRow ? ["its stored settings (sorting, pinning)"] : []),
-      ...(formulas ? [`its ${plural(formulas, "formula")}: those cells keep their current results as plain values`] : []),
-    ];
-    if (!(await this.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`))) return;
-    const [widget, info] = this.current(shownWidget, shownInfo);
-    if (metaSort(parseTable(info.source))) this.dropStoredSort(info.key);
-    await this.write(widget, withoutMetadata);
-    // The dialog took the focus: back to the editor, so Ctrl+Z works right away
-    this.focusEditor(widget);
-  }
-
-  /**
    * The sorting a table's metadata stored ends with the metadata, so the rows
    * show as written. Without filters the view is forgotten, so Ctrl+Z (the
    * metadata back) shows the stored sorting again.
    */
-  private dropStoredSort(key: string): void {
+  forgetStoredSort(key: string): void {
     clearTimeout(this.sortTimers.get(key));
     this.sortTimers.delete(key);
     const view = this.views.get(key);
@@ -421,43 +387,6 @@ export class Controller implements TableHost {
     const now = this.widgetForKey(info.key);
     const nowInfo = now && this.infos.get(now);
     return now && nowInfo ? [now, nowInfo] : [widget, info];
-  }
-
-  /** Removes the metadata rows of all tables on the current page, once confirmed */
-  async removeAllMetadata(): Promise<void> {
-    const text = await this.bridge.getText();
-    // From the last table up, so the earlier ones keep their positions
-    const tables = findTables(text)
-      .filter((range) => {
-        const table = parseTable(range.text);
-        return table.meta !== undefined || formulaCount(table) > 0;
-      })
-      .reverse();
-    if (tables.length === 0) {
-      void this.bridge.flash("Table Plus: no table on this page has metadata", "info");
-      return;
-    }
-    const formulas = tables.reduce((n, range) => n + formulaCount(parseTable(range.text)), 0);
-    const question =
-      `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` +
-      (formulas ? `, including ${plural(formulas, "formula")} (those cells keep their current results as plain values)` : "") +
-      "? Ctrl+Z brings it back.";
-    if (!(await this.ask(question))) return;
-    // One edit over the span of all those tables, so one Ctrl+Z undoes it
-    const from = tables[tables.length - 1]!.from;
-    const to = tables[0]!.to;
-    let span = text.slice(from, to);
-    const page = await this.bridge.getCurrentPage();
-    for (const range of tables) {
-      const table = parseTable(range.text);
-      if (metaSort(table)) this.dropStoredSort(`${page}#${range.ordinal}`);
-      span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(table)) + span.slice(range.to - from);
-    }
-    const edit = minimalEdit(text.slice(from, to), span);
-    await this.bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
-    // The dialog took the focus: back to the editor, so Ctrl+Z works right away
-    this.doc.querySelector<HTMLElement>(EDITOR_SELECTOR)?.focus({ preventScroll: true });
-    void this.bridge.flash(`Table Plus: removed the metadata of ${tables.length} table(s)`, "info");
   }
 
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
@@ -476,7 +405,7 @@ export class Controller implements TableHost {
     this.queueStickyUpdate();
   }
 
-  private rearranged(info: WidgetInfo): boolean {
+  rearranged(info: WidgetInfo): boolean {
     return isRearranged(this.viewOf(info), this.filterOptions);
   }
 
@@ -702,6 +631,21 @@ export class Controller implements TableHost {
     return this.editor;
   }
 
+  takeEditor(): { widget: HTMLElement; row: number; column: number; save: (table: Table) => Table | undefined } | undefined {
+    const closed = this.closeEditor();
+    return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.withSaved(t, closed) };
+  }
+
+  /** The "Table Plus: Remove table metadata" command */
+  removeAllMetadata(): Promise<void> {
+    return this.metadata.removeFromPage();
+  }
+
+  /** SilverBullet's `page:index` event */
+  pageIndexed(name: string): Promise<void> {
+    return this.expressions.pageIndexed(name);
+  }
+
   cancelEditing(): void {
     this.pendingFocus = undefined;
     if (this.editor) void this.finishEditing(false);
@@ -722,7 +666,7 @@ export class Controller implements TableHost {
     );
   }
 
-  private applyView(widget: HTMLElement, info: WidgetInfo): void {
+  applyView(widget: HTMLElement, info: WidgetInfo): void {
     const view = this.viewOf(info);
     const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
@@ -1322,65 +1266,7 @@ export class Controller implements TableHost {
     return Number.isInteger(row) ? { row, column: cell.cellIndex } : undefined;
   }
 
-  // ---- `${…}` cells: re-evaluated once the page index is up to date --------
-
-  /**
-   * SilverBullet renders a table right after Table Plus writes it, before the
-   * page is re-indexed, so a `${…}` cell that reads the index (e.g. a formula
-   * from a spreadsheet library) shows a stale result until the table renders
-   * again. Once the page is indexed, Table Plus has SilverBullet re-evaluate
-   * such cells (lua.evalExpression) and shows the new values in place.
-   * `page:index` is the event the indexers write the index on, not a signal
-   * that they are done, so the evaluation waits a moment for them.
-   */
-  async pageIndexed(name: string): Promise<void> {
-    if (this.stopped || !this.bridge.evalExpression) return;
-    if (name !== (await this.bridge.getCurrentPage())) return;
-    clearTimeout(this.expressionTimer);
-    this.expressionTimer = setTimeout(() => void this.refreshExpressions(), INDEX_SETTLE_MS);
-  }
-
-  private async refreshExpressions(): Promise<void> {
-    for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
-      const info = this.infos.get(widget);
-      if (this.stopped || !info || !info.source.includes("${")) continue;
-      const rows = parseTable(info.source).rows;
-      let changed = false;
-      for (let row = 0; row < rows.length; row++) {
-        const cells = rows[row]!.cells;
-        for (let column = 0; column < cells.length; column++) {
-          // Only cells that are one expression: their shown text is its value
-          const expression = /^\$\{([\s\S]+)\}$/.exec(cells[column]!.trim())?.[1];
-          if (!expression) continue;
-          let value: unknown;
-          try {
-            value = await this.bridge.evalExpression!(expression.replaceAll("\\|", "|"));
-          } catch {
-            continue;
-          }
-          const text =
-            value === null || value === undefined
-              ? ""
-              : typeof value === "number"
-                ? formatLuaNumber(value)
-                : typeof value === "string" || typeof value === "boolean"
-                  ? String(value)
-                  : undefined;
-          const cell = this.cellAt(info, { row, column }, true);
-          if (text === undefined || !cell || cell === this.editor?.cell || renderedTable(widget) !== info.table) continue;
-          if (cellText(cell) === text) continue;
-          for (const node of Array.from(cell.childNodes)) {
-            if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
-          }
-          cell.prepend(this.doc.createTextNode(text));
-          changed = true;
-        }
-      }
-      if (changed && renderedTable(widget) === info.table) this.applyView(widget, info);
-    }
-  }
-
-  private cellAt(info: WidgetInfo, ref: CellRef, includeHidden = false): HTMLTableCellElement | undefined {
+  cellAt(info: WidgetInfo, ref: CellRef, includeHidden = false): HTMLTableCellElement | undefined {
     const tr =
       ref.row === 0
         ? info.table.rows[0]
@@ -1427,19 +1313,6 @@ export class Controller implements TableHost {
     this.hideHandles();
 
     this.isolate(field);
-    field.addEventListener("keydown", (e) => {
-      // Ctrl+Shift+V pastes cells as new rows; the paste event does not tell Shift
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.pasteInserts = e.shiftKey;
-    });
-    // Cells copied from a spreadsheet go into the table; a single value into the field
-    field.addEventListener("paste", (e) => {
-      const insert = this.pasteInserts;
-      this.pasteInserts = false;
-      const data = parseClipboardCells(e.clipboardData?.getData("text/plain") ?? "");
-      if (!data || this.editor?.field !== field) return;
-      e.preventDefault();
-      void this.pasteIntoTable(data, insert);
-    });
     field.addEventListener("blur", () => {
       // Focus went elsewhere on purpose: save, but leave the focus there
       if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, undefined, false);
@@ -1764,59 +1637,8 @@ export class Controller implements TableHost {
     else if (rect.bottom > view.bottom) scroller.scrollTop += rect.bottom - view.bottom;
   }
 
-  private focusEditor(widget: HTMLElement): void {
+  focusEditor(widget: HTMLElement): void {
     widget.closest<HTMLElement>(EDITOR_SELECTOR)?.focus({ preventScroll: true });
-  }
-
-  // ---- pasting cells from a spreadsheet ---------------------------------
-
-  /**
-   * Pastes cells copied from a spreadsheet from the edited cell, as one edit:
-   * over the cells there (insert false), or as new rows at the cell's row
-   * (Ctrl+Shift+V). Cells with formulas keep them. Not while the table is
-   * sorted or filtered: the rows shown are not where the cells would go.
-   */
-  private async pasteIntoTable(data: string[][], insert: boolean): Promise<void> {
-    const active = this.editor;
-    const info = active && this.infos.get(active.widget);
-    if (!active || !info) return;
-    if (this.rearranged(info)) {
-      void this.bridge.flash(`Table Plus: ${PASTE_BLOCKED.toLowerCase()}`, "info");
-      return;
-    }
-    const plan = planPaste(parseTable(info.source), info.pins, active, data, insert);
-    if ("error" in plan) {
-      void this.bridge.flash(`Table Plus: cannot paste here: ${plan.error}`, "error");
-      return;
-    }
-    const closed = this.closeEditor()!;
-    let skipped = 0;
-    const { newRows, newColumns } = plan;
-    const result = await this.write(
-      closed.widget,
-      (t) => {
-        const edited = this.withSaved(t, closed);
-        if (!edited) return undefined;
-        const pasted = pasteCells(edited, plan, data);
-        skipped = pasted.skipped;
-        return pasted.table;
-      },
-      {
-        columnMap: newColumns.count ? (c) => (c >= newColumns.at ? c + newColumns.count : c) : undefined,
-        pins: plan.pins,
-        rowMap: newRows.count ? (r) => (r >= newRows.at ? r + newRows.count : r) : undefined,
-      },
-    );
-    if (result !== "written") return;
-    const width = Math.max(...data.map((r) => r.length));
-    const added = [
-      ...(newRows.count && !insert ? [`added ${plural(newRows.count, "row")}`] : []),
-      ...(newColumns.count ? [`added ${plural(newColumns.count, "column")}`] : []),
-      ...(skipped ? [`kept ${plural(skipped, "formula cell")}`] : []),
-    ];
-    const what = insert ? `${plural(data.length, "new row")}` : `${data.length} × ${width} cells`;
-    void this.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
-    this.focusEditor(closed.widget);
   }
 
   // ---- writing markdown --------------------------------------------------
@@ -2134,13 +1956,6 @@ export class Controller implements TableHost {
     );
     for (const feature of this.features) {
       for (const item of feature.toolbarButtons?.(widget, info) ?? []) button(item.label, item.title, item.run);
-    }
-    if (info.metaRow || formulaCount(parseTable(info.source)) > 0) {
-      button(
-        "Remove metadata",
-        "Remove this table's <meta> tags: its stored settings (sorting, pinning) and the formulas of its cells, which keep their results",
-        () => void this.removeMetadata(widget, info),
-      );
     }
     button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(this.current(widget, info)[1]));
 

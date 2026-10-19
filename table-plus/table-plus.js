@@ -55,6 +55,73 @@ function missingBridgeFunctions(bridge) {
   return REQUIRED.filter((name) => typeof bridge?.[name] !== "function");
 }
 
+// table-plus/src/dom.ts
+var WIDGET_SELECTOR = ".sb-table-widget";
+var EDITOR_SELECTOR = ".cm-content";
+var NATIVE_ACTION_SELECTOR = "a[data-ref], [data-mention-name], button[data-onclick], span.sb-task-state";
+var INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
+var UI_CLASS = "tp-ui";
+function renderedTable(widget) {
+  return widget.querySelector("table");
+}
+function positionHint(table) {
+  const element = table.dataset.pos !== void 0 ? table : table.querySelector("[data-pos]");
+  const pos = element instanceof HTMLElement ? Number(element.dataset.pos) : NaN;
+  return Number.isFinite(pos) ? pos : void 0;
+}
+function cellText(cell) {
+  let text = "";
+  for (const node of Array.from(cell.childNodes)) {
+    if (node instanceof Element && node.classList.contains(UI_CLASS)) continue;
+    text += node.textContent ?? "";
+  }
+  return text.replace(/\s+/g, " ").trim();
+}
+function caretTextOffset(cell, x, y) {
+  const doc = cell.ownerDocument;
+  let node;
+  let offset = 0;
+  if (typeof doc.caretPositionFromPoint === "function") {
+    const position = doc.caretPositionFromPoint(x, y);
+    node = position?.offsetNode;
+    offset = position?.offset ?? 0;
+  } else if (typeof doc.caretRangeFromPoint === "function") {
+    const range = doc.caretRangeFromPoint(x, y);
+    node = range?.startContainer;
+    offset = range?.startOffset ?? 0;
+  }
+  if (!node || node.nodeType !== Node.TEXT_NODE || !cell.contains(node)) return void 0;
+  let before = "";
+  const walker = doc.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    if (text.parentElement?.closest(`.${UI_CLASS}`)) continue;
+    if (text === node) {
+      before += (text.textContent ?? "").slice(0, offset);
+      break;
+    }
+    before += text.textContent ?? "";
+  }
+  return before.replace(/\s+/g, " ").trimStart().length;
+}
+
+// table-plus/src/format.ts
+function formatLuaNumber(n) {
+  if (Number.isInteger(n)) return String(n);
+  if (Number.isNaN(n)) return "-nan";
+  if (n === Infinity) return "inf";
+  if (n === -Infinity) return "-inf";
+  const [mantissa, exp] = n.toExponential(13).split("e");
+  const exponent = Number(exp);
+  if (exponent < -4 || exponent >= 14) {
+    const digits = Math.abs(exponent) < 10 ? `0${Math.abs(exponent)}` : String(Math.abs(exponent));
+    return `${trimZeros(mantissa)}e${exponent < 0 ? "-" : "+"}${digits}`;
+  }
+  return trimZeros(n.toFixed(13 - exponent));
+}
+function trimZeros(s) {
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
+}
+
 // table-plus/src/markdown.ts
 var DELIMITER_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 var FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
@@ -339,6 +406,61 @@ function minimalEdit(before, after) {
   };
 }
 
+// table-plus/src/features/expressions.ts
+var INDEX_SETTLE_MS = 500;
+var Expressions = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  timer;
+  stopped = false;
+  stop() {
+    this.stopped = true;
+    clearTimeout(this.timer);
+  }
+  /** SilverBullet's `page:index` event for a page */
+  async pageIndexed(name) {
+    const { bridge } = this.host;
+    if (this.stopped || !bridge.evalExpression) return;
+    if (name !== await bridge.getCurrentPage()) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.refresh(), INDEX_SETTLE_MS);
+  }
+  async refresh() {
+    const { bridge, doc } = this.host;
+    for (const widget of Array.from(doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.host.infoOf(widget);
+      if (this.stopped || !info || !info.source.includes("${")) continue;
+      const rows = parseTable(info.source).rows;
+      let changed = false;
+      for (let row = 0; row < rows.length; row++) {
+        const cells = rows[row].cells;
+        for (let column = 0; column < cells.length; column++) {
+          const expression = /^\$\{([\s\S]+)\}$/.exec(cells[column].trim())?.[1];
+          if (!expression) continue;
+          let value;
+          try {
+            value = await bridge.evalExpression(expression.replaceAll("\\|", "|"));
+          } catch {
+            continue;
+          }
+          const text = value === null || value === void 0 ? "" : typeof value === "number" ? formatLuaNumber(value) : typeof value === "string" || typeof value === "boolean" ? String(value) : void 0;
+          const cell = this.host.cellAt(info, { row, column }, true);
+          if (text === void 0 || !cell || cell === this.host.editing?.cell || renderedTable(widget) !== info.table) continue;
+          if (cellText(cell) === text) continue;
+          for (const node of Array.from(cell.childNodes)) {
+            if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
+          }
+          cell.prepend(doc.createTextNode(text));
+          changed = true;
+        }
+      }
+      if (changed && renderedTable(widget) === info.table) this.host.applyView(widget, info);
+    }
+  }
+};
+
 // table-plus/src/columns.ts
 function columnName(header) {
   return unescapeCell(header).trim().replace(/^[*_`]+|[*_`]+$/g, "").trim();
@@ -369,24 +491,6 @@ function followColumn(before, after, id, map = (c) => c) {
 }
 function sameColumnId(a, b) {
   return columnKey(a.name) === columnKey(b.name) && a.nth === b.nth;
-}
-
-// table-plus/src/format.ts
-function formatLuaNumber(n) {
-  if (Number.isInteger(n)) return String(n);
-  if (Number.isNaN(n)) return "-nan";
-  if (n === Infinity) return "inf";
-  if (n === -Infinity) return "-inf";
-  const [mantissa, exp] = n.toExponential(13).split("e");
-  const exponent = Number(exp);
-  if (exponent < -4 || exponent >= 14) {
-    const digits = Math.abs(exponent) < 10 ? `0${Math.abs(exponent)}` : String(Math.abs(exponent));
-    return `${trimZeros(mantissa)}e${exponent < 0 ? "-" : "+"}${digits}`;
-  }
-  return trimZeros(n.toFixed(13 - exponent));
-}
-function trimZeros(s) {
-  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
 }
 
 // table-plus/src/view.ts
@@ -2127,54 +2231,421 @@ ${error}` : stored.formula;
   }
 };
 
-// table-plus/src/dom.ts
-var WIDGET_SELECTOR = ".sb-table-widget";
-var EDITOR_SELECTOR = ".cm-content";
-var NATIVE_ACTION_SELECTOR = "a[data-ref], [data-mention-name], button[data-onclick], span.sb-task-state";
-var INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
-var UI_CLASS = "tp-ui";
-function renderedTable(widget) {
-  return widget.querySelector("table");
+// table-plus/src/meta.ts
+function withMeta(table, name, value) {
+  const current = table.meta ?? {};
+  if (current[name] === value) return table;
+  const meta = { ...current };
+  if (value === void 0) delete meta[name];
+  else meta[name] = value;
+  return { ...table, meta };
 }
-function positionHint(table) {
-  const element = table.dataset.pos !== void 0 ? table : table.querySelector("[data-pos]");
-  const pos = element instanceof HTMLElement ? Number(element.dataset.pos) : NaN;
-  return Number.isFinite(pos) ? pos : void 0;
+function parseSort(value) {
+  const match = /^(.*):(asc|desc)(?::(\d+))?$/.exec(value);
+  return match ? { name: match[1], direction: match[2], nth: Number(match[3] ?? 1) } : void 0;
 }
-function cellText(cell) {
-  let text = "";
-  for (const node of Array.from(cell.childNodes)) {
-    if (node instanceof Element && node.classList.contains(UI_CLASS)) continue;
-    text += node.textContent ?? "";
+function metaSort(table) {
+  const sort = table.meta?.sort === void 0 ? void 0 : parseSort(table.meta.sort);
+  const column = sort && findColumn(table.rows[0]?.cells ?? [], sort);
+  return sort && column !== void 0 ? { column, direction: sort.direction } : void 0;
+}
+function withMetaSort(table, sort) {
+  const id = sort && columnIdOf(table.rows[0]?.cells ?? [], sort.column);
+  if (!sort || !id) return withMeta(table, "sort", void 0);
+  return withMeta(table, "sort", `${id.name}:${sort.direction}${id.shared ? `:${id.nth}` : ""}`);
+}
+var PIN_ATTRIBUTES = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" };
+function metaPins(table) {
+  const count = (name) => {
+    const n = Number(table.meta?.[name]);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  };
+  const bodyRows = Math.max(0, table.rows.length - 1);
+  const columns = table.align.length;
+  const top = Math.min(count(PIN_ATTRIBUTES.top), bodyRows);
+  const left = Math.min(count(PIN_ATTRIBUTES.left), columns);
+  return {
+    top,
+    bottom: Math.min(count(PIN_ATTRIBUTES.bottom), bodyRows - top),
+    left,
+    right: Math.min(count(PIN_ATTRIBUTES.right), columns - left)
+  };
+}
+function withMetaPins(table, pins) {
+  let result = table;
+  for (const edge of ["top", "bottom", "left", "right"]) {
+    result = withMeta(result, PIN_ATTRIBUTES[edge], pins[edge] > 0 ? String(pins[edge]) : void 0);
   }
-  return text.replace(/\s+/g, " ").trim();
+  return result;
 }
-function caretTextOffset(cell, x, y) {
-  const doc = cell.ownerDocument;
-  let node;
-  let offset = 0;
-  if (typeof doc.caretPositionFromPoint === "function") {
-    const position = doc.caretPositionFromPoint(x, y);
-    node = position?.offsetNode;
-    offset = position?.offset ?? 0;
-  } else if (typeof doc.caretRangeFromPoint === "function") {
-    const range = doc.caretRangeFromPoint(x, y);
-    node = range?.startContainer;
-    offset = range?.startOffset ?? 0;
+function followMetaSort(before, after, map) {
+  if (after.meta?.sort === void 0 || after.meta.sort !== before.meta?.sort) return after;
+  const sort = metaSort(before);
+  const column = sort && map(sort.column);
+  return withMetaSort(after, sort && column !== void 0 ? { column, direction: sort.direction } : void 0);
+}
+function metadataAfterEdit(before, after, edit) {
+  const followed = followMetaSort(before, after, edit.columnMap ?? ((c) => c));
+  return edit.pins ? withMetaPins(followed, edit.pins) : followed;
+}
+
+// table-plus/src/features/metadata.ts
+function withoutMetadata(table) {
+  const { meta: _meta, metaSource: _source, ...rest } = withoutFormulas(table);
+  return rest;
+}
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+var Metadata = class {
+  constructor(host) {
+    this.host = host;
   }
-  if (!node || node.nodeType !== Node.TEXT_NODE || !cell.contains(node)) return void 0;
-  let before = "";
-  const walker = doc.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
-  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
-    if (text.parentElement?.closest(`.${UI_CLASS}`)) continue;
-    if (text === node) {
-      before += (text.textContent ?? "").slice(0, offset);
-      break;
+  host;
+  toolbarButtons(widget, info) {
+    if (!info.metaRow && formulaCount(parseTable(info.source)) === 0) return [];
+    return [
+      {
+        label: "Remove metadata",
+        title: "Remove this table's <meta> tags: its stored settings (sorting, pinning) and the formulas of its cells, which keep their results",
+        run: () => void this.removeFromTable(widget, info)
+      }
+    ];
+  }
+  /**
+   * Removes a table's metadata, once confirmed: its metadata row (a sorting
+   * stored there goes with it: the rows show as written) and the formulas of
+   * its cells, which keep their results as plain values
+   */
+  async removeFromTable(shownWidget, shownInfo) {
+    const formulas = formulaCount(parseTable(shownInfo.source));
+    const removed = [
+      ...shownInfo.metaRow ? ["its stored settings (sorting, pinning)"] : [],
+      ...formulas ? [`its ${plural(formulas, "formula")}: those cells keep their current results as plain values`] : []
+    ];
+    if (!await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    const info = this.host.infoOf(widget) ?? shownInfo;
+    if (metaSort(parseTable(info.source))) this.host.forgetStoredSort(info.key);
+    await this.host.write(widget, withoutMetadata);
+    this.host.focusEditor(widget);
+  }
+  /** Removes the metadata of all tables on the current page, once confirmed */
+  async removeFromPage() {
+    const { bridge } = this.host;
+    const text = await bridge.getText();
+    const tables = findTables(text).filter((range) => {
+      const table = parseTable(range.text);
+      return table.meta !== void 0 || formulaCount(table) > 0;
+    }).reverse();
+    if (tables.length === 0) {
+      void bridge.flash("Table Plus: no table on this page has metadata", "info");
+      return;
     }
-    before += text.textContent ?? "";
+    const formulas = tables.reduce((n, range) => n + formulaCount(parseTable(range.text)), 0);
+    const question = `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` + (formulas ? `, including ${plural(formulas, "formula")} (those cells keep their current results as plain values)` : "") + "? Ctrl+Z brings it back.";
+    if (!await this.host.ask(question)) return;
+    const from = tables[tables.length - 1].from;
+    const to = tables[0].to;
+    let span = text.slice(from, to);
+    const page = await bridge.getCurrentPage();
+    for (const range of tables) {
+      const table = parseTable(range.text);
+      if (metaSort(table)) this.host.forgetStoredSort(`${page}#${range.ordinal}`);
+      span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(table)) + span.slice(range.to - from);
+    }
+    const edit = minimalEdit(text.slice(from, to), span);
+    await bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
+    this.host.doc.querySelector(EDITOR_SELECTOR)?.focus({ preventScroll: true });
+    void bridge.flash(`Table Plus: removed the metadata of ${tables.length} table(s)`, "info");
   }
-  return before.replace(/\s+/g, " ").trimStart().length;
+};
+
+// table-plus/src/pins.ts
+function rowZone(pins, rows, row) {
+  if (row >= 1 && row <= pins.top) return "top";
+  if (row >= rows - pins.bottom && row <= rows - 1) return "bottom";
+  return void 0;
 }
+function columnZone(pins, columns, column) {
+  if (column >= 0 && column < pins.left) return "left";
+  if (column >= columns - pins.right && column < columns) return "right";
+  return void 0;
+}
+function clampRowMove(pins, rows, from, to) {
+  const zone = rowZone(pins, rows, from);
+  const [min, max] = zone === "top" ? [1, pins.top] : zone === "bottom" ? [rows - pins.bottom, rows - 1] : [pins.top + 1, rows - 1 - pins.bottom];
+  return Math.max(min, Math.min(to, max));
+}
+function clampColumnMove(pins, columns, from, to) {
+  const zone = columnZone(pins, columns, from);
+  const [min, max] = zone === "left" ? [0, pins.left - 1] : zone === "right" ? [columns - pins.right, columns - 1] : [pins.left, columns - 1 - pins.right];
+  return Math.max(min, Math.min(to, max));
+}
+function insertRowAt(pins, rows, at) {
+  let index = Math.max(1, Math.min(at, rows));
+  if (pins.top > 0) index = Math.max(index, 2);
+  if (pins.bottom > 0) index = Math.min(index, rows - 1);
+  return {
+    at: index,
+    pins: {
+      ...pins,
+      top: pins.top + (index <= pins.top ? 1 : 0),
+      bottom: pins.bottom + (pins.bottom > 0 && index > rows - pins.bottom ? 1 : 0)
+    }
+  };
+}
+function appendRowAt(pins, rows) {
+  return rows - pins.bottom;
+}
+function deleteRowPins(pins, rows, row) {
+  const zone = rowZone(pins, rows, row);
+  return { ...pins, top: pins.top - (zone === "top" ? 1 : 0), bottom: pins.bottom - (zone === "bottom" ? 1 : 0) };
+}
+function insertColumnAt(pins, columns, at) {
+  let index = Math.max(0, Math.min(at, columns));
+  if (pins.left > 0) index = Math.max(index, 1);
+  if (pins.right > 0) index = Math.min(index, columns - 1);
+  return {
+    at: index,
+    pins: {
+      ...pins,
+      left: pins.left + (index < pins.left ? 1 : 0),
+      right: pins.right + (pins.right > 0 && index > columns - pins.right ? 1 : 0)
+    }
+  };
+}
+function appendColumnAt(pins, columns) {
+  return columns - pins.right;
+}
+function deleteColumnPins(pins, columns, column) {
+  const zone = columnZone(pins, columns, column);
+  return { ...pins, left: pins.left - (zone === "left" ? 1 : 0), right: pins.right - (zone === "right" ? 1 : 0) };
+}
+function pinRow(pins, rows, row, pin) {
+  const zone = rowZone(pins, rows, row);
+  if (zone === pin) return { to: row, pins };
+  let p = pins;
+  let to = row;
+  if (zone === "top") {
+    to = pins.top;
+    p = { ...p, top: p.top - 1 };
+  } else if (zone === "bottom") {
+    to = rows - pins.bottom;
+    p = { ...p, bottom: p.bottom - 1 };
+  }
+  if (pin === "top") return { to: p.top + 1, pins: { ...p, top: p.top + 1 } };
+  if (pin === "bottom") return { to: rows - 1 - p.bottom, pins: { ...p, bottom: p.bottom + 1 } };
+  return { to, pins: p };
+}
+function pinColumn(pins, columns, column, pin) {
+  const zone = columnZone(pins, columns, column);
+  if (zone === pin) return { to: column, pins };
+  let p = pins;
+  let to = column;
+  if (zone === "left") {
+    to = pins.left - 1;
+    p = { ...p, left: p.left - 1 };
+  } else if (zone === "right") {
+    to = columns - pins.right;
+    p = { ...p, right: p.right - 1 };
+  }
+  if (pin === "left") return { to: p.left, pins: { ...p, left: p.left + 1 } };
+  if (pin === "right") return { to: columns - 1 - p.right, pins: { ...p, right: p.right + 1 } };
+  return { to, pins: p };
+}
+
+// table-plus/src/paste.ts
+function parseClipboardCells(text) {
+  const s = text.replace(/\r\n?/g, "\n");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let start = true;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (start && ch === '"') {
+      let j = i + 1;
+      let value = "";
+      while (j < s.length) {
+        if (s[j] === '"') {
+          if (s[j + 1] !== '"') break;
+          value += '"';
+          j += 2;
+        } else value += s[j++];
+      }
+      if (j < s.length && (j + 1 === s.length || s[j + 1] === "	" || s[j + 1] === "\n")) {
+        cell = value;
+        i = j;
+        start = false;
+        continue;
+      }
+    }
+    start = false;
+    if (ch === "	") {
+      row.push(cell);
+      cell = "";
+      start = true;
+    } else if (ch === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      start = true;
+    } else cell += ch;
+  }
+  if (!start || cell !== "" || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+  if (rows.length === 0 || rows.length === 1 && rows[0].length === 1) return void 0;
+  return rows;
+}
+function along(start, count, length, pinnedAtEnd) {
+  const tail = length - pinnedAtEnd;
+  const inTail = pinnedAtEnd > 0 && start >= tail;
+  const end = inTail ? length : tail;
+  const existing = [];
+  for (let i = start; i < end && existing.length < count; i++) existing.push(i);
+  const missing = count - existing.length;
+  if (missing > 0 && inTail) return void 0;
+  const added = Array.from({ length: missing }, (_, k) => tail + k);
+  return { targets: [...existing, ...added], at: tail, count: missing };
+}
+function planPaste(table, pins, at, data, insert) {
+  const width = Math.max(...data.map((r) => r.length));
+  const columns = along(at.column, width, table.align.length, pins.right);
+  if (!columns) return { error: "there are no columns after the columns pinned to the right to paste into" };
+  if (insert) {
+    const first = Math.max(1, at.row);
+    let p = pins;
+    let rows = table.rows.length;
+    let index = first;
+    const targets = [];
+    for (let k = 0; k < data.length; k++) {
+      const placed = insertRowAt(p, rows, index);
+      targets.push(placed.at);
+      p = placed.pins;
+      rows++;
+      index = placed.at + 1;
+    }
+    return {
+      rows: targets,
+      columns: columns.targets,
+      newRows: { at: targets[0], count: data.length },
+      newColumns: { at: columns.at, count: columns.count },
+      pins: p
+    };
+  }
+  const header = at.row === 0 ? [0] : [];
+  const body = along(Math.max(1, at.row), data.length - header.length, table.rows.length, pins.bottom);
+  if (!body) return { error: "there are no rows below the rows pinned to the bottom to paste into" };
+  return {
+    rows: [...header, ...body.targets],
+    columns: columns.targets,
+    newRows: { at: body.at, count: body.count },
+    newColumns: { at: columns.at, count: columns.count },
+    pins
+  };
+}
+function pasteCells(table, plan, data) {
+  let result = table;
+  for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
+  for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
+  for (let k = 0; k < plan.newRows.count; k++) result = withCalculatedCells(result, plan.newRows.at + k);
+  let skipped = 0;
+  data.forEach((values, i) => {
+    const row = plan.rows[i];
+    values.forEach((value, j) => {
+      const column = plan.columns[j];
+      const current = result.rows[row]?.cells[column] ?? "";
+      const cell = escapeCell(value);
+      if (formulaOf(current)) {
+        if (cell !== "") skipped++;
+        return;
+      }
+      if (row === 0 && cell === "") return;
+      result = setCell(result, row, column, cell);
+    });
+  });
+  return { table: result, skipped };
+}
+
+// table-plus/src/features/paste.ts
+var PASTE_BLOCKED = "Clear sorting and filters to paste cells: the rows shown are not where they would go";
+function plural2(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+var Paste = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // The paste on its way was asked for with Ctrl+Shift+V: as new rows
+  inserts = false;
+  editorOpened(editor) {
+    const field = editor.field;
+    field.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.inserts = e.shiftKey;
+    });
+    field.addEventListener("paste", (e) => {
+      const insert = this.inserts;
+      this.inserts = false;
+      const data = parseClipboardCells(e.clipboardData?.getData("text/plain") ?? "");
+      if (!data || this.host.editing?.field !== field) return;
+      e.preventDefault();
+      void this.paste(data, insert);
+    });
+  }
+  /**
+   * Pastes the cells from the edited cell, as one edit: over the cells there
+   * (insert false), or as new rows at the cell's row. Cells with formulas keep
+   * them. Not while the table is sorted or filtered: the rows shown are not
+   * where the cells would go.
+   */
+  async paste(data, insert) {
+    const active = this.host.editing;
+    const info = active && this.host.infoOf(active.widget);
+    if (!active || !info) return;
+    if (this.host.rearranged(info)) {
+      void this.host.bridge.flash(`Table Plus: ${PASTE_BLOCKED.toLowerCase()}`, "info");
+      return;
+    }
+    const plan = planPaste(parseTable(info.source), info.pins, active, data, insert);
+    if ("error" in plan) {
+      void this.host.bridge.flash(`Table Plus: cannot paste here: ${plan.error}`, "error");
+      return;
+    }
+    const closed = this.host.takeEditor();
+    let skipped = 0;
+    const { newRows, newColumns } = plan;
+    const result = await this.host.write(
+      closed.widget,
+      (t) => {
+        const edited = closed.save(t);
+        if (!edited) return void 0;
+        const pasted = pasteCells(edited, plan, data);
+        skipped = pasted.skipped;
+        return pasted.table;
+      },
+      {
+        columnMap: newColumns.count ? (c) => c >= newColumns.at ? c + newColumns.count : c : void 0,
+        pins: plan.pins,
+        rowMap: newRows.count ? (r) => r >= newRows.at ? r + newRows.count : r : void 0
+      }
+    );
+    if (result !== "written") return;
+    const width = Math.max(...data.map((r) => r.length));
+    const added = [
+      ...newRows.count && !insert ? [`added ${plural2(newRows.count, "row")}`] : [],
+      ...newColumns.count ? [`added ${plural2(newColumns.count, "column")}`] : [],
+      ...skipped ? [`kept ${plural2(skipped, "formula cell")}`] : []
+    ];
+    const what = insert ? `${plural2(data.length, "new row")}` : `${data.length} \xD7 ${width} cells`;
+    void this.host.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
+    this.host.focusEditor(closed.widget);
+  }
+};
 
 // table-plus/src/features/selection.ts
 function clipboardText(values) {
@@ -2448,282 +2919,7 @@ function focusMenu(menu) {
   menu.focus({ preventScroll: true });
 }
 
-// table-plus/src/pins.ts
-function rowZone(pins, rows, row) {
-  if (row >= 1 && row <= pins.top) return "top";
-  if (row >= rows - pins.bottom && row <= rows - 1) return "bottom";
-  return void 0;
-}
-function columnZone(pins, columns, column) {
-  if (column >= 0 && column < pins.left) return "left";
-  if (column >= columns - pins.right && column < columns) return "right";
-  return void 0;
-}
-function clampRowMove(pins, rows, from, to) {
-  const zone = rowZone(pins, rows, from);
-  const [min, max] = zone === "top" ? [1, pins.top] : zone === "bottom" ? [rows - pins.bottom, rows - 1] : [pins.top + 1, rows - 1 - pins.bottom];
-  return Math.max(min, Math.min(to, max));
-}
-function clampColumnMove(pins, columns, from, to) {
-  const zone = columnZone(pins, columns, from);
-  const [min, max] = zone === "left" ? [0, pins.left - 1] : zone === "right" ? [columns - pins.right, columns - 1] : [pins.left, columns - 1 - pins.right];
-  return Math.max(min, Math.min(to, max));
-}
-function insertRowAt(pins, rows, at) {
-  let index = Math.max(1, Math.min(at, rows));
-  if (pins.top > 0) index = Math.max(index, 2);
-  if (pins.bottom > 0) index = Math.min(index, rows - 1);
-  return {
-    at: index,
-    pins: {
-      ...pins,
-      top: pins.top + (index <= pins.top ? 1 : 0),
-      bottom: pins.bottom + (pins.bottom > 0 && index > rows - pins.bottom ? 1 : 0)
-    }
-  };
-}
-function appendRowAt(pins, rows) {
-  return rows - pins.bottom;
-}
-function deleteRowPins(pins, rows, row) {
-  const zone = rowZone(pins, rows, row);
-  return { ...pins, top: pins.top - (zone === "top" ? 1 : 0), bottom: pins.bottom - (zone === "bottom" ? 1 : 0) };
-}
-function insertColumnAt(pins, columns, at) {
-  let index = Math.max(0, Math.min(at, columns));
-  if (pins.left > 0) index = Math.max(index, 1);
-  if (pins.right > 0) index = Math.min(index, columns - 1);
-  return {
-    at: index,
-    pins: {
-      ...pins,
-      left: pins.left + (index < pins.left ? 1 : 0),
-      right: pins.right + (pins.right > 0 && index > columns - pins.right ? 1 : 0)
-    }
-  };
-}
-function appendColumnAt(pins, columns) {
-  return columns - pins.right;
-}
-function deleteColumnPins(pins, columns, column) {
-  const zone = columnZone(pins, columns, column);
-  return { ...pins, left: pins.left - (zone === "left" ? 1 : 0), right: pins.right - (zone === "right" ? 1 : 0) };
-}
-function pinRow(pins, rows, row, pin) {
-  const zone = rowZone(pins, rows, row);
-  if (zone === pin) return { to: row, pins };
-  let p = pins;
-  let to = row;
-  if (zone === "top") {
-    to = pins.top;
-    p = { ...p, top: p.top - 1 };
-  } else if (zone === "bottom") {
-    to = rows - pins.bottom;
-    p = { ...p, bottom: p.bottom - 1 };
-  }
-  if (pin === "top") return { to: p.top + 1, pins: { ...p, top: p.top + 1 } };
-  if (pin === "bottom") return { to: rows - 1 - p.bottom, pins: { ...p, bottom: p.bottom + 1 } };
-  return { to, pins: p };
-}
-function pinColumn(pins, columns, column, pin) {
-  const zone = columnZone(pins, columns, column);
-  if (zone === pin) return { to: column, pins };
-  let p = pins;
-  let to = column;
-  if (zone === "left") {
-    to = pins.left - 1;
-    p = { ...p, left: p.left - 1 };
-  } else if (zone === "right") {
-    to = columns - pins.right;
-    p = { ...p, right: p.right - 1 };
-  }
-  if (pin === "left") return { to: p.left, pins: { ...p, left: p.left + 1 } };
-  if (pin === "right") return { to: columns - 1 - p.right, pins: { ...p, right: p.right + 1 } };
-  return { to, pins: p };
-}
-
-// table-plus/src/paste.ts
-function parseClipboardCells(text) {
-  const s = text.replace(/\r\n?/g, "\n");
-  const rows = [];
-  let row = [];
-  let cell = "";
-  let start = true;
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (start && ch === '"') {
-      let j = i + 1;
-      let value = "";
-      while (j < s.length) {
-        if (s[j] === '"') {
-          if (s[j + 1] !== '"') break;
-          value += '"';
-          j += 2;
-        } else value += s[j++];
-      }
-      if (j < s.length && (j + 1 === s.length || s[j + 1] === "	" || s[j + 1] === "\n")) {
-        cell = value;
-        i = j;
-        start = false;
-        continue;
-      }
-    }
-    start = false;
-    if (ch === "	") {
-      row.push(cell);
-      cell = "";
-      start = true;
-    } else if (ch === "\n") {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-      start = true;
-    } else cell += ch;
-  }
-  if (!start || cell !== "" || row.length > 0) {
-    row.push(cell);
-    rows.push(row);
-  }
-  if (rows.length === 0 || rows.length === 1 && rows[0].length === 1) return void 0;
-  return rows;
-}
-function along(start, count, length, pinnedAtEnd) {
-  const tail = length - pinnedAtEnd;
-  const inTail = pinnedAtEnd > 0 && start >= tail;
-  const end = inTail ? length : tail;
-  const existing = [];
-  for (let i = start; i < end && existing.length < count; i++) existing.push(i);
-  const missing = count - existing.length;
-  if (missing > 0 && inTail) return void 0;
-  const added = Array.from({ length: missing }, (_, k) => tail + k);
-  return { targets: [...existing, ...added], at: tail, count: missing };
-}
-function planPaste(table, pins, at, data, insert) {
-  const width = Math.max(...data.map((r) => r.length));
-  const columns = along(at.column, width, table.align.length, pins.right);
-  if (!columns) return { error: "there are no columns after the columns pinned to the right to paste into" };
-  if (insert) {
-    const first = Math.max(1, at.row);
-    let p = pins;
-    let rows = table.rows.length;
-    let index = first;
-    const targets = [];
-    for (let k = 0; k < data.length; k++) {
-      const placed = insertRowAt(p, rows, index);
-      targets.push(placed.at);
-      p = placed.pins;
-      rows++;
-      index = placed.at + 1;
-    }
-    return {
-      rows: targets,
-      columns: columns.targets,
-      newRows: { at: targets[0], count: data.length },
-      newColumns: { at: columns.at, count: columns.count },
-      pins: p
-    };
-  }
-  const header = at.row === 0 ? [0] : [];
-  const body = along(Math.max(1, at.row), data.length - header.length, table.rows.length, pins.bottom);
-  if (!body) return { error: "there are no rows below the rows pinned to the bottom to paste into" };
-  return {
-    rows: [...header, ...body.targets],
-    columns: columns.targets,
-    newRows: { at: body.at, count: body.count },
-    newColumns: { at: columns.at, count: columns.count },
-    pins
-  };
-}
-function pasteCells(table, plan, data) {
-  let result = table;
-  for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
-  for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
-  for (let k = 0; k < plan.newRows.count; k++) result = withCalculatedCells(result, plan.newRows.at + k);
-  let skipped = 0;
-  data.forEach((values, i) => {
-    const row = plan.rows[i];
-    values.forEach((value, j) => {
-      const column = plan.columns[j];
-      const current = result.rows[row]?.cells[column] ?? "";
-      const cell = escapeCell(value);
-      if (formulaOf(current)) {
-        if (cell !== "") skipped++;
-        return;
-      }
-      if (row === 0 && cell === "") return;
-      result = setCell(result, row, column, cell);
-    });
-  });
-  return { table: result, skipped };
-}
-
-// table-plus/src/meta.ts
-function withMeta(table, name, value) {
-  const current = table.meta ?? {};
-  if (current[name] === value) return table;
-  const meta = { ...current };
-  if (value === void 0) delete meta[name];
-  else meta[name] = value;
-  return { ...table, meta };
-}
-function parseSort(value) {
-  const match = /^(.*):(asc|desc)(?::(\d+))?$/.exec(value);
-  return match ? { name: match[1], direction: match[2], nth: Number(match[3] ?? 1) } : void 0;
-}
-function metaSort(table) {
-  const sort = table.meta?.sort === void 0 ? void 0 : parseSort(table.meta.sort);
-  const column = sort && findColumn(table.rows[0]?.cells ?? [], sort);
-  return sort && column !== void 0 ? { column, direction: sort.direction } : void 0;
-}
-function withMetaSort(table, sort) {
-  const id = sort && columnIdOf(table.rows[0]?.cells ?? [], sort.column);
-  if (!sort || !id) return withMeta(table, "sort", void 0);
-  return withMeta(table, "sort", `${id.name}:${sort.direction}${id.shared ? `:${id.nth}` : ""}`);
-}
-var PIN_ATTRIBUTES = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" };
-function metaPins(table) {
-  const count = (name) => {
-    const n = Number(table.meta?.[name]);
-    return Number.isInteger(n) && n > 0 ? n : 0;
-  };
-  const bodyRows = Math.max(0, table.rows.length - 1);
-  const columns = table.align.length;
-  const top = Math.min(count(PIN_ATTRIBUTES.top), bodyRows);
-  const left = Math.min(count(PIN_ATTRIBUTES.left), columns);
-  return {
-    top,
-    bottom: Math.min(count(PIN_ATTRIBUTES.bottom), bodyRows - top),
-    left,
-    right: Math.min(count(PIN_ATTRIBUTES.right), columns - left)
-  };
-}
-function withMetaPins(table, pins) {
-  let result = table;
-  for (const edge of ["top", "bottom", "left", "right"]) {
-    result = withMeta(result, PIN_ATTRIBUTES[edge], pins[edge] > 0 ? String(pins[edge]) : void 0);
-  }
-  return result;
-}
-function followMetaSort(before, after, map) {
-  if (after.meta?.sort === void 0 || after.meta.sort !== before.meta?.sort) return after;
-  const sort = metaSort(before);
-  const column = sort && map(sort.column);
-  return withMetaSort(after, sort && column !== void 0 ? { column, direction: sort.direction } : void 0);
-}
-function metadataAfterEdit(before, after, edit) {
-  const followed = followMetaSort(before, after, edit.columnMap ?? ((c) => c));
-  return edit.pins ? withMetaPins(followed, edit.pins) : followed;
-}
-
 // table-plus/src/controller.ts
-function withoutMetadata(table) {
-  const { meta: _meta, metaSource: _source, ...rest } = withoutFormulas(table);
-  return rest;
-}
-function plural(n, word) {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
 function rowAfterInsert(at) {
   return (r) => r >= at ? r + 1 : r;
 }
@@ -2745,7 +2941,6 @@ var DRAG_THRESHOLD = 4;
 var STICKY_GAP = 38;
 var BAR_GAP = 10;
 var STORE_SORT_DELAY_MS = 400;
-var INDEX_SETTLE_MS = 500;
 var AUTOSCROLL_DEAD_ZONE = 12;
 var MOVE_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 var NAVIGATION_KEYS = /* @__PURE__ */ new Set([
@@ -2762,7 +2957,6 @@ var PAGE_ROWS = 10;
 var FILTER_HINT = "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
-var PASTE_BLOCKED = "Clear sorting and filters to paste cells: the rows shown are not where they would go";
 var PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 function placeAtEnd(parent, rows) {
   let next = null;
@@ -2776,7 +2970,9 @@ var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
     this.bridge = bridge;
-    this.features = [new Formulas(this), new Selection(this)];
+    this.metadata = new Metadata(this);
+    this.expressions = new Expressions(this);
+    this.features = [new Formulas(this), this.metadata, new Paste(this), new Selection(this), this.expressions];
     this.bar = this.floating("div", "tp-bar");
     this.rowGrip = this.floatingButton("tp-handle tp-grip", "Row: click for actions, drag to move", ICONS.grip);
     this.columnGrip = this.floatingButton(
@@ -2822,7 +3018,6 @@ var Controller = class {
   movingRows = false;
   settingsTimer;
   settingsReadAt = 0;
-  expressionTimer;
   sortTimers = /* @__PURE__ */ new Map();
   stickyQueued = false;
   warnedIncompatible = false;
@@ -2832,10 +3027,10 @@ var Controller = class {
   columnGrip;
   addRow;
   addColumn;
-  // The paste on its way was asked for with Ctrl+Shift+V: as new rows
-  pasteInserts = false;
   // Features that keep their own state and work through this controller (core/feature.ts)
   features;
+  metadata;
+  expressions;
   // Steps every write goes through after the edit, in this order
   writeSteps = [formulasAfterEdit, metadataAfterEdit];
   setBridge(bridge) {
@@ -2876,7 +3071,6 @@ var Controller = class {
     this.doc.removeEventListener("mousemove", this.onMouseMove);
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
-    clearTimeout(this.expressionTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
@@ -2937,28 +3131,11 @@ var Controller = class {
     this.focusEditor(widget);
   }
   /**
-   * Removes a table's metadata, once confirmed: its metadata row (a sorting
-   * stored there goes with it: the rows show as written) and the formulas of
-   * its cells, which keep their results as plain values
-   */
-  async removeMetadata(shownWidget, shownInfo) {
-    const formulas = formulaCount(parseTable(shownInfo.source));
-    const removed = [
-      ...shownInfo.metaRow ? ["its stored settings (sorting, pinning)"] : [],
-      ...formulas ? [`its ${plural(formulas, "formula")}: those cells keep their current results as plain values`] : []
-    ];
-    if (!await this.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
-    const [widget, info] = this.current(shownWidget, shownInfo);
-    if (metaSort(parseTable(info.source))) this.dropStoredSort(info.key);
-    await this.write(widget, withoutMetadata);
-    this.focusEditor(widget);
-  }
-  /**
    * The sorting a table's metadata stored ends with the metadata, so the rows
    * show as written. Without filters the view is forgotten, so Ctrl+Z (the
    * metadata back) shows the stored sorting again.
    */
-  dropStoredSort(key) {
+  forgetStoredSort(key) {
     clearTimeout(this.sortTimers.get(key));
     this.sortTimers.delete(key);
     const view = this.views.get(key);
@@ -2973,34 +3150,6 @@ var Controller = class {
     const now = this.widgetForKey(info.key);
     const nowInfo = now && this.infos.get(now);
     return now && nowInfo ? [now, nowInfo] : [widget, info];
-  }
-  /** Removes the metadata rows of all tables on the current page, once confirmed */
-  async removeAllMetadata() {
-    const text = await this.bridge.getText();
-    const tables = findTables(text).filter((range) => {
-      const table = parseTable(range.text);
-      return table.meta !== void 0 || formulaCount(table) > 0;
-    }).reverse();
-    if (tables.length === 0) {
-      void this.bridge.flash("Table Plus: no table on this page has metadata", "info");
-      return;
-    }
-    const formulas = tables.reduce((n, range) => n + formulaCount(parseTable(range.text)), 0);
-    const question = `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` + (formulas ? `, including ${plural(formulas, "formula")} (those cells keep their current results as plain values)` : "") + "? Ctrl+Z brings it back.";
-    if (!await this.ask(question)) return;
-    const from = tables[tables.length - 1].from;
-    const to = tables[0].to;
-    let span = text.slice(from, to);
-    const page = await this.bridge.getCurrentPage();
-    for (const range of tables) {
-      const table = parseTable(range.text);
-      if (metaSort(table)) this.dropStoredSort(`${page}#${range.ordinal}`);
-      span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(table)) + span.slice(range.to - from);
-    }
-    const edit = minimalEdit(text.slice(from, to), span);
-    await this.bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
-    this.doc.querySelector(EDITOR_SELECTOR)?.focus({ preventScroll: true });
-    void this.bridge.flash(`Table Plus: removed the metadata of ${tables.length} table(s)`, "info");
   }
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   async refreshSettings() {
@@ -3216,6 +3365,18 @@ var Controller = class {
   }
   get editing() {
     return this.editor;
+  }
+  takeEditor() {
+    const closed = this.closeEditor();
+    return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.withSaved(t, closed) };
+  }
+  /** The "Table Plus: Remove table metadata" command */
+  removeAllMetadata() {
+    return this.metadata.removeFromPage();
+  }
+  /** SilverBullet's `page:index` event */
+  pageIndexed(name) {
+    return this.expressions.pageIndexed(name);
   }
   cancelEditing() {
     this.pendingFocus = void 0;
@@ -3770,53 +3931,6 @@ var Controller = class {
     const row = tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow);
     return Number.isInteger(row) ? { row, column: cell.cellIndex } : void 0;
   }
-  // ---- `${…}` cells: re-evaluated once the page index is up to date --------
-  /**
-   * SilverBullet renders a table right after Table Plus writes it, before the
-   * page is re-indexed, so a `${…}` cell that reads the index (e.g. a formula
-   * from a spreadsheet library) shows a stale result until the table renders
-   * again. Once the page is indexed, Table Plus has SilverBullet re-evaluate
-   * such cells (lua.evalExpression) and shows the new values in place.
-   * `page:index` is the event the indexers write the index on, not a signal
-   * that they are done, so the evaluation waits a moment for them.
-   */
-  async pageIndexed(name) {
-    if (this.stopped || !this.bridge.evalExpression) return;
-    if (name !== await this.bridge.getCurrentPage()) return;
-    clearTimeout(this.expressionTimer);
-    this.expressionTimer = setTimeout(() => void this.refreshExpressions(), INDEX_SETTLE_MS);
-  }
-  async refreshExpressions() {
-    for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
-      const info = this.infos.get(widget);
-      if (this.stopped || !info || !info.source.includes("${")) continue;
-      const rows = parseTable(info.source).rows;
-      let changed = false;
-      for (let row = 0; row < rows.length; row++) {
-        const cells = rows[row].cells;
-        for (let column = 0; column < cells.length; column++) {
-          const expression = /^\$\{([\s\S]+)\}$/.exec(cells[column].trim())?.[1];
-          if (!expression) continue;
-          let value;
-          try {
-            value = await this.bridge.evalExpression(expression.replaceAll("\\|", "|"));
-          } catch {
-            continue;
-          }
-          const text = value === null || value === void 0 ? "" : typeof value === "number" ? formatLuaNumber(value) : typeof value === "string" || typeof value === "boolean" ? String(value) : void 0;
-          const cell = this.cellAt(info, { row, column }, true);
-          if (text === void 0 || !cell || cell === this.editor?.cell || renderedTable(widget) !== info.table) continue;
-          if (cellText(cell) === text) continue;
-          for (const node of Array.from(cell.childNodes)) {
-            if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
-          }
-          cell.prepend(this.doc.createTextNode(text));
-          changed = true;
-        }
-      }
-      if (changed && renderedTable(widget) === info.table) this.applyView(widget, info);
-    }
-  }
   cellAt(info, ref, includeHidden = false) {
     const tr = ref.row === 0 ? info.table.rows[0] : info.table.querySelector(`tr[data-tp-row="${ref.row}"]`);
     if (!tr || tr.classList.contains("tp-hidden") && !includeHidden) return void 0;
@@ -3849,17 +3963,6 @@ var Controller = class {
     this.reveal(widget, cell);
     this.hideHandles();
     this.isolate(field);
-    field.addEventListener("keydown", (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.pasteInserts = e.shiftKey;
-    });
-    field.addEventListener("paste", (e) => {
-      const insert = this.pasteInserts;
-      this.pasteInserts = false;
-      const data = parseClipboardCells(e.clipboardData?.getData("text/plain") ?? "");
-      if (!data || this.editor?.field !== field) return;
-      e.preventDefault();
-      void this.pasteIntoTable(data, insert);
-    });
     field.addEventListener("blur", () => {
       if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, void 0, false);
     });
@@ -4143,55 +4246,6 @@ var Controller = class {
   focusEditor(widget) {
     widget.closest(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
-  // ---- pasting cells from a spreadsheet ---------------------------------
-  /**
-   * Pastes cells copied from a spreadsheet from the edited cell, as one edit:
-   * over the cells there (insert false), or as new rows at the cell's row
-   * (Ctrl+Shift+V). Cells with formulas keep them. Not while the table is
-   * sorted or filtered: the rows shown are not where the cells would go.
-   */
-  async pasteIntoTable(data, insert) {
-    const active = this.editor;
-    const info = active && this.infos.get(active.widget);
-    if (!active || !info) return;
-    if (this.rearranged(info)) {
-      void this.bridge.flash(`Table Plus: ${PASTE_BLOCKED.toLowerCase()}`, "info");
-      return;
-    }
-    const plan = planPaste(parseTable(info.source), info.pins, active, data, insert);
-    if ("error" in plan) {
-      void this.bridge.flash(`Table Plus: cannot paste here: ${plan.error}`, "error");
-      return;
-    }
-    const closed = this.closeEditor();
-    let skipped = 0;
-    const { newRows, newColumns } = plan;
-    const result = await this.write(
-      closed.widget,
-      (t) => {
-        const edited = this.withSaved(t, closed);
-        if (!edited) return void 0;
-        const pasted = pasteCells(edited, plan, data);
-        skipped = pasted.skipped;
-        return pasted.table;
-      },
-      {
-        columnMap: newColumns.count ? (c) => c >= newColumns.at ? c + newColumns.count : c : void 0,
-        pins: plan.pins,
-        rowMap: newRows.count ? (r) => r >= newRows.at ? r + newRows.count : r : void 0
-      }
-    );
-    if (result !== "written") return;
-    const width = Math.max(...data.map((r) => r.length));
-    const added = [
-      ...newRows.count && !insert ? [`added ${plural(newRows.count, "row")}`] : [],
-      ...newColumns.count ? [`added ${plural(newColumns.count, "column")}`] : [],
-      ...skipped ? [`kept ${plural(skipped, "formula cell")}`] : []
-    ];
-    const what = insert ? `${plural(data.length, "new row")}` : `${data.length} \xD7 ${width} cells`;
-    void this.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
-    this.focusEditor(closed.widget);
-  }
   // ---- writing markdown --------------------------------------------------
   /**
    * Re-reads the table from the page, applies `change`, then the write steps
@@ -4454,13 +4508,6 @@ var Controller = class {
     );
     for (const feature of this.features) {
       for (const item of feature.toolbarButtons?.(widget, info) ?? []) button(item.label, item.title, item.run);
-    }
-    if (info.metaRow || formulaCount(parseTable(info.source)) > 0) {
-      button(
-        "Remove metadata",
-        "Remove this table's <meta> tags: its stored settings (sorting, pinning) and the formulas of its cells, which keep their results",
-        () => void this.removeMetadata(widget, info)
-      );
     }
     button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(this.current(widget, info)[1]));
     const rect = widget.getBoundingClientRect();

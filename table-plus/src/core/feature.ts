@@ -92,6 +92,25 @@ export interface TableHost {
   place(element: HTMLElement, left: number, top: number): void;
   /** A table's visible box: the part of it not scrolled out of view */
   innerBox(widget: HTMLElement): { left: number; right: number; top: number; bottom: number };
+  /**
+   * Closes the cell editor for an edit that ends editing: `save` adds what the
+   * editor held to that edit (undefined: the cell changed in the meantime)
+   */
+  takeEditor():
+    | { readonly widget: HTMLElement; readonly row: number; readonly column: number; readonly save: (table: Table) => Table | undefined }
+    | undefined;
+  /** Asks the user (SilverBullet's dialog, else the browser's) */
+  ask(question: string): Promise<boolean>;
+  /** Hands the keyboard back to SilverBullet's editor */
+  focusEditor(widget: HTMLElement): void;
+  /** Whether a table is shown sorted or filtered, so rows are not where the markdown has them */
+  rearranged(info: WidgetInfo): boolean;
+  /** Ends the sorting a table's metadata stored, so the table shows its rows as written */
+  forgetStoredSort(key: string): void;
+  /** A cell of a table as rendered, by its row in the markdown; hidden rows only with includeHidden */
+  cellAt(info: WidgetInfo, cell: CellRef, includeHidden?: boolean): HTMLTableCellElement | undefined;
+  /** Shows a table's rows again as sorted and filtered, e.g. after cells changed their text */
+  applyView(widget: HTMLElement, info: WidgetInfo): void;
 }
 
 /** A feature: every hook is optional */
