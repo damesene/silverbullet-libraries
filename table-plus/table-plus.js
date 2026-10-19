@@ -4926,6 +4926,7 @@ var Grips = class {
     const pinBlocked = (to) => host.metadataEnabled || zone === to ? void 0 : PIN_NEEDS_METADATA;
     const insertBlocked = (at) => insertRowAt(info.pins, info.rows, at).at === at ? void 0 : zone === "top" ? "Rows pinned to the top stay at the top" : "Rows pinned to the bottom stay at the bottom";
     return [
+      ...this.topEntries(this.host.rowMenuEntries(widget, info, row, column)),
       {
         kind: "item",
         label: "Insert row above",
@@ -4973,18 +4974,16 @@ var Grips = class {
         run: act(() => pinRowAt(host, widget, info, row, zone === "bottom" ? void 0 : "bottom")),
         disabled: pinBlocked("bottom")
       },
-      ...this.featureRowEntries(widget, info, row, column),
       { kind: "separator" },
       { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => deleteRowAt(host, widget, info, row)) }
     ];
   }
-  /** The entries features add for the row's cell, after a separator, closing the menu when run */
-  featureRowEntries(widget, info, row, column) {
-    const entries = this.host.rowMenuEntries(widget, info, row, column);
+  /** Entries features add at the top of a menu (naming), before a separator, closing the menu when run */
+  topEntries(entries) {
     if (entries.length === 0) return [];
     return [
-      { kind: "separator" },
-      ...entries.map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry)
+      ...entries.map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry),
+      { kind: "separator" }
     ];
   }
   columnMenu(widget, info, column) {
@@ -5001,6 +5000,7 @@ var Grips = class {
     const pinBlocked = (to) => host.metadataEnabled || zone === to ? void 0 : PIN_NEEDS_METADATA;
     const insertBlocked = (at) => insertColumnAt(info.pins, info.columns, at).at === at ? void 0 : zone === "left" ? "Columns pinned to the left stay at the left" : "Columns pinned to the right stay at the right";
     const entries = [
+      ...this.topEntries(host.columnMenuTopEntries(widget, info, column)),
       {
         kind: "item",
         label: "Sort ascending",
@@ -5315,7 +5315,7 @@ var Names = class {
       if (!name || !cell) return;
       cell.classList.add("tp-named");
       cell.title = cell.title ? `${cell.title}
-Fixed name: ${name}` : `Fixed name: ${name}`;
+Column name: ${name}` : `Column name: ${name}`;
     });
     for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
       const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
@@ -5381,7 +5381,7 @@ Row name: ${row}` : `Row name: ${row}`;
     await this.host.write(widget, (t) => withMetaName(t, name === "" ? void 0 : name));
     this.host.focusEditor(widget);
   }
-  /** "Name row" and "Name cell" in a row's menu, the cell being the one in `column` */
+  /** "Name row" and "Name cell" at the top of a row's menu, the cell being the one in `column` */
   rowMenuEntries(widget, info, row, column) {
     const cells = parseTable(info.source).rows[row]?.cells ?? [];
     const name = cellNameOf(cells[column] ?? "");
@@ -5458,18 +5458,18 @@ Row name: ${row}` : `Row name: ${row}`;
     await this.host.write(widget, (t) => setCell(t, row, column, withCellName(t.rows[row]?.cells[column] ?? "", name || void 0)));
     this.host.focusEditor(widget);
   }
-  /** "Fixed name" in a column's menu */
-  columnMenuEntries(widget, info, column) {
+  /** "Name column" at the top of a column's menu */
+  columnMenuTopEntries(widget, info, column) {
     const fixed = nameOf(parseTable(info.source).rows[0]?.cells[column] ?? "");
     const allowed = this.host.metadataEnabled || fixed !== void 0;
     return [
       {
         kind: "item",
-        label: "Fixed name",
+        label: "Name column",
         icon: ICONS.fixedName,
         ...fixed ? { value: { text: fixed } } : {},
         ...allowed ? {
-          hint: fixed ? `Formulas refer to this column as [${fixed}], whatever its header says. Click to change or remove it` : "Give the column a name formulas refer to it by, which stays when its header is renamed (also from other pages)"
+          hint: fixed ? `Formulas refer to this column as [${fixed}], whatever its header says. Click to rename it` : "Name this column, so formulas refer to it as [name] whatever its header says (also from other pages)"
         } : { disabled: "Needs the Store table metadata setting" },
         run: () => void this.rename(widget, info, column)
       }
@@ -5478,7 +5478,7 @@ Row name: ${row}` : `Row name: ${row}`;
   async rename(shownWidget, shownInfo, column) {
     const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
     const current = nameOf(headers[column] ?? "") ?? "";
-    const answer = await this.host.promptText("Fixed name of the column (letters, digits and _; empty: none)", current || columnKey(headers[column] ?? ""));
+    const answer = await this.host.promptText("Name of the column (letters, digits and _; empty: none)", current || columnKey(headers[column] ?? ""));
     if (answer === void 0) return;
     const name = answer.trim();
     if (name === current) return;
@@ -6465,6 +6465,9 @@ var Controller = class {
   }
   columnMenuEntries(widget, info, column, open) {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
+  }
+  columnMenuTopEntries(widget, info, column) {
+    return this.features.flatMap((f) => f.columnMenuTopEntries?.(widget, info, column) ?? []);
   }
   rowMenuEntries(widget, info, row, column) {
     return this.features.flatMap((f) => f.rowMenuEntries?.(widget, info, row, column) ?? []);

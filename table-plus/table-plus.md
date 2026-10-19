@@ -153,14 +153,14 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * Under the cell, the formula shows with its references in the same colors, with help for the function being typed.
 * **Tab completes a function name**: `=AVE` and Tab gives `=AVERAGE(`. It works when the name can only be one function (or is one's whole name, as `IF` next to `IFERROR`); the help shows *Tab: AVERAGE(* then. Elsewhere Tab moves to the next cell as usual.
 
-### Fixed column names
+### Named columns
 
-A column can have a fixed name, by which formulas and the stored sorting name it whatever its header says: renaming the header (also in the markdown) breaks nothing, nor references to the column from other pages. Click *Fixed name* in the column's menu and type it (letters, digits and `_`); an empty name removes it.
+A column can have a name of its own, by which formulas and the stored sorting name it whatever its header says: renaming the header (also in the markdown) breaks nothing, nor references to the column from other pages. Open the column's menu (the ⠿ grip above the column), click *Name column* at its top and type the name (letters, digits and `_`); an empty name removes it.
 
 * It is stored in the header cell as a hidden `<meta n="price">`: `| Unit price <meta n="price"> |`. SilverBullet does not show it, and a query still reads the column as `unit_price`. The header has a mark in its corner; hover it for the name.
-* `[price]` is the column with that fixed name before any column whose header is Price, which is then `[price:2]`.
+* `[price]` is the column with that name before any column whose header is Price, which is then `[price:2]`.
 * Setting or removing it rewrites the references to the column on the page: `[unit_price]` becomes `[price]`.
-* Editing the header changes only its name: the fixed name stays. It needs the *Store table metadata* setting, as formulas do; *Remove metadata* removes it.
+* Editing the header changes only the header's text: the column's name stays. It needs the *Store table metadata* setting, as formulas do; *Remove metadata* removes it.
 
 ### Named cells
 
@@ -175,8 +175,8 @@ A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)
 
 A row can have a name, by which formulas use its cells: `pear[price]` is the Price cell of the row named pear, `prices!pear[price]` of the table named prices, `[[Shop]]prices!pear[price]` on another page. The name stays with the row wherever it is moved or sorted (also in the markdown), and does not depend on what the row's cells say. Open the row's menu (the ⠿ grip left of the row), click *Name row* and type the name; an empty name removes it.
 
-* It is stored in the row's first cell as a hidden `<meta n="pear">`: `| Pear <meta n="pear"> | 12 |`, as a column's fixed name is in its header. A named row has a bar at the left edge of its first cell; hover it for the name. A first cell that is also a named cell holds both in one tag: `<meta n="pear" cn="first">`.
-* A row's name is its table's: two rows of a table cannot have the same one. The column after it is written as any column reference (`[price]`, a fixed name, `[price:2]`) and follows the column when it is renamed or moved.
+* It is stored in the row's first cell as a hidden `<meta n="pear">`: `| Pear <meta n="pear"> | 12 |`, as a column's name is in its header. A named row has a bar at the left edge of its first cell; hover it for the name. A first cell that is also a named cell holds both in one tag: `<meta n="pear" cn="first">`.
+* A row's name is its table's: two rows of a table cannot have the same one. The column after it is written as any column reference (`[price]`, a column's name, `[price:2]`) and follows the column when it is renamed or moved.
 * `XLOOKUP("Pear", prices![name], prices![price])` does the same by a key column's value; a row's name works without one, and is not changed by editing the row's cells.
 * Deleting the column that holds rows' or cells' names removes the names with it: Table Plus says which and asks first, as the formulas that use them then show `#REF!` or `#NAME?`.
 
@@ -411,7 +411,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | Module | When on |
 |---|---|
 | `formulas` | Formulas can be typed into cells, with their help and references; *Recalculate* in the toolbar. Off: a typed formula is saved as text. Formulas already in a table keep their results and are still recalculated when Table Plus edits the table, so their references stay right. See [[#Formulas]]. |
-| `names` | Tables, columns, rows and cells can be named: *Name* in a table's toolbar, *Fixed name* in the column menu, *Name row* and *Name cell* in the row menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them. See [[#Table names]]. |
+| `names` | Tables, columns, rows and cells can be named: *Name* in a table's toolbar, *Name column* in the column menu, *Name row* and *Name cell* in the row menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them. See [[#Table names]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
 | `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
@@ -578,7 +578,7 @@ config.define("tablePlus", {
             enabled = {
               type = "boolean",
               default = true,
-              description = "Naming tables (Name in the toolbar), columns (Fixed name), rows and cells (Name row, Name cell in the row menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
+              description = "Naming tables (Name in the toolbar), columns (Name column in the column menu), rows and cells (Name row, Name cell in the row menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
               ui = { category = "Table Plus: Modules", label = "Names", priority = 8 },
             },
           },

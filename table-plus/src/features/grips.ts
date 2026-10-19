@@ -361,6 +361,7 @@ export class Grips implements Feature {
           ? "Rows pinned to the top stay at the top"
           : "Rows pinned to the bottom stay at the bottom";
     return [
+      ...this.topEntries(this.host.rowMenuEntries(widget, info, row, column)),
       {
         kind: "item",
         label: "Insert row above",
@@ -408,19 +409,17 @@ export class Grips implements Feature {
         run: act(() => pinRowAt(host, widget, info, row, zone === "bottom" ? undefined : "bottom")),
         disabled: pinBlocked("bottom"),
       },
-      ...this.featureRowEntries(widget, info, row, column),
       { kind: "separator" },
       { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => deleteRowAt(host, widget, info, row)) },
     ];
   }
 
-  /** The entries features add for the row's cell, after a separator, closing the menu when run */
-  private featureRowEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
-    const entries = this.host.rowMenuEntries(widget, info, row, column);
+  /** Entries features add at the top of a menu (naming), before a separator, closing the menu when run */
+  private topEntries(entries: readonly MenuEntry[]): MenuEntry[] {
     if (entries.length === 0) return [];
     return [
-      { kind: "separator" },
       ...entries.map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry)),
+      { kind: "separator" },
     ];
   }
 
@@ -449,6 +448,7 @@ export class Grips implements Feature {
           ? "Columns pinned to the left stay at the left"
           : "Columns pinned to the right stay at the right";
     const entries: MenuEntry[] = [
+      ...this.topEntries(host.columnMenuTopEntries(widget, info, column)),
       {
         kind: "item",
         label: "Sort ascending",

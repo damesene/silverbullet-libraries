@@ -49,7 +49,7 @@ describe("Controller", () => {
     document.body.replaceChildren();
     await setup(NAMED, { "tablePlus.metadata": true });
     expect(cell(0, 0).classList.contains("tp-named")).toBe(true);
-    expect(cell(0, 0).title).toBe("Fixed name: price");
+    expect(cell(0, 0).title).toBe("Column name: price");
     expect(cell(1, 1).classList.contains("tp-named")).toBe(true);
   });
 

@@ -1,6 +1,6 @@
 // Names: a table's name, in its metadata row and set from its toolbar, by
 // which formulas in other tables refer to it. And names kept in cells
-// (names.ts): a column's fixed name, set in the column's
+// (names.ts): a column's name, set in the column's
 // menu. Formulas and the stored sorting name the column by it, so renaming the
 // header (also in the markdown) does not break them, nor references from
 // other pages. Setting or removing it rewrites the references to the column on
@@ -25,13 +25,13 @@ export class Names implements Feature {
   /** Named cells show a mark in their corner, and their name on hover */
   decorate(_widget: HTMLElement, info: WidgetInfo): void {
     const model = parseTable(info.source);
-    // A column's fixed name: the same mark in its header
+    // A column's name: the same mark in its header
     model.rows[0]?.cells.forEach((raw, column) => {
       const name = nameOf(raw);
       const cell = info.table.rows[0]?.cells[column];
       if (!name || !cell) return;
       cell.classList.add("tp-named");
-      cell.title = cell.title ? `${cell.title}\nFixed name: ${name}` : `Fixed name: ${name}`;
+      cell.title = cell.title ? `${cell.title}\nColumn name: ${name}` : `Column name: ${name}`;
     });
     for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
       const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
@@ -104,7 +104,7 @@ export class Names implements Feature {
     this.host.focusEditor(widget);
   }
 
-  /** "Name row" and "Name cell" in a row's menu, the cell being the one in `column` */
+  /** "Name row" and "Name cell" at the top of a row's menu, the cell being the one in `column` */
   rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
     const cells = parseTable(info.source).rows[row]?.cells ?? [];
     const name = cellNameOf(cells[column] ?? "");
@@ -195,22 +195,22 @@ export class Names implements Feature {
     this.host.focusEditor(widget);
   }
 
-  /** "Fixed name" in a column's menu */
-  columnMenuEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
+  /** "Name column" at the top of a column's menu */
+  columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
     const fixed = nameOf(parseTable(info.source).rows[0]?.cells[column] ?? "");
     // A name is metadata: with the setting off, only one already there can be changed or removed
     const allowed = this.host.metadataEnabled || fixed !== undefined;
     return [
       {
         kind: "item",
-        label: "Fixed name",
+        label: "Name column",
         icon: ICONS.fixedName,
         ...(fixed ? { value: { text: fixed } } : {}),
         ...(allowed
           ? {
               hint: fixed
-                ? `Formulas refer to this column as [${fixed}], whatever its header says. Click to change or remove it`
-                : "Give the column a name formulas refer to it by, which stays when its header is renamed (also from other pages)",
+                ? `Formulas refer to this column as [${fixed}], whatever its header says. Click to rename it`
+                : "Name this column, so formulas refer to it as [name] whatever its header says (also from other pages)",
             }
           : { disabled: "Needs the Store table metadata setting" }),
         run: () => void this.rename(widget, info, column),
@@ -221,7 +221,7 @@ export class Names implements Feature {
   private async rename(shownWidget: HTMLElement, shownInfo: WidgetInfo, column: number): Promise<void> {
     const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
     const current = nameOf(headers[column] ?? "") ?? "";
-    const answer = await this.host.promptText("Fixed name of the column (letters, digits and _; empty: none)", current || columnKey(headers[column] ?? ""));
+    const answer = await this.host.promptText("Name of the column (letters, digits and _; empty: none)", current || columnKey(headers[column] ?? ""));
     if (answer === undefined) return;
     const name = answer.trim();
     if (name === current) return;

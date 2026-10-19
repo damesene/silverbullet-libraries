@@ -302,7 +302,9 @@ describe("Formulas", () => {
       await setup(PRICES, { "tablePlus.editor.enterKey": "save" });
       vi.spyOn(window, "prompt").mockReturnValue("price");
       openColumnMenu(0);
-      item(/^Fixed name/).click();
+      // Naming comes first in the menu
+      expect(document.querySelector(".tp-menu-item")!.textContent).toMatch(/^Name column/);
+      item(/^Name column/).click();
       await flush();
       await controller.scan();
       expect(text).toBe('| Unit price <meta n="price"> | Total |\n|---|---|\n| 3 | 3 <meta f="=SUM([price])"> |\n');
@@ -318,7 +320,7 @@ describe("Formulas", () => {
       await setup('| A | B |\n|---|---|\n| 1 | 2 |\n');
       vi.spyOn(window, "prompt").mockReturnValue("b");
       openColumnMenu(0);
-      item(/^Fixed name/).click();
+      item(/^Name column/).click();
       await flush();
       expect(text).toBe("| A | B |\n|---|---|\n| 1 | 2 |\n");
       expect(flashes.pop()).toBe("Table Plus: another column of this table is named b");

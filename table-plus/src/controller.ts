@@ -802,6 +802,10 @@ export class Controller implements TableHost {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
   }
 
+  columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
+    return this.features.flatMap((f) => f.columnMenuTopEntries?.(widget, info, column) ?? []);
+  }
+
   rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
     return this.features.flatMap((f) => f.rowMenuEntries?.(widget, info, row, column) ?? []);
   }
