@@ -3080,6 +3080,13 @@ ${error}` : stored.formula;
       this.clearSelection();
       return;
     }
+    const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    if (e.key === "Delete" && this.selection && !inField && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.emptySelectedCells();
+      return;
+    }
     if (e.key === "Escape" && this.menu) {
       e.preventDefault();
       e.stopPropagation();
@@ -3623,6 +3630,19 @@ ${error}` : stored.formula;
   showSelection() {
     for (const cell of Array.from(this.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
     for (const row of this.selectedCells() ?? []) for (const cell of row) cell.classList.add("tp-selected");
+  }
+  /**
+   * Empties the selected cells, formulas included, as one edit; header cells
+   * keep their names (a column needs one). The selection stays.
+   */
+  async emptySelectedCells() {
+    const selection = this.selection;
+    const widget = selection && this.widgetForKey(selection.key);
+    const info = widget && this.infos.get(widget);
+    const cells = this.selectedCells();
+    if (!widget || !info || !cells) return;
+    const refs = cells.flat().map((cell) => this.cellRef(info, cell)).filter((ref) => ref !== void 0 && ref.row > 0);
+    await this.write(widget, (t) => refs.reduce((table, ref) => setCell(table, ref.row, ref.column, ""), t));
   }
   clearSelection() {
     this.selection = void 0;

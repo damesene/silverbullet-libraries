@@ -957,6 +957,22 @@ describe("Controller", () => {
       expect(editor.querySelectorAll(".tp-selected").length).toBe(0);
     });
 
+    it("empties the selected cells with Delete, formulas included, keeping the header", async () => {
+      await setup('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f="=1+1"> |\n| Plum | 5 |\n');
+      drag(cell(0, 1), cell(2, 1));
+      key(editor, "Delete");
+      await flush();
+      await controller.scan();
+      expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | |\n| Fig | |\n| Plum | 5 |\n");
+      // The selection stays, shown on the table rendered again
+      expect(editor.querySelectorAll(".tp-selected").length).toBe(3);
+      // In a field, Delete deletes text as usual
+      clickOn(cell(3, 0));
+      key(editor.querySelector(".tp-cell-editor")!, "Delete");
+      await flush();
+      expect(text).toContain("| Plum | 5 |");
+    });
+
     it("leaves a click on a cell to the cell editor", async () => {
       await setup(PAGE);
       clickOn(cell(1, 1));
