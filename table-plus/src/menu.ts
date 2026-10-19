@@ -11,6 +11,8 @@ export type MenuEntry =
       readonly checked?: boolean;
       // Why the item cannot be used now; shown as its tooltip
       readonly disabled?: string;
+      // What the item does, as its tooltip
+      readonly hint?: string;
     }
   | { readonly kind: "separator" }
   | {
@@ -60,6 +62,7 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
       item.setAttribute("role", entry.checked === undefined ? "menuitem" : "menuitemcheckbox");
       if (entry.checked !== undefined) item.setAttribute("aria-checked", String(entry.checked));
       if (entry.danger) item.classList.add("tp-danger");
+      if (entry.hint && !entry.disabled) item.title = entry.hint;
       item.innerHTML = `<span class="tp-icon">${entry.icon}</span>`;
       const label = doc.createElement("span");
       label.className = "tp-label";

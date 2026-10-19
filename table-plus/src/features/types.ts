@@ -4,9 +4,12 @@
 // keeps the values as written: sorting, filters and copying use them.
 import type { CellEditor, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellText, TYPE_TAG_CLASS, UI_CLASS } from "../dom.ts";
+import { ICONS } from "../icons.ts";
+import type { MenuEntry } from "../menu.ts";
+import { setCell } from "../ops.ts";
 import { formulaOf } from "../formula/index.ts";
 import { parseTable, unescapeCell } from "../markdown.ts";
-import { columnTypeOf, type Shown, type TypedColumn, typeOfTag, typeTagPatterns } from "../types/index.ts";
+import { columnTypeOf, type Shown, type TypedColumn, typeOfTag, TYPES, typeTagPatterns, withColumnType } from "../types/index.ts";
 
 /**
  * CSS that hides the type hashtags of headers from the start: SilverBullet
@@ -38,6 +41,46 @@ export class ColumnTypes implements Feature {
   stop(): void {
     this.style.remove();
     this.choices?.remove();
+  }
+
+  // ---- the column menu ----------------------------------------------------------
+
+  /** "Type: …" in a column's menu: picks the column's type, written as a hashtag in its header */
+  columnMenuEntries(
+    widget: HTMLElement,
+    info: WidgetInfo,
+    column: number,
+    open: (title: string, entries: readonly MenuEntry[]) => void,
+  ): MenuEntry[] {
+    const header = parseTable(info.source).rows[0]?.cells[column] ?? "";
+    const current = columnTypeOf(unescapeCell(header));
+    const setType = (tag: string | undefined) => () =>
+      void this.host.write(widget, (t) => setCell(t, 0, column, withColumnType(t.rows[0]?.cells[column] ?? "", tag)));
+    const choices: MenuEntry[] = [
+      { kind: "item", label: "No type", icon: ICONS.clear, checked: !current, run: setType(undefined) },
+      { kind: "separator" },
+      ...Array.from(TYPES.values()).map((type): MenuEntry => {
+        // The type's first form (#unit-kg: #unit needs its unit); the same type keeps its parameter
+        const first = type.syntax.split(",")[0]!.trim();
+        return {
+          kind: "item",
+          label: first,
+          icon: ICONS.columnType,
+          checked: current?.type === type,
+          hint: `${type.syntax}: ${type.description}`,
+          run: setType(current?.type === type ? current.tag : first.slice(1)),
+        };
+      }),
+    ];
+    return [
+      {
+        kind: "item",
+        label: current ? `Type: #${current.tag}` : "Type…",
+        icon: ICONS.columnType,
+        hint: "How the column's cells show: a hashtag in its header",
+        run: () => open("Column type", choices),
+      },
+    ];
   }
 
   // ---- the cell editor ------------------------------------------------------------

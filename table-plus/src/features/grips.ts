@@ -271,6 +271,20 @@ export class Grips implements Feature {
     focusMenu(element);
   }
 
+  /** Shows other entries in the open menu's place (they close it when run) */
+  private replaceMenu(title: string, entries: readonly MenuEntry[]): void {
+    const menu = this.menu;
+    if (!menu) return;
+    const closing = entries.map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry));
+    const element = renderMenu(this.host.doc, title, closing);
+    element.classList.add("tp-floating", "tp-menu", "tp-visible");
+    element.addEventListener("mousedown", (e) => e.preventDefault());
+    menu.element.replaceWith(element);
+    this.menu = { ...menu, element };
+    this.positionMenu();
+    focusMenu(element);
+  }
+
   /** Rows: to the right of the grip; columns: below it; always inside the window */
   private positionMenu(): void {
     if (!this.menu) return;
@@ -434,6 +448,7 @@ export class Grips implements Feature {
           info.table.querySelector<HTMLInputElement>(`.tp-filter[data-tp-column="${column}"]`)?.focus();
         }),
       },
+      ...host.columnMenuEntries(widget, info, column, (title, entries) => this.replaceMenu(title, entries)),
       { kind: "separator" },
       {
         kind: "segmented",

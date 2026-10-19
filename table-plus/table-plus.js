@@ -1112,6 +1112,45 @@ var Autoscroll = class {
   }
 };
 
+// table-plus/src/icons.ts
+var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
+var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
+var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
+var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
+var ICONS = {
+  grip: svg(
+    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
+    true
+  ),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
+  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
+  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
+  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
+  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
+  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
+  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Sorted lines with a check: make the sorting the real order
+  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
+  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
+  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
+  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
+  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
+  // A pushpin with its needle pointing to the edge it pins to
+  pinTop: PIN_POINT_UP,
+  pinBottom: PIN_POINT_DOWN,
+  pinLeft: PIN_POINT_LEFT,
+  pinRight: PIN_POINT_RIGHT
+};
+
 // table-plus/src/columns.ts
 var HASHTAG_RE = /(^|\s)#[^\s#]+/g;
 function columnName(header) {
@@ -2505,6 +2544,11 @@ function columnTypeOf(header) {
   }
   return void 0;
 }
+function withColumnType(header, tag) {
+  const rest = header.replace(HASHTAG_RE2, (all, space, name2) => typeOfTag(name2) ? space : all);
+  const name = rest.replace(/\s+/g, " ").trim();
+  return tag ? `${name} #${tag}` : name;
+}
 function typeTagPatterns() {
   return {
     exact: [...ALL2.map((t) => t.name), ...ALIASES.keys()],
@@ -2540,6 +2584,37 @@ var ColumnTypes = class {
   stop() {
     this.style.remove();
     this.choices?.remove();
+  }
+  // ---- the column menu ----------------------------------------------------------
+  /** "Type: …" in a column's menu: picks the column's type, written as a hashtag in its header */
+  columnMenuEntries(widget, info, column, open) {
+    const header = parseTable(info.source).rows[0]?.cells[column] ?? "";
+    const current = columnTypeOf(unescapeCell(header));
+    const setType = (tag) => () => void this.host.write(widget, (t) => setCell(t, 0, column, withColumnType(t.rows[0]?.cells[column] ?? "", tag)));
+    const choices = [
+      { kind: "item", label: "No type", icon: ICONS.clear, checked: !current, run: setType(void 0) },
+      { kind: "separator" },
+      ...Array.from(TYPES.values()).map((type) => {
+        const first = type.syntax.split(",")[0].trim();
+        return {
+          kind: "item",
+          label: first,
+          icon: ICONS.columnType,
+          checked: current?.type === type,
+          hint: `${type.syntax}: ${type.description}`,
+          run: setType(current?.type === type ? current.tag : first.slice(1))
+        };
+      })
+    ];
+    return [
+      {
+        kind: "item",
+        label: current ? `Type: #${current.tag}` : "Type\u2026",
+        icon: ICONS.columnType,
+        hint: "How the column's cells show: a hashtag in its header",
+        run: () => open("Column type", choices)
+      }
+    ];
   }
   // ---- the cell editor ------------------------------------------------------------
   /** The type of the edited cell's column, if any (header cells have none) */
@@ -3167,44 +3242,6 @@ ${error}` : stored.formula;
   }
 };
 
-// table-plus/src/icons.ts
-var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
-var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
-var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
-var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
-var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
-var ICONS = {
-  grip: svg(
-    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
-    true
-  ),
-  plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
-  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
-  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
-  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
-  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
-  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
-  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
-  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
-  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
-  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
-  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
-  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
-  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
-  // Sorted lines with a check: make the sorting the real order
-  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
-  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
-  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
-  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
-  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
-  // A pushpin with its needle pointing to the edge it pins to
-  pinTop: PIN_POINT_UP,
-  pinBottom: PIN_POINT_DOWN,
-  pinLeft: PIN_POINT_LEFT,
-  pinRight: PIN_POINT_RIGHT
-};
-
 // table-plus/src/menu.ts
 function renderMenu(doc, title, entries) {
   const menu = doc.createElement("div");
@@ -3239,6 +3276,7 @@ function renderMenu(doc, title, entries) {
       item.setAttribute("role", entry.checked === void 0 ? "menuitem" : "menuitemcheckbox");
       if (entry.checked !== void 0) item.setAttribute("aria-checked", String(entry.checked));
       if (entry.danger) item.classList.add("tp-danger");
+      if (entry.hint && !entry.disabled) item.title = entry.hint;
       item.innerHTML = `<span class="tp-icon">${entry.icon}</span>`;
       const label = doc.createElement("span");
       label.className = "tp-label";
@@ -3507,6 +3545,19 @@ var Grips = class {
     anchor.classList.add("tp-active");
     focusMenu(element);
   }
+  /** Shows other entries in the open menu's place (they close it when run) */
+  replaceMenu(title, entries) {
+    const menu = this.menu;
+    if (!menu) return;
+    const closing = entries.map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry);
+    const element = renderMenu(this.host.doc, title, closing);
+    element.classList.add("tp-floating", "tp-menu", "tp-visible");
+    element.addEventListener("mousedown", (e) => e.preventDefault());
+    menu.element.replaceWith(element);
+    this.menu = { ...menu, element };
+    this.positionMenu();
+    focusMenu(element);
+  }
   /** Rows: to the right of the grip; columns: below it; always inside the window */
   positionMenu() {
     if (!this.menu) return;
@@ -3641,6 +3692,7 @@ var Grips = class {
           info.table.querySelector(`.tp-filter[data-tp-column="${column}"]`)?.focus();
         })
       },
+      ...host.columnMenuEntries(widget, info, column, (title, entries2) => this.replaceMenu(title, entries2)),
       { kind: "separator" },
       {
         kind: "segmented",
@@ -4693,6 +4745,9 @@ var Controller = class {
   }
   get editing() {
     return this.cellEditor.active;
+  }
+  columnMenuEntries(widget, info, column, open) {
+    return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
   }
   get metadataEnabled() {
     return this.metadataOn;

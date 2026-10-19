@@ -4,6 +4,7 @@
 import type { Bridge, SETTINGS, SettingValue } from "../bridge.ts";
 import type { IndexMap } from "../formula/index.ts";
 import type { Table } from "../markdown.ts";
+import type { MenuEntry } from "../menu.ts";
 import type { Pins, ViewState } from "../view.ts";
 
 export type WidgetInfo = {
@@ -119,6 +120,16 @@ export interface TableHost {
   shownRect(widget: HTMLElement, info: WidgetInfo): { left: number; right: number; top: number; bottom: number };
   /** The body rows as rendered, in the order of the markdown, hidden ones included */
   bodyRows(info: WidgetInfo): HTMLTableRowElement[];
+  /**
+   * The entries features add to a column's menu (see Feature.columnMenuEntries);
+   * `open` shows other entries in the menu's place, e.g. a list to pick from
+   */
+  columnMenuEntries(
+    widget: HTMLElement,
+    info: WidgetInfo,
+    column: number,
+    open: (title: string, entries: readonly MenuEntry[]) => void,
+  ): MenuEntry[];
   /** A setting's value, its default when unset or not valid */
   setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>>;
   /** The metadata setting as last read */
@@ -156,6 +167,16 @@ export interface Feature {
   enhanced?(widget: HTMLElement, info: WidgetInfo): void;
   /** Marks on a table's cells, once its rows know their rows in the markdown (data-tp-row) */
   decorate?(widget: HTMLElement, info: WidgetInfo): void;
+  /**
+   * Entries for a column's menu, after its sorting and filter; `open` shows
+   * other entries in the menu's place (they close the menu when run)
+   */
+  columnMenuEntries?(
+    widget: HTMLElement,
+    info: WidgetInfo,
+    column: number,
+    open: (title: string, entries: readonly MenuEntry[]) => void,
+  ): MenuEntry[];
   /** Buttons for the table's toolbar, shown while the pointer is over the table */
   toolbarButtons?(widget: HTMLElement, info: WidgetInfo): ToolbarButton[];
   /**

@@ -195,7 +195,7 @@ In ranges, empty cells and text that is not a number are skipped by the number f
 
 ## Column types
 
-A hashtag in a column's header gives the column a type, which changes how its cells show:
+A hashtag in a column's header gives the column a type, which changes how its cells show. Type it in the header, or pick it in the column's menu (the ⠿ grip above the column, *Type…*): the menu writes the hashtag.
 
 ```
 | Item | Price #currency-usd | Rating #stars | Done #check |
@@ -234,7 +234,7 @@ Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column.
 
 * **Click a grip** for a menu:
   * Row: insert above or below, duplicate, move up or down, delete.
-  * Column: sort, filter, align (left, center, right), insert left or right, move, delete.
+  * Column: sort, filter, type (see [[#Column types]]), align (left, center, right), insert left or right, move, delete.
 * **Drag a grip** to move the row or column; Esc cancels the drag.
 * **Add at the end**: *+ Row* below the table adds a row, *+* right of the header adds a column (named *Column N*, ready to rename).
 * Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.

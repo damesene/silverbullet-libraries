@@ -48,6 +48,7 @@ import {
   serializeTable,
   type Table,
 } from "./markdown.ts";
+import type { MenuEntry } from "./menu.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { appendColumnAt, appendRowAt } from "./pins.ts";
 import { nameEmptyHeaders, reorderRows } from "./ops.ts";
@@ -554,6 +555,15 @@ export class Controller implements TableHost {
 
   get editing(): CellEditor | undefined {
     return this.cellEditor.active;
+  }
+
+  columnMenuEntries(
+    widget: HTMLElement,
+    info: WidgetInfo,
+    column: number,
+    open: (title: string, entries: readonly MenuEntry[]) => void,
+  ): MenuEntry[] {
+    return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
   }
 
   get metadataEnabled(): boolean {

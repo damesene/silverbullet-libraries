@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { bodyTexts, cell, clickOn, editor, flashes, flush, key, press, setup, text, useTablePage } from "../testing/page.ts";
+import { bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, press, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Column types", () => {
   useTablePage();
@@ -87,6 +87,33 @@ describe("Column types", () => {
     );
     expect(cell(3, 1).textContent).toBe(usd(16.49));
     expect(cell(3, 1).classList.contains("tp-formula")).toBe(true);
+  });
+
+  it("picks a column's type from its menu, as a hashtag in its header", async () => {
+    await setup("| Item | Rating #todo |\n|---|---|\n| Pear | 4 |\n");
+    const openColumnMenu = () => {
+      cell(1, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    };
+    const item = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label)!;
+    openColumnMenu();
+    item("Type…").click();
+    expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Column type");
+    expect(item("#unit-kg").title).toBe("#unit-kg: A number with a unit: the unit after the dash.");
+    item("#stars").click();
+    await flush();
+    await controller.scan();
+    expect(text).toBe("| Item | Rating #todo #stars |\n|---|---|\n| Pear | 4 |\n");
+    expect(document.querySelector(".tp-menu")).toBeNull();
+    expect(cell(1, 1).textContent).toBe("★★★★☆");
+
+    openColumnMenu();
+    item("Type: #stars").click();
+    item("No type").click();
+    await flush();
+    expect(text).toBe("| Item | Rating #todo |\n|---|---|\n| Pear | 4 |\n");
   });
 
   it("makes links of web addresses", async () => {
