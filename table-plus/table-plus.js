@@ -2364,6 +2364,7 @@ function formulaHelp(text, caret) {
 }
 
 // table-plus/src/features/formulas.ts
+var FORMULAS_NEED_METADATA = "Formulas are stored in the table: turn on the Store table metadata setting to add them (existing ones keep working)";
 var REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
 var Formulas = class {
   constructor(host) {
@@ -2406,17 +2407,31 @@ var Formulas = class {
     this.updateFormulaUi();
   }
   /** Tab while a function name is typed completes it (the editor stays) */
-  editorKeyDown(e) {
+  editorKeyDown(e, editor) {
+    if (!this.allowed(editor)) return false;
     return e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && this.completeFunctionName();
+  }
+  /**
+   * Whether the edited cell may hold a formula: with the metadata setting on,
+   * or when it holds one already (a table with formulas keeps using them, as
+   * one with a metadata row keeps its sorting)
+   */
+  allowed(editor) {
+    return this.host.metadataEnabled || formulaOf(editor.original) !== void 0;
   }
   /**
    * What a typed formula is saved as: fixed where only one fix is possible
    * (said so), its column references written by the columns' keys, as a
    * formula cell whose result the write fills in. A text typed as '=… is that
-   * text. Undefined for anything else.
+   * text, and so is a formula where formulas are not allowed (said so).
+   * Undefined for anything else.
    */
   editorValue(editor, typed) {
     if (editor.row === 0) return void 0;
+    if (isFormulaInput(typed) && !this.allowed(editor)) {
+      void this.host.bridge.flash(`Table Plus: ${FORMULAS_NEED_METADATA}; saved as text`, "info");
+      return escapeCell(typed);
+    }
     if (isFormulaInput(typed)) {
       const { formula, fixes } = autofixFormula(typed.trim());
       if (fixes.length) void this.host.bridge.flash(`Table Plus: formula fixed: ${fixes.join(", ")}`, "info");
@@ -2481,6 +2496,15 @@ ${error}` : stored.formula;
     const formula = active?.field.value ?? "";
     if (!active || !info || active.row === 0 || !formula.trimStart().startsWith("=")) {
       this.hideFormulaUi();
+      return;
+    }
+    if (!this.allowed(active)) {
+      this.hideFormulaUi();
+      this.formulaHint.replaceChildren(
+        Object.assign(this.host.doc.createElement("div"), { className: "tp-formula-help", textContent: FORMULAS_NEED_METADATA })
+      );
+      const rect = active.cell.getBoundingClientRect();
+      this.host.place(this.formulaHint, rect.left, rect.bottom + 4);
       return;
     }
     const refs = references(formula);
@@ -2606,7 +2630,7 @@ ${error}` : stored.formula;
   }
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
   pointingSlot(active) {
-    if (active.row === 0) return void 0;
+    if (active.row === 0 || !this.allowed(active)) return void 0;
     const field = active.field;
     const length = field.value.length;
     const pointed = this.pointed?.field === field ? this.pointed : void 0;

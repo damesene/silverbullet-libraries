@@ -113,7 +113,7 @@ Plain text is found anywhere in a cell, ignoring case and diacritics (`cesky` fi
 
 ## Formulas
 
-Type a formula into a body cell, starting with `=`: `=B1*2`, `=SUM(B1:B3)`, `=SUM([qty])`. Table Plus writes the result into the cell, followed by the formula in a hidden `<meta>` tag:
+With the *Store table metadata* setting on (see [[#Settings]]), type a formula into a body cell, starting with `=`: `=B1*2`, `=SUM(B1:B3)`, `=SUM([qty])`. Table Plus writes the result into the cell, followed by the formula in a hidden `<meta>` tag:
 
 ```
 | Name  | Qty |
@@ -123,6 +123,7 @@ Type a formula into a body cell, starting with `=`: `=B1*2`, `=SUM(B1:B3)`, `=SU
 | Total |  13 <meta f="=SUM([qty])"> |
 ```
 
+* Formulas are metadata, as the sorting stored in a table is: with the setting off, a typed formula is saved as text (Table Plus says so, and shows it while it is typed). Formulas already in a table keep working: they can be edited, are recalculated, and fill new rows of calculated columns.
 * SilverBullet and browsers show only the result, other renderers (GitHub, Obsidian) drop the tag. Queries over the table (`index.tag "table"`) see the cell's text with the tag, e.g. `13 <meta f="=SUM([qty])">`.
 * Saving a formula fixes mistakes that have only one possible fix, and says what it changed: missing `)` at the end are added (`=SUM(A1:A3` becomes `=SUM(A1:A3)`), a text in quotes or a `[column]` left open at the end is closed, and extra `)` at the very end are dropped. Anything else stays as typed and shows `#ERROR!`.
 * **Calculated columns**: when every row of a column holds the same formula, such as `=[@qty]*[@price]`, a new row (*+ Row*, Ctrl+Enter, Tab on the last cell, *Insert row*) gets it too. Total rows (with a formula over a whole column, such as `=SUM([qty])`) do not count.
@@ -227,8 +228,8 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, or set them in your [[CONFIG]]:
 
 * **Store table metadata** (`tablePlus.metadata`), default `false`
-  * `true`: table settings (the sorting and pinned rows and columns) can be stored in any table, see [[#Table metadata]], and rows and columns can be pinned, see [[#Pinning]].
-  * `false`: tables without metadata get none: sorting is a view only. Tables that already have metadata keep using it: their sorting is still stored and rows and columns can be unpinned, but nothing new can be pinned.
+  * `true`: table settings (the sorting and pinned rows and columns) can be stored in any table, see [[#Table metadata]], rows and columns can be pinned, see [[#Pinning]], and formulas can be added, see [[#Formulas]].
+  * `false`: tables without metadata get none: sorting is a view only, and a formula typed into a cell is saved as text. Tables that already have metadata keep using it: their sorting is still stored, rows and columns can be unpinned and their formulas keep working, but nothing new can be pinned and no new formula added.
 * **Maximum table height (px)** (`tablePlus.maxHeight`), default `0`
   * `0`: no limit, a table is as tall as its rows.
   * A number of pixels, e.g. `400`: a taller table gets its own vertical scrollbar.
@@ -312,7 +313,7 @@ config.define("tablePlus", {
     metadata = {
       type = "boolean",
       default = false,
-      description = "Allow storing table settings (sorting, pinned rows and columns) in a hidden last row <meta …> of tables, and pinning. Off: tables without a <meta> row get none (sorting is a view only); tables with one keep using it, their sorting is still stored and pinned rows and columns can be unpinned, but nothing new can be pinned.",
+      description = "Allow storing table settings (sorting, pinned rows and columns) in a hidden last row <meta …> of tables, and pinning. Off: tables without a <meta> row get none (sorting is a view only); tables with one keep using it, their sorting is still stored and pinned rows and columns can be unpinned, but nothing new can be pinned. Formulas are stored in cells (<meta f>) and need it too: off, a typed formula is saved as text; existing formulas keep working.",
       ui = { category = "Table Plus", label = "Store table metadata", priority = 6 },
     },
     maxHeight = {

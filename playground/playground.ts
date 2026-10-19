@@ -199,11 +199,12 @@ page.addEventListener("keydown", (e) => {
 // --- Settings -----------------------------------------------------------------
 
 type Key = keyof typeof SETTINGS;
-let settings: Record<string, unknown> = {};
+// The playground starts with metadata on, so formulas and pinning can be tried right away
+let settings: Record<string, unknown> = { "tablePlus.metadata": true };
 try {
-  settings = JSON.parse(load(SETTINGS_KEY) ?? "{}");
+  settings = JSON.parse(load(SETTINGS_KEY) ?? JSON.stringify(settings));
 } catch {
-  settings = {};
+  settings = { "tablePlus.metadata": true };
 }
 
 const LABELS: Record<Key, string> = {

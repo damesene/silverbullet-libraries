@@ -94,6 +94,8 @@ export async function setup(page: string, settings: Record<string, unknown> = {}
   controller = new Controller(document, bridge);
   controller.start();
   await controller.scan();
+  // The settings are read asynchronously: tests start once they are
+  await flush();
 }
 
 /** A fresh page for each test, and Table Plus stopped after it */

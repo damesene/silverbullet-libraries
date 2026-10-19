@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cell, clickOn, controller, editor, flashes, flush, key, press, setup, text, useTablePage } from "../testing/page.ts";
+import { cell, clickOn, controller, editor, flashes, flush, key, press, setup as setupPage, text, useTablePage } from "../testing/page.ts";
+import { FORMULAS_NEED_METADATA } from "./formulas.ts";
 
 describe("Formulas", () => {
   useTablePage();
+
+  // New formulas are stored in the table: the metadata setting is on unless a test turns it off
+  const setup = (page: string, settings: Record<string, unknown> = {}) =>
+    setupPage(page, { "tablePlus.metadata": true, ...settings });
 
   const TOTAL = "| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Apple | 10 |\n| Total | |\n";
   const field = () => editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
@@ -126,6 +131,34 @@ describe("Formulas", () => {
     expect(text).toContain('| Total | 14 <meta f="=SUM([Qty])"> |');
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     expect(buttons()).not.toContain("Recalculate");
+  });
+
+  describe("with the metadata setting off", () => {
+    const OFF = { "tablePlus.metadata": false };
+
+    it("saves a typed formula as text, and says why while it is typed", async () => {
+      await setup(TOTAL, OFF);
+      clickOn(cell(3, 1));
+      field().value = "=SUM(B1:B2)";
+      field().dispatchEvent(new Event("input", { bubbles: true }));
+      expect(document.querySelector(".tp-formula-hint")!.textContent).toBe(FORMULAS_NEED_METADATA);
+      expect(document.querySelectorAll(".tp-ref-mark").length).toBe(0);
+      key(field(), "Enter");
+      await flush();
+      expect(text).toContain("| Total | =SUM(B1:B2) |");
+      expect(flashes).toEqual([`Table Plus: ${FORMULAS_NEED_METADATA}; saved as text`]);
+    });
+
+    it("keeps existing formulas working: edited, recalculated", async () => {
+      await setup('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Apple | 10 |\n| Total | 13 <meta f="=SUM([qty])"> |\n', OFF);
+      clickOn(cell(3, 1));
+      expect(field().value).toBe("=SUM([qty])");
+      await type("=SUM(B1:B2)*2");
+      expect(text).toContain('| Total | 26 <meta f="=SUM(B1:B2)*2"> |');
+      clickOn(cell(1, 1));
+      await type("4");
+      expect(text).toContain('| Total | 28 <meta f="=SUM(B1:B2)*2"> |');
+    });
   });
 
   describe("with layout", () => {
