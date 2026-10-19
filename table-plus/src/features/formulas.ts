@@ -201,6 +201,7 @@ export class Formulas implements Feature {
     return [
       {
         label: "Recalculate",
+        place: "icon",
         icon: ICONS.recalculate,
         attention: stale,
         title: stale

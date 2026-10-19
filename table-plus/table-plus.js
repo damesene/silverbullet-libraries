@@ -1275,6 +1275,8 @@ var ICONS = {
   // Two arrows round: calculate again
   recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
   filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
+  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
   // A padlock: a name that stays
   fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
   columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
@@ -4112,6 +4114,7 @@ ${error}` : stored.formula;
     return [
       {
         label: "Recalculate",
+        place: "icon",
         icon: ICONS.recalculate,
         attention: stale,
         title: stale ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, or TODAY() moved on)" : "Recalculate the formulas (their results are up to date)",
@@ -5262,6 +5265,8 @@ var Metadata = class {
     return [
       {
         label: "Remove metadata",
+        icon: ICONS.trash,
+        danger: true,
         title: "Remove this table's <meta> tags: its stored settings (sorting, pinning, name), the formulas of its cells, which keep their results, and the names of its columns and cells",
         run: () => void this.removeFromTable(widget, info)
       }
@@ -5354,16 +5359,15 @@ Row name: ${row}` : `Row name: ${row}`;
       }
     }
   }
-  /** "Name" in the toolbar: the table's name */
+  /** The table's name at the toolbar's left, and "Name table" in its menu */
   toolbarButtons(widget, info) {
     const name = metaName(parseTable(info.source));
     if (!info.metaRow && !this.host.metadataEnabled) return [];
+    const rename = () => void this.renameTable(widget, info);
+    const title = name ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it` : "Name this table, so formulas in other tables can refer to it (name!A1)";
     return [
-      {
-        label: name ? `Name: ${name}` : "Name",
-        title: name ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it` : "Name this table, so formulas in other tables can refer to it (name!A1)",
-        run: () => void this.renameTable(widget, info)
-      }
+      ...name ? [{ label: name, title, place: "label", run: rename }] : [],
+      { label: "Name table", icon: ICONS.fixedName, ...name ? { value: name } : {}, title, run: rename }
     ];
   }
   /**
@@ -6037,6 +6041,8 @@ var Controller = class {
   // (core/feature.ts): those turned on, filled in when Table Plus starts
   features = [];
   featuresStarted;
+  // The toolbar's open ⋯ menu
+  tableMenu;
   // Formulas read other pages (the pageLinks module); read when Table Plus starts
   pageLinks = true;
   metadata;
@@ -6122,6 +6128,7 @@ var Controller = class {
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
+    this.closeTableMenu(false);
     for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
   }
   onBlur = () => this.cellEditor.setNavigating(false);
@@ -6691,6 +6698,9 @@ var Controller = class {
     return row?.contains("tp-filter-row") || row?.contains("tp-meta-row") ? void 0 : cell;
   }
   onMouseDown = (e) => {
+    if (this.tableMenu && e.target instanceof Node && !this.tableMenu.element.contains(e.target) && !this.bar.contains(e.target)) {
+      this.closeTableMenu(false);
+    }
     for (const feature of this.features) if (feature.mouseDown?.(e)) return;
     if (e.button !== 0) return;
     for (const feature of this.features) feature.beforeMouseDown?.(e);
@@ -6844,13 +6854,19 @@ var Controller = class {
     return void 0;
   }
   onKeyDown = (e) => {
+    if (e.key === "Escape" && this.tableMenu) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.closeTableMenu(true);
+      return;
+    }
     for (const feature of this.features) if (feature.keyDown?.(e)) return;
   };
   onKeyUp = (e) => {
     if (e.key === "Control") this.cellEditor.setNavigating(false);
   };
   onMouseMove = (e) => {
-    if (this.features.some((f) => f.pointerBusy?.()) || e.buttons !== 0) return;
+    if (this.tableMenu || this.features.some((f) => f.pointerBusy?.()) || e.buttons !== 0) return;
     const target = e.target;
     if (target instanceof Node && this.isFloating(target)) {
       this.cancelHide();
@@ -7042,7 +7058,7 @@ var Controller = class {
     return button;
   }
   isFloating(node) {
-    return [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) || this.features.some((f) => f.owns?.(node));
+    return [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) || !!this.tableMenu?.element.contains(node) || this.features.some((f) => f.owns?.(node));
   }
   place(element, left, top) {
     const win = this.doc.defaultView;
@@ -7069,6 +7085,7 @@ var Controller = class {
   }
   hideFloating(closeMenus = false) {
     this.endHover(closeMenus);
+    this.closeTableMenu(false);
     for (const el of [this.bar, this.addRow, this.addColumn]) el.classList.remove("tp-visible");
     this.hoverWidget = void 0;
   }
@@ -7077,13 +7094,14 @@ var Controller = class {
     const view = this.viewOf(info);
     const bar = this.bar;
     bar.replaceChildren();
-    const button = (item) => {
+    const button = (item, className) => {
       const b = this.doc.createElement("button");
       b.type = "button";
       b.tabIndex = -1;
       b.title = item.title;
-      if (item.icon) {
-        b.className = "tp-bar-icon";
+      if (className) b.className = className;
+      if (item.place === "icon" && item.icon) {
+        b.classList.add("tp-bar-icon");
         b.setAttribute("aria-label", item.label);
         b.innerHTML = item.icon;
       } else b.textContent = item.label;
@@ -7094,9 +7112,10 @@ var Controller = class {
         item.run();
       });
       bar.append(b);
+      return b;
     };
     const featureButtons = this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []);
-    for (const item of featureButtons.filter((b) => b.icon)) button(item);
+    for (const item of featureButtons.filter((b) => b.place === "label")) button(item, "tp-bar-label");
     if (view.sort) {
       const { column, direction } = view.sort;
       const name = cellText(info.table.rows[0].cells[column]) || `column ${column + 1}`;
@@ -7137,9 +7156,12 @@ var Controller = class {
       status.textContent = `${shown} of ${rows.length} rows`;
       bar.append(status);
     }
+    for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
     button({
       label: "Filter",
       title: "Show or hide the filter row",
+      place: "icon",
+      icon: ICONS.filter,
       run: () => {
         const [w, i] = this.current(widget, info);
         const now2 = this.viewOf(i);
@@ -7147,12 +7169,29 @@ var Controller = class {
       },
       pressed: view.showFilters
     });
-    for (const item of featureButtons.filter((b) => !b.icon)) button(item);
-    button({
-      label: "Edit markdown",
-      title: "Show this table as markdown",
-      run: () => void this.showMarkdown(this.current(widget, info)[1])
-    });
+    const menuItems = [
+      ...featureButtons.filter((b) => (b.place ?? "menu") === "menu"),
+      {
+        label: "Edit markdown",
+        title: "Show this table as markdown",
+        icon: ICONS.markdown,
+        run: () => void this.showMarkdown(this.current(widget, info)[1])
+      }
+    ];
+    const more = button(
+      {
+        label: "More",
+        title: "More for this table",
+        place: "icon",
+        icon: ICONS.more,
+        run: () => this.tableMenu ? this.closeTableMenu(true) : this.openTableMenu(widget, more, menuItems)
+      },
+      "tp-bar-more"
+    );
+    if (this.tableMenu) {
+      more.classList.add("tp-active");
+      this.tableMenu.anchor = more;
+    }
     const rect = widget.getBoundingClientRect();
     const tableRect = info.table.getBoundingClientRect();
     const headerRect = info.table.rows[0].getBoundingClientRect();
@@ -7163,6 +7202,7 @@ var Controller = class {
     const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
     const viewRight = this.scrollParentOf(widget)?.getBoundingClientRect().right ?? this.doc.defaultView.innerWidth;
     this.place(bar, Math.min(rect.right, tableRect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
+    this.positionTableMenu();
     this.addRow.classList.add("tp-visible");
     const inView = this.shownRect(widget, info);
     this.place(this.addRow, inView.left, inView.bottom + 4);
@@ -7172,6 +7212,56 @@ var Controller = class {
       Math.min(tableRect.right, rect.right) + 4,
       headerRect.top + (headerRect.height - this.addColumn.offsetHeight) / 2
     );
+  }
+  /**
+   * The toolbar's ⋯ menu: the table's actions that are not used all the time,
+   * the destructive ones last, after a separator
+   */
+  openTableMenu(widget, anchor, items) {
+    const entry = (item) => ({
+      kind: "item",
+      label: item.label,
+      icon: item.icon ?? "",
+      hint: item.title,
+      ...item.value ? { value: { text: item.value } } : {},
+      ...item.danger ? { danger: true } : {},
+      run: () => {
+        this.closeTableMenu(false);
+        item.run();
+      }
+    });
+    const safe = items.filter((item) => !item.danger).map(entry);
+    const danger = items.filter((item) => item.danger).map(entry);
+    const element = renderMenu(this.doc, "Table", [...safe, ...safe.length && danger.length ? [{ kind: "separator" }] : [], ...danger]);
+    element.classList.add("tp-floating", "tp-menu", "tp-visible");
+    element.addEventListener("mousedown", (e) => e.preventDefault());
+    this.doc.body.append(element);
+    this.tableMenu = { element, widget, anchor };
+    anchor.classList.add("tp-active");
+    this.positionTableMenu();
+    focusMenu(element);
+  }
+  /** Below the ⋯ button, its right edge at the button's; always inside the window */
+  positionTableMenu() {
+    if (!this.tableMenu) return;
+    const { element, anchor } = this.tableMenu;
+    const win = this.doc.defaultView;
+    const a = anchor.getBoundingClientRect();
+    const m = element.getBoundingClientRect();
+    const left = Math.max(4, Math.min(a.right - m.width, win.innerWidth - m.width - 4));
+    let top = a.bottom + 4;
+    if (top + m.height > win.innerHeight - 4) top = Math.max(4, a.top - m.height - 4);
+    element.style.left = `${Math.round(left)}px`;
+    element.style.top = `${Math.round(top)}px`;
+  }
+  closeTableMenu(refocus) {
+    const menu = this.tableMenu;
+    if (!menu) return;
+    this.tableMenu = void 0;
+    const hadFocus = menu.element.contains(this.doc.activeElement);
+    menu.element.remove();
+    menu.anchor.classList.remove("tp-active");
+    if (refocus && hadFocus) this.focusEditor(menu.widget);
   }
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
   shownRect(widget, info) {

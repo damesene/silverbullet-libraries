@@ -141,3 +141,10 @@ export const key = (target: Element, k: string, init: KeyboardEventInit = {}) =>
   target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
 
 export const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/** An item of the toolbar's ⋯ menu, by its label, the menu opened over the first body row of table `table` */
+export function tableMenuItem(label: RegExp, table = 0): HTMLElement | undefined {
+  editor.querySelectorAll("table")[table]!.rows[1]!.cells[0]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+  if (!document.querySelector(".tp-menu")) document.querySelector<HTMLElement>(".tp-bar .tp-bar-more")!.click();
+  return Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => label.test(b.textContent!));
+}

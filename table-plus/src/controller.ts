@@ -63,7 +63,7 @@ import {
   type Table,
   type TableRange,
 } from "./markdown.ts";
-import type { MenuEntry } from "./menu.ts";
+import { focusMenu, type MenuEntry, renderMenu } from "./menu.ts";
 import { metadataAfterEdit, metaName, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { namedCells } from "./names.ts";
 import { appendColumnAt, appendRowAt } from "./pins.ts";
@@ -281,6 +281,8 @@ export class Controller implements TableHost {
   // (core/feature.ts): those turned on, filled in when Table Plus starts
   private readonly features: Feature[] = [];
   private featuresStarted: Promise<void> | undefined;
+  // The toolbar's open ⋯ menu
+  private tableMenu: { element: HTMLElement; widget: HTMLElement; anchor: HTMLElement } | undefined;
   // Formulas read other pages (the pageLinks module); read when Table Plus starts
   private pageLinks = true;
   private readonly metadata: Metadata;
@@ -391,6 +393,7 @@ export class Controller implements TableHost {
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
+    this.closeTableMenu(false);
     for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
   }
 
@@ -1046,6 +1049,10 @@ export class Controller implements TableHost {
   }
 
   private onMouseDown = (e: MouseEvent): void => {
+    // A press anywhere but the toolbar or its menu closes the menu
+    if (this.tableMenu && e.target instanceof Node && !this.tableMenu.element.contains(e.target) && !this.bar.contains(e.target)) {
+      this.closeTableMenu(false);
+    }
     for (const feature of this.features) if (feature.mouseDown?.(e)) return;
     if (e.button !== 0) return;
     for (const feature of this.features) feature.beforeMouseDown?.(e);
@@ -1219,6 +1226,12 @@ export class Controller implements TableHost {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape" && this.tableMenu) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.closeTableMenu(true);
+      return;
+    }
     for (const feature of this.features) if (feature.keyDown?.(e)) return;
   };
 
@@ -1228,7 +1241,7 @@ export class Controller implements TableHost {
 
   private onMouseMove = (e: MouseEvent): void => {
     // A pressed button: dragging a scrollbar or selecting; the controls stay where they are
-    if (this.features.some((f) => f.pointerBusy?.()) || e.buttons !== 0) return;
+    if (this.tableMenu || this.features.some((f) => f.pointerBusy?.()) || e.buttons !== 0) return;
     const target = e.target;
     if (target instanceof Node && this.isFloating(target)) {
       this.cancelHide();
@@ -1467,7 +1480,11 @@ export class Controller implements TableHost {
   }
 
   isFloating(node: Node): boolean {
-    return [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) || this.features.some((f) => f.owns?.(node));
+    return (
+      [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) ||
+      !!this.tableMenu?.element.contains(node) ||
+      this.features.some((f) => f.owns?.(node))
+    );
   }
 
   place(element: HTMLElement, left: number, top: number): void {
@@ -1499,6 +1516,7 @@ export class Controller implements TableHost {
 
   private hideFloating(closeMenus = false): void {
     this.endHover(closeMenus);
+    this.closeTableMenu(false);
     for (const el of [this.bar, this.addRow, this.addColumn]) el.classList.remove("tp-visible");
     this.hoverWidget = undefined;
   }
@@ -1509,13 +1527,14 @@ export class Controller implements TableHost {
     const bar = this.bar;
     bar.replaceChildren();
     // A button with its label, or (with an icon) the icon alone, the label its accessible name
-    const button = (item: ToolbarButton & { readonly pressed?: boolean }) => {
+    const button = (item: ToolbarButton & { readonly pressed?: boolean }, className?: string): HTMLButtonElement => {
       const b = this.doc.createElement("button");
       b.type = "button";
       b.tabIndex = -1;
       b.title = item.title;
-      if (item.icon) {
-        b.className = "tp-bar-icon";
+      if (className) b.className = className;
+      if (item.place === "icon" && item.icon) {
+        b.classList.add("tp-bar-icon");
         b.setAttribute("aria-label", item.label);
         b.innerHTML = item.icon;
       } else b.textContent = item.label;
@@ -1526,10 +1545,11 @@ export class Controller implements TableHost {
         item.run();
       });
       bar.append(b);
+      return b;
     };
     const featureButtons = this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []);
-    // Icon buttons first, always in the same place
-    for (const item of featureButtons.filter((b) => b.icon)) button(item);
+    // At the left, what the table is and how it is shown: its name, its sorting, its rows filtered
+    for (const item of featureButtons.filter((b) => b.place === "label")) button(item, "tp-bar-label");
     if (view.sort) {
       // "Sorted by Name ↓ ×": the cross goes back to the order as written
       const { column, direction } = view.sort;
@@ -1572,9 +1592,13 @@ export class Controller implements TableHost {
       status.textContent = `${shown} of ${rows.length} rows`;
       bar.append(status);
     }
+    // At the right, icons always in the same places: the features' (Recalculate), Filter, and the menu
+    for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
     button({
       label: "Filter",
       title: "Show or hide the filter row",
+      place: "icon",
+      icon: ICONS.filter,
       run: () => {
         // Hidden filters would hide rows without a visible reason, so hiding clears them
         const [w, i] = this.current(widget, info);
@@ -1583,12 +1607,30 @@ export class Controller implements TableHost {
       },
       pressed: view.showFilters,
     });
-    for (const item of featureButtons.filter((b) => !b.icon)) button(item);
-    button({
-      label: "Edit markdown",
-      title: "Show this table as markdown",
-      run: () => void this.showMarkdown(this.current(widget, info)[1]),
-    });
+    const menuItems = [
+      ...featureButtons.filter((b) => (b.place ?? "menu") === "menu"),
+      {
+        label: "Edit markdown",
+        title: "Show this table as markdown",
+        icon: ICONS.markdown,
+        run: () => void this.showMarkdown(this.current(widget, info)[1]),
+      },
+    ];
+    const more = button(
+      {
+        label: "More",
+        title: "More for this table",
+        place: "icon",
+        icon: ICONS.more,
+        run: () => (this.tableMenu ? this.closeTableMenu(true) : this.openTableMenu(widget, more, menuItems)),
+      },
+      "tp-bar-more",
+    );
+    if (this.tableMenu) {
+      // Shown again (a write, a change of the table's state): the open menu stays, at the new button
+      more.classList.add("tp-active");
+      this.tableMenu.anchor = more;
+    }
 
     const rect = widget.getBoundingClientRect();
     const tableRect = info.table.getBoundingClientRect();
@@ -1606,6 +1648,7 @@ export class Controller implements TableHost {
     // (a renderer's block) does not take the toolbar past the table.
     const viewRight = this.scrollParentOf(widget)?.getBoundingClientRect().right ?? this.doc.defaultView!.innerWidth;
     this.place(bar, Math.min(rect.right, tableRect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
+    this.positionTableMenu();
 
     this.addRow.classList.add("tp-visible");
     const inView = this.shownRect(widget, info);
@@ -1616,6 +1659,59 @@ export class Controller implements TableHost {
       Math.min(tableRect.right, rect.right) + 4,
       headerRect.top + (headerRect.height - this.addColumn.offsetHeight) / 2,
     );
+  }
+
+  /**
+   * The toolbar's ⋯ menu: the table's actions that are not used all the time,
+   * the destructive ones last, after a separator
+   */
+  private openTableMenu(widget: HTMLElement, anchor: HTMLElement, items: readonly ToolbarButton[]): void {
+    const entry = (item: ToolbarButton): MenuEntry => ({
+      kind: "item",
+      label: item.label,
+      icon: item.icon ?? "",
+      hint: item.title,
+      ...(item.value ? { value: { text: item.value } } : {}),
+      ...(item.danger ? { danger: true } : {}),
+      run: () => {
+        this.closeTableMenu(false);
+        item.run();
+      },
+    });
+    const safe = items.filter((item) => !item.danger).map(entry);
+    const danger = items.filter((item) => item.danger).map(entry);
+    const element = renderMenu(this.doc, "Table", [...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger]);
+    element.classList.add("tp-floating", "tp-menu", "tp-visible");
+    element.addEventListener("mousedown", (e) => e.preventDefault());
+    this.doc.body.append(element);
+    this.tableMenu = { element, widget, anchor };
+    anchor.classList.add("tp-active");
+    this.positionTableMenu();
+    focusMenu(element);
+  }
+
+  /** Below the ⋯ button, its right edge at the button's; always inside the window */
+  private positionTableMenu(): void {
+    if (!this.tableMenu) return;
+    const { element, anchor } = this.tableMenu;
+    const win = this.doc.defaultView!;
+    const a = anchor.getBoundingClientRect();
+    const m = element.getBoundingClientRect();
+    const left = Math.max(4, Math.min(a.right - m.width, win.innerWidth - m.width - 4));
+    let top = a.bottom + 4;
+    if (top + m.height > win.innerHeight - 4) top = Math.max(4, a.top - m.height - 4);
+    element.style.left = `${Math.round(left)}px`;
+    element.style.top = `${Math.round(top)}px`;
+  }
+
+  private closeTableMenu(refocus: boolean): void {
+    const menu = this.tableMenu;
+    if (!menu) return;
+    this.tableMenu = undefined;
+    const hadFocus = menu.element.contains(this.doc.activeElement);
+    menu.element.remove();
+    menu.anchor.classList.remove("tp-active");
+    if (refocus && hadFocus) this.focusEditor(menu.widget);
   }
 
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */

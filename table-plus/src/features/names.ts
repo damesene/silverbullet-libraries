@@ -52,19 +52,18 @@ export class Names implements Feature {
     }
   }
 
-  /** "Name" in the toolbar: the table's name */
+  /** The table's name at the toolbar's left, and "Name table" in its menu */
   toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
     const name = metaName(parseTable(info.source));
     // A name is metadata: with the setting off, only a table with a metadata row can get one
     if (!info.metaRow && !this.host.metadataEnabled) return [];
+    const rename = () => void this.renameTable(widget, info);
+    const title = name
+      ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`
+      : "Name this table, so formulas in other tables can refer to it (name!A1)";
     return [
-      {
-        label: name ? `Name: ${name}` : "Name",
-        title: name
-          ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`
-          : "Name this table, so formulas in other tables can refer to it (name!A1)",
-        run: () => void this.renameTable(widget, info),
-      },
+      ...(name ? [{ label: name, title, place: "label" as const, run: rename }] : []),
+      { label: "Name table", icon: ICONS.fixedName, ...(name ? { value: name } : {}), title, run: rename },
     ];
   }
 

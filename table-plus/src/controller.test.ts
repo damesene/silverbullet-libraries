@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashes, flush, key, press, renderPage, setText, setup, text, useTablePage } from "./testing/page.ts";
+import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashes, flush, key, press, renderPage, setText, setup, tableMenuItem, text, useTablePage } from "./testing/page.ts";
 
 describe("Controller", () => {
   useTablePage();
@@ -37,7 +37,7 @@ describe("Controller", () => {
     await setup(NAMED, { "tablePlus.metadata": true, "tablePlus.editor.enterKey": "save", "tablePlus.modules.names.enabled": false });
     expect(document.querySelector(".tp-named")).toBeNull();
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    expect(Array.from(document.querySelectorAll(".tp-bar button")).some((b) => b.textContent!.startsWith("Name"))).toBe(false);
+    expect(tableMenuItem(/^Name table/)).toBeUndefined();
     // The named cell keeps its name when edited, and the formula using it follows
     clickOn(cell(1, 1));
     editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "1";
@@ -51,6 +51,28 @@ describe("Controller", () => {
     expect(cell(0, 0).classList.contains("tp-named")).toBe(true);
     expect(cell(0, 0).title).toBe("Column name: price");
     expect(cell(1, 1).classList.contains("tp-named")).toBe(true);
+  });
+
+  it("keeps the toolbar to icons, the rest in its ⋯ menu, destructive last", async () => {
+    await setup('| A |\n|---|\n| 1 |\n| <meta name="prices"> |\n', { "tablePlus.metadata": true });
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const bar = document.querySelector(".tp-bar")!;
+    expect(Array.from(bar.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["prices", "Filter", "More"]);
+    tableMenuItem(/^Edit markdown$/);
+    const menu = document.querySelector(".tp-menu")!;
+    expect(Array.from(menu.querySelectorAll(".tp-menu-item, .tp-menu-separator")).map((e) => e.textContent || "—")).toEqual([
+      "Name table: prices",
+      "Edit markdown",
+      "—",
+      "Remove metadata",
+    ]);
+    expect(bar.querySelector(".tp-bar-more")!.classList.contains("tp-active")).toBe(true);
+    // Escape closes it, and so does a press elsewhere
+    key(menu, "Escape");
+    expect(document.querySelector(".tp-menu")).toBeNull();
+    tableMenuItem(/^Edit markdown$/);
+    press(editor, "mousedown");
+    expect(document.querySelector(".tp-menu")).toBeNull();
   });
 
   it("sorts and restores the order without touching the markdown", async () => {
@@ -86,9 +108,7 @@ describe("Controller", () => {
       await setup(PAGE, config);
       await flush();
       cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-      Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button"))
-        .find((b) => b.textContent === "Filter")!
-        .click();
+      document.querySelector<HTMLElement>('.tp-bar button[aria-label="Filter"]')!.click();
       const input = editor.querySelector<HTMLInputElement>('.tp-filter[data-tp-column="1"]')!;
       input.value = ">2";
       input.dispatchEvent(new Event("input"));

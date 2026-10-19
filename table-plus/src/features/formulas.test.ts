@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cell, clickOn, controller, editor, flashes, flush, key, press, setup as setupPage, text, useTablePage } from "../testing/page.ts";
+import { cell, clickOn, controller, editor, flashes, flush, key, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
 
 describe("Formulas", () => {
@@ -202,8 +202,7 @@ describe("Formulas", () => {
       expect(text).toContain('| Fig | 3 <meta f="=prices!B3"> |');
       // Renamed with Name
       vi.spyOn(window, "prompt").mockReturnValue("costs");
-      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-      Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button")).find((b) => b.textContent!.startsWith("Name"))!.click();
+      tableMenuItem(/^Name table/)!.click();
       await flush();
       expect(text).toContain('<meta name="costs">');
       expect(text).toContain('| Fig | 3 <meta f="=costs!B3"> |');

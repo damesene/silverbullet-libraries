@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { PAGE, bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, setup, text, useTablePage } from "../testing/page.ts";
+import { PAGE, bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 
 describe("Table metadata", () => {
   useTablePage();
@@ -11,12 +11,9 @@ describe("Table metadata", () => {
   it("names a table from its toolbar, refusing a name that is taken or not valid", async () => {
     const TWO = '| A |\n|---|\n| 1 |\n\n| B |\n|---|\n| 2 |\n| <meta name="prices"> |\n';
     await setup(TWO, { "tablePlus.metadata": true });
-    const nameButton = () => {
-      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-      return Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button")).find((b) => b.textContent!.startsWith("Name"))!;
-    };
+    const nameButton = () => tableMenuItem(/^Name table/)!;
     const prompt = vi.spyOn(window, "prompt");
-    expect(nameButton().textContent).toBe("Name");
+    expect(nameButton().textContent).toBe("Name table");
     // Taken by the other table (ignoring case)
     prompt.mockReturnValue("Prices");
     nameButton().click();
@@ -34,7 +31,9 @@ describe("Table metadata", () => {
     await flush();
     expect(text).toBe(TWO.replace("| 1 |\n", '| 1 |\n| <meta name="fruit"> |\n'));
     await controller.scan();
-    expect(nameButton().textContent).toBe("Name: fruit");
+    expect(nameButton().textContent).toBe("Name table: fruit");
+    // Its name at the toolbar's left, which renames it too
+    expect(document.querySelector(".tp-bar .tp-bar-label")!.textContent).toBe("fruit");
     // An empty name removes it
     prompt.mockReturnValue("");
     nameButton().click();
@@ -44,14 +43,12 @@ describe("Table metadata", () => {
 
   it("offers a name only with the setting on, or to a table with a metadata row", async () => {
     await setup(PAGE);
-    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    expect(Array.from(document.querySelectorAll(".tp-bar button")).map((b) => b.textContent)).not.toContain("Name");
+    expect(tableMenuItem(/^Name table/)).toBeUndefined();
     // A table with a metadata row gets one with the setting off too
     controller.stop();
     document.body.replaceChildren();
     await setup('| A |\n|---|\n| 1 |\n| 2 |\n| <meta pin-top="1"> |\n');
-    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    expect(Array.from(document.querySelectorAll(".tp-bar button")).map((b) => b.textContent)).toContain("Name");
+    expect(tableMenuItem(/^Name table/)).toBeDefined();
   });
 
   it("does not change the table when sorting with the setting off", async () => {
@@ -91,22 +88,19 @@ describe("Table metadata", () => {
 
   it("removes a table's metadata from its toolbar, and of all tables with the command", async () => {
     await setup(META_PAGE);
-    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    const remove = Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button")).find(
-      (b) => b.textContent === "Remove metadata",
-    )!;
+    const remove = () => tableMenuItem(/^Remove metadata$/)!;
     let agree = false;
     const questions: string[] = [];
     (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
       questions.push(message);
       return agree;
     };
-    remove.click(); // declined: nothing changes
+    remove().click(); // declined: nothing changes
     await flush();
     expect(text).toBe(META_PAGE);
     expect(questions[0]).toContain("this table's metadata");
     agree = true;
-    remove.click();
+    remove().click();
     await flush();
     expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n");
 
@@ -133,10 +127,7 @@ describe("Table metadata", () => {
     await setup(META_PAGE);
     expect(bodyTexts()).toEqual(["apple", "Pear"]); // stored: Qty descending
     (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = () => true;
-    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button"))
-      .find((b) => b.textContent === "Remove metadata")!
-      .click();
+    tableMenuItem(/^Remove metadata$/)!.click();
     await flush();
     await controller.scan();
     expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n");
@@ -161,10 +152,7 @@ describe("Table metadata", () => {
       questions.push(message);
       return true;
     };
-    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button"))
-      .find((b) => b.textContent === "Remove metadata")!
-      .click();
+    tableMenuItem(/^Remove metadata$/)!.click();
     await flush();
     expect(questions[0]).toContain("its stored settings (sorting, pinning, name), and its 1 formula: those cells keep their current results");
     expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n");

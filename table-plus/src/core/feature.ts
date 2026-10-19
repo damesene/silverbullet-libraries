@@ -49,10 +49,17 @@ export type ToolbarButton = {
   readonly label: string;
   readonly title: string;
   readonly run: () => void;
-  // Shown as this icon alone (the label is its accessible name), first in the toolbar
+  // Where it shows: "icon" its icon alone at the toolbar's right (the label is
+  // its accessible name), "label" its label at the toolbar's left (what the
+  // table is), "menu" (the default) an item of the toolbar's ⋯ menu
+  readonly place?: "icon" | "label" | "menu";
   readonly icon?: string;
   // Asks to be used: highlighted
   readonly attention?: boolean;
+  // In the menu: what it is set to, after its label and a colon (Name table: prices)
+  readonly value?: string;
+  // In the menu: destructive, last and red
+  readonly danger?: boolean;
 };
 
 export type WriteOptions = {

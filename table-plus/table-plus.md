@@ -13,7 +13,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 
 * **Edit a cell**: click it, type, press Enter. See [[#Editing cells]].
 * **Move between cells**: Tab / Shift+Tab, or Ctrl+arrows while editing; Ctrl+Alt+arrows move the row or column. See [[#Keyboard]].
-* **See the markdown**: hover the table and click *Edit markdown*, or Alt+click a cell. See [[#Showing the markdown]].
+* **See the markdown**: hover the table and click *Edit markdown* in the toolbar's ⋯ menu, or Alt+click a cell. See [[#Showing the markdown]].
 * **Sort**: click ⇅ in a column header. See [[#Sorting]].
 * **Filter**: hover the table and click *Filter*; `>10`, `/regex/`, `=text` and `!text` work too. See [[#Filtering]].
 * **Add, move or delete rows and columns**: click the ⠿ grip next to a row or above a column. See [[#Rows and columns]].
@@ -80,7 +80,7 @@ Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table and p
 ## Showing the markdown
 
 A plain click edits a cell and no longer switches the table to its markdown. To see or edit the markdown:
-* hover the table and click *Edit markdown* in the toolbar above it, or
+* hover the table and click *Edit markdown* in the ⋯ menu of the toolbar above it, or
 * Alt+click a cell: the cursor lands in that cell (at the clicked character, for plain text).
 
 ## Sorting
@@ -92,7 +92,7 @@ A plain click edits a cell and no longer switches the table to its markdown. To 
 
 ## Filtering
 
-Hover the table and click *Filter* (or *Filter* in a column menu) to show a filter field under each header. The toolbar shows how many rows match. Hiding the filter row clears the filters.
+Hover the table and click the filter icon in its toolbar (or *Filter* in a column menu) to show a filter field under each header. The toolbar shows how many rows match. Hiding the filter row clears the filters.
 
 Plain text is found anywhere in a cell, ignoring case and diacritics (`cesky` finds `Český`). With *Smart filters* (on by default, see [[#Settings]]) a field also understands:
 
@@ -129,7 +129,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * Saving a formula fixes mistakes that have only one possible fix, and says what it changed: missing `)` at the end are added (`=SUM(A1:A3` becomes `=SUM(A1:A3)`), a text in quotes or a `[column]` left open at the end is closed, and extra `)` at the very end are dropped. Anything else stays as typed and shows `#ERROR!`.
 * **Calculated columns**: when every row of a column holds the same formula, such as `=[@qty]*[@price]`, a new row (*+ Row*, Ctrl+Enter, Tab on the last cell, *Insert row*) gets it too. Total rows (with a formula over a whole column, such as `=SUM([qty])`) do not count.
 * Click the cell to edit its formula. Typing a plain value removes the formula. To type a text that starts with `=`, start it with `'=`; such a text opens with the `'` again, so it stays text.
-* Results are written whenever Table Plus edits the table, in the same edit (one Ctrl+Z undoes both). Viewing a table never changes it. The toolbar of a table with formulas starts with *Recalculate* (the ↻ icon), which writes the current results; it is highlighted when some are out of date, e.g. after the table was changed outside Table Plus (by typing in the markdown).
+* Results are written whenever Table Plus edits the table, in the same edit (one Ctrl+Z undoes both). Viewing a table never changes it. The toolbar of a table with formulas has *Recalculate* (the ↻ icon), which writes the current results; it is highlighted when some are out of date, e.g. after the table was changed outside Table Plus (by typing in the markdown).
 * A formula's result has a dotted underline; hover it to see its formula, or why it shows an error.
 * Numbers are read as for sorting (`12,99 €`, `1 000`, `15 %`). Results use a decimal comma when most numbers in the table do. A text that is not read as a number (e.g. `1,234.50`, with a thousands comma) is skipped by `SUM` and the other number functions.
 
@@ -346,7 +346,7 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 On a phone or a tablet:
 
 * Tap a cell to edit it. The handles of its row and column show next to it: tap one for the row's or column's menu, or drag it to move the row or column.
-* The sort buttons in the header are always shown (there is no hover to show them on). The toolbar (*Filter*, *Edit markdown*) shows while a cell of the table is edited.
+* The sort buttons in the header are always shown (there is no hover to show them on). The toolbar (the filter icon, the ⋯ menu) shows while a cell of the table is edited.
 * Swiping scrolls a wide table sideways and the page up and down, as usual.
 * Not on touch screens: selecting cells by dragging, the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
 
@@ -412,7 +412,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | Module | When on |
 |---|---|
 | `formulas` | Formulas can be typed into cells, with their help and references; *Recalculate* in the toolbar. Off: a typed formula is saved as text. Formulas already in a table keep their results and are still recalculated when Table Plus edits the table, so their references stay right. See [[#Formulas]]. |
-| `names` | Tables, columns, rows and cells can be named: *Name* in a table's toolbar, *Name column* in the column menu, *Name row* and *Name cell* in the row menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them. See [[#Table names]]. |
+| `names` | Tables, columns, rows and cells can be named: *Name table* in a table's ⋯ menu, *Name column* in the column menu, *Name row* and *Name cell* in the row menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them. See [[#Table names]]. |
 | `pageLinks` | Formulas can refer to tables and named cells on other pages (`[[Prices]]fruit!B2`), which Table Plus reads for them. Off: it reads no other page; formulas that refer to one keep the results they have (the formulas using them too), a new one shows `#REF!`. See [[#Tables on other pages]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
 | `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them. |
@@ -423,11 +423,11 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 
 ## Table names
 
-A table can have a name, so formulas in other tables can refer to it. Click *Name* in the table's toolbar and type it; an empty name removes it. The name is stored in the table's metadata row (`<meta name="prices">`), so it needs the *Store table metadata* setting, or a table that has a metadata row already.
+A table can have a name, so formulas in other tables can refer to it. Click *Name table* in the ⋯ menu of the table's toolbar and type it; an empty name removes it. The name is stored in the table's metadata row (`<meta name="prices">`), so it needs the *Store table metadata* setting, or a table that has a metadata row already.
 
 * A name is letters, digits and `_`, not starting with a digit, e.g. `prices` or `price_list`. Names that read as a cell (`A1`, `AB12`) or as `TRUE` / `FALSE` are refused.
 * Names are compared ignoring case, and two tables on a page cannot have the same name.
-* The toolbar shows the name: *Name: prices*.
+* The toolbar shows the name at its left; click it to rename the table.
 * Renaming a table renames the references to it in the formulas on the page; removing the name (or the table's metadata) leaves them as they are, showing `#REF!`.
 
 ## Table metadata
@@ -450,7 +450,7 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 * The sorting is stored by column name: `qty:desc`. Names are keys, as for formula references (see [[#References]]): the column `Unit price` is stored as `unit_price`, and any spelling with that key names it. With several columns of the same name, the occurrence is added: `qty:desc:2` is the second column named Qty. It follows its column when the column is renamed or moved, and is removed with it.
 * When the sorting is cleared and nothing is pinned, the row is removed.
 * With the setting off, a table without a `<meta>` row gets none. A table with one keeps using it: its sorting is still stored, and its rows and columns can be unpinned, but nothing new can be pinned. When the row is left empty, it is removed.
-* To remove metadata: *Remove metadata* in a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row (a sorting stored there ends: the rows show as written; the table's name goes too) and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
+* To remove metadata: *Remove metadata* in the ⋯ menu of a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row (a sorting stored there ends: the rows show as written; the table's name goes too) and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
 * SilverBullet indexes the row like any other: a query over the table's rows (`index.tag "table"`) also returns it, with the `<meta …>` text in its first column.
 
 ## How your markdown is kept
@@ -580,7 +580,7 @@ config.define("tablePlus", {
             enabled = {
               type = "boolean",
               default = true,
-              description = "Naming tables (Name in the toolbar), columns (Name column in the column menu), rows and cells (Name row, Name cell in the row menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
+              description = "Naming tables (Name table in the toolbar's ⋯ menu), columns (Name column in the column menu), rows and cells (Name row, Name cell in the row menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
               ui = { category = "Table Plus: Modules", label = "Names", priority = 9 },
             },
           },
@@ -981,7 +981,23 @@ body.tp-navigating .sb-table-widget.tp-table * {
 .tp-bar button[aria-pressed="true"] {
   background: color-mix(in srgb, var(--ui-accent-color) 16%, transparent);
 }
-/* Icon buttons (Recalculate), first in the toolbar; highlighted when they ask to be used */
+/* At the left, what the table is and how it is shown: its name, its sorting,
+   its rows filtered; set off from the icons at the right */
+.tp-bar .tp-bar-label {
+  padding: 2px 6px;
+  font-weight: 600;
+  color: var(--ui-accent-color);
+}
+.tp-bar .tp-bar-label,
+.tp-bar .tp-chip,
+.tp-bar .tp-status {
+  margin-right: 4px;
+}
+/* The ⋯ button while its menu is open */
+.tp-bar button.tp-bar-more.tp-active {
+  background: color-mix(in srgb, var(--ui-accent-color) 16%, transparent);
+}
+/* Icon buttons (Recalculate, Filter, ⋯), highlighted when they ask to be used */
 .tp-bar button.tp-bar-icon {
   display: inline-flex;
   align-items: center;

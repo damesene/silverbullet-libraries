@@ -4,6 +4,7 @@
 // Remove table metadata" command.
 import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { EDITOR_SELECTOR } from "../dom.ts";
+import { ICONS } from "../icons.ts";
 import { formulaCount, withoutFormulas } from "../formula/index.ts";
 import { findTables, minimalEdit, parseTable, serializeTable, type Table } from "../markdown.ts";
 import { metaSort } from "../meta.ts";
@@ -28,6 +29,8 @@ export class Metadata implements Feature {
     return [
       {
         label: "Remove metadata",
+        icon: ICONS.trash,
+        danger: true,
         title: "Remove this table's <meta> tags: its stored settings (sorting, pinning, name), the formulas of its cells, which keep their results, and the names of its columns and cells",
         run: () => void this.removeFromTable(widget, info),
       },
