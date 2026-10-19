@@ -28,6 +28,7 @@ import {
   unescapeCell,
 } from "./markdown.ts";
 import { focusMenu, type MenuEntry, renderMenu } from "./menu.ts";
+import { followMetaSort, metaSort, withMetaSort } from "./meta.ts";
 import {
   columnAfterMove,
   deleteColumn,
@@ -64,6 +65,8 @@ type WidgetInfo = {
   readonly hint: number;
   readonly key: string;
   readonly columns: number;
+  // The table ends with a metadata row (`<meta …>`), rendered as its last row
+  readonly metaRow: boolean;
 };
 
 type ActiveEditor = {
@@ -119,6 +122,9 @@ const DRAG_THRESHOLD = 4;
 const STICKY_GAP = 38;
 // Toolbar distance above the header: clear of the column grip on the header's top edge
 const BAR_GAP = 10;
+
+// A sorting is stored (metadata setting) once the clicks have settled
+const STORE_SORT_DELAY_MS = 400;
 
 // Time the indexers get to write the index after `page:index`
 const INDEX_SETTLE_MS = 500;
@@ -178,6 +184,7 @@ export class Controller {
   private settingsTimer: ReturnType<typeof setTimeout> | undefined;
   private settingsReadAt = 0;
   private expressionTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly sortTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private stickyQueued = false;
   private warnedIncompatible = false;
   private observer: MutationObserver | undefined;
@@ -244,6 +251,7 @@ export class Controller {
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     clearTimeout(this.expressionTimer);
+    for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
     for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
@@ -336,13 +344,18 @@ export class Controller {
       }
       const page = await this.bridge.getCurrentPage();
       if (this.stopped || renderedTable(widget) !== table) return;
+      const model = parseTable(range.text);
       const info: WidgetInfo = {
         table,
         source: range.text,
         hint: range.from,
         key: `${page}#${range.ordinal}`,
         columns: shape.columns,
+        metaRow: model.meta !== undefined,
       };
+      // The sorting stored in the table is the view the first time the table shows
+      const stored = metaSort(model);
+      if (stored && !this.views.has(info.key)) this.views.set(info.key, withSort(DEFAULT_VIEW, stored.column, stored.direction));
       this.infos.set(widget, info);
       this.decorate(widget, info);
       this.applyView(widget, info);
@@ -413,6 +426,8 @@ export class Controller {
   private decorate(widget: HTMLElement, info: WidgetInfo): void {
     widget.classList.add("tp-table");
     const rows = Array.from(info.table.rows);
+    const metaRow = info.metaRow ? rows.pop() : undefined;
+    metaRow?.classList.add("tp-meta-row");
     rows.slice(1).forEach((tr, i) => {
       tr.dataset.tpRow = String(i + 1);
     });
@@ -438,6 +453,41 @@ export class Controller {
     this.applyView(widget, info);
   }
 
+  /**
+   * A view change that may change the sorting. With the metadata setting on,
+   * the sorting is also stored in the table, so it is the table's view next time.
+   */
+  private setSort(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
+    this.setView(widget, info, view);
+    // Clicks in a row store only where they end, in the table as rendered then
+    clearTimeout(this.sortTimers.get(info.key));
+    this.sortTimers.set(
+      info.key,
+      setTimeout(() => {
+        this.sortTimers.delete(info.key);
+        void this.storeSort(info.key);
+      }, STORE_SORT_DELAY_MS),
+    );
+  }
+
+  private async storeSort(key: string): Promise<void> {
+    if (this.stopped || !(await this.setting("metadata"))) return;
+    const widget = this.widgetForKey(key);
+    if (!widget) return;
+    const view = this.views.get(key) ?? DEFAULT_VIEW;
+    const sort = view.sort ? { column: view.sort.column, direction: view.sort.direction } : undefined;
+    await this.write(widget, (t) => withMetaSort(t, sort));
+  }
+
+  /** The rendered table a view key belongs to, if it is enhanced and on screen */
+  private widgetForKey(key: string): HTMLElement | undefined {
+    for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.infos.get(widget);
+      if (info?.key === key && renderedTable(widget) === info.table) return widget;
+    }
+    return undefined;
+  }
+
   private bodyRows(info: WidgetInfo): HTMLTableRowElement[] {
     return Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]")).sort(
       (a, b) => Number(a.dataset.tpRow) - Number(b.dataset.tpRow),
@@ -457,6 +507,9 @@ export class Controller {
         tr.classList.toggle("tp-hidden", !shown.has(i));
         if (!shown.has(i)) parent.append(tr);
       });
+      // The (hidden) metadata row stays last, as in the markdown
+      const metaRow = info.table.querySelector("tr.tp-meta-row");
+      if (metaRow) parent.append(metaRow);
     }
 
     const header = info.table.rows[0]!;
@@ -722,7 +775,7 @@ export class Controller {
     const action = target.closest<HTMLElement>("[data-tp-action]");
     if (action?.dataset.tpAction === "sort") {
       e.preventDefault();
-      this.setView(widget, info, cycleSort(this.viewOf(info), Number(action.dataset.tpColumn)));
+      this.setSort(widget, info, cycleSort(this.viewOf(info), Number(action.dataset.tpColumn)));
     }
   };
 
@@ -1375,11 +1428,14 @@ export class Controller {
     try {
       const text = await this.bridge.getText();
       const range = locateBySource(text, info.hint, info.source);
-      const changed = range && change(parseTable(range.text));
-      if (!range || !changed) {
+      const before = range && parseTable(range.text);
+      const edited = before && change(before);
+      if (!range || !before || !edited) {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
+      // A stored sorting stays on its column: renamed, moved, or gone with it
+      const changed = followMetaSort(before, edited, columnMap ?? ((c) => c));
       // With the autoFormat setting every edited table is written aligned
       const format = await this.setting("autoFormat");
       const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
@@ -1530,7 +1586,7 @@ export class Controller {
       clear.innerHTML = ICONS.clear;
       clear.addEventListener("click", (e) => {
         e.preventDefault();
-        this.setView(widget, info, withoutSort(this.viewOf(info)));
+        this.setSort(widget, info, withoutSort(this.viewOf(info)));
       });
       chip.append(clear);
       bar.append(chip);
@@ -1853,7 +1909,7 @@ export class Controller {
       focus?: FocusTarget,
       columnMap?: (c: number) => number | undefined,
     ) => this.runAndClose(() => void this.write(widget, change, focus, columnMap));
-    const sortBy = (next: ViewState) => this.runAndClose(() => this.setView(widget, info, next));
+    const sortBy = (next: ViewState) => this.runAndClose(() => this.setSort(widget, info, next));
     const alignTo = (target: Align) => edit((t) => setAlign(t, column, align === target ? "" : target));
     const entries: MenuEntry[] = [
       {

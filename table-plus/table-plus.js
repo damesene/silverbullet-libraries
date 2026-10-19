@@ -10,6 +10,12 @@ var SETTINGS = {
     default: true,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
+  // Store table settings (for now: sorting) in the table's metadata row
+  metadata: {
+    path: "tablePlus.metadata",
+    default: false,
+    parse: (v) => typeof v === "boolean" ? v : void 0
+  },
   // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
   ctrlEnterAddsRow: {
     path: "tablePlus.ctrlEnterAddsRow",
@@ -236,7 +242,10 @@ function findTables(text) {
   return tables;
 }
 function parseTable(text) {
-  const lines = text.split(/\r?\n/);
+  let lines = text.split(/\r?\n/);
+  const last = lines.length > 2 ? lines[lines.length - 1] : void 0;
+  const meta = last === void 0 ? void 0 : parseMetaRow(last);
+  if (meta) lines = lines.slice(0, -1);
   const header = lines[0] ?? "";
   const delimiter = lines[1] ?? "";
   const align = splitRow(delimiter).map(alignOf);
@@ -253,8 +262,31 @@ function parseTable(text) {
     rows,
     padded: padded2,
     delimiterSource: delimiter,
-    alignSource: align
+    alignSource: align,
+    ...meta && last !== void 0 ? { meta, metaSource: { line: last, meta } } : {}
   };
+}
+var META_TAG_RE = /^<meta\b([^>]*?)\/?>$/i;
+var META_ATTRIBUTE_RE = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+function parseMetaRow(line) {
+  const [first, ...rest] = splitRow(line);
+  const tag = META_TAG_RE.exec(first ?? "");
+  if (!tag || rest.some((cell) => cell !== "")) return void 0;
+  const meta = {};
+  for (const match of tag[1].matchAll(META_ATTRIBUTE_RE)) {
+    meta[match[1]] = unescapeMetaValue(match[2] ?? match[3] ?? "");
+  }
+  return meta;
+}
+function unescapeMetaValue(value) {
+  return value.replace(/\\\|/g, "|").replace(/&quot;/g, '"').replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+function escapeMetaValue(value) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/>/g, "&gt;").replace(/\|/g, "\\|");
+}
+function metaRow(indent, meta) {
+  const attributes = Object.entries(meta).map(([name, value]) => ` ${name}="${escapeMetaValue(value)}"`).join("");
+  return `${indent}| <meta${attributes}> |`;
 }
 function charLength(s) {
   return Array.from(s).length;
@@ -295,7 +327,10 @@ function serializeTable(table) {
   };
   const delimiterText = !table.padded && table.delimiterSource !== void 0 && sameCells(table.align, table.alignSource) ? table.delimiterSource : `${table.indent}|${table.align.slice(0, columns).map(delimiterCell).join("|")}|`;
   const [header, ...body] = table.rows;
-  return [header ? rowText(header) : "", delimiterText, ...body.map(rowText)].join("\n");
+  const lines = [header ? rowText(header) : "", delimiterText, ...body.map(rowText)];
+  if (table.meta && table.metaSource?.meta === table.meta) lines.push(table.metaSource.line);
+  else if (table.meta && Object.keys(table.meta).length > 0) lines.push(metaRow(table.indent, table.meta));
+  return lines.join("\n");
 }
 function escapeCell(value) {
   return value.replace(/\r?\n/g, " ").trim().replace(
@@ -312,7 +347,8 @@ function plainText(markdown) {
 function shapeOf(range) {
   const table = parseTable(range.text);
   return {
-    rows: table.rows.length,
+    // SilverBullet renders the metadata row too
+    rows: table.rows.length + (table.meta ? 1 : 0),
     columns: table.align.length,
     headers: (table.rows[0]?.cells ?? []).map(plainText)
   };
@@ -345,7 +381,8 @@ function locateWithEmptyHeaders(text, hint, shape) {
     findTables(text).filter((range) => {
       const table = parseTable(range.text);
       const named = (table.rows[0]?.cells ?? []).filter((cell) => cell !== "").length;
-      return table.rows.length === shape.rows && named === shape.columns && named < table.align.length;
+      const rendered = table.rows.length + (table.meta ? 1 : 0);
+      return rendered === shape.rows && named === shape.columns && named < table.align.length;
     }),
     hint
   );
@@ -460,6 +497,44 @@ function renderMenu(doc, title, entries) {
 function focusMenu(menu) {
   menu.tabIndex = -1;
   menu.focus({ preventScroll: true });
+}
+
+// table-plus/src/meta.ts
+function withMeta(table, name, value) {
+  const current = table.meta ?? {};
+  if (current[name] === value) return table;
+  const meta = { ...current };
+  if (value === void 0) delete meta[name];
+  else meta[name] = value;
+  return { ...table, meta };
+}
+function headerNames(table) {
+  return (table.rows[0]?.cells ?? []).map(unescapeCell);
+}
+function parseSort(value) {
+  const match = /^(.*):(asc|desc)(?::(\d+))?$/.exec(value);
+  return match ? { name: match[1], direction: match[2], nth: Number(match[3] ?? 1) } : void 0;
+}
+function metaSort(table) {
+  const sort = table.meta?.sort === void 0 ? void 0 : parseSort(table.meta.sort);
+  if (!sort) return void 0;
+  let seen = 0;
+  const column = headerNames(table).findIndex((name) => name === sort.name && ++seen === sort.nth);
+  return column < 0 ? void 0 : { column, direction: sort.direction };
+}
+function withMetaSort(table, sort) {
+  const names = headerNames(table);
+  const name = sort ? names[sort.column] : void 0;
+  if (!sort || name === void 0) return withMeta(table, "sort", void 0);
+  const same = names.filter((n) => n === name).length;
+  const nth = names.slice(0, sort.column + 1).filter((n) => n === name).length;
+  return withMeta(table, "sort", `${name}:${sort.direction}${same > 1 ? `:${nth}` : ""}`);
+}
+function followMetaSort(before, after, map) {
+  if (after.meta?.sort === void 0 || after.meta.sort !== before.meta?.sort) return after;
+  const sort = metaSort(before);
+  const column = sort && map(sort.column);
+  return withMetaSort(after, sort && column !== void 0 ? { column, direction: sort.direction } : void 0);
 }
 
 // table-plus/src/ops.ts
@@ -728,6 +803,7 @@ var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
 var DRAG_THRESHOLD = 4;
 var STICKY_GAP = 38;
 var BAR_GAP = 10;
+var STORE_SORT_DELAY_MS = 400;
 var INDEX_SETTLE_MS = 500;
 var AUTOSCROLL_DEAD_ZONE = 12;
 var MOVE_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
@@ -789,6 +865,7 @@ var Controller = class {
   settingsTimer;
   settingsReadAt = 0;
   expressionTimer;
+  sortTimers = /* @__PURE__ */ new Map();
   stickyQueued = false;
   warnedIncompatible = false;
   observer;
@@ -834,6 +911,7 @@ var Controller = class {
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     clearTimeout(this.expressionTimer);
+    for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
     for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
@@ -916,13 +994,17 @@ var Controller = class {
       }
       const page = await this.bridge.getCurrentPage();
       if (this.stopped || renderedTable(widget) !== table) return;
+      const model = parseTable(range.text);
       const info = {
         table,
         source: range.text,
         hint: range.from,
         key: `${page}#${range.ordinal}`,
-        columns: shape.columns
+        columns: shape.columns,
+        metaRow: model.meta !== void 0
       };
+      const stored = metaSort(model);
+      if (stored && !this.views.has(info.key)) this.views.set(info.key, withSort(DEFAULT_VIEW, stored.column, stored.direction));
       this.infos.set(widget, info);
       this.decorate(widget, info);
       this.applyView(widget, info);
@@ -986,6 +1068,8 @@ var Controller = class {
   decorate(widget, info) {
     widget.classList.add("tp-table");
     const rows = Array.from(info.table.rows);
+    const metaRow2 = info.metaRow ? rows.pop() : void 0;
+    metaRow2?.classList.add("tp-meta-row");
     rows.slice(1).forEach((tr, i) => {
       tr.dataset.tpRow = String(i + 1);
     });
@@ -1007,6 +1091,37 @@ var Controller = class {
     this.views.set(info.key, view);
     this.applyView(widget, info);
   }
+  /**
+   * A view change that may change the sorting. With the metadata setting on,
+   * the sorting is also stored in the table, so it is the table's view next time.
+   */
+  setSort(widget, info, view) {
+    this.setView(widget, info, view);
+    clearTimeout(this.sortTimers.get(info.key));
+    this.sortTimers.set(
+      info.key,
+      setTimeout(() => {
+        this.sortTimers.delete(info.key);
+        void this.storeSort(info.key);
+      }, STORE_SORT_DELAY_MS)
+    );
+  }
+  async storeSort(key) {
+    if (this.stopped || !await this.setting("metadata")) return;
+    const widget = this.widgetForKey(key);
+    if (!widget) return;
+    const view = this.views.get(key) ?? DEFAULT_VIEW;
+    const sort = view.sort ? { column: view.sort.column, direction: view.sort.direction } : void 0;
+    await this.write(widget, (t) => withMetaSort(t, sort));
+  }
+  /** The rendered table a view key belongs to, if it is enhanced and on screen */
+  widgetForKey(key) {
+    for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.infos.get(widget);
+      if (info?.key === key && renderedTable(widget) === info.table) return widget;
+    }
+    return void 0;
+  }
   bodyRows(info) {
     return Array.from(info.table.querySelectorAll("tr[data-tp-row]")).sort(
       (a, b) => Number(a.dataset.tpRow) - Number(b.dataset.tpRow)
@@ -1025,6 +1140,8 @@ var Controller = class {
         tr.classList.toggle("tp-hidden", !shown.has(i));
         if (!shown.has(i)) parent.append(tr);
       });
+      const metaRow2 = info.table.querySelector("tr.tp-meta-row");
+      if (metaRow2) parent.append(metaRow2);
     }
     const header = info.table.rows[0];
     Array.from(header.cells).forEach((cell, column) => {
@@ -1266,7 +1383,7 @@ var Controller = class {
     const action = target.closest("[data-tp-action]");
     if (action?.dataset.tpAction === "sort") {
       e.preventDefault();
-      this.setView(widget, info, cycleSort(this.viewOf(info), Number(action.dataset.tpColumn)));
+      this.setSort(widget, info, cycleSort(this.viewOf(info), Number(action.dataset.tpColumn)));
     }
   };
   onDoubleClick = (e) => {
@@ -1823,11 +1940,13 @@ var Controller = class {
     try {
       const text = await this.bridge.getText();
       const range = locateBySource(text, info.hint, info.source);
-      const changed = range && change(parseTable(range.text));
-      if (!range || !changed) {
+      const before = range && parseTable(range.text);
+      const edited = before && change(before);
+      if (!range || !before || !edited) {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
+      const changed = followMetaSort(before, edited, columnMap ?? ((c) => c));
       const format = await this.setting("autoFormat");
       const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
       if (markdown === range.text) return "unchanged";
@@ -1954,7 +2073,7 @@ var Controller = class {
       clear.innerHTML = ICONS.clear;
       clear.addEventListener("click", (e) => {
         e.preventDefault();
-        this.setView(widget, info, withoutSort(this.viewOf(info)));
+        this.setSort(widget, info, withoutSort(this.viewOf(info)));
       });
       chip.append(clear);
       bar.append(chip);
@@ -2240,7 +2359,7 @@ var Controller = class {
     const sorted = view.sort?.column === column ? view.sort.direction : void 0;
     const align = parseTable(info.source).align[column] ?? "";
     const edit = (change, focus, columnMap) => this.runAndClose(() => void this.write(widget, change, focus, columnMap));
-    const sortBy = (next) => this.runAndClose(() => this.setView(widget, info, next));
+    const sortBy = (next) => this.runAndClose(() => this.setSort(widget, info, next));
     const alignTo = (target) => edit((t) => setAlign(t, column, align === target ? "" : target));
     const entries = [
       {

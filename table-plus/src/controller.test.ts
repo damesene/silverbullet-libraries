@@ -37,6 +37,14 @@ function renderPage(text: string, editor: HTMLElement, cursorMoves: number[]): v
       }
       (r === 0 ? thead : tbody).append(tr);
     });
+    // The metadata row renders too, its <meta> unseen
+    if (model.meta) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.append(document.createElement("meta"));
+      tr.append(td);
+      tbody.append(tr);
+    }
     table.append(thead, tbody);
     widget.append(table);
     editor.append(widget);
@@ -443,6 +451,55 @@ describe("Controller", () => {
     await indexed("Test");
     expect(cell(2, 1).textContent).toBe("7");
     vi.useRealTimers();
+  });
+
+  describe("table metadata", () => {
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const META_PAGE = '| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort="Qty:desc"> |\n';
+
+    it("does not change the table when sorting with the setting off", async () => {
+      await setup(PAGE);
+      clickOn(cell(0, 0).querySelector(".tp-sort")!);
+      await wait(450);
+      expect(text).toBe(PAGE);
+    });
+
+    it("stores the sorting with the setting on, only where the clicks end", async () => {
+      await setup(PAGE, { "tablePlus.metadata": true });
+      clickOn(cell(0, 1).querySelector(".tp-sort")!); // Qty ascending
+      clickOn(cell(0, 1).querySelector(".tp-sort")!); // Qty descending
+      await wait(450);
+      await controller.scan();
+      expect(text).toBe(PAGE.replace("| Fig | 2 |\n", '| Fig | 2 |\n| <meta sort="Qty:desc"> |\n'));
+      expect(bodyTexts()).toEqual(["apple", "Pear", "Fig"]);
+      clickOn(cell(0, 1).querySelector(".tp-sort")!); // back to the order as written
+      await wait(450);
+      expect(text).toBe(PAGE);
+    });
+
+    it("hides the metadata row and uses its sorting as the first view", async () => {
+      await setup(META_PAGE);
+      expect(bodyTexts()).toEqual(["apple", "Pear"]);
+      const rows = editor.querySelectorAll("table tr");
+      expect(rows[rows.length - 1]!.classList.contains("tp-meta-row")).toBe(true);
+    });
+
+    it("keeps the metadata row last and follows a renamed column", async () => {
+      await setup(META_PAGE);
+      clickOn(cell(0, 1)); // the Qty header
+      editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "Count";
+      key(editor.querySelector(".tp-cell-editor")!, "Enter");
+      await flush();
+      await controller.scan();
+      expect(text).toBe('| Name | Count |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort="Count:desc"> |\n');
+      // a row added at the end goes above the metadata row
+      clickOn(editor.querySelector('tr[data-tp-row="1"]')!.querySelector("td")!); // Pear (shown last)
+      key(editor.querySelector(".tp-cell-editor")!, "Tab");
+      key(editor.querySelector(".tp-cell-editor")!, "Tab");
+      await flush();
+      await controller.scan();
+      expect(text.split("\n").slice(-3)).toEqual(["| | |", '| <meta sort="Count:desc"> |', ""]);
+    });
   });
 
   it("sorts numbers numerically", async () => {

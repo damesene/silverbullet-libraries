@@ -10,15 +10,23 @@ export type Row = {
   readonly sourceCells?: readonly string[];
 };
 
+// Table metadata: the attributes of a `<meta …>` tag that is the only content
+// of the table's last row (browsers do not show <meta>, other renderers drop it)
+export type TableMeta = Readonly<Record<string, string>>;
+
 export type Table = {
   readonly indent: string;
   readonly align: readonly Align[];
-  // rows[0] is the header row
+  // rows[0] is the header row; the metadata row is not one of them
   readonly rows: readonly Row[];
   // Pipes aligned into columns in the source: rewritten tables stay aligned
   readonly padded: boolean;
   readonly delimiterSource?: string;
   readonly alignSource?: readonly Align[];
+  // Undefined: the table has no metadata row
+  readonly meta?: TableMeta;
+  // The metadata row as read, written back as is while `meta` is that same object
+  readonly metaSource?: { readonly line: string; readonly meta: TableMeta };
 };
 
 export type TableRange = {
@@ -169,7 +177,10 @@ export function findTables(text: string): TableRange[] {
 }
 
 export function parseTable(text: string): Table {
-  const lines = text.split(/\r?\n/);
+  let lines = text.split(/\r?\n/);
+  const last = lines.length > 2 ? lines[lines.length - 1]! : undefined;
+  const meta = last === undefined ? undefined : parseMetaRow(last);
+  if (meta) lines = lines.slice(0, -1);
   const header = lines[0] ?? "";
   const delimiter = lines[1] ?? "";
   const align = splitRow(delimiter).map(alignOf);
@@ -190,7 +201,47 @@ export function parseTable(text: string): Table {
     padded,
     delimiterSource: delimiter,
     alignSource: align,
+    ...(meta && last !== undefined ? { meta, metaSource: { line: last, meta } } : {}),
   };
+}
+
+const META_TAG_RE = /^<meta\b([^>]*?)\/?>$/i;
+const META_ATTRIBUTE_RE = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+
+/** The attributes of a metadata row (one cell holding only `<meta …>`), or undefined */
+export function parseMetaRow(line: string): TableMeta | undefined {
+  const [first, ...rest] = splitRow(line);
+  const tag = META_TAG_RE.exec(first ?? "");
+  if (!tag || rest.some((cell) => cell !== "")) return undefined;
+  const meta: Record<string, string> = {};
+  for (const match of tag[1]!.matchAll(META_ATTRIBUTE_RE)) {
+    meta[match[1]!] = unescapeMetaValue(match[2] ?? match[3] ?? "");
+  }
+  return meta;
+}
+
+function unescapeMetaValue(value: string): string {
+  return value
+    .replace(/\\\|/g, "|")
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function escapeMetaValue(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/>/g, "&gt;")
+    .replace(/\|/g, "\\|");
+}
+
+/** The metadata row for `meta`: one cell, so it never widens a column */
+export function metaRow(indent: string, meta: TableMeta): string {
+  const attributes = Object.entries(meta)
+    .map(([name, value]) => ` ${name}="${escapeMetaValue(value)}"`)
+    .join("");
+  return `${indent}| <meta${attributes}> |`;
 }
 
 function charLength(s: string): number {
@@ -247,7 +298,11 @@ export function serializeTable(table: Table): string {
       : `${table.indent}|${table.align.slice(0, columns).map(delimiterCell).join("|")}|`;
 
   const [header, ...body] = table.rows;
-  return [header ? rowText(header) : "", delimiterText, ...body.map(rowText)].join("\n");
+  const lines = [header ? rowText(header) : "", delimiterText, ...body.map(rowText)];
+  // An unchanged metadata row is kept as it was; one without attributes is dropped
+  if (table.meta && table.metaSource?.meta === table.meta) lines.push(table.metaSource.line);
+  else if (table.meta && Object.keys(table.meta).length > 0) lines.push(metaRow(table.indent, table.meta));
+  return lines.join("\n");
 }
 
 /** Text typed into a cell editor, as markdown cell content */
@@ -285,7 +340,8 @@ function plainText(markdown: string): string {
 function shapeOf(range: TableRange): { rows: number; columns: number; headers: string[] } {
   const table = parseTable(range.text);
   return {
-    rows: table.rows.length,
+    // SilverBullet renders the metadata row too
+    rows: table.rows.length + (table.meta ? 1 : 0),
     columns: table.align.length,
     headers: (table.rows[0]?.cells ?? []).map(plainText),
   };
@@ -342,7 +398,8 @@ export function locateWithEmptyHeaders(
     findTables(text).filter((range) => {
       const table = parseTable(range.text);
       const named = (table.rows[0]?.cells ?? []).filter((cell) => cell !== "").length;
-      return table.rows.length === shape.rows && named === shape.columns && named < table.align.length;
+      const rendered = table.rows.length + (table.meta ? 1 : 0);
+      return rendered === shape.rows && named === shape.columns && named < table.align.length;
     }),
     hint,
   );

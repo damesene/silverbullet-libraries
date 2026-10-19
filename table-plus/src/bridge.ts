@@ -36,6 +36,12 @@ export const SETTINGS = {
     default: true,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
+  // Store table settings (for now: sorting) in the table's metadata row
+  metadata: {
+    path: "tablePlus.metadata",
+    default: false,
+    parse: (v) => (typeof v === "boolean" ? v : undefined),
+  } satisfies Setting<boolean>,
   // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
   ctrlEnterAddsRow: {
     path: "tablePlus.ctrlEnterAddsRow",

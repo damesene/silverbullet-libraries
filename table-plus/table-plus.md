@@ -58,7 +58,7 @@ A plain click edits a cell and no longer switches the table to its markdown. To 
 ## Sorting
 
 * Click the ⇅ control that appears in a column header on hover: ascending, descending, then back to the order as written. The column menu (see [[#Rows and columns]]) has the same options.
-* Sorting only changes what you see, never the markdown.
+* Sorting only changes what you see, never the markdown, unless the *Store table metadata* setting is on: then the sorting is also stored in the table, see [[#Table metadata]].
 * While sorted, the toolbar shows *Sorted by …*; its × shows the rows as written again.
 * Numbers sort as numbers (`1 000`, `2,5`, `-3`, `15 %` included); empty cells always come last.
 
@@ -112,6 +112,9 @@ Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, 
 * **Smart filters** (`tablePlus.smartFilters`), default `true`
   * `true`: filter fields understand `>10`, `/pattern/`, `=text` and `!filter`.
   * `false`: everything typed in a filter field is text to find.
+* **Store table metadata** (`tablePlus.metadata`), default `false`
+  * `true`: table settings (for now: the sorting) are stored in the table itself, see [[#Table metadata]].
+  * `false`: sorting is a view only and never changes a table.
 * **Ctrl+Enter adds a row** (`tablePlus.ctrlEnterAddsRow`), default `true`
   * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
   * `false`: Ctrl+Enter works like Enter.
@@ -127,15 +130,35 @@ config.set("tablePlus.enterKey", "moveDown")
 config.set("tablePlus.smartFilters", false)
 config.set("tablePlus.autoFormat", false)
 config.set("tablePlus.ctrlEnterAddsRow", false)
+config.set("tablePlus.metadata", true)
 config.set("tablePlus.maxHeight", 400)
 ```
+
+## Table metadata
+
+With the *Store table metadata* setting on, Table Plus stores a table's settings in a last row that holds only a `<meta …>` tag. For now it stores the sorting:
+
+```
+| Name  | Qty |
+| ----- | --: |
+| Pear  |   3 |
+| Apple |  10 |
+| <meta sort="Qty:desc"> |
+```
+
+* The row is hidden in SilverBullet. Browsers never show `<meta>`, and other markdown renderers (GitHub, Obsidian) drop it, leaving at most an empty row.
+* It is always the last row: new rows go above it, and it is not sorted, filtered or moved.
+* The sorting is stored by column name: `Qty:desc`. With several columns of the same name, the occurrence is added: `Qty:desc:2` is the second column named Qty. It follows its column when the column is renamed or moved, and is removed with it.
+* When the sorting is cleared, the row is removed too, unless it holds other settings.
+* With the setting off, Table Plus does not write metadata, but a `<meta>` row already in a table is still hidden, its sorting is the table's first view, and the row is kept when you edit the table.
+* SilverBullet indexes the row like any other: a query over the table's rows (`index.tag "table"`) also returns it, with the `<meta …>` text in its first column.
 
 ## How your markdown is kept
 
 * Every change is one ordinary edit: Ctrl+Z undoes it.
 * With *Format tables* on (the default), every table you edit is written with aligned pipes. Tables are formatted only when edited, never just by viewing them. With it off, rows you did not change are kept byte for byte, and aligned tables stay aligned, compact ones compact. See [[#Settings]].
 * Cells that are one `${…}` expression (e.g. formulas of a spreadsheet library such as MdTableSheet) are re-evaluated once the page is re-indexed after an edit, so they do not keep a stale result.
-* Sorting, filters and scroll positions (sideways and, with a maximum height, up and down) are views only: they are remembered per table until the page is reloaded, and never written to the page.
+* Sorting (unless stored as [[#Table metadata]]), filters and scroll positions (sideways and, with a maximum height, up and down) are views only: they are remembered per table until the page is reloaded, and never written to the page.
 * SilverBullet does not show columns without a name, which shifts the header against the data. For such a table Table Plus shows a notice with a *Name them* button instead of enhancing it.
 
 ## Limits
@@ -169,6 +192,12 @@ config.define("tablePlus", {
       default = true,
       description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell) and !filter (not). Off: everything typed is text to find.",
       ui = { category = "Table Plus", label = "Smart filters", priority = 0 },
+    },
+    metadata = {
+      type = "boolean",
+      default = false,
+      description = "Store table settings (for now: sorting) in a hidden last row <meta …> of the table. Off: sorting is a view only and tables are not changed by it; a <meta> row already in a table is still hidden, used and kept.",
+      ui = { category = "Table Plus", label = "Store table metadata", priority = 0.25 },
     },
     ctrlEnterAddsRow = {
       type = "boolean",
@@ -282,7 +311,8 @@ end
 .sb-table-widget.tp-table thead tr .tp-sort.tp-active {
   opacity: 1;
 }
-.sb-table-widget .tp-hidden {
+.sb-table-widget .tp-hidden,
+.sb-table-widget tr.tp-meta-row {
   display: none !important;
 }
 
