@@ -55,6 +55,292 @@ function missingBridgeFunctions(bridge) {
   return REQUIRED.filter((name) => typeof bridge?.[name] !== "function");
 }
 
+// table-plus/src/ops.ts
+function withRows(table, rows) {
+  return { ...table, rows };
+}
+function emptyRow(columns) {
+  return { cells: Array.from({ length: columns }, () => "") };
+}
+function withCells(row, cells) {
+  return { ...row, cells };
+}
+function padded(cells, length) {
+  const result = [...cells];
+  while (result.length < length) result.push("");
+  return result;
+}
+function moved(items, from, to) {
+  const result = [...items];
+  const [item] = result.splice(from, 1);
+  result.splice(to, 0, item);
+  return result;
+}
+function setCell(table, row, column, value) {
+  return withRows(
+    table,
+    table.rows.map((r, i) => {
+      if (i !== row) return r;
+      const cells = padded(r.cells, column + 1);
+      cells[column] = value;
+      return withCells(r, cells);
+    })
+  );
+}
+function insertRow(table, at, cells) {
+  const rows = [...table.rows];
+  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, cells ? { cells: [...cells] } : emptyRow(table.align.length));
+  return withRows(table, rows);
+}
+function deleteRow(table, row) {
+  if (row < 1 || row >= table.rows.length) return table;
+  return withRows(
+    table,
+    table.rows.filter((_, i) => i !== row)
+  );
+}
+function reorderRows(table, order) {
+  const body = order.map((i) => table.rows[i]).filter((r) => !!r);
+  if (body.length !== table.rows.length - 1) return table;
+  return withRows(table, [table.rows[0], ...body]);
+}
+function moveRow(table, from, to) {
+  const last = table.rows.length - 1;
+  if (from < 1 || from > last || to < 1 || to > last || from === to) return table;
+  return withRows(table, moved(table.rows, from, to));
+}
+function newColumnName(table) {
+  const names = new Set(table.rows[0]?.cells ?? []);
+  let n = table.align.length + 1;
+  while (names.has(`Column ${n}`)) n++;
+  return `Column ${n}`;
+}
+function nameEmptyHeaders(table) {
+  const header = table.rows[0];
+  if (!header) return table;
+  const names = new Set(header.cells);
+  const cells = header.cells.map((cell, i) => {
+    if (cell !== "") return cell;
+    let n = i + 1;
+    while (names.has(`Column ${n}`)) n++;
+    const name = `Column ${n}`;
+    names.add(name);
+    return name;
+  });
+  return { ...table, rows: [{ ...header, cells }, ...table.rows.slice(1)] };
+}
+function insertColumn(table, at) {
+  const column = Math.max(0, Math.min(at, table.align.length));
+  const header = newColumnName(table);
+  const align = [...table.align];
+  align.splice(column, 0, "");
+  return {
+    ...table,
+    align,
+    rows: table.rows.map((r, i) => {
+      const cells = padded(r.cells, column);
+      cells.splice(column, 0, i === 0 ? header : "");
+      return withCells(r, cells);
+    })
+  };
+}
+function deleteColumn(table, column) {
+  if (table.align.length <= 1 || column < 0 || column >= table.align.length) return table;
+  return {
+    ...table,
+    align: table.align.filter((_, i) => i !== column),
+    rows: table.rows.map(
+      (r) => withCells(
+        r,
+        r.cells.filter((_, i) => i !== column)
+      )
+    )
+  };
+}
+function moveColumn(table, from, to) {
+  const columns = table.align.length;
+  if (from < 0 || from >= columns || to < 0 || to >= columns || from === to) return table;
+  return {
+    ...table,
+    align: moved(table.align, from, to),
+    rows: table.rows.map((r) => withCells(r, moved(padded(r.cells, columns), from, to)))
+  };
+}
+function setAlign(table, column, align) {
+  return {
+    ...table,
+    align: table.align.map((a, i) => i === column ? align : a)
+  };
+}
+function columnAfterMove(c, from, to) {
+  if (c === from) return to;
+  if (from < to && c > from && c <= to) return c - 1;
+  if (from > to && c >= to && c < from) return c + 1;
+  return c;
+}
+
+// table-plus/src/pins.ts
+function rowZone(pins, rows, row) {
+  if (row >= 1 && row <= pins.top) return "top";
+  if (row >= rows - pins.bottom && row <= rows - 1) return "bottom";
+  return void 0;
+}
+function columnZone(pins, columns, column) {
+  if (column >= 0 && column < pins.left) return "left";
+  if (column >= columns - pins.right && column < columns) return "right";
+  return void 0;
+}
+function clampRowMove(pins, rows, from, to) {
+  const zone = rowZone(pins, rows, from);
+  const [min, max] = zone === "top" ? [1, pins.top] : zone === "bottom" ? [rows - pins.bottom, rows - 1] : [pins.top + 1, rows - 1 - pins.bottom];
+  return Math.max(min, Math.min(to, max));
+}
+function clampColumnMove(pins, columns, from, to) {
+  const zone = columnZone(pins, columns, from);
+  const [min, max] = zone === "left" ? [0, pins.left - 1] : zone === "right" ? [columns - pins.right, columns - 1] : [pins.left, columns - 1 - pins.right];
+  return Math.max(min, Math.min(to, max));
+}
+function insertRowAt(pins, rows, at) {
+  let index = Math.max(1, Math.min(at, rows));
+  if (pins.top > 0) index = Math.max(index, 2);
+  if (pins.bottom > 0) index = Math.min(index, rows - 1);
+  return {
+    at: index,
+    pins: {
+      ...pins,
+      top: pins.top + (index <= pins.top ? 1 : 0),
+      bottom: pins.bottom + (pins.bottom > 0 && index > rows - pins.bottom ? 1 : 0)
+    }
+  };
+}
+function appendRowAt(pins, rows) {
+  return rows - pins.bottom;
+}
+function deleteRowPins(pins, rows, row) {
+  const zone = rowZone(pins, rows, row);
+  return { ...pins, top: pins.top - (zone === "top" ? 1 : 0), bottom: pins.bottom - (zone === "bottom" ? 1 : 0) };
+}
+function insertColumnAt(pins, columns, at) {
+  let index = Math.max(0, Math.min(at, columns));
+  if (pins.left > 0) index = Math.max(index, 1);
+  if (pins.right > 0) index = Math.min(index, columns - 1);
+  return {
+    at: index,
+    pins: {
+      ...pins,
+      left: pins.left + (index < pins.left ? 1 : 0),
+      right: pins.right + (pins.right > 0 && index > columns - pins.right ? 1 : 0)
+    }
+  };
+}
+function appendColumnAt(pins, columns) {
+  return columns - pins.right;
+}
+function deleteColumnPins(pins, columns, column) {
+  const zone = columnZone(pins, columns, column);
+  return { ...pins, left: pins.left - (zone === "left" ? 1 : 0), right: pins.right - (zone === "right" ? 1 : 0) };
+}
+function pinRow(pins, rows, row, pin) {
+  const zone = rowZone(pins, rows, row);
+  if (zone === pin) return { to: row, pins };
+  let p = pins;
+  let to = row;
+  if (zone === "top") {
+    to = pins.top;
+    p = { ...p, top: p.top - 1 };
+  } else if (zone === "bottom") {
+    to = rows - pins.bottom;
+    p = { ...p, bottom: p.bottom - 1 };
+  }
+  if (pin === "top") return { to: p.top + 1, pins: { ...p, top: p.top + 1 } };
+  if (pin === "bottom") return { to: rows - 1 - p.bottom, pins: { ...p, bottom: p.bottom + 1 } };
+  return { to, pins: p };
+}
+function pinColumn(pins, columns, column, pin) {
+  const zone = columnZone(pins, columns, column);
+  if (zone === pin) return { to: column, pins };
+  let p = pins;
+  let to = column;
+  if (zone === "left") {
+    to = pins.left - 1;
+    p = { ...p, left: p.left - 1 };
+  } else if (zone === "right") {
+    to = columns - pins.right;
+    p = { ...p, right: p.right - 1 };
+  }
+  if (pin === "left") return { to: p.left, pins: { ...p, left: p.left + 1 } };
+  if (pin === "right") return { to: columns - 1 - p.right, pins: { ...p, right: p.right + 1 } };
+  return { to, pins: p };
+}
+
+// table-plus/src/core/structure.ts
+var MOVE_BLOCKED = "Clear sorting and filters to move rows";
+function rowAfterInsert(at) {
+  return (r) => r >= at ? r + 1 : r;
+}
+function insertRowWith(host, widget, info, at, column, prepare = (t) => t) {
+  const insert = insertRowAt(info.pins, info.rows, at);
+  return host.write(
+    widget,
+    (t) => {
+      const prepared = prepare(t);
+      return prepared && insertRow(prepared, insert.at);
+    },
+    { focus: { row: insert.at, column }, pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
+  );
+}
+function duplicateRowAt(host, widget, info, row) {
+  const insert = insertRowAt(info.pins, info.rows, row + 1);
+  return host.write(
+    widget,
+    (t) => {
+      const cells = t.rows[row]?.cells;
+      return cells ? insertRow(t, insert.at, cells) : void 0;
+    },
+    { pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
+  );
+}
+function deleteRowAt(host, widget, info, row) {
+  return host.write(widget, (t) => deleteRow(t, row), {
+    pins: deleteRowPins(info.pins, info.rows, row),
+    rowMap: (r) => r === row ? void 0 : r > row ? r - 1 : r
+  });
+}
+function moveRowTo(host, widget, info, from, asked) {
+  const to = clampRowMove(info.pins, info.rows, from, asked);
+  if (to === from) return Promise.resolve("unchanged");
+  return host.write(widget, (t) => moveRow(t, from, to), { rowMap: (r) => columnAfterMove(r, from, to) });
+}
+function insertColumnWith(host, widget, info, at) {
+  const insert = insertColumnAt(info.pins, info.columns, at);
+  return host.write(widget, (t) => insertColumn(t, insert.at), {
+    focus: { row: 0, column: insert.at, select: true },
+    columnMap: (c) => c >= insert.at ? c + 1 : c,
+    pins: insert.pins
+  });
+}
+function deleteColumnAt(host, widget, info, column) {
+  return host.write(widget, (t) => deleteColumn(t, column), {
+    columnMap: (c) => c === column ? void 0 : c > column ? c - 1 : c,
+    pins: deleteColumnPins(info.pins, info.columns, column)
+  });
+}
+function moveColumnTo(host, widget, info, from, asked) {
+  const to = clampColumnMove(info.pins, info.columns, from, asked);
+  if (to === from) return Promise.resolve("unchanged");
+  return host.write(widget, (t) => moveColumn(t, from, to), { columnMap: (c) => columnAfterMove(c, from, to) });
+}
+async function pinRowAt(host, widget, info, row, pin) {
+  if (pin && !await host.setting("metadata")) return;
+  const { to, pins } = pinRow(info.pins, info.rows, row, pin);
+  await host.write(widget, (t) => moveRow(t, row, to), { pins, rowMap: (r) => columnAfterMove(r, row, to) });
+}
+async function pinColumnAt(host, widget, info, column, pin) {
+  if (pin && !await host.setting("metadata")) return;
+  const { to, pins } = pinColumn(info.pins, info.columns, column, pin);
+  await host.write(widget, (t) => moveColumn(t, column, to), { columnMap: (c) => columnAfterMove(c, column, to), pins });
+}
+
 // table-plus/src/features/autoscroll.ts
 var DEAD_ZONE = 12;
 var Autoscroll = class {
@@ -1020,130 +1306,6 @@ var concat_default = {
 // table-plus/src/formula/functions/index.ts
 var ALL = [sum_default, average_default, min_default, max_default, product_default, count_default, counta_default, round_default, abs_default, if_default, iferror_default, and_default, or_default, not_default, concat_default];
 var FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
-
-// table-plus/src/ops.ts
-function withRows(table, rows) {
-  return { ...table, rows };
-}
-function emptyRow(columns) {
-  return { cells: Array.from({ length: columns }, () => "") };
-}
-function withCells(row, cells) {
-  return { ...row, cells };
-}
-function padded(cells, length) {
-  const result = [...cells];
-  while (result.length < length) result.push("");
-  return result;
-}
-function moved(items, from, to) {
-  const result = [...items];
-  const [item] = result.splice(from, 1);
-  result.splice(to, 0, item);
-  return result;
-}
-function setCell(table, row, column, value) {
-  return withRows(
-    table,
-    table.rows.map((r, i) => {
-      if (i !== row) return r;
-      const cells = padded(r.cells, column + 1);
-      cells[column] = value;
-      return withCells(r, cells);
-    })
-  );
-}
-function insertRow(table, at, cells) {
-  const rows = [...table.rows];
-  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, cells ? { cells: [...cells] } : emptyRow(table.align.length));
-  return withRows(table, rows);
-}
-function deleteRow(table, row) {
-  if (row < 1 || row >= table.rows.length) return table;
-  return withRows(
-    table,
-    table.rows.filter((_, i) => i !== row)
-  );
-}
-function reorderRows(table, order) {
-  const body = order.map((i) => table.rows[i]).filter((r) => !!r);
-  if (body.length !== table.rows.length - 1) return table;
-  return withRows(table, [table.rows[0], ...body]);
-}
-function moveRow(table, from, to) {
-  const last = table.rows.length - 1;
-  if (from < 1 || from > last || to < 1 || to > last || from === to) return table;
-  return withRows(table, moved(table.rows, from, to));
-}
-function newColumnName(table) {
-  const names = new Set(table.rows[0]?.cells ?? []);
-  let n = table.align.length + 1;
-  while (names.has(`Column ${n}`)) n++;
-  return `Column ${n}`;
-}
-function nameEmptyHeaders(table) {
-  const header = table.rows[0];
-  if (!header) return table;
-  const names = new Set(header.cells);
-  const cells = header.cells.map((cell, i) => {
-    if (cell !== "") return cell;
-    let n = i + 1;
-    while (names.has(`Column ${n}`)) n++;
-    const name = `Column ${n}`;
-    names.add(name);
-    return name;
-  });
-  return { ...table, rows: [{ ...header, cells }, ...table.rows.slice(1)] };
-}
-function insertColumn(table, at) {
-  const column = Math.max(0, Math.min(at, table.align.length));
-  const header = newColumnName(table);
-  const align = [...table.align];
-  align.splice(column, 0, "");
-  return {
-    ...table,
-    align,
-    rows: table.rows.map((r, i) => {
-      const cells = padded(r.cells, column);
-      cells.splice(column, 0, i === 0 ? header : "");
-      return withCells(r, cells);
-    })
-  };
-}
-function deleteColumn(table, column) {
-  if (table.align.length <= 1 || column < 0 || column >= table.align.length) return table;
-  return {
-    ...table,
-    align: table.align.filter((_, i) => i !== column),
-    rows: table.rows.map(
-      (r) => withCells(
-        r,
-        r.cells.filter((_, i) => i !== column)
-      )
-    )
-  };
-}
-function moveColumn(table, from, to) {
-  const columns = table.align.length;
-  if (from < 0 || from >= columns || to < 0 || to >= columns || from === to) return table;
-  return {
-    ...table,
-    align: moved(table.align, from, to),
-    rows: table.rows.map((r) => withCells(r, moved(padded(r.cells, columns), from, to)))
-  };
-}
-function setAlign(table, column, align) {
-  return {
-    ...table,
-    align: table.align.map((a, i) => i === column ? align : a)
-  };
-}
-function columnAfterMove(c, from, to) {
-  if (c === from) return to;
-  if (from < to && c > from && c <= to) return c - 1;
-  if (from > to && c >= to && c < from) return c + 1;
-  return c;
-}
 
 // table-plus/src/formula/index.ts
 var FORMULA_TAG_RE = /<meta\s+f\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
@@ -2339,6 +2501,550 @@ ${error}` : stored.formula;
   }
 };
 
+// table-plus/src/icons.ts
+var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
+var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
+var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
+var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
+var ICONS = {
+  grip: svg(
+    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
+    true
+  ),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
+  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
+  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
+  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
+  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
+  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
+  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Sorted lines with a check: make the sorting the real order
+  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
+  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
+  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
+  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
+  // A pushpin with its needle pointing to the edge it pins to
+  pinTop: PIN_POINT_UP,
+  pinBottom: PIN_POINT_DOWN,
+  pinLeft: PIN_POINT_LEFT,
+  pinRight: PIN_POINT_RIGHT
+};
+
+// table-plus/src/menu.ts
+function renderMenu(doc, title, entries) {
+  const menu = doc.createElement("div");
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", title);
+  const heading = doc.createElement("div");
+  heading.className = "tp-menu-title";
+  heading.textContent = title;
+  menu.append(heading);
+  const button = (className, run, disabled) => {
+    const b = doc.createElement("button");
+    b.type = "button";
+    b.className = className;
+    if (disabled) {
+      b.setAttribute("aria-disabled", "true");
+      b.title = disabled;
+    }
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!disabled) run();
+    });
+    return b;
+  };
+  for (const entry of entries) {
+    if (entry.kind === "separator") {
+      const separator = doc.createElement("div");
+      separator.className = "tp-menu-separator";
+      separator.setAttribute("role", "separator");
+      menu.append(separator);
+    } else if (entry.kind === "item") {
+      const item = button("tp-menu-item", entry.run, entry.disabled);
+      item.setAttribute("role", entry.checked === void 0 ? "menuitem" : "menuitemcheckbox");
+      if (entry.checked !== void 0) item.setAttribute("aria-checked", String(entry.checked));
+      if (entry.danger) item.classList.add("tp-danger");
+      item.innerHTML = `<span class="tp-icon">${entry.icon}</span>`;
+      const label = doc.createElement("span");
+      label.className = "tp-label";
+      label.textContent = entry.label;
+      item.append(label);
+      menu.append(item);
+    } else {
+      const row = doc.createElement("div");
+      row.className = "tp-menu-segmented";
+      const label = doc.createElement("span");
+      label.className = "tp-label";
+      label.textContent = entry.label;
+      const group = doc.createElement("div");
+      group.className = "tp-segments";
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-label", entry.label);
+      for (const option of entry.options) {
+        const b = button("tp-segment", option.run);
+        b.setAttribute("role", "menuitemradio");
+        b.setAttribute("aria-checked", String(option.active));
+        b.title = option.title;
+        b.setAttribute("aria-label", option.title);
+        b.innerHTML = option.icon;
+        group.append(b);
+      }
+      row.append(label, group);
+      menu.append(row);
+    }
+  }
+  menu.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    const buttons = Array.from(
+      menu.querySelectorAll("button:not([aria-disabled])")
+    );
+    const index = buttons.indexOf(doc.activeElement);
+    const focus = (i) => buttons[(i + buttons.length) % buttons.length]?.focus({ preventScroll: true });
+    if (e.key === "ArrowDown" || e.key === "ArrowRight" && index >= 0 && buttons[index].classList.contains("tp-segment")) {
+      e.preventDefault();
+      focus(index + 1);
+    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft" && index >= 0 && buttons[index].classList.contains("tp-segment")) {
+      e.preventDefault();
+      focus(index < 0 ? -1 : index - 1);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      focus(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      focus(-1);
+    }
+  });
+  return menu;
+}
+function focusMenu(menu) {
+  menu.tabIndex = -1;
+  menu.focus({ preventScroll: true });
+}
+
+// table-plus/src/features/grips.ts
+var DRAG_THRESHOLD = 4;
+var PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
+var Grips = class {
+  constructor(host) {
+    this.host = host;
+    this.rowGrip = this.gripButton("tp-handle tp-grip", "Row: click for actions, drag to move");
+    this.columnGrip = this.gripButton("tp-handle tp-grip tp-grip-column", "Column: click for actions, drag to move");
+  }
+  host;
+  rowGrip;
+  columnGrip;
+  target;
+  menu;
+  dragging = false;
+  start() {
+    this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
+    this.columnGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "column"));
+  }
+  stop() {
+    this.closeMenu(false);
+    this.rowGrip.remove();
+    this.columnGrip.remove();
+  }
+  owns(node) {
+    return this.rowGrip.contains(node) || this.columnGrip.contains(node) || !!this.menu?.element.contains(node);
+  }
+  // While a grip is dragged the hover controls stay; a menu keeps them too
+  pointerBusy() {
+    return this.dragging ? "drag" : this.menu ? "menu" : void 0;
+  }
+  // A press outside an open menu closes it
+  mouseDown(e) {
+    if (this.menu && e.target instanceof Node && !this.host.isFloating(e.target)) this.closeMenu(false);
+    return false;
+  }
+  keyDown(e) {
+    if (e.key !== "Escape" || !this.menu) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    this.closeMenu(true);
+    return true;
+  }
+  /** The pointer is over a cell (or the page moved under it): the grips go to its row and column */
+  cellHovered(widget, info, cell) {
+    const ref = this.host.cellRef(info, cell);
+    if (!ref) return;
+    this.target = { widget, info, column: ref.column, ...ref.row > 0 ? { row: ref.row } : {} };
+    const tr = cell.parentElement;
+    const shown = this.host.shownRect(widget, info);
+    const rearranged = this.host.rearranged(info);
+    if (ref.row > 0) {
+      const rowRect = tr.getBoundingClientRect();
+      this.rowGrip.classList.toggle("tp-no-drag", rearranged);
+      this.rowGrip.title = rearranged ? `Row: click for actions (${MOVE_BLOCKED.toLowerCase()})` : "Row: click for actions, drag to move";
+      this.host.place(this.rowGrip, shown.left - 22, rowRect.top + (rowRect.height - 18) / 2);
+    } else {
+      this.rowGrip.classList.remove("tp-visible");
+    }
+    const headerCell = info.table.rows[0].cells[ref.column];
+    if (headerCell) {
+      const h = headerCell.getBoundingClientRect();
+      const center = Math.max(shown.left + 9, Math.min(h.left + h.width / 2, shown.right - 9));
+      this.host.place(this.columnGrip, center - 9, h.top - 9);
+    }
+    this.positionMenu();
+  }
+  /** No cell is hovered (editing, or the table left the view): the grips go, and with `closeMenus` an open menu */
+  hoverEnded(closeMenus) {
+    if (closeMenus) this.closeMenu(false);
+    this.hideGrips();
+  }
+  gripButton(className, title) {
+    const button = this.host.floating("button", className);
+    button.type = "button";
+    button.tabIndex = -1;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.innerHTML = ICONS.grip;
+    return button;
+  }
+  hideGrips() {
+    for (const el of [this.rowGrip, this.columnGrip]) el.classList.remove("tp-visible");
+    this.target = void 0;
+  }
+  // ---- a press on a grip: a click opens its menu, a drag moves -------------
+  onGripPointerDown(e, axis) {
+    const target = this.target;
+    if (e.button !== 0 || !target || axis === "row" && target.row === void 0) return;
+    e.preventDefault();
+    const grip = axis === "row" ? this.rowGrip : this.columnGrip;
+    const canDrag = axis === "column" || !this.host.rearranged(target.info);
+    const win = this.host.doc.defaultView;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let drag;
+    const move = (ev) => {
+      if (!drag) {
+        if (!canDrag || Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
+        this.closeMenu(false);
+        drag = this.beginDrag(target, axis);
+      }
+      drag.move(ev);
+    };
+    const cleanup = () => {
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", up);
+      win.removeEventListener("keydown", escape, true);
+    };
+    const up = () => {
+      cleanup();
+      if (drag) drag.finish(true);
+      else this.toggleMenu(axis, target, grip);
+    };
+    const escape = (ev) => {
+      if (ev.key !== "Escape" || !drag) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      cleanup();
+      drag.finish(false);
+    };
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", up);
+    win.addEventListener("keydown", escape, true);
+  }
+  beginDrag(target, axis) {
+    const { widget, info } = target;
+    const { doc } = this.host;
+    const from = axis === "row" ? target.row : target.column;
+    const table = info.table;
+    const header = table.rows[0];
+    const bodyRows = this.host.bodyRows(info);
+    const carried = axis === "row" ? bodyRows.filter((tr) => Number(tr.dataset.tpRow) === from) : [header, ...bodyRows].map((tr) => tr.cells[from]).filter((c) => !!c);
+    carried.forEach((el) => el.classList.add("tp-dragged"));
+    const line = this.host.floating("div", "tp-drop tp-visible");
+    doc.body.classList.add("tp-dragging");
+    this.dragging = true;
+    let slot = from;
+    const move = (ev) => {
+      const tableRect = table.getBoundingClientRect();
+      const shown = this.host.shownRect(widget, info);
+      if (axis === "row") {
+        slot = bodyRows.length + 1;
+        for (let i = 0; i < bodyRows.length; i++) {
+          const r = bodyRows[i].getBoundingClientRect();
+          if (ev.clientY < r.top + r.height / 2) {
+            slot = i + 1;
+            break;
+          }
+        }
+        const y = slot <= bodyRows.length ? bodyRows[slot - 1].getBoundingClientRect().top : tableRect.bottom;
+        Object.assign(line.style, {
+          left: `${shown.left}px`,
+          top: `${y - 1}px`,
+          width: `${shown.right - shown.left}px`,
+          height: "2px"
+        });
+      } else {
+        const cells = Array.from(header.cells);
+        slot = cells.length;
+        for (let i = 0; i < cells.length; i++) {
+          const r = cells[i].getBoundingClientRect();
+          if (ev.clientX < r.left + r.width / 2) {
+            slot = i;
+            break;
+          }
+        }
+        const x = slot < cells.length ? cells[slot].getBoundingClientRect().left : tableRect.right;
+        Object.assign(line.style, {
+          left: `${x - 1}px`,
+          top: `${tableRect.top}px`,
+          width: "2px",
+          height: `${tableRect.height}px`
+        });
+      }
+    };
+    const finish = (commit) => {
+      carried.forEach((el) => el.classList.remove("tp-dragged"));
+      line.remove();
+      doc.body.classList.remove("tp-dragging");
+      this.dragging = false;
+      this.hideGrips();
+      const to = slot > from ? slot - 1 : slot;
+      if (!commit || to === from) return;
+      if (axis === "row") void moveRowTo(this.host, widget, info, from, to);
+      else void moveColumnTo(this.host, widget, info, from, to);
+    };
+    return { move, finish };
+  }
+  // ---- menus ----------------------------------------------------------------------
+  toggleMenu(axis, target, anchor) {
+    if (this.menu?.axis === axis) {
+      this.closeMenu(true);
+      return;
+    }
+    this.closeMenu(false);
+    const { doc } = this.host;
+    const { widget, info } = target;
+    const element = axis === "row" ? renderMenu(doc, `Row ${target.row}`, this.rowMenu(widget, info, target.row, target.column)) : renderMenu(
+      doc,
+      `Column: ${cellText(info.table.rows[0].cells[target.column]) || target.column + 1}`,
+      this.columnMenu(widget, info, target.column)
+    );
+    element.classList.add("tp-floating", "tp-menu", "tp-visible");
+    element.addEventListener("mousedown", (e) => e.preventDefault());
+    doc.body.append(element);
+    this.menu = { element, axis, widget, anchor };
+    this.positionMenu();
+    anchor.classList.add("tp-active");
+    focusMenu(element);
+  }
+  /** Rows: to the right of the grip; columns: below it; always inside the window */
+  positionMenu() {
+    if (!this.menu) return;
+    const { element, axis, anchor } = this.menu;
+    const win = this.host.doc.defaultView;
+    const a = anchor.getBoundingClientRect();
+    const m = element.getBoundingClientRect();
+    let left = axis === "row" ? a.right + 4 : a.left + a.width / 2 - m.width / 2;
+    let top = axis === "row" ? a.top - 6 : a.bottom + 4;
+    left = Math.max(4, Math.min(left, win.innerWidth - m.width - 4));
+    if (top + m.height > win.innerHeight - 4) top = Math.max(4, win.innerHeight - m.height - 4);
+    element.style.left = `${Math.round(left)}px`;
+    element.style.top = `${Math.round(top)}px`;
+  }
+  closeMenu(refocus) {
+    const menu = this.menu;
+    if (!menu) return;
+    this.menu = void 0;
+    const hadFocus = menu.element.contains(this.host.doc.activeElement);
+    menu.element.remove();
+    this.rowGrip.classList.remove("tp-active");
+    this.columnGrip.classList.remove("tp-active");
+    this.hideGrips();
+    if (refocus && hadFocus) this.host.focusEditor(menu.widget);
+  }
+  runAndClose(run) {
+    return () => {
+      this.closeMenu(false);
+      run();
+    };
+  }
+  // `column`: the hovered column, where editing a new row starts
+  rowMenu(widget, info, row, column) {
+    const host = this.host;
+    const rearranged = host.rearranged(info);
+    const zone = rowZone(info.pins, info.rows, row);
+    const act = (run) => this.runAndClose(() => void run());
+    const moveBlocked = (to) => rearranged ? MOVE_BLOCKED : clampRowMove(info.pins, info.rows, row, to) === row ? zone ? "Pinned rows stay with the other pinned rows" : "Already at the edge" : void 0;
+    const pinBlocked = (to) => host.metadataEnabled || zone === to ? void 0 : PIN_NEEDS_METADATA;
+    const insertBlocked = (at) => insertRowAt(info.pins, info.rows, at).at === at ? void 0 : zone === "top" ? "Rows pinned to the top stay at the top" : "Rows pinned to the bottom stay at the bottom";
+    return [
+      {
+        kind: "item",
+        label: "Insert row above",
+        icon: ICONS.rowAbove,
+        run: act(() => insertRowWith(host, widget, info, row, column)),
+        disabled: insertBlocked(row)
+      },
+      {
+        kind: "item",
+        label: "Insert row below",
+        icon: ICONS.rowBelow,
+        run: act(() => insertRowWith(host, widget, info, row + 1, column)),
+        disabled: insertBlocked(row + 1)
+      },
+      { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: act(() => duplicateRowAt(host, widget, info, row)) },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Move up",
+        icon: ICONS.arrowUp,
+        run: act(() => moveRowTo(host, widget, info, row, row - 1)),
+        disabled: moveBlocked(row - 1)
+      },
+      {
+        kind: "item",
+        label: "Move down",
+        icon: ICONS.arrowDown,
+        run: act(() => moveRowTo(host, widget, info, row, row + 1)),
+        disabled: moveBlocked(row + 1)
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Pin to top",
+        icon: ICONS.pinTop,
+        checked: zone === "top",
+        run: act(() => pinRowAt(host, widget, info, row, zone === "top" ? void 0 : "top")),
+        disabled: pinBlocked("top")
+      },
+      {
+        kind: "item",
+        label: "Pin to bottom",
+        icon: ICONS.pinBottom,
+        checked: zone === "bottom",
+        run: act(() => pinRowAt(host, widget, info, row, zone === "bottom" ? void 0 : "bottom")),
+        disabled: pinBlocked("bottom")
+      },
+      { kind: "separator" },
+      { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => deleteRowAt(host, widget, info, row)) }
+    ];
+  }
+  columnMenu(widget, info, column) {
+    const host = this.host;
+    const view = host.viewOf(info);
+    const sorted = view.sort?.column === column ? view.sort.direction : void 0;
+    const align = parseTable(info.source).align[column] ?? "";
+    const edit = (change) => this.runAndClose(() => void host.write(widget, change));
+    const sortBy = (next) => this.runAndClose(() => host.setSort(widget, info, next));
+    const alignTo = (target) => edit((t) => setAlign(t, column, align === target ? "" : target));
+    const act = (run) => this.runAndClose(() => void run());
+    const zone = columnZone(info.pins, info.columns, column);
+    const columnMoveBlocked = (to) => clampColumnMove(info.pins, info.columns, column, to) === column ? zone ? "Pinned columns stay with the other pinned columns" : "Already at the edge" : void 0;
+    const pinBlocked = (to) => host.metadataEnabled || zone === to ? void 0 : PIN_NEEDS_METADATA;
+    const insertBlocked = (at) => insertColumnAt(info.pins, info.columns, at).at === at ? void 0 : zone === "left" ? "Columns pinned to the left stay at the left" : "Columns pinned to the right stay at the right";
+    const entries = [
+      {
+        kind: "item",
+        label: "Sort ascending",
+        icon: ICONS.sortAsc,
+        checked: sorted === "asc",
+        run: sortBy(withSort(view, column, "asc"))
+      },
+      {
+        kind: "item",
+        label: "Sort descending",
+        icon: ICONS.sortDesc,
+        checked: sorted === "desc",
+        run: sortBy(withSort(view, column, "desc"))
+      }
+    ];
+    if (view.sort) {
+      entries.push({ kind: "item", label: "Clear sorting", icon: ICONS.clear, run: sortBy(withoutSort(view)) });
+    }
+    entries.push(
+      {
+        kind: "item",
+        label: "Filter",
+        icon: ICONS.filter,
+        run: this.runAndClose(() => {
+          host.setView(widget, info, { ...host.viewOf(info), showFilters: true });
+          info.table.querySelector(`.tp-filter[data-tp-column="${column}"]`)?.focus();
+        })
+      },
+      { kind: "separator" },
+      {
+        kind: "segmented",
+        label: "Align",
+        options: [
+          { icon: ICONS.alignLeft, title: "Align left", active: align === "left", run: alignTo("left") },
+          { icon: ICONS.alignCenter, title: "Align center", active: align === "center", run: alignTo("center") },
+          { icon: ICONS.alignRight, title: "Align right", active: align === "right", run: alignTo("right") }
+        ]
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Insert column left",
+        icon: ICONS.columnLeft,
+        run: act(() => insertColumnWith(host, widget, info, column)),
+        disabled: insertBlocked(column)
+      },
+      {
+        kind: "item",
+        label: "Insert column right",
+        icon: ICONS.columnRight,
+        run: act(() => insertColumnWith(host, widget, info, column + 1)),
+        disabled: insertBlocked(column + 1)
+      },
+      {
+        kind: "item",
+        label: "Move left",
+        icon: ICONS.arrowLeft,
+        run: act(() => moveColumnTo(host, widget, info, column, column - 1)),
+        disabled: columnMoveBlocked(column - 1)
+      },
+      {
+        kind: "item",
+        label: "Move right",
+        icon: ICONS.arrowRight,
+        run: act(() => moveColumnTo(host, widget, info, column, column + 1)),
+        disabled: columnMoveBlocked(column + 1)
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Pin left",
+        icon: ICONS.pinLeft,
+        checked: zone === "left",
+        run: act(() => pinColumnAt(host, widget, info, column, zone === "left" ? void 0 : "left")),
+        disabled: pinBlocked("left")
+      },
+      {
+        kind: "item",
+        label: "Pin right",
+        icon: ICONS.pinRight,
+        checked: zone === "right",
+        run: act(() => pinColumnAt(host, widget, info, column, zone === "right" ? void 0 : "right")),
+        disabled: pinBlocked("right")
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Delete column",
+        icon: ICONS.trash,
+        danger: true,
+        run: act(() => deleteColumnAt(host, widget, info, column)),
+        disabled: info.columns <= 1 ? "A table needs at least one column" : void 0
+      }
+    );
+    return entries;
+  }
+};
+
 // table-plus/src/features/history.ts
 var History = class {
   constructor(host) {
@@ -2522,100 +3228,6 @@ var Metadata = class {
     void bridge.flash(`Table Plus: removed the metadata of ${tables.length} table(s)`, "info");
   }
 };
-
-// table-plus/src/pins.ts
-function rowZone(pins, rows, row) {
-  if (row >= 1 && row <= pins.top) return "top";
-  if (row >= rows - pins.bottom && row <= rows - 1) return "bottom";
-  return void 0;
-}
-function columnZone(pins, columns, column) {
-  if (column >= 0 && column < pins.left) return "left";
-  if (column >= columns - pins.right && column < columns) return "right";
-  return void 0;
-}
-function clampRowMove(pins, rows, from, to) {
-  const zone = rowZone(pins, rows, from);
-  const [min, max] = zone === "top" ? [1, pins.top] : zone === "bottom" ? [rows - pins.bottom, rows - 1] : [pins.top + 1, rows - 1 - pins.bottom];
-  return Math.max(min, Math.min(to, max));
-}
-function clampColumnMove(pins, columns, from, to) {
-  const zone = columnZone(pins, columns, from);
-  const [min, max] = zone === "left" ? [0, pins.left - 1] : zone === "right" ? [columns - pins.right, columns - 1] : [pins.left, columns - 1 - pins.right];
-  return Math.max(min, Math.min(to, max));
-}
-function insertRowAt(pins, rows, at) {
-  let index = Math.max(1, Math.min(at, rows));
-  if (pins.top > 0) index = Math.max(index, 2);
-  if (pins.bottom > 0) index = Math.min(index, rows - 1);
-  return {
-    at: index,
-    pins: {
-      ...pins,
-      top: pins.top + (index <= pins.top ? 1 : 0),
-      bottom: pins.bottom + (pins.bottom > 0 && index > rows - pins.bottom ? 1 : 0)
-    }
-  };
-}
-function appendRowAt(pins, rows) {
-  return rows - pins.bottom;
-}
-function deleteRowPins(pins, rows, row) {
-  const zone = rowZone(pins, rows, row);
-  return { ...pins, top: pins.top - (zone === "top" ? 1 : 0), bottom: pins.bottom - (zone === "bottom" ? 1 : 0) };
-}
-function insertColumnAt(pins, columns, at) {
-  let index = Math.max(0, Math.min(at, columns));
-  if (pins.left > 0) index = Math.max(index, 1);
-  if (pins.right > 0) index = Math.min(index, columns - 1);
-  return {
-    at: index,
-    pins: {
-      ...pins,
-      left: pins.left + (index < pins.left ? 1 : 0),
-      right: pins.right + (pins.right > 0 && index > columns - pins.right ? 1 : 0)
-    }
-  };
-}
-function appendColumnAt(pins, columns) {
-  return columns - pins.right;
-}
-function deleteColumnPins(pins, columns, column) {
-  const zone = columnZone(pins, columns, column);
-  return { ...pins, left: pins.left - (zone === "left" ? 1 : 0), right: pins.right - (zone === "right" ? 1 : 0) };
-}
-function pinRow(pins, rows, row, pin) {
-  const zone = rowZone(pins, rows, row);
-  if (zone === pin) return { to: row, pins };
-  let p = pins;
-  let to = row;
-  if (zone === "top") {
-    to = pins.top;
-    p = { ...p, top: p.top - 1 };
-  } else if (zone === "bottom") {
-    to = rows - pins.bottom;
-    p = { ...p, bottom: p.bottom - 1 };
-  }
-  if (pin === "top") return { to: p.top + 1, pins: { ...p, top: p.top + 1 } };
-  if (pin === "bottom") return { to: rows - 1 - p.bottom, pins: { ...p, bottom: p.bottom + 1 } };
-  return { to, pins: p };
-}
-function pinColumn(pins, columns, column, pin) {
-  const zone = columnZone(pins, columns, column);
-  if (zone === pin) return { to: column, pins };
-  let p = pins;
-  let to = column;
-  if (zone === "left") {
-    to = pins.left - 1;
-    p = { ...p, left: p.left - 1 };
-  } else if (zone === "right") {
-    to = columns - pins.right;
-    p = { ...p, right: p.right - 1 };
-  }
-  if (pin === "left") return { to: p.left, pins: { ...p, left: p.left + 1 } };
-  if (pin === "right") return { to: columns - 1 - p.right, pins: { ...p, right: p.right + 1 } };
-  return { to, pins: p };
-}
 
 // table-plus/src/paste.ts
 function parseClipboardCells(text) {
@@ -2992,139 +3604,7 @@ var Sticky = class {
   }
 };
 
-// table-plus/src/icons.ts
-var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
-var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
-var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
-var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
-var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
-var ICONS = {
-  grip: svg(
-    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
-    true
-  ),
-  plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
-  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
-  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
-  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
-  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
-  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
-  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
-  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
-  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
-  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
-  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
-  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
-  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
-  // Sorted lines with a check: make the sorting the real order
-  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
-  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
-  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
-  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
-  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
-  // A pushpin with its needle pointing to the edge it pins to
-  pinTop: PIN_POINT_UP,
-  pinBottom: PIN_POINT_DOWN,
-  pinLeft: PIN_POINT_LEFT,
-  pinRight: PIN_POINT_RIGHT
-};
-
-// table-plus/src/menu.ts
-function renderMenu(doc, title, entries) {
-  const menu = doc.createElement("div");
-  menu.setAttribute("role", "menu");
-  menu.setAttribute("aria-label", title);
-  const heading = doc.createElement("div");
-  heading.className = "tp-menu-title";
-  heading.textContent = title;
-  menu.append(heading);
-  const button = (className, run, disabled) => {
-    const b = doc.createElement("button");
-    b.type = "button";
-    b.className = className;
-    if (disabled) {
-      b.setAttribute("aria-disabled", "true");
-      b.title = disabled;
-    }
-    b.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (!disabled) run();
-    });
-    return b;
-  };
-  for (const entry of entries) {
-    if (entry.kind === "separator") {
-      const separator = doc.createElement("div");
-      separator.className = "tp-menu-separator";
-      separator.setAttribute("role", "separator");
-      menu.append(separator);
-    } else if (entry.kind === "item") {
-      const item = button("tp-menu-item", entry.run, entry.disabled);
-      item.setAttribute("role", entry.checked === void 0 ? "menuitem" : "menuitemcheckbox");
-      if (entry.checked !== void 0) item.setAttribute("aria-checked", String(entry.checked));
-      if (entry.danger) item.classList.add("tp-danger");
-      item.innerHTML = `<span class="tp-icon">${entry.icon}</span>`;
-      const label = doc.createElement("span");
-      label.className = "tp-label";
-      label.textContent = entry.label;
-      item.append(label);
-      menu.append(item);
-    } else {
-      const row = doc.createElement("div");
-      row.className = "tp-menu-segmented";
-      const label = doc.createElement("span");
-      label.className = "tp-label";
-      label.textContent = entry.label;
-      const group = doc.createElement("div");
-      group.className = "tp-segments";
-      group.setAttribute("role", "group");
-      group.setAttribute("aria-label", entry.label);
-      for (const option of entry.options) {
-        const b = button("tp-segment", option.run);
-        b.setAttribute("role", "menuitemradio");
-        b.setAttribute("aria-checked", String(option.active));
-        b.title = option.title;
-        b.setAttribute("aria-label", option.title);
-        b.innerHTML = option.icon;
-        group.append(b);
-      }
-      row.append(label, group);
-      menu.append(row);
-    }
-  }
-  menu.addEventListener("keydown", (e) => {
-    e.stopPropagation();
-    const buttons = Array.from(
-      menu.querySelectorAll("button:not([aria-disabled])")
-    );
-    const index = buttons.indexOf(doc.activeElement);
-    const focus = (i) => buttons[(i + buttons.length) % buttons.length]?.focus({ preventScroll: true });
-    if (e.key === "ArrowDown" || e.key === "ArrowRight" && index >= 0 && buttons[index].classList.contains("tp-segment")) {
-      e.preventDefault();
-      focus(index + 1);
-    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft" && index >= 0 && buttons[index].classList.contains("tp-segment")) {
-      e.preventDefault();
-      focus(index < 0 ? -1 : index - 1);
-    } else if (e.key === "Home") {
-      e.preventDefault();
-      focus(0);
-    } else if (e.key === "End") {
-      e.preventDefault();
-      focus(-1);
-    }
-  });
-  return menu;
-}
-function focusMenu(menu) {
-  menu.tabIndex = -1;
-  menu.focus({ preventScroll: true });
-}
-
 // table-plus/src/controller.ts
-function rowAfterInsert(at) {
-  return (r) => r >= at ? r + 1 : r;
-}
 var STOPPED_EVENTS = [
   "keydown",
   "keyup",
@@ -3139,7 +3619,6 @@ var STOPPED_EVENTS = [
   "compositionend"
 ];
 var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
-var DRAG_THRESHOLD = 4;
 var BAR_GAP = 10;
 var STORE_SORT_DELAY_MS = 400;
 var MOVE_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
@@ -3156,8 +3635,6 @@ var NAVIGATION_KEYS = /* @__PURE__ */ new Set([
 var PAGE_ROWS = 10;
 var FILTER_HINT = "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
-var MOVE_BLOCKED = "Clear sorting and filters to move rows";
-var PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 function placeAtEnd(parent, rows) {
   let next = null;
   for (let i = rows.length - 1; i >= 0; i--) {
@@ -3176,6 +3653,7 @@ var Controller = class {
       // First: the header moves before what follows it
       new Sticky(this),
       new Autoscroll(this),
+      new Grips(this),
       new Formulas(this),
       this.metadata,
       new Paste(this),
@@ -3184,12 +3662,6 @@ var Controller = class {
       new History(this)
     ];
     this.bar = this.floating("div", "tp-bar");
-    this.rowGrip = this.floatingButton("tp-handle tp-grip", "Row: click for actions, drag to move", ICONS.grip);
-    this.columnGrip = this.floatingButton(
-      "tp-handle tp-grip tp-grip-column",
-      "Column: click for actions, drag to move",
-      ICONS.grip
-    );
     this.addRow = this.floatingButton("tp-add tp-add-row", "Add a row at the end", ICONS.plus);
     this.addRow.insertAdjacentText("beforeend", "Row");
     this.addColumn = this.floatingButton("tp-add tp-add-column", "Add a column at the end", ICONS.plus);
@@ -3214,9 +3686,6 @@ var Controller = class {
   pendingFocus;
   hoverWidget;
   hoverCell;
-  handleTarget;
-  menu;
-  dragging = false;
   hideTimer;
   scanQueued = false;
   // Set by stop(): work already scheduled then does nothing
@@ -3230,8 +3699,6 @@ var Controller = class {
   warnedIncompatible = false;
   observer;
   bar;
-  rowGrip;
-  columnGrip;
   addRow;
   addColumn;
   // Features that keep their own state and work through this controller (core/feature.ts)
@@ -3253,8 +3720,6 @@ var Controller = class {
     win.addEventListener("keyup", this.onKeyUp, true);
     win.addEventListener("blur", this.onBlur);
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
-    this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
-    this.columnGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "column"));
     this.addRow.addEventListener("click", () => this.appendRow());
     this.addColumn.addEventListener("click", () => this.appendColumn());
     this.observer = new MutationObserver(() => this.queueScan());
@@ -3279,8 +3744,7 @@ var Controller = class {
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
-    this.closeMenu(false);
-    for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
+    for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
   }
   onBlur = () => this.setNavigating(false);
   /** Refreshes the settings at most once a second, the last request always served */
@@ -3572,6 +4036,9 @@ var Controller = class {
   get editing() {
     return this.editor;
   }
+  get metadataEnabled() {
+    return this.metadataOn;
+  }
   takeEditor() {
     const closed = this.closeEditor();
     return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.withSaved(t, closed) };
@@ -3748,9 +4215,7 @@ var Controller = class {
     return row?.contains("tp-filter-row") || row?.contains("tp-meta-row") ? void 0 : cell;
   }
   onMouseDown = (e) => {
-    const target = e.target instanceof Node ? e.target : null;
     for (const feature of this.features) if (feature.mouseDown?.(e)) return;
-    if (this.menu && target && !this.isFloating(target)) this.closeMenu(false);
     if (e.button !== 0) return;
     for (const feature of this.features) feature.beforeMouseDown?.(e);
     if (e.altKey) {
@@ -3840,22 +4305,18 @@ var Controller = class {
    * page or the table scrolls; hides them only once that is out of view
    */
   followScroll() {
-    if (this.dragging) return;
+    if (this.features.some((f) => f.pointerBusy?.() === "drag")) return;
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (!widget || !info || renderedTable(widget) !== info.table || !this.isShown(widget, info, info.table)) {
-      this.closeMenu(false);
-      this.hideFloating();
+      this.hideFloating(true);
       return;
     }
     this.showTableControls(widget, info);
     const cell = this.hoverCell;
-    if (cell && cell.isConnected && this.isShown(widget, info, cell)) this.showHandles(widget, info, cell);
-    else {
-      this.closeMenu(false);
-      this.hideHandles();
-    }
-    if (this.menu) this.positionMenu();
+    if (cell && cell.isConnected && this.isShown(widget, info, cell)) {
+      for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
+    } else this.endHover(true);
   }
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
   isShown(widget, info, element) {
@@ -3907,12 +4368,6 @@ var Controller = class {
     return void 0;
   }
   onKeyDown = (e) => {
-    if (e.key === "Escape" && this.menu) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.closeMenu(true);
-      return;
-    }
     for (const feature of this.features) if (feature.keyDown?.(e)) return;
   };
   onKeyUp = (e) => {
@@ -3923,7 +4378,7 @@ var Controller = class {
     this.doc.body.classList.toggle("tp-navigating", on);
   }
   onMouseMove = (e) => {
-    if (this.dragging || this.menu || e.buttons !== 0) return;
+    if (this.features.some((f) => f.pointerBusy?.()) || e.buttons !== 0) return;
     const target = e.target;
     if (target instanceof Node && this.isFloating(target)) {
       this.cancelHide();
@@ -3941,11 +4396,14 @@ var Controller = class {
       this.showTableControls(widget, info);
     }
     if (this.editor) {
-      this.hideHandles();
+      this.endHover(false);
       return;
     }
     const cell = this.tableCellOf(info, target);
-    if (cell && cell !== this.hoverCell) this.showHandles(widget, info, cell);
+    if (cell && cell !== this.hoverCell) {
+      this.hoverCell = cell;
+      for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
+    }
   };
   /** Whether the pointer is over the scrollbar of the element under it */
   overScrollbar(e) {
@@ -3993,7 +4451,7 @@ var Controller = class {
     cell.append(field);
     this.editor = { widget, cell, ...ref, original, initial: field.value, field, kept, cellStyle };
     this.reveal(widget, cell);
-    this.hideHandles();
+    this.endHover(false);
     this.isolate(field);
     field.addEventListener("blur", () => {
       if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, void 0, false);
@@ -4117,7 +4575,7 @@ var Controller = class {
     }
     const info = this.infos.get(active.widget);
     const closed = this.closeEditor();
-    if (info) await this.insertRowWith(closed.widget, info, closed.row + 1, closed.column, (t) => this.withSaved(t, closed));
+    if (info) await insertRowWith(this, closed.widget, info, closed.row + 1, closed.column, (t) => this.withSaved(t, closed));
   }
   /** The table with the closed editor's value saved, if it changed */
   withSaved(table, closed) {
@@ -4240,7 +4698,7 @@ var Controller = class {
       return;
     }
     const closed = this.closeEditor();
-    await this.insertRowWith(closed.widget, info, appendRowAt(info.pins, info.rows), 0, (t) => this.withSaved(t, closed));
+    await insertRowWith(this, closed.widget, info, appendRowAt(info.pins, info.rows), 0, (t) => this.withSaved(t, closed));
   }
   takePendingFocus(widget, info) {
     const pending = this.pendingFocus;
@@ -4328,8 +4786,7 @@ var Controller = class {
       void this.bridge.flash(NOT_SAVED.replace(", nothing was saved", ""), "error");
       return;
     }
-    this.hideFloating();
-    this.closeMenu(false);
+    this.hideFloating(true);
     const offset = at ? cellSourceOffset(range.text, at.row, at.column, at.within) : 0;
     await this.bridge.moveCursor(range.from + offset);
   }
@@ -4337,7 +4794,7 @@ var Controller = class {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (!widget || !info) return;
-    void this.insertRowWith(widget, info, appendRowAt(info.pins, info.rows), this.firstVisibleColumn(widget, info));
+    void insertRowWith(this, widget, info, appendRowAt(info.pins, info.rows), this.firstVisibleColumn(widget, info));
   }
   /** The leftmost column in view, so editing a new row does not scroll a wide table back */
   firstVisibleColumn(widget, info) {
@@ -4350,79 +4807,9 @@ var Controller = class {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (!widget || !info) return;
-    void this.insertColumnWith(widget, info, appendColumnAt(info.pins, info.columns));
+    void insertColumnWith(this, widget, info, appendColumnAt(info.pins, info.columns));
   }
-  // ---- structural edits: pinned rows and columns keep the edges -------------
-  /** Adds a row asked for at `at` (see insertRowAt) and edits it in `column` */
-  insertRowWith(widget, info, at, column, prepare = (t) => t) {
-    const insert = insertRowAt(info.pins, info.rows, at);
-    return this.write(
-      widget,
-      (t) => {
-        const prepared = prepare(t);
-        return prepared && insertRow(prepared, insert.at);
-      },
-      { focus: { row: insert.at, column }, pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
-    );
-  }
-  duplicateRowAt(widget, info, row) {
-    const insert = insertRowAt(info.pins, info.rows, row + 1);
-    return this.write(
-      widget,
-      (t) => {
-        const cells = t.rows[row]?.cells;
-        return cells ? insertRow(t, insert.at, cells) : void 0;
-      },
-      { pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
-    );
-  }
-  deleteRowAt(widget, info, row) {
-    return this.write(widget, (t) => deleteRow(t, row), {
-      pins: deleteRowPins(info.pins, info.rows, row),
-      rowMap: (r) => r === row ? void 0 : r > row ? r - 1 : r
-    });
-  }
-  /** Moves a row, within its zone when pinned, outside the zones when not */
-  moveRowTo(widget, info, from, asked) {
-    const to = clampRowMove(info.pins, info.rows, from, asked);
-    if (to === from) return Promise.resolve("unchanged");
-    return this.write(widget, (t) => moveRow(t, from, to), { rowMap: (r) => columnAfterMove(r, from, to) });
-  }
-  insertColumnWith(widget, info, at) {
-    const insert = insertColumnAt(info.pins, info.columns, at);
-    return this.write(
-      widget,
-      (t) => insertColumn(t, insert.at),
-      { focus: { row: 0, column: insert.at, select: true }, columnMap: (c) => c >= insert.at ? c + 1 : c, pins: insert.pins }
-    );
-  }
-  deleteColumnAt(widget, info, column) {
-    return this.write(
-      widget,
-      (t) => deleteColumn(t, column),
-      {
-        columnMap: (c) => c === column ? void 0 : c > column ? c - 1 : c,
-        pins: deleteColumnPins(info.pins, info.columns, column)
-      }
-    );
-  }
-  moveColumnTo(widget, info, from, asked) {
-    const to = clampColumnMove(info.pins, info.columns, from, asked);
-    if (to === from) return Promise.resolve("unchanged");
-    return this.write(widget, (t) => moveColumn(t, from, to), { columnMap: (c) => columnAfterMove(c, from, to) });
-  }
-  /** Pins a row to the top or bottom (moving it there), or unpins it; pinning needs the metadata setting */
-  async pinRowAt(widget, info, row, pin) {
-    if (pin && !await this.setting("metadata")) return;
-    const { to, pins } = pinRow(info.pins, info.rows, row, pin);
-    await this.write(widget, (t) => moveRow(t, row, to), { pins, rowMap: (r) => columnAfterMove(r, row, to) });
-  }
-  async pinColumnAt(widget, info, column, pin) {
-    if (pin && !await this.setting("metadata")) return;
-    const { to, pins } = pinColumn(info.pins, info.columns, column, pin);
-    await this.write(widget, (t) => moveColumn(t, column, to), { columnMap: (c) => columnAfterMove(c, column, to), pins });
-  }
-  // ---- floating UI: toolbar, grips, add buttons --------------------------
+  // ---- floating UI: toolbar and add buttons ---------------------------------
   floating(tag, className) {
     const element = this.doc.createElement(tag);
     element.className = `tp-floating ${className}`;
@@ -4442,7 +4829,7 @@ var Controller = class {
     return button;
   }
   isFloating(node) {
-    return [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn].some((el) => el.contains(node)) || !!this.menu?.element.contains(node);
+    return [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) || this.features.some((f) => f.owns?.(node));
   }
   place(element, left, top) {
     const win = this.doc.defaultView;
@@ -4462,13 +4849,13 @@ var Controller = class {
       this.hideFloating();
     }, 300);
   }
-  hideHandles() {
-    for (const el of [this.rowGrip, this.columnGrip]) el.classList.remove("tp-visible");
+  /** No cell is hovered: the grips go, and with `closeMenus` an open menu */
+  endHover(closeMenus) {
     this.hoverCell = void 0;
-    this.handleTarget = void 0;
+    for (const feature of this.features) feature.hoverEnded?.(closeMenus);
   }
-  hideFloating() {
-    this.hideHandles();
+  hideFloating(closeMenus = false) {
+    this.endHover(closeMenus);
     for (const el of [this.bar, this.addRow, this.addColumn]) el.classList.remove("tp-visible");
     this.hoverWidget = void 0;
   }
@@ -4563,29 +4950,6 @@ var Controller = class {
       headerRect.top + (headerRect.height - this.addColumn.offsetHeight) / 2
     );
   }
-  showHandles(widget, info, cell) {
-    this.hoverCell = cell;
-    const ref = this.cellRef(info, cell);
-    if (!ref) return;
-    this.handleTarget = { widget, info, column: ref.column, ...ref.row > 0 ? { row: ref.row } : {} };
-    const tr = cell.parentElement;
-    const shown = this.shownRect(widget, info);
-    const rearranged = this.rearranged(info);
-    if (ref.row > 0) {
-      const rowRect = tr.getBoundingClientRect();
-      this.rowGrip.classList.toggle("tp-no-drag", rearranged);
-      this.rowGrip.title = rearranged ? `Row: click for actions (${MOVE_BLOCKED.toLowerCase()})` : "Row: click for actions, drag to move";
-      this.place(this.rowGrip, shown.left - 22, rowRect.top + (rowRect.height - 18) / 2);
-    } else {
-      this.rowGrip.classList.remove("tp-visible");
-    }
-    const headerCell = info.table.rows[0].cells[ref.column];
-    if (headerCell) {
-      const h = headerCell.getBoundingClientRect();
-      const center = Math.max(shown.left + 9, Math.min(h.left + h.width / 2, shown.right - 9));
-      this.place(this.columnGrip, center - 9, h.top - 9);
-    }
-  }
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
   shownRect(widget, info) {
     const box = this.innerBox(widget);
@@ -4596,330 +4960,6 @@ var Controller = class {
       top: Math.max(box.top, table.top),
       bottom: Math.min(box.bottom, table.bottom)
     };
-  }
-  // ---- grips: click opens a menu, drag moves -----------------------------
-  onGripPointerDown(e, axis) {
-    const target = this.handleTarget;
-    if (e.button !== 0 || !target || axis === "row" && target.row === void 0) return;
-    e.preventDefault();
-    const grip = axis === "row" ? this.rowGrip : this.columnGrip;
-    const canDrag = axis === "column" || !this.rearranged(target.info);
-    const win = this.doc.defaultView;
-    const startX = e.clientX;
-    const startY = e.clientY;
-    let drag;
-    const move = (ev) => {
-      if (!drag) {
-        if (!canDrag || Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
-        this.closeMenu(false);
-        drag = this.beginDrag(target, axis);
-      }
-      drag.move(ev);
-    };
-    const cleanup = () => {
-      win.removeEventListener("pointermove", move);
-      win.removeEventListener("pointerup", up);
-      win.removeEventListener("keydown", escape, true);
-    };
-    const up = () => {
-      cleanup();
-      if (drag) drag.finish(true);
-      else this.toggleMenu(axis, target, grip);
-    };
-    const escape = (ev) => {
-      if (ev.key !== "Escape" || !drag) return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      cleanup();
-      drag.finish(false);
-    };
-    win.addEventListener("pointermove", move);
-    win.addEventListener("pointerup", up);
-    win.addEventListener("keydown", escape, true);
-  }
-  beginDrag(target, axis) {
-    const { widget, info } = target;
-    const from = axis === "row" ? target.row : target.column;
-    const table = info.table;
-    const header = table.rows[0];
-    const bodyRows = this.bodyRows(info);
-    const carried = axis === "row" ? bodyRows.filter((tr) => Number(tr.dataset.tpRow) === from) : [header, ...bodyRows].map((tr) => tr.cells[from]).filter((c) => !!c);
-    carried.forEach((el) => el.classList.add("tp-dragged"));
-    const line = this.floating("div", "tp-drop tp-visible");
-    this.doc.body.classList.add("tp-dragging");
-    this.dragging = true;
-    let slot = from;
-    const move = (ev) => {
-      const tableRect = table.getBoundingClientRect();
-      const shown = this.shownRect(widget, info);
-      if (axis === "row") {
-        slot = bodyRows.length + 1;
-        for (let i = 0; i < bodyRows.length; i++) {
-          const r = bodyRows[i].getBoundingClientRect();
-          if (ev.clientY < r.top + r.height / 2) {
-            slot = i + 1;
-            break;
-          }
-        }
-        const y = slot <= bodyRows.length ? bodyRows[slot - 1].getBoundingClientRect().top : tableRect.bottom;
-        Object.assign(line.style, {
-          left: `${shown.left}px`,
-          top: `${y - 1}px`,
-          width: `${shown.right - shown.left}px`,
-          height: "2px"
-        });
-      } else {
-        const cells = Array.from(header.cells);
-        slot = cells.length;
-        for (let i = 0; i < cells.length; i++) {
-          const r = cells[i].getBoundingClientRect();
-          if (ev.clientX < r.left + r.width / 2) {
-            slot = i;
-            break;
-          }
-        }
-        const x = slot < cells.length ? cells[slot].getBoundingClientRect().left : tableRect.right;
-        Object.assign(line.style, {
-          left: `${x - 1}px`,
-          top: `${tableRect.top}px`,
-          width: "2px",
-          height: `${tableRect.height}px`
-        });
-      }
-    };
-    const finish = (commit) => {
-      carried.forEach((el) => el.classList.remove("tp-dragged"));
-      line.remove();
-      this.doc.body.classList.remove("tp-dragging");
-      this.dragging = false;
-      this.hideHandles();
-      const to = slot > from ? slot - 1 : slot;
-      if (!commit || to === from) return;
-      if (axis === "row") void this.moveRowTo(widget, info, from, to);
-      else void this.moveColumnTo(widget, info, from, to);
-    };
-    return { move, finish };
-  }
-  // ---- menus -------------------------------------------------------------
-  toggleMenu(axis, target, anchor) {
-    if (this.menu?.axis === axis) {
-      this.closeMenu(true);
-      return;
-    }
-    this.closeMenu(false);
-    const { widget, info } = target;
-    const element = axis === "row" ? renderMenu(this.doc, `Row ${target.row}`, this.rowMenu(widget, info, target.row, target.column)) : renderMenu(
-      this.doc,
-      `Column: ${cellText(info.table.rows[0].cells[target.column]) || target.column + 1}`,
-      this.columnMenu(widget, info, target.column)
-    );
-    element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    element.addEventListener("mousedown", (e) => e.preventDefault());
-    this.doc.body.append(element);
-    this.menu = { element, axis, widget, anchor };
-    this.positionMenu();
-    anchor.classList.add("tp-active");
-    focusMenu(element);
-  }
-  /** Rows: to the right of the grip; columns: below it; always inside the window */
-  positionMenu() {
-    if (!this.menu) return;
-    const { element, axis, anchor } = this.menu;
-    const win = this.doc.defaultView;
-    const a = anchor.getBoundingClientRect();
-    const m = element.getBoundingClientRect();
-    let left = axis === "row" ? a.right + 4 : a.left + a.width / 2 - m.width / 2;
-    let top = axis === "row" ? a.top - 6 : a.bottom + 4;
-    left = Math.max(4, Math.min(left, win.innerWidth - m.width - 4));
-    if (top + m.height > win.innerHeight - 4) top = Math.max(4, win.innerHeight - m.height - 4);
-    element.style.left = `${Math.round(left)}px`;
-    element.style.top = `${Math.round(top)}px`;
-  }
-  closeMenu(refocus) {
-    const menu = this.menu;
-    if (!menu) return;
-    this.menu = void 0;
-    const hadFocus = menu.element.contains(this.doc.activeElement);
-    menu.element.remove();
-    this.rowGrip.classList.remove("tp-active");
-    this.columnGrip.classList.remove("tp-active");
-    this.hideHandles();
-    if (refocus && hadFocus) this.focusEditor(menu.widget);
-  }
-  runAndClose(run) {
-    return () => {
-      this.closeMenu(false);
-      run();
-    };
-  }
-  // `column`: the hovered column, where editing a new row starts
-  rowMenu(widget, info, row, column) {
-    const rearranged = this.rearranged(info);
-    const zone = rowZone(info.pins, info.rows, row);
-    const act = (run) => this.runAndClose(() => void run());
-    const moveBlocked = (to) => rearranged ? MOVE_BLOCKED : clampRowMove(info.pins, info.rows, row, to) === row ? zone ? "Pinned rows stay with the other pinned rows" : "Already at the edge" : void 0;
-    const pinBlocked = (to) => this.metadataOn || zone === to ? void 0 : PIN_NEEDS_METADATA;
-    const insertBlocked = (at) => insertRowAt(info.pins, info.rows, at).at === at ? void 0 : zone === "top" ? "Rows pinned to the top stay at the top" : "Rows pinned to the bottom stay at the bottom";
-    return [
-      {
-        kind: "item",
-        label: "Insert row above",
-        icon: ICONS.rowAbove,
-        run: act(() => this.insertRowWith(widget, info, row, column)),
-        disabled: insertBlocked(row)
-      },
-      {
-        kind: "item",
-        label: "Insert row below",
-        icon: ICONS.rowBelow,
-        run: act(() => this.insertRowWith(widget, info, row + 1, column)),
-        disabled: insertBlocked(row + 1)
-      },
-      { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: act(() => this.duplicateRowAt(widget, info, row)) },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Move up",
-        icon: ICONS.arrowUp,
-        run: act(() => this.moveRowTo(widget, info, row, row - 1)),
-        disabled: moveBlocked(row - 1)
-      },
-      {
-        kind: "item",
-        label: "Move down",
-        icon: ICONS.arrowDown,
-        run: act(() => this.moveRowTo(widget, info, row, row + 1)),
-        disabled: moveBlocked(row + 1)
-      },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Pin to top",
-        icon: ICONS.pinTop,
-        checked: zone === "top",
-        run: act(() => this.pinRowAt(widget, info, row, zone === "top" ? void 0 : "top")),
-        disabled: pinBlocked("top")
-      },
-      {
-        kind: "item",
-        label: "Pin to bottom",
-        icon: ICONS.pinBottom,
-        checked: zone === "bottom",
-        run: act(() => this.pinRowAt(widget, info, row, zone === "bottom" ? void 0 : "bottom")),
-        disabled: pinBlocked("bottom")
-      },
-      { kind: "separator" },
-      { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => this.deleteRowAt(widget, info, row)) }
-    ];
-  }
-  columnMenu(widget, info, column) {
-    const view = this.viewOf(info);
-    const sorted = view.sort?.column === column ? view.sort.direction : void 0;
-    const align = parseTable(info.source).align[column] ?? "";
-    const edit = (change, focus, columnMap) => this.runAndClose(() => void this.write(widget, change, { focus, columnMap }));
-    const sortBy = (next) => this.runAndClose(() => this.setSort(widget, info, next));
-    const alignTo = (target) => edit((t) => setAlign(t, column, align === target ? "" : target));
-    const act = (run) => this.runAndClose(() => void run());
-    const zone = columnZone(info.pins, info.columns, column);
-    const columnMoveBlocked = (to) => clampColumnMove(info.pins, info.columns, column, to) === column ? zone ? "Pinned columns stay with the other pinned columns" : "Already at the edge" : void 0;
-    const pinBlocked = (to) => this.metadataOn || zone === to ? void 0 : PIN_NEEDS_METADATA;
-    const insertBlocked = (at) => insertColumnAt(info.pins, info.columns, at).at === at ? void 0 : zone === "left" ? "Columns pinned to the left stay at the left" : "Columns pinned to the right stay at the right";
-    const entries = [
-      {
-        kind: "item",
-        label: "Sort ascending",
-        icon: ICONS.sortAsc,
-        checked: sorted === "asc",
-        run: sortBy(withSort(view, column, "asc"))
-      },
-      {
-        kind: "item",
-        label: "Sort descending",
-        icon: ICONS.sortDesc,
-        checked: sorted === "desc",
-        run: sortBy(withSort(view, column, "desc"))
-      }
-    ];
-    if (view.sort) {
-      entries.push({ kind: "item", label: "Clear sorting", icon: ICONS.clear, run: sortBy(withoutSort(view)) });
-    }
-    entries.push(
-      {
-        kind: "item",
-        label: "Filter",
-        icon: ICONS.filter,
-        run: this.runAndClose(() => {
-          this.setView(widget, info, { ...this.viewOf(info), showFilters: true });
-          info.table.querySelector(`.tp-filter[data-tp-column="${column}"]`)?.focus();
-        })
-      },
-      { kind: "separator" },
-      {
-        kind: "segmented",
-        label: "Align",
-        options: [
-          { icon: ICONS.alignLeft, title: "Align left", active: align === "left", run: alignTo("left") },
-          { icon: ICONS.alignCenter, title: "Align center", active: align === "center", run: alignTo("center") },
-          { icon: ICONS.alignRight, title: "Align right", active: align === "right", run: alignTo("right") }
-        ]
-      },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Insert column left",
-        icon: ICONS.columnLeft,
-        run: act(() => this.insertColumnWith(widget, info, column)),
-        disabled: insertBlocked(column)
-      },
-      {
-        kind: "item",
-        label: "Insert column right",
-        icon: ICONS.columnRight,
-        run: act(() => this.insertColumnWith(widget, info, column + 1)),
-        disabled: insertBlocked(column + 1)
-      },
-      {
-        kind: "item",
-        label: "Move left",
-        icon: ICONS.arrowLeft,
-        run: act(() => this.moveColumnTo(widget, info, column, column - 1)),
-        disabled: columnMoveBlocked(column - 1)
-      },
-      {
-        kind: "item",
-        label: "Move right",
-        icon: ICONS.arrowRight,
-        run: act(() => this.moveColumnTo(widget, info, column, column + 1)),
-        disabled: columnMoveBlocked(column + 1)
-      },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Pin left",
-        icon: ICONS.pinLeft,
-        checked: zone === "left",
-        run: act(() => this.pinColumnAt(widget, info, column, zone === "left" ? void 0 : "left")),
-        disabled: pinBlocked("left")
-      },
-      {
-        kind: "item",
-        label: "Pin right",
-        icon: ICONS.pinRight,
-        checked: zone === "right",
-        run: act(() => this.pinColumnAt(widget, info, column, zone === "right" ? void 0 : "right")),
-        disabled: pinBlocked("right")
-      },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Delete column",
-        icon: ICONS.trash,
-        danger: true,
-        run: act(() => this.deleteColumnAt(widget, info, column)),
-        disabled: info.columns <= 1 ? "A table needs at least one column" : void 0
-      }
-    );
-    return entries;
   }
 };
 

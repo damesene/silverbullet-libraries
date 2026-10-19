@@ -1,10 +1,10 @@
 // What Table Plus' features share: the controller (the host) finds and
 // enhances tables, routes events and writes tables; each feature keeps its own
 // state and listeners and works through the host.
-import type { Bridge } from "../bridge.ts";
+import type { Bridge, SETTINGS, SettingValue } from "../bridge.ts";
 import type { IndexMap } from "../formula/index.ts";
 import type { Table } from "../markdown.ts";
-import type { Pins } from "../view.ts";
+import type { Pins, ViewState } from "../view.ts";
 
 export type WidgetInfo = {
   readonly table: HTMLTableElement;
@@ -115,12 +115,33 @@ export interface TableHost {
   scrollsInside(widget: HTMLElement): boolean;
   /** The element the page scrolls in, around an element */
   scrollParentOf(element: HTMLElement): HTMLElement | undefined;
+  /** Where a table is in view: the table, cut to the box that scrolls it sideways */
+  shownRect(widget: HTMLElement, info: WidgetInfo): { left: number; right: number; top: number; bottom: number };
+  /** The body rows as rendered, in the order of the markdown, hidden ones included */
+  bodyRows(info: WidgetInfo): HTMLTableRowElement[];
+  /** A setting's value, its default when unset or not valid */
+  setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>>;
+  /** The metadata setting as last read */
+  readonly metadataEnabled: boolean;
+  /** How a table is shown: sorting and filters */
+  viewOf(info: WidgetInfo): ViewState;
+  setView(widget: HTMLElement, info: WidgetInfo, view: ViewState): void;
+  /** A view change that may change the sorting, which the metadata setting also stores */
+  setSort(widget: HTMLElement, info: WidgetInfo, view: ViewState): void;
 }
 
 /** A feature: every hook is optional */
 export interface Feature {
   start?(): void;
   stop?(): void;
+  /** Whether a node is one of the feature's floating elements (a grip, a menu) */
+  owns?(node: Node): boolean;
+  /** Something holds the pointer: a drag, or an open menu; the hover controls stay where they are */
+  pointerBusy?(): "drag" | "menu" | undefined;
+  /** The pointer is over a cell, or the page moved under it */
+  cellHovered?(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void;
+  /** No cell is hovered any more; with `closeMenus`, menus close too */
+  hoverEnded?(closeMenus: boolean): void;
   /** Any press (any button), before anything else; true: taken, nothing else happens */
   mouseDown?(e: MouseEvent): boolean;
   /** Any left press, before Table Plus handles it */

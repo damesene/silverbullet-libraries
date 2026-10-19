@@ -13,9 +13,11 @@ import type {
   WriteResult,
   WriteStep,
 } from "./core/feature.ts";
+import { insertColumnWith, insertRowWith, MOVE_BLOCKED } from "./core/structure.ts";
 import { Autoscroll } from "./features/autoscroll.ts";
 import { Expressions } from "./features/expressions.ts";
 import { Formulas } from "./features/formulas.ts";
+import { Grips } from "./features/grips.ts";
 import { History } from "./features/history.ts";
 import { Metadata } from "./features/metadata.ts";
 import { Paste } from "./features/paste.ts";
@@ -32,13 +34,9 @@ import {
   UI_CLASS,
   WIDGET_SELECTOR,
 } from "./dom.ts";
-import {
-  formulasAfterEdit,
-  type IndexMap,
-} from "./formula/index.ts";
+import { formulasAfterEdit } from "./formula/index.ts";
 import { ICONS } from "./icons.ts";
 import {
-  type Align,
   cellSourceOffset,
   escapeCell,
   locateBySource,
@@ -50,37 +48,9 @@ import {
   type Table,
   unescapeCell,
 } from "./markdown.ts";
-import { focusMenu, type MenuEntry, renderMenu } from "./menu.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
-import {
-  appendColumnAt,
-  appendRowAt,
-  clampColumnMove,
-  clampRowMove,
-  type ColumnZone,
-  columnZone,
-  deleteColumnPins,
-  deleteRowPins,
-  insertColumnAt,
-  insertRowAt,
-  pinColumn,
-  pinRow,
-  type RowZone,
-  rowZone,
-} from "./pins.ts";
-import {
-  columnAfterMove,
-  deleteColumn,
-  deleteRow,
-  insertColumn,
-  insertRow,
-  moveColumn,
-  moveRow,
-  nameEmptyHeaders,
-  reorderRows,
-  setAlign,
-  setCell,
-} from "./ops.ts";
+import { appendColumnAt, appendRowAt, clampColumnMove, clampRowMove } from "./pins.ts";
+import { columnAfterMove, moveColumn, moveRow, nameEmptyHeaders, reorderRows, setCell } from "./ops.ts";
 import {
   cycleSort,
   DEFAULT_FILTER_OPTIONS,
@@ -103,21 +73,6 @@ type ActiveEditor = CellEditor & {
   readonly cellStyle: string | null;
 };
 
-type Axis = "row" | "column";
-
-// What the row and column grips currently belong to
-type HandleTarget = {
-  readonly widget: HTMLElement;
-  readonly info: WidgetInfo;
-  readonly row?: number;
-  readonly column: number;
-};
-
-/** Where the rows of the markdown go when a row is inserted at `at` */
-function rowAfterInsert(at: number): IndexMap {
-  return (r) => (r >= at ? r + 1 : r);
-}
-
 
 const STOPPED_EVENTS = [
   "keydown",
@@ -135,8 +90,6 @@ const STOPPED_EVENTS = [
 
 const SORT_GLYPH = { asc: "▲", desc: "▼", none: "⇅" } as const;
 
-// Pointer travel that turns a press on a grip into a drag instead of a click
-const DRAG_THRESHOLD = 4;
 
 // Toolbar distance above the header: clear of the column grip on the header's top edge
 const BAR_GAP = 10;
@@ -168,8 +121,6 @@ const FILTER_HINT =
   "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 
 const NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
-const MOVE_BLOCKED = "Clear sorting and filters to move rows";
-const PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 
 /**
  * Puts the rows at the end of `parent`, in this order, moving only those out
@@ -204,9 +155,6 @@ export class Controller implements TableHost {
   private pendingFocus: (FocusTarget & { key: string; until: number }) | undefined;
   private hoverWidget: HTMLElement | undefined;
   private hoverCell: HTMLTableCellElement | undefined;
-  private handleTarget: HandleTarget | undefined;
-  private menu: { element: HTMLElement; axis: Axis; widget: HTMLElement; anchor: HTMLElement } | undefined;
-  private dragging = false;
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
   private scanQueued = false;
   // Set by stop(): work already scheduled then does nothing
@@ -220,8 +168,6 @@ export class Controller implements TableHost {
   private warnedIncompatible = false;
   private observer: MutationObserver | undefined;
   private readonly bar: HTMLElement;
-  private readonly rowGrip: HTMLButtonElement;
-  private readonly columnGrip: HTMLButtonElement;
   private readonly addRow: HTMLButtonElement;
   private readonly addColumn: HTMLButtonElement;
   // Features that keep their own state and work through this controller (core/feature.ts)
@@ -241,6 +187,7 @@ export class Controller implements TableHost {
       // First: the header moves before what follows it
       new Sticky(this),
       new Autoscroll(this),
+      new Grips(this),
       new Formulas(this),
       this.metadata,
       new Paste(this),
@@ -249,12 +196,6 @@ export class Controller implements TableHost {
       new History(this),
     ];
     this.bar = this.floating("div", "tp-bar");
-    this.rowGrip = this.floatingButton("tp-handle tp-grip", "Row: click for actions, drag to move", ICONS.grip);
-    this.columnGrip = this.floatingButton(
-      "tp-handle tp-grip tp-grip-column",
-      "Column: click for actions, drag to move",
-      ICONS.grip,
-    );
     this.addRow = this.floatingButton("tp-add tp-add-row", "Add a row at the end", ICONS.plus);
     this.addRow.insertAdjacentText("beforeend", "Row");
     this.addColumn = this.floatingButton("tp-add tp-add-column", "Add a column at the end", ICONS.plus);
@@ -275,8 +216,6 @@ export class Controller implements TableHost {
     win.addEventListener("blur", this.onBlur);
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
 
-    this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
-    this.columnGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "column"));
     this.addRow.addEventListener("click", () => this.appendRow());
     this.addColumn.addEventListener("click", () => this.appendColumn());
 
@@ -303,8 +242,7 @@ export class Controller implements TableHost {
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
-    this.closeMenu(false);
-    for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
+    for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
   }
 
   private onBlur = (): void => this.setNavigating(false);
@@ -589,11 +527,11 @@ export class Controller implements TableHost {
 
   // ---- view: sort and filter --------------------------------------------
 
-  private viewOf(info: WidgetInfo): ViewState {
+  viewOf(info: WidgetInfo): ViewState {
     return this.views.get(info.key) ?? DEFAULT_VIEW;
   }
 
-  private setView(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
+  setView(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
     this.views.set(info.key, view);
     this.applyView(widget, info);
   }
@@ -602,7 +540,7 @@ export class Controller implements TableHost {
    * A view change that may change the sorting. With the metadata setting on,
    * the sorting is also stored in the table, so it is the table's view next time.
    */
-  private setSort(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
+  setSort(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
     this.setView(widget, info, view);
     // Clicks in a row store only where they end, in the table as rendered then
     clearTimeout(this.sortTimers.get(info.key));
@@ -634,6 +572,10 @@ export class Controller implements TableHost {
     return this.editor;
   }
 
+  get metadataEnabled(): boolean {
+    return this.metadataOn;
+  }
+
   takeEditor(): { widget: HTMLElement; row: number; column: number; save: (table: Table) => Table | undefined } | undefined {
     const closed = this.closeEditor();
     return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.withSaved(t, closed) };
@@ -663,7 +605,7 @@ export class Controller implements TableHost {
     return undefined;
   }
 
-  private bodyRows(info: WidgetInfo): HTMLTableRowElement[] {
+  bodyRows(info: WidgetInfo): HTMLTableRowElement[] {
     return Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]")).sort(
       (a, b) => Number(a.dataset.tpRow) - Number(b.dataset.tpRow),
     );
@@ -832,9 +774,7 @@ export class Controller implements TableHost {
   }
 
   private onMouseDown = (e: MouseEvent): void => {
-    const target = e.target instanceof Node ? e.target : null;
     for (const feature of this.features) if (feature.mouseDown?.(e)) return;
-    if (this.menu && target && !this.isFloating(target)) this.closeMenu(false);
     if (e.button !== 0) return;
     for (const feature of this.features) feature.beforeMouseDown?.(e);
     if (e.altKey) {
@@ -934,22 +874,18 @@ export class Controller implements TableHost {
    * page or the table scrolls; hides them only once that is out of view
    */
   private followScroll(): void {
-    if (this.dragging) return;
+    if (this.features.some((f) => f.pointerBusy?.() === "drag")) return;
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (!widget || !info || renderedTable(widget) !== info.table || !this.isShown(widget, info, info.table)) {
-      this.closeMenu(false);
-      this.hideFloating();
+      this.hideFloating(true);
       return;
     }
     this.showTableControls(widget, info);
     const cell = this.hoverCell;
-    if (cell && cell.isConnected && this.isShown(widget, info, cell)) this.showHandles(widget, info, cell);
-    else {
-      this.closeMenu(false);
-      this.hideHandles();
-    }
-    if (this.menu) this.positionMenu();
+    if (cell && cell.isConnected && this.isShown(widget, info, cell)) {
+      for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
+    } else this.endHover(true);
   }
 
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
@@ -1011,12 +947,6 @@ export class Controller implements TableHost {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === "Escape" && this.menu) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.closeMenu(true);
-      return;
-    }
     for (const feature of this.features) if (feature.keyDown?.(e)) return;
   };
 
@@ -1031,7 +961,7 @@ export class Controller implements TableHost {
 
   private onMouseMove = (e: MouseEvent): void => {
     // A pressed button: dragging a scrollbar or selecting; the controls stay where they are
-    if (this.dragging || this.menu || e.buttons !== 0) return;
+    if (this.features.some((f) => f.pointerBusy?.()) || e.buttons !== 0) return;
     const target = e.target;
     if (target instanceof Node && this.isFloating(target)) {
       this.cancelHide();
@@ -1049,12 +979,15 @@ export class Controller implements TableHost {
       this.showTableControls(widget, info);
     }
     if (this.editor) {
-      this.hideHandles();
+      this.endHover(false);
       return;
     }
     // Not over a cell (e.g. the table's own scrollbar): the grips stay on the last cell
     const cell = this.tableCellOf(info, target);
-    if (cell && cell !== this.hoverCell) this.showHandles(widget, info, cell);
+    if (cell && cell !== this.hoverCell) {
+      this.hoverCell = cell;
+      for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
+    }
   };
 
   /** Whether the pointer is over the scrollbar of the element under it */
@@ -1120,7 +1053,7 @@ export class Controller implements TableHost {
     cell.append(field);
     this.editor = { widget, cell, ...ref, original, initial: field.value, field, kept, cellStyle };
     this.reveal(widget, cell);
-    this.hideHandles();
+    this.endHover(false);
 
     this.isolate(field);
     field.addEventListener("blur", () => {
@@ -1229,7 +1162,7 @@ export class Controller implements TableHost {
   }
 
   /** A setting's value, falling back to its default when unset or not valid */
-  private async setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>> {
+  async setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>> {
     const { path, parse } = SETTINGS[name];
     const fallback = SETTINGS[name].default as SettingValue<K>;
     try {
@@ -1261,7 +1194,7 @@ export class Controller implements TableHost {
     }
     const info = this.infos.get(active.widget);
     const closed = this.closeEditor()!;
-    if (info) await this.insertRowWith(closed.widget, info, closed.row + 1, closed.column, (t) => this.withSaved(t, closed));
+    if (info) await insertRowWith(this, closed.widget, info, closed.row + 1, closed.column, (t) => this.withSaved(t, closed));
   }
 
   /** The table with the closed editor's value saved, if it changed */
@@ -1407,7 +1340,7 @@ export class Controller implements TableHost {
     }
     // Tab on the last cell adds a row (above the rows pinned to the bottom)
     const closed = this.closeEditor()!;
-    await this.insertRowWith(closed.widget, info, appendRowAt(info.pins, info.rows), 0, (t) => this.withSaved(t, closed));
+    await insertRowWith(this, closed.widget, info, appendRowAt(info.pins, info.rows), 0, (t) => this.withSaved(t, closed));
   }
 
   private takePendingFocus(widget: HTMLElement, info: WidgetInfo): void {
@@ -1508,8 +1441,7 @@ export class Controller implements TableHost {
       void this.bridge.flash(NOT_SAVED.replace(", nothing was saved", ""), "error");
       return;
     }
-    this.hideFloating();
-    this.closeMenu(false);
+    this.hideFloating(true);
     const offset = at ? cellSourceOffset(range.text, at.row, at.column, at.within) : 0;
     await this.bridge.moveCursor(range.from + offset);
   }
@@ -1518,7 +1450,7 @@ export class Controller implements TableHost {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (!widget || !info) return;
-    void this.insertRowWith(widget, info, appendRowAt(info.pins, info.rows), this.firstVisibleColumn(widget, info));
+    void insertRowWith(this, widget, info, appendRowAt(info.pins, info.rows), this.firstVisibleColumn(widget, info));
   }
 
   /** The leftmost column in view, so editing a new row does not scroll a wide table back */
@@ -1533,102 +1465,10 @@ export class Controller implements TableHost {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (!widget || !info) return;
-    void this.insertColumnWith(widget, info, appendColumnAt(info.pins, info.columns));
+    void insertColumnWith(this, widget, info, appendColumnAt(info.pins, info.columns));
   }
 
-  // ---- structural edits: pinned rows and columns keep the edges -------------
-
-  /** Adds a row asked for at `at` (see insertRowAt) and edits it in `column` */
-  private insertRowWith(
-    widget: HTMLElement,
-    info: WidgetInfo,
-    at: number,
-    column: number,
-    prepare: (t: Table) => Table | undefined = (t) => t,
-  ): Promise<WriteResult> {
-    const insert = insertRowAt(info.pins, info.rows, at);
-    return this.write(
-      widget,
-      (t) => {
-        const prepared = prepare(t);
-        return prepared && insertRow(prepared, insert.at);
-      },
-      { focus: { row: insert.at, column }, pins: insert.pins, rowMap: rowAfterInsert(insert.at) },
-    );
-  }
-
-  private duplicateRowAt(widget: HTMLElement, info: WidgetInfo, row: number): Promise<WriteResult> {
-    // The copy goes below the row, or above it when the row is the last one pinned to the bottom
-    const insert = insertRowAt(info.pins, info.rows, row + 1);
-    return this.write(
-      widget,
-      (t) => {
-        const cells = t.rows[row]?.cells;
-        return cells ? insertRow(t, insert.at, cells) : undefined;
-      },
-      { pins: insert.pins, rowMap: rowAfterInsert(insert.at) },
-    );
-  }
-
-  private deleteRowAt(widget: HTMLElement, info: WidgetInfo, row: number): Promise<WriteResult> {
-    return this.write(widget, (t) => deleteRow(t, row), {
-      pins: deleteRowPins(info.pins, info.rows, row),
-      rowMap: (r) => (r === row ? undefined : r > row ? r - 1 : r),
-    });
-  }
-
-  /** Moves a row, within its zone when pinned, outside the zones when not */
-  private moveRowTo(widget: HTMLElement, info: WidgetInfo, from: number, asked: number): Promise<WriteResult> {
-    const to = clampRowMove(info.pins, info.rows, from, asked);
-    if (to === from) return Promise.resolve("unchanged");
-    return this.write(widget, (t) => moveRow(t, from, to), { rowMap: (r) => columnAfterMove(r, from, to) });
-  }
-
-  private insertColumnWith(widget: HTMLElement, info: WidgetInfo, at: number): Promise<WriteResult> {
-    const insert = insertColumnAt(info.pins, info.columns, at);
-    return this.write(
-      widget,
-      (t) => insertColumn(t, insert.at),
-      { focus: { row: 0, column: insert.at, select: true }, columnMap: (c) => (c >= insert.at ? c + 1 : c), pins: insert.pins },
-    );
-  }
-
-  private deleteColumnAt(widget: HTMLElement, info: WidgetInfo, column: number): Promise<WriteResult> {
-    return this.write(
-      widget,
-      (t) => deleteColumn(t, column),
-      {
-        columnMap: (c) => (c === column ? undefined : c > column ? c - 1 : c),
-        pins: deleteColumnPins(info.pins, info.columns, column),
-      },
-    );
-  }
-
-  private moveColumnTo(widget: HTMLElement, info: WidgetInfo, from: number, asked: number): Promise<WriteResult> {
-    const to = clampColumnMove(info.pins, info.columns, from, asked);
-    if (to === from) return Promise.resolve("unchanged");
-    return this.write(widget, (t) => moveColumn(t, from, to), { columnMap: (c) => columnAfterMove(c, from, to) });
-  }
-
-  /** Pins a row to the top or bottom (moving it there), or unpins it; pinning needs the metadata setting */
-  private async pinRowAt(widget: HTMLElement, info: WidgetInfo, row: number, pin: RowZone | undefined): Promise<void> {
-    if (pin && !(await this.setting("metadata"))) return;
-    const { to, pins } = pinRow(info.pins, info.rows, row, pin);
-    await this.write(widget, (t) => moveRow(t, row, to), { pins, rowMap: (r) => columnAfterMove(r, row, to) });
-  }
-
-  private async pinColumnAt(
-    widget: HTMLElement,
-    info: WidgetInfo,
-    column: number,
-    pin: ColumnZone | undefined,
-  ): Promise<void> {
-    if (pin && !(await this.setting("metadata"))) return;
-    const { to, pins } = pinColumn(info.pins, info.columns, column, pin);
-    await this.write(widget, (t) => moveColumn(t, column, to), { columnMap: (c) => columnAfterMove(c, column, to), pins });
-  }
-
-  // ---- floating UI: toolbar, grips, add buttons --------------------------
+  // ---- floating UI: toolbar and add buttons ---------------------------------
 
   floating<K extends keyof HTMLElementTagNameMap>(
     tag: K,
@@ -1655,10 +1495,7 @@ export class Controller implements TableHost {
   }
 
   isFloating(node: Node): boolean {
-    return (
-      [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn].some((el) => el.contains(node)) ||
-      !!this.menu?.element.contains(node)
-    );
+    return [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) || this.features.some((f) => f.owns?.(node));
   }
 
   place(element: HTMLElement, left: number, top: number): void {
@@ -1682,14 +1519,14 @@ export class Controller implements TableHost {
     }, 300);
   }
 
-  private hideHandles(): void {
-    for (const el of [this.rowGrip, this.columnGrip]) el.classList.remove("tp-visible");
+  /** No cell is hovered: the grips go, and with `closeMenus` an open menu */
+  private endHover(closeMenus: boolean): void {
     this.hoverCell = undefined;
-    this.handleTarget = undefined;
+    for (const feature of this.features) feature.hoverEnded?.(closeMenus);
   }
 
-  private hideFloating(): void {
-    this.hideHandles();
+  private hideFloating(closeMenus = false): void {
+    this.endHover(closeMenus);
     for (const el of [this.bar, this.addRow, this.addColumn]) el.classList.remove("tp-visible");
     this.hoverWidget = undefined;
   }
@@ -1793,35 +1630,8 @@ export class Controller implements TableHost {
     );
   }
 
-  private showHandles(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void {
-    this.hoverCell = cell;
-    const ref = this.cellRef(info, cell);
-    if (!ref) return;
-    this.handleTarget = { widget, info, column: ref.column, ...(ref.row > 0 ? { row: ref.row } : {}) };
-    const tr = cell.parentElement as HTMLTableRowElement;
-    // The part of a wide table in view: the table itself may be scrolled sideways
-    const shown = this.shownRect(widget, info);
-    const rearranged = this.rearranged(info);
-
-    if (ref.row > 0) {
-      const rowRect = tr.getBoundingClientRect();
-      this.rowGrip.classList.toggle("tp-no-drag", rearranged);
-      this.rowGrip.title = rearranged ? `Row: click for actions (${MOVE_BLOCKED.toLowerCase()})` : "Row: click for actions, drag to move";
-      this.place(this.rowGrip, shown.left - 22, rowRect.top + (rowRect.height - 18) / 2);
-    } else {
-      this.rowGrip.classList.remove("tp-visible");
-    }
-    const headerCell = info.table.rows[0]!.cells[ref.column];
-    if (headerCell) {
-      const h = headerCell.getBoundingClientRect();
-      // Centered on the column, as far as the column is in view
-      const center = Math.max(shown.left + 9, Math.min(h.left + h.width / 2, shown.right - 9));
-      this.place(this.columnGrip, center - 9, h.top - 9);
-    }
-  }
-
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
-  private shownRect(
+  shownRect(
     widget: HTMLElement,
     info: WidgetInfo,
   ): { left: number; right: number; top: number; bottom: number } {
@@ -1833,377 +1643,5 @@ export class Controller implements TableHost {
       top: Math.max(box.top, table.top),
       bottom: Math.min(box.bottom, table.bottom),
     };
-  }
-
-  // ---- grips: click opens a menu, drag moves -----------------------------
-
-  private onGripPointerDown(e: PointerEvent, axis: Axis): void {
-    const target = this.handleTarget;
-    if (e.button !== 0 || !target || (axis === "row" && target.row === undefined)) return;
-    e.preventDefault();
-    const grip = axis === "row" ? this.rowGrip : this.columnGrip;
-    const canDrag = axis === "column" || !this.rearranged(target.info);
-    const win = this.doc.defaultView!;
-    const startX = e.clientX;
-    const startY = e.clientY;
-    let drag: ReturnType<Controller["beginDrag"]> | undefined;
-
-    const move = (ev: PointerEvent) => {
-      if (!drag) {
-        if (!canDrag || Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
-        this.closeMenu(false);
-        drag = this.beginDrag(target, axis);
-      }
-      drag.move(ev);
-    };
-    const cleanup = () => {
-      win.removeEventListener("pointermove", move);
-      win.removeEventListener("pointerup", up);
-      win.removeEventListener("keydown", escape, true);
-    };
-    const up = () => {
-      cleanup();
-      if (drag) drag.finish(true);
-      else this.toggleMenu(axis, target, grip);
-    };
-    const escape = (ev: KeyboardEvent) => {
-      if (ev.key !== "Escape" || !drag) return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      cleanup();
-      drag.finish(false);
-    };
-    win.addEventListener("pointermove", move);
-    win.addEventListener("pointerup", up);
-    win.addEventListener("keydown", escape, true);
-  }
-
-  private beginDrag(target: HandleTarget, axis: Axis): { move: (e: PointerEvent) => void; finish: (commit: boolean) => void } {
-    const { widget, info } = target;
-    const from = axis === "row" ? target.row! : target.column;
-    const table = info.table;
-    const header = table.rows[0]!;
-    const bodyRows = this.bodyRows(info);
-    const carried =
-      axis === "row"
-        ? bodyRows.filter((tr) => Number(tr.dataset.tpRow) === from)
-        : [header, ...bodyRows].map((tr) => tr.cells[from]).filter((c): c is HTMLTableCellElement => !!c);
-    carried.forEach((el) => el.classList.add("tp-dragged"));
-    const line = this.floating("div", "tp-drop tp-visible");
-    this.doc.body.classList.add("tp-dragging");
-    this.dragging = true;
-    let slot = from;
-
-    // A slot is "before item i"; one past the last item means "at the end"
-    const move = (ev: PointerEvent) => {
-      const tableRect = table.getBoundingClientRect();
-      const shown = this.shownRect(widget, info);
-      if (axis === "row") {
-        slot = bodyRows.length + 1;
-        for (let i = 0; i < bodyRows.length; i++) {
-          const r = bodyRows[i]!.getBoundingClientRect();
-          if (ev.clientY < r.top + r.height / 2) {
-            slot = i + 1;
-            break;
-          }
-        }
-        const y = slot <= bodyRows.length ? bodyRows[slot - 1]!.getBoundingClientRect().top : tableRect.bottom;
-        Object.assign(line.style, {
-          left: `${shown.left}px`,
-          top: `${y - 1}px`,
-          width: `${shown.right - shown.left}px`,
-          height: "2px",
-        });
-      } else {
-        const cells = Array.from(header.cells);
-        slot = cells.length;
-        for (let i = 0; i < cells.length; i++) {
-          const r = cells[i]!.getBoundingClientRect();
-          if (ev.clientX < r.left + r.width / 2) {
-            slot = i;
-            break;
-          }
-        }
-        const x = slot < cells.length ? cells[slot]!.getBoundingClientRect().left : tableRect.right;
-        Object.assign(line.style, {
-          left: `${x - 1}px`,
-          top: `${tableRect.top}px`,
-          width: "2px",
-          height: `${tableRect.height}px`,
-        });
-      }
-    };
-    const finish = (commit: boolean) => {
-      carried.forEach((el) => el.classList.remove("tp-dragged"));
-      line.remove();
-      this.doc.body.classList.remove("tp-dragging");
-      this.dragging = false;
-      this.hideHandles();
-      const to = slot > from ? slot - 1 : slot;
-      if (!commit || to === from) return;
-      if (axis === "row") void this.moveRowTo(widget, info, from, to);
-      else void this.moveColumnTo(widget, info, from, to);
-    };
-    return { move, finish };
-  }
-
-  // ---- menus -------------------------------------------------------------
-
-  private toggleMenu(axis: Axis, target: HandleTarget, anchor: HTMLElement): void {
-    if (this.menu?.axis === axis) {
-      this.closeMenu(true);
-      return;
-    }
-    this.closeMenu(false);
-    const { widget, info } = target;
-    const element =
-      axis === "row"
-        ? renderMenu(this.doc, `Row ${target.row}`, this.rowMenu(widget, info, target.row!, target.column))
-        : renderMenu(
-            this.doc,
-            `Column: ${cellText(info.table.rows[0]!.cells[target.column]!) || target.column + 1}`,
-            this.columnMenu(widget, info, target.column),
-          );
-    element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    element.addEventListener("mousedown", (e) => e.preventDefault());
-    this.doc.body.append(element);
-    this.menu = { element, axis, widget, anchor };
-    this.positionMenu();
-    anchor.classList.add("tp-active");
-    focusMenu(element);
-  }
-
-  /** Rows: to the right of the grip; columns: below it; always inside the window */
-  private positionMenu(): void {
-    if (!this.menu) return;
-    const { element, axis, anchor } = this.menu;
-    const win = this.doc.defaultView!;
-    const a = anchor.getBoundingClientRect();
-    const m = element.getBoundingClientRect();
-    let left = axis === "row" ? a.right + 4 : a.left + a.width / 2 - m.width / 2;
-    let top = axis === "row" ? a.top - 6 : a.bottom + 4;
-    left = Math.max(4, Math.min(left, win.innerWidth - m.width - 4));
-    if (top + m.height > win.innerHeight - 4) top = Math.max(4, win.innerHeight - m.height - 4);
-    element.style.left = `${Math.round(left)}px`;
-    element.style.top = `${Math.round(top)}px`;
-  }
-
-  private closeMenu(refocus: boolean): void {
-    const menu = this.menu;
-    if (!menu) return;
-    this.menu = undefined;
-    const hadFocus = menu.element.contains(this.doc.activeElement);
-    menu.element.remove();
-    this.rowGrip.classList.remove("tp-active");
-    this.columnGrip.classList.remove("tp-active");
-    this.hideHandles();
-    if (refocus && hadFocus) this.focusEditor(menu.widget);
-  }
-
-  private runAndClose(run: () => void): () => void {
-    return () => {
-      this.closeMenu(false);
-      run();
-    };
-  }
-
-  // `column`: the hovered column, where editing a new row starts
-  private rowMenu(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
-    const rearranged = this.rearranged(info);
-    const zone = rowZone(info.pins, info.rows, row);
-    const act = (run: () => unknown) => this.runAndClose(() => void run());
-    const moveBlocked = (to: number) =>
-      rearranged
-        ? MOVE_BLOCKED
-        : clampRowMove(info.pins, info.rows, row, to) === row
-          ? zone
-            ? "Pinned rows stay with the other pinned rows"
-            : "Already at the edge"
-          : undefined;
-    // Pinning more needs the metadata setting; unpinning (a checked item) always works
-    const pinBlocked = (to: string) => (this.metadataOn || zone === to ? undefined : PIN_NEEDS_METADATA);
-    // Nothing goes above the first row pinned to the top, nor below the last one pinned to the bottom
-    const insertBlocked = (at: number) =>
-      insertRowAt(info.pins, info.rows, at).at === at
-        ? undefined
-        : zone === "top"
-          ? "Rows pinned to the top stay at the top"
-          : "Rows pinned to the bottom stay at the bottom";
-    return [
-      {
-        kind: "item",
-        label: "Insert row above",
-        icon: ICONS.rowAbove,
-        run: act(() => this.insertRowWith(widget, info, row, column)),
-        disabled: insertBlocked(row),
-      },
-      {
-        kind: "item",
-        label: "Insert row below",
-        icon: ICONS.rowBelow,
-        run: act(() => this.insertRowWith(widget, info, row + 1, column)),
-        disabled: insertBlocked(row + 1),
-      },
-      { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: act(() => this.duplicateRowAt(widget, info, row)) },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Move up",
-        icon: ICONS.arrowUp,
-        run: act(() => this.moveRowTo(widget, info, row, row - 1)),
-        disabled: moveBlocked(row - 1),
-      },
-      {
-        kind: "item",
-        label: "Move down",
-        icon: ICONS.arrowDown,
-        run: act(() => this.moveRowTo(widget, info, row, row + 1)),
-        disabled: moveBlocked(row + 1),
-      },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Pin to top",
-        icon: ICONS.pinTop,
-        checked: zone === "top",
-        run: act(() => this.pinRowAt(widget, info, row, zone === "top" ? undefined : "top")),
-        disabled: pinBlocked("top"),
-      },
-      {
-        kind: "item",
-        label: "Pin to bottom",
-        icon: ICONS.pinBottom,
-        checked: zone === "bottom",
-        run: act(() => this.pinRowAt(widget, info, row, zone === "bottom" ? undefined : "bottom")),
-        disabled: pinBlocked("bottom"),
-      },
-      { kind: "separator" },
-      { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => this.deleteRowAt(widget, info, row)) },
-    ];
-  }
-
-  private columnMenu(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
-    const view = this.viewOf(info);
-    const sorted = view.sort?.column === column ? view.sort.direction : undefined;
-    const align = parseTable(info.source).align[column] ?? "";
-    const edit = (
-      change: (t: Table) => Table | undefined,
-      focus?: FocusTarget,
-      columnMap?: (c: number) => number | undefined,
-    ) => this.runAndClose(() => void this.write(widget, change, { focus, columnMap }));
-    const sortBy = (next: ViewState) => this.runAndClose(() => this.setSort(widget, info, next));
-    const alignTo = (target: Align) => edit((t) => setAlign(t, column, align === target ? "" : target));
-    const act = (run: () => unknown) => this.runAndClose(() => void run());
-    const zone = columnZone(info.pins, info.columns, column);
-    const columnMoveBlocked = (to: number) =>
-      clampColumnMove(info.pins, info.columns, column, to) === column
-        ? zone
-          ? "Pinned columns stay with the other pinned columns"
-          : "Already at the edge"
-        : undefined;
-    // Pinning more needs the metadata setting; unpinning (a checked item) always works
-    const pinBlocked = (to: string) => (this.metadataOn || zone === to ? undefined : PIN_NEEDS_METADATA);
-    const insertBlocked = (at: number) =>
-      insertColumnAt(info.pins, info.columns, at).at === at
-        ? undefined
-        : zone === "left"
-          ? "Columns pinned to the left stay at the left"
-          : "Columns pinned to the right stay at the right";
-    const entries: MenuEntry[] = [
-      {
-        kind: "item",
-        label: "Sort ascending",
-        icon: ICONS.sortAsc,
-        checked: sorted === "asc",
-        run: sortBy(withSort(view, column, "asc")),
-      },
-      {
-        kind: "item",
-        label: "Sort descending",
-        icon: ICONS.sortDesc,
-        checked: sorted === "desc",
-        run: sortBy(withSort(view, column, "desc")),
-      },
-    ];
-    if (view.sort) {
-      entries.push({ kind: "item", label: "Clear sorting", icon: ICONS.clear, run: sortBy(withoutSort(view)) });
-    }
-    entries.push(
-      {
-        kind: "item",
-        label: "Filter",
-        icon: ICONS.filter,
-        run: this.runAndClose(() => {
-          this.setView(widget, info, { ...this.viewOf(info), showFilters: true });
-          info.table.querySelector<HTMLInputElement>(`.tp-filter[data-tp-column="${column}"]`)?.focus();
-        }),
-      },
-      { kind: "separator" },
-      {
-        kind: "segmented",
-        label: "Align",
-        options: [
-          { icon: ICONS.alignLeft, title: "Align left", active: align === "left", run: alignTo("left") },
-          { icon: ICONS.alignCenter, title: "Align center", active: align === "center", run: alignTo("center") },
-          { icon: ICONS.alignRight, title: "Align right", active: align === "right", run: alignTo("right") },
-        ],
-      },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Insert column left",
-        icon: ICONS.columnLeft,
-        run: act(() => this.insertColumnWith(widget, info, column)),
-        disabled: insertBlocked(column),
-      },
-      {
-        kind: "item",
-        label: "Insert column right",
-        icon: ICONS.columnRight,
-        run: act(() => this.insertColumnWith(widget, info, column + 1)),
-        disabled: insertBlocked(column + 1),
-      },
-      {
-        kind: "item",
-        label: "Move left",
-        icon: ICONS.arrowLeft,
-        run: act(() => this.moveColumnTo(widget, info, column, column - 1)),
-        disabled: columnMoveBlocked(column - 1),
-      },
-      {
-        kind: "item",
-        label: "Move right",
-        icon: ICONS.arrowRight,
-        run: act(() => this.moveColumnTo(widget, info, column, column + 1)),
-        disabled: columnMoveBlocked(column + 1),
-      },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Pin left",
-        icon: ICONS.pinLeft,
-        checked: zone === "left",
-        run: act(() => this.pinColumnAt(widget, info, column, zone === "left" ? undefined : "left")),
-        disabled: pinBlocked("left"),
-      },
-      {
-        kind: "item",
-        label: "Pin right",
-        icon: ICONS.pinRight,
-        checked: zone === "right",
-        run: act(() => this.pinColumnAt(widget, info, column, zone === "right" ? undefined : "right")),
-        disabled: pinBlocked("right"),
-      },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Delete column",
-        icon: ICONS.trash,
-        danger: true,
-        run: act(() => this.deleteColumnAt(widget, info, column)),
-        disabled: info.columns <= 1 ? "A table needs at least one column" : undefined,
-      },
-    );
-    return entries;
   }
 }
