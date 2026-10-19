@@ -4,12 +4,8 @@
 // it: the table sits in a sideways scrolling box, which captures sticky
 // positioning. So they are moved with a transform, never past each other.
 import type { Feature, TableHost } from "../core/feature.ts";
+import { STICKY_GAP } from "../core/layout.ts";
 import { renderedTable, WIDGET_SELECTOR } from "../dom.ts";
-
-// Space between the top of the view and a header held there, room for the
-// toolbar (25px) above the header. The CSS covers it with the page color, so no
-// row shows above the header; keep both in step.
-export const STICKY_GAP = 38;
 
 export class Sticky implements Feature {
   constructor(private readonly host: TableHost) {}

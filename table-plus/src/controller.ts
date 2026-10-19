@@ -6,14 +6,14 @@ import type {
   CellEditor,
   CellRef,
   Feature,
-  FocusTarget,
   TableHost,
   WidgetInfo,
   WriteOptions,
   WriteResult,
   WriteStep,
 } from "./core/feature.ts";
-import { insertColumnWith, insertRowWith, MOVE_BLOCKED } from "./core/structure.ts";
+import { CellEditing } from "./core/editor.ts";
+import { insertColumnWith, insertRowWith } from "./core/structure.ts";
 import { Autoscroll } from "./features/autoscroll.ts";
 import { Expressions } from "./features/expressions.ts";
 import { Formulas } from "./features/formulas.ts";
@@ -22,7 +22,7 @@ import { History } from "./features/history.ts";
 import { Metadata } from "./features/metadata.ts";
 import { Paste } from "./features/paste.ts";
 import { Selection } from "./features/selection.ts";
-import { STICKY_GAP, Sticky } from "./features/sticky.ts";
+import { Sticky } from "./features/sticky.ts";
 import {
   caretTextOffset,
   cellText,
@@ -38,7 +38,6 @@ import { formulasAfterEdit } from "./formula/index.ts";
 import { ICONS } from "./icons.ts";
 import {
   cellSourceOffset,
-  escapeCell,
   locateBySource,
   locateByShape,
   locateWithEmptyHeaders,
@@ -46,11 +45,10 @@ import {
   parseTable,
   serializeTable,
   type Table,
-  unescapeCell,
 } from "./markdown.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
-import { appendColumnAt, appendRowAt, clampColumnMove, clampRowMove } from "./pins.ts";
-import { columnAfterMove, moveColumn, moveRow, nameEmptyHeaders, reorderRows, setCell } from "./ops.ts";
+import { appendColumnAt, appendRowAt } from "./pins.ts";
+import { nameEmptyHeaders, reorderRows } from "./ops.ts";
 import {
   cycleSort,
   DEFAULT_FILTER_OPTIONS,
@@ -68,10 +66,6 @@ import {
 } from "./view.ts";
 
 // The cell editor as features see it, and what it takes to put the cell back
-type ActiveEditor = CellEditor & {
-  readonly kept: DocumentFragment;
-  readonly cellStyle: string | null;
-};
 
 
 const STOPPED_EVENTS = [
@@ -98,24 +92,6 @@ const BAR_GAP = 10;
 const STORE_SORT_DELAY_MS = 400;
 
 
-
-// Ctrl+Alt + these keys move the edited cell's row or column
-const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
-
-// Ctrl(+Shift) + these keys move the cell editor to another cell
-const NAVIGATION_KEYS = new Set([
-  "ArrowLeft",
-  "ArrowRight",
-  "ArrowUp",
-  "ArrowDown",
-  "Home",
-  "End",
-  "PageUp",
-  "PageDown",
-]);
-
-// Rows a PageUp / PageDown jumps (Ctrl) or moves a row (Ctrl+Alt)
-const PAGE_ROWS = 10;
 
 const FILTER_HINT =
   "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
@@ -145,14 +121,11 @@ export class Controller implements TableHost {
   private maxHeight = 0;
   // The metadata setting, for menus that offer pinning
   private metadataOn = false;
-  // The selectOnClick setting: a plain click selects the cell's text
-  private selectOnClick = false;
   // Sideways scroll of each wide table, carried over to its next rendering
   private readonly scrollLefts = new Map<string, number>();
   // The same for tables taller than the maximum height setting, scrolled inside
   private readonly scrollTops = new Map<string, number>();
-  private editor: ActiveEditor | undefined;
-  private pendingFocus: (FocusTarget & { key: string; until: number }) | undefined;
+  private readonly cellEditor: CellEditing;
   private hoverWidget: HTMLElement | undefined;
   private hoverCell: HTMLTableCellElement | undefined;
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -183,6 +156,7 @@ export class Controller implements TableHost {
   ) {
     this.metadata = new Metadata(this);
     this.expressions = new Expressions(this);
+    // In the order they get events
     this.features = [
       // First: the header moves before what follows it
       new Sticky(this),
@@ -195,6 +169,12 @@ export class Controller implements TableHost {
       this.expressions,
       new History(this),
     ];
+    this.cellEditor = new CellEditing(this, {
+      features: this.features,
+      isolate: (element) => this.isolate(element),
+      endHover: () => this.endHover(false),
+      movingRows: () => this.movingRows,
+    });
     this.bar = this.floating("div", "tp-bar");
     this.addRow = this.floatingButton("tp-add tp-add-row", "Add a row at the end", ICONS.plus);
     this.addRow.insertAdjacentText("beforeend", "Row");
@@ -245,7 +225,7 @@ export class Controller implements TableHost {
     for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
   }
 
-  private onBlur = (): void => this.setNavigating(false);
+  private onBlur = (): void => this.cellEditor.setNavigating(false);
 
   /** Refreshes the settings at most once a second, the last request always served */
   private queueSettingsRefresh(): void {
@@ -335,7 +315,7 @@ export class Controller implements TableHost {
     const smart = (await this.setting("smartFilters")) === true;
     const maxHeight = await this.setting("maxHeight");
     this.metadataOn = await this.setting("metadata");
-    this.selectOnClick = await this.setting("selectOnClick");
+    this.cellEditor.selectOnClick = await this.setting("selectOnClick");
     if (this.stopped || (smart === this.filterOptions.smart && maxHeight === this.maxHeight)) return;
     this.filterOptions = { smart };
     this.maxHeight = maxHeight;
@@ -430,7 +410,7 @@ export class Controller implements TableHost {
       if (scrollLeft) widget.scrollLeft = scrollLeft;
       const scrollTop = this.scrollTops.get(info.key);
       if (scrollTop) widget.scrollTop = scrollTop;
-      this.takePendingFocus(widget, info);
+      this.cellEditor.takePending(widget, info);
       for (const feature of this.features) feature.enhanced?.(widget, info);
       this.queueStickyUpdate();
       void this.refreshSettings();
@@ -569,7 +549,7 @@ export class Controller implements TableHost {
   }
 
   get editing(): CellEditor | undefined {
-    return this.editor;
+    return this.cellEditor.active;
   }
 
   get metadataEnabled(): boolean {
@@ -577,8 +557,8 @@ export class Controller implements TableHost {
   }
 
   takeEditor(): { widget: HTMLElement; row: number; column: number; save: (table: Table) => Table | undefined } | undefined {
-    const closed = this.closeEditor();
-    return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.withSaved(t, closed) };
+    const closed = this.cellEditor.close();
+    return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.cellEditor.withSaved(t, closed) };
   }
 
   /** The "Table Plus: Remove table metadata" command */
@@ -592,8 +572,8 @@ export class Controller implements TableHost {
   }
 
   cancelEditing(): void {
-    this.pendingFocus = undefined;
-    if (this.editor) void this.finishEditing(false);
+    this.cellEditor.dropPending();
+    if (this.cellEditor.active) void this.cellEditor.finish(false);
   }
 
   /** The rendered table a view key belongs to, if it is enhanced and on screen */
@@ -634,7 +614,7 @@ export class Controller implements TableHost {
       ...(metaRow ? [metaRow] : []),
     ];
     // Moving the row of an open cell editor would take its focus: restored below
-    const editing = this.editor?.widget === widget ? this.editor : undefined;
+    const editing = this.cellEditor.active?.widget === widget ? this.cellEditor.active : undefined;
     const selection = editing && [editing.field.selectionStart, editing.field.selectionEnd];
     this.movingRows = true;
     try {
@@ -645,7 +625,7 @@ export class Controller implements TableHost {
     } finally {
       this.movingRows = false;
     }
-    if (editing && this.editor === editing && this.doc.activeElement !== editing.field) {
+    if (editing && this.cellEditor.active === editing && this.doc.activeElement !== editing.field) {
       editing.field.focus({ preventScroll: true });
       if (selection) editing.field.setSelectionRange(selection[0] ?? null, selection[1] ?? null);
     }
@@ -797,14 +777,14 @@ export class Controller implements TableHost {
     }
     e.preventDefault();
     const cell = this.tableCellOf(info, element);
-    if (!cell || this.editor?.cell === cell) return;
+    if (!cell || this.cellEditor.active?.cell === cell) return;
     const ref = this.cellRef(info, cell);
     if (!ref) return;
     for (const feature of this.features) if (feature.beforeCellPress?.(widget, info, ref, e)) return;
     // Shift+click selects the cell's text; the selectOnClick setting swaps that round
-    const select = e.shiftKey !== this.selectOnClick;
-    if (this.editor) void this.finishEditing(true, { widget, ...ref, select });
-    else this.openEditor(widget, info, cell, select);
+    const select = e.shiftKey !== this.cellEditor.selectOnClick;
+    if (this.cellEditor.active) void this.cellEditor.finish(true, { widget, ...ref, select });
+    else this.cellEditor.open(widget, info, cell, select);
     for (const feature of this.features) feature.afterCellPress?.(info, ref, e);
   };
 
@@ -819,8 +799,8 @@ export class Controller implements TableHost {
     e.preventDefault();
     e.stopPropagation();
     const info = hit[1];
-    if (this.editor) {
-      void this.finishEditing(true, undefined, false);
+    if (this.cellEditor.active) {
+      void this.cellEditor.finish(true, undefined, false);
       return;
     }
     const ref = this.cellRef(info, cell);
@@ -951,13 +931,8 @@ export class Controller implements TableHost {
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    if (e.key === "Control") this.setNavigating(false);
+    if (e.key === "Control") this.cellEditor.setNavigating(false);
   };
-
-  // While Ctrl is held in a cell editor, arrows move between cells: the pointer shows it
-  private setNavigating(on: boolean): void {
-    this.doc.body.classList.toggle("tp-navigating", on);
-  }
 
   private onMouseMove = (e: MouseEvent): void => {
     // A pressed button: dragging a scrollbar or selecting; the controls stay where they are
@@ -978,7 +953,7 @@ export class Controller implements TableHost {
       this.hoverWidget = widget;
       this.showTableControls(widget, info);
     }
-    if (this.editor) {
+    if (this.cellEditor.active) {
       this.endHover(false);
       return;
     }
@@ -1009,156 +984,12 @@ export class Controller implements TableHost {
     return Number.isInteger(row) ? { row, column: cell.cellIndex } : undefined;
   }
 
-  cellAt(info: WidgetInfo, ref: CellRef, includeHidden = false): HTMLTableCellElement | undefined {
-    const tr =
-      ref.row === 0
-        ? info.table.rows[0]
-        : info.table.querySelector<HTMLTableRowElement>(`tr[data-tp-row="${ref.row}"]`);
-    if (!tr || (tr.classList.contains("tp-hidden") && !includeHidden)) return undefined;
-    return tr.cells[ref.column];
-  }
-
-  private openEditor(
-    widget: HTMLElement,
-    info: WidgetInfo,
-    cell: HTMLTableCellElement,
-    select = false,
-  ): void {
-    const ref = this.cellRef(info, cell);
-    if (!ref || this.editor) return;
-    const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
-
-    // The cell keeps its size while its content is swapped for the field
-    const cellStyle = cell.getAttribute("style");
-    const rect = cell.getBoundingClientRect();
-    if (rect.width > 0) {
-      cell.style.boxSizing = "border-box";
-      cell.style.width = `${rect.width}px`;
-      cell.style.minWidth = `${rect.width}px`;
-      cell.style.maxWidth = `${rect.width}px`;
-      cell.style.height = `${rect.height}px`;
-    }
-
-    const field = this.doc.createElement("input");
-    field.type = "text";
-    field.className = `${UI_CLASS} tp-cell-editor`;
-    // A small intrinsic width, so the field never widens the column
-    field.size = 1;
-    field.spellcheck = true;
-    // What the field shows: the cell's text, unless a feature shows it otherwise (a formula)
-    field.value = this.features.reduce<string | undefined>((text, f) => text ?? f.editorText?.(info, ref, original), undefined) ?? unescapeCell(original);
-    const kept = this.doc.createDocumentFragment();
-    while (cell.firstChild) kept.append(cell.firstChild);
-    cell.classList.add("tp-editing");
-    cell.append(field);
-    this.editor = { widget, cell, ...ref, original, initial: field.value, field, kept, cellStyle };
-    this.reveal(widget, cell);
-    this.endHover(false);
-
-    this.isolate(field);
-    field.addEventListener("blur", () => {
-      // Focus went elsewhere on purpose: save, but leave the focus there
-      if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, undefined, false);
-    });
-    field.addEventListener("keydown", (e) => {
-      if (e.isComposing) return;
-      const editing = this.editor;
-      if (editing?.field === field && this.features.some((f) => f.editorKeyDown?.(e, editing))) {
-        e.preventDefault();
-        return;
-      }
-      if (e.key === "Control") this.setNavigating(true);
-      const ctrl = e.ctrlKey && !e.metaKey;
-      if (ctrl && e.altKey && !e.shiftKey && MOVE_KEYS.has(e.key)) {
-        e.preventDefault();
-        void this.moveWithKeyboard(e.key);
-      } else if (ctrl && !e.altKey && NAVIGATION_KEYS.has(e.key)) {
-        e.preventDefault();
-        void this.navigate(e.key, e.shiftKey);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        void this.finishEditing(false);
-      } else if (e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
-        e.preventDefault();
-        void this.ctrlEnter();
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        void this.enter(e.shiftKey);
-      } else if (e.key === "Tab") {
-        e.preventDefault();
-        void this.step(e.shiftKey ? -1 : 1);
-      }
-    });
-    field.focus({ preventScroll: true });
-    if (select) field.select();
-    else field.setSelectionRange(field.value.length, field.value.length);
-    const opened = this.editor;
-    for (const feature of this.features) feature.editorOpened?.(opened);
-  }
-
-  /** Puts the rendered cell back; returns what was being edited */
-  private closeEditor(): (ActiveEditor & { value: string }) | undefined {
-    const active = this.editor;
-    if (!active) return undefined;
-    this.editor = undefined;
-    for (const feature of this.features) feature.editorClosed?.(active);
-    let value = this.cellValue(active);
-    if (active.row === 0 && value === "" && active.original !== "") {
-      // SilverBullet would not show a column without a name
-      value = active.original;
-      void this.bridge.flash("Table Plus: a column needs a name; the old name was kept", "info");
-    }
-    active.field.remove();
-    active.cell.classList.remove("tp-editing");
-    if (active.cellStyle === null) active.cell.removeAttribute("style");
-    else active.cell.setAttribute("style", active.cellStyle);
-    active.cell.append(active.kept);
-    return { ...active, value };
-  }
-
-  /**
-   * The markdown for what the editor holds: the cell as it was when nothing was
-   * changed, what a feature makes of it (a formula), else the text
-   */
-  private cellValue(active: ActiveEditor): string {
-    const typed = active.field.value;
-    if (typed === active.initial) return active.original;
-    return this.features.reduce<string | undefined>((value, f) => value ?? f.editorValue?.(active, typed), undefined) ?? escapeCell(typed);
-  }
-
-  /**
-   * Ends editing, saving the cell if asked and changed, then opens `next`
-   * (a cell of the same or another table) or hands the keyboard back to the editor.
-   */
-  private async finishEditing(
-    save: boolean,
-    next?: FocusTarget & { widget: HTMLElement },
-    refocus = true,
-  ): Promise<void> {
-    const closed = this.closeEditor();
-    if (!closed) return;
-    const changed = save && closed.value !== closed.original;
-    const sameTable = next?.widget === closed.widget;
-    let result: WriteResult = "unchanged";
-    if (changed) {
-      result = await this.write(closed.widget, (t) => this.withCellEdit(t, closed), { focus: sameTable ? next : undefined });
-    }
-    if (next && (result === "unchanged" || !sameTable)) {
-      // The other table was not re-rendered by this edit unless they share text
-      const info = this.infos.get(next.widget);
-      const cell = info && this.cellAt(info, next);
-      if (info && cell) this.openEditor(next.widget, info, cell, next.select);
-      return;
-    }
-    if (!next && refocus) this.focusEditor(closed.widget);
-  }
-
-  private withCellEdit(
-    table: Table,
-    edit: { row: number; column: number; original: string; value: string },
-  ): Table | undefined {
-    if ((table.rows[edit.row]?.cells[edit.column] ?? "") !== edit.original) return undefined;
-    return setCell(table, edit.row, edit.column, edit.value);
+  /** The header row and the shown body rows, in display order */
+  shownRows(info: WidgetInfo): HTMLTableRowElement[] {
+    return [
+      info.table.rows[0]!,
+      ...Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]:not(.tp-hidden)")),
+    ];
   }
 
   /** A setting's value, falling back to its default when unset or not valid */
@@ -1175,209 +1006,13 @@ export class Controller implements TableHost {
     }
   }
 
-  /**
-   * Enter saves the cell. With the "moveDown" setting it then edits
-   * the cell below (Shift+Enter: above), as in a spreadsheet; at the table's
-   * edge it just saves.
-   */
-  /**
-   * Ctrl+Enter: save the cell, add an empty row below its row and edit the
-   * new row in the same column, as one edit. The ctrlEnterAddsRow setting off:
-   * a plain Enter.
-   */
-  private async ctrlEnter(): Promise<void> {
-    const active = this.editor;
-    if (!active) return;
-    if (!(await this.setting("ctrlEnterAddsRow")) || this.editor !== active) {
-      if (this.editor === active) await this.enter(false);
-      return;
-    }
-    const info = this.infos.get(active.widget);
-    const closed = this.closeEditor()!;
-    if (info) await insertRowWith(this, closed.widget, info, closed.row + 1, closed.column, (t) => this.withSaved(t, closed));
-  }
-
-  /** The table with the closed editor's value saved, if it changed */
-  private withSaved(table: Table, closed: ActiveEditor & { value: string }): Table | undefined {
-    return closed.value !== closed.original ? this.withCellEdit(table, closed) : table;
-  }
-
-  /**
-   * Whether a cell reached with the keyboard opens with its text selected:
-   * with Shift as on a Shift+click (the selectOnClick setting swaps that),
-   * without it with the cursor at the end
-   */
-  private selectsWith(shift: boolean): boolean {
-    return shift && !this.selectOnClick;
-  }
-
-  /** Enter: save; with the moveDown setting also edit the cell below (Shift: as on a Shift+click) */
-  private async enter(shift: boolean): Promise<void> {
-    const active = this.editor;
-    const info = active && this.infos.get(active.widget);
-    if (!active || !info) return;
-    if ((await this.setting("enterKey")) !== "moveDown" || this.editor !== active) {
-      if (this.editor === active) await this.finishEditing(true);
-      return;
-    }
-    const shown = this.shownRows(info);
-    const target = shown[shown.indexOf(active.cell.parentElement as HTMLTableRowElement) + 1];
-    const cell = target?.cells[active.column];
-    const ref = cell && this.cellRef(info, cell);
-    await this.finishEditing(true, ref ? { widget: active.widget, ...ref, select: this.selectsWith(shift) } : undefined);
-  }
-
-  /** The header row and the shown body rows, in display order */
-  shownRows(info: WidgetInfo): HTMLTableRowElement[] {
-    return [
-      info.table.rows[0]!,
-      ...Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]:not(.tp-hidden)")),
-    ];
-  }
-
-  /**
-   * Ctrl+Alt+arrows: move the edited cell's row up / down, or its column
-   * left / right; Ctrl+Alt+Home / End: its column to the first / last place;
-   * Ctrl+Alt+PageUp / PageDown: its row 10 places up / down.
-   * The cell is saved in the same edit and the editor stays on it. Rows cannot
-   * move while sorted or filtered, nor the header row.
-   */
-  private async moveWithKeyboard(key: string): Promise<void> {
-    const active = this.editor;
-    const info = active && this.infos.get(active.widget);
-    if (!active || !info) return;
-    const vertical = key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown";
-    const step = key === "ArrowUp" || key === "ArrowLeft" ? -1 : 1;
-    const from = vertical ? active.row : active.column;
-    const asked =
-      key === "Home"
-        ? 0
-        : key === "End"
-          ? info.columns - 1
-          : key === "PageUp"
-            ? from - PAGE_ROWS
-            : key === "PageDown"
-              ? from + PAGE_ROWS
-              : from + step;
-    if (vertical) {
-      if (from === 0) return;
-      if (this.rearranged(info)) {
-        void this.bridge.flash(`Table Plus: ${MOVE_BLOCKED.toLowerCase()}`, "info");
-        return;
-      }
-    }
-    // Pinned rows and columns stay within their zone, the others outside them
-    const to = vertical
-      ? clampRowMove(info.pins, info.rows, from, asked)
-      : clampColumnMove(info.pins, info.columns, from, asked);
-    if (to === from) return;
-    const closed = this.closeEditor()!;
-    await this.write(
-      closed.widget,
-      (t) => {
-        const edited = this.withSaved(t, closed);
-        if (!edited) return undefined;
-        return vertical ? moveRow(edited, from, to) : moveColumn(edited, from, to);
-      },
-      vertical
-        ? { focus: { row: to, column: closed.column }, rowMap: (r) => columnAfterMove(r, from, to) }
-        : { focus: { row: closed.row, column: to }, columnMap: (c) => columnAfterMove(c, from, to) },
-    );
-  }
-
-  /**
-   * Ctrl+arrows: save and edit the neighbouring shown cell; Ctrl+Home / End:
-   * the first / last cell of the row. Nothing happens at the table's edge.
-   * With Shift the cell opens as on a Shift+click.
-   */
-  private async navigate(key: string, shift: boolean): Promise<void> {
-    const active = this.editor;
-    const info = active && this.infos.get(active.widget);
-    if (!active || !info) return;
-    const shown = this.shownRows(info);
-    let r = shown.indexOf(active.cell.parentElement as HTMLTableRowElement);
-    let column = active.column;
-    if (key === "ArrowLeft") column--;
-    else if (key === "ArrowRight") column++;
-    else if (key === "ArrowUp") r--;
-    else if (key === "ArrowDown") r++;
-    else if (key === "Home") column = 0;
-    else if (key === "End") column = info.columns - 1;
-    // A page jump stops at the first / last body row; from the header it goes down only
-    else if (key === "PageUp") r = r === 0 ? 0 : Math.max(1, r - PAGE_ROWS);
-    else if (key === "PageDown") r = Math.min(shown.length - 1, r + PAGE_ROWS);
-    const target = shown[r]?.cells[column];
-    if (!target || target === active.cell) return;
-    const ref = this.cellRef(info, target);
-    if (ref) await this.finishEditing(true, { widget: active.widget, ...ref, select: this.selectsWith(shift) });
-  }
-
-  /** Tab / Shift+Tab: save and move to the next / previous shown cell */
-  private async step(direction: 1 | -1): Promise<void> {
-    const active = this.editor;
-    const info = active && this.infos.get(active.widget);
-    if (!active || !info) return;
-    const shown = this.shownRows(info);
-    const rowIndex = shown.indexOf(active.cell.parentElement as HTMLTableRowElement);
-    let r = rowIndex;
-    let column = active.column + direction;
-    if (column >= info.columns) {
-      column = 0;
-      r++;
-    } else if (column < 0) {
-      column = info.columns - 1;
-      r--;
-    }
-    if (r < 0) {
-      await this.finishEditing(true);
-      return;
-    }
-    const target = shown[r];
-    if (target) {
-      const ref = this.cellRef(info, target.cells[column] ?? target.cells[0]!);
-      if (ref) await this.finishEditing(true, { widget: active.widget, ...ref });
-      return;
-    }
-    // Tab on the last cell adds a row (above the rows pinned to the bottom)
-    const closed = this.closeEditor()!;
-    await insertRowWith(this, closed.widget, info, appendRowAt(info.pins, info.rows), 0, (t) => this.withSaved(t, closed));
-  }
-
-  private takePendingFocus(widget: HTMLElement, info: WidgetInfo): void {
-    const pending = this.pendingFocus;
-    if (!pending || pending.key !== info.key) return;
-    this.pendingFocus = undefined;
-    if (Date.now() > pending.until || this.editor) return;
-    const cell = this.cellAt(info, pending);
-    if (cell) this.openEditor(widget, info, cell, pending.select);
-  }
-
-  /** Scrolls a wide table sideways so that the cell is fully visible */
-  /**
-   * Scrolls so that the cell is fully visible: a wide table sideways, the page
-   * up or down, keeping a body cell clear of the header held at the top
-   */
-  private reveal(widget: HTMLElement, cell: HTMLElement): void {
-    const box = this.innerBox(widget);
-    let rect = cell.getBoundingClientRect();
-    if (rect.right > box.right) widget.scrollLeft += rect.right - box.right;
-    else if (rect.left < box.left) widget.scrollLeft -= box.left - rect.left;
-
-    const head = this.infos.get(widget)?.table.tHead;
-    const headHeight = head && !head.contains(cell) ? head.offsetHeight : 0;
-    if (this.scrollsInside(widget)) {
-      rect = cell.getBoundingClientRect();
-      if (rect.top < box.top + headHeight) widget.scrollTop -= box.top + headHeight - rect.top;
-      else if (rect.bottom > box.bottom) widget.scrollTop += rect.bottom - box.bottom;
-    }
-
-    const scroller = this.scrollParentOf(widget);
-    if (!scroller) return;
-    rect = cell.getBoundingClientRect();
-    const view = scroller.getBoundingClientRect();
-    const top = view.top + (headHeight ? STICKY_GAP + headHeight : 0);
-    if (rect.top < top) scroller.scrollTop -= top - rect.top;
-    else if (rect.bottom > view.bottom) scroller.scrollTop += rect.bottom - view.bottom;
+  cellAt(info: WidgetInfo, ref: CellRef, includeHidden = false): HTMLTableCellElement | undefined {
+    const tr =
+      ref.row === 0
+        ? info.table.rows[0]
+        : info.table.querySelector<HTMLTableRowElement>(`tr[data-tp-row="${ref.row}"]`);
+    if (!tr || (tr.classList.contains("tp-hidden") && !includeHidden)) return undefined;
+    return tr.cells[ref.column];
   }
 
   focusEditor(widget: HTMLElement): void {
@@ -1414,7 +1049,7 @@ export class Controller implements TableHost {
       const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
       if (markdown === range.text) return "unchanged";
       if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
-      if (focus) this.pendingFocus = { key: info.key, ...focus, until: Date.now() + 3000 };
+      if (focus) this.cellEditor.editAfterWrite(info.key, focus);
       this.scrollLefts.set(info.key, widget.scrollLeft);
       this.scrollTops.set(info.key, widget.scrollTop);
       const edit = minimalEdit(range.text, markdown);
@@ -1427,7 +1062,7 @@ export class Controller implements TableHost {
       for (const then of after) then(range.from + edit.from, markdown.length - range.text.length);
       return "written";
     } catch (e) {
-      this.pendingFocus = undefined;
+      this.cellEditor.dropPending();
       console.error("Table Plus: could not save the table", e);
       void this.bridge.flash(`Table Plus: could not save the table (${String(e)})`, "error");
       return "failed";
