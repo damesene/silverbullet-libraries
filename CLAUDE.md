@@ -37,6 +37,7 @@ table-plus/
       feature.ts       TableHost (what the controller offers) and Feature (hooks); shared types (WidgetInfo, CellRef, WriteOptions…)
       editor.ts        the cell editor (CellEditing): open/close/save, Enter, Tab, Ctrl+arrows, Ctrl+Alt moves, pending focus after writes
       structure.ts     structural edits as functions over TableHost (insert/duplicate/delete/move/pin rows and columns)
+      filters.ts       how filters are typed: the filter row, a column's filter in a bubble under its header, hints and values to tick
       layout.ts        STICKY_GAP (kept in step with the CSS)
     features/          one feature per file, each a class implementing Feature, with its UI test next to it
       formulas.ts      formula editing UI: hint, colored reference outlines and dragging, pointing, Tab completion, autofix, Recalculate
@@ -112,6 +113,6 @@ A new `space-lua` block on a page is not active until Space Lua is reloaded; an 
 
 - **User-defined functions and column types from Space Lua** (`tablePlus.defineFunction` / a type equivalent). Calling Lua from JS is probably asynchronous; the formula evaluator is synchronous. Needs a probe first.
 - A parameter picker for column types in the menu (today only the base form is offered; parameters are typed in the markdown).
-- Extracting the sort/filter UI (toolbar chip, filter row) from the controller; the row layout itself stays in the core.
+- Extracting the sort UI (toolbar chip) from the controller as the filters were (`core/filters.ts`); the row layout itself stays in the core.
 - A check that `table-plus.js` matches `src/` (`npm run check-build` or a pre-commit hook).
 - Nothing has been verified in a real browser by an agent: tests run in jsdom (layout is mocked where needed); the user checks UI in SilverBullet and the playground.

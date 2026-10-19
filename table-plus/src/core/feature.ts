@@ -161,6 +161,8 @@ export interface TableHost {
     column: number,
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[];
+  /** A column's filter on its own, in a bubble under its header */
+  openFilter(widget: HTMLElement, info: WidgetInfo, column: number): void;
   /** The entries features add at the top of a column's menu (see Feature.columnMenuTopEntries) */
   columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
   /** The entries features add to a row's menu, for the cell in `column` (see Feature.rowMenuEntries) */

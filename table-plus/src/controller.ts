@@ -15,6 +15,7 @@ import type {
   WriteStep,
 } from "./core/feature.ts";
 import { CellEditing } from "./core/editor.ts";
+import { FilterRow } from "./core/filters.ts";
 import { insertColumnWith, insertRowWith } from "./core/structure.ts";
 import { Autoscroll } from "./features/autoscroll.ts";
 import { ColumnTypes } from "./features/types.ts";
@@ -80,7 +81,6 @@ import {
   remapColumns,
   type ViewState,
   visibleRows,
-  withFilter,
   withoutSort,
   withSort,
 } from "./view.ts";
@@ -112,9 +112,6 @@ const BAR_GAP = 10;
 const STORE_SORT_DELAY_MS = 400;
 
 
-
-const FILTER_HINT =
-  "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 
 const NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 
@@ -282,6 +279,7 @@ export class Controller implements TableHost {
   private warnedIncompatible = false;
   private observer: MutationObserver | undefined;
   private readonly bar: HTMLElement;
+  private readonly filterRow: FilterRow;
   private readonly addRow: HTMLButtonElement;
   private readonly addColumn: HTMLButtonElement;
   // Features that keep their own state and work through this controller
@@ -302,6 +300,17 @@ export class Controller implements TableHost {
     public bridge: Bridge,
   ) {
     this.metadata = new Metadata(this);
+    this.filterRow = new FilterRow({
+      doc,
+      viewOf: (info) => this.viewOf(info),
+      setView: (widget, info, view) => this.setView(widget, info, view),
+      infoOf: (widget) => this.infoOf(widget),
+      isolate: (element) => this.isolate(element),
+      filterOptions: () => this.filterOptions,
+      filterTyped: () => void this.refreshSettings(),
+      bodyRows: (info) => this.bodyRows(info),
+      cellValue: (cell) => this.viewValue(cell),
+    });
     this.cellEditor = new CellEditing(this, {
       features: this.features,
       isolate: (element) => this.isolate(element),
@@ -404,6 +413,7 @@ export class Controller implements TableHost {
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.closeTableMenu(false);
+    this.filterRow.stop();
     for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
   }
 
@@ -763,6 +773,13 @@ export class Controller implements TableHost {
     Array.from(rows[0]!.cells).forEach((cell, column) => {
       if (column < left) cell.append(mark(ICONS.pinLeft, "Pinned to the left"));
       else if (column >= info.columns - right) cell.append(mark(ICONS.pinRight, "Pinned to the right"));
+      const filtered = this.doc.createElement("span");
+      filtered.className = `${UI_CLASS} tp-filter-mark`;
+      filtered.title = "Filtered: click to change the filter";
+      filtered.dataset.tpAction = "filter";
+      filtered.dataset.tpColumn = String(column);
+      filtered.innerHTML = ICONS.filter;
+      cell.append(filtered);
       const button = this.doc.createElement("button");
       button.type = "button";
       button.tabIndex = -1;
@@ -852,6 +869,10 @@ export class Controller implements TableHost {
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[] {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
+  }
+
+  openFilter(widget: HTMLElement, info: WidgetInfo, column: number): void {
+    this.filterRow.openFilter(widget, info, column);
   }
 
   columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
@@ -1036,9 +1057,11 @@ export class Controller implements TableHost {
       }
       if (direction) cell.setAttribute("aria-sort", direction === "asc" ? "ascending" : "descending");
       else cell.removeAttribute("aria-sort");
+      // Filtered, shown also while the filter row is hidden
+      cell.classList.toggle("tp-filtered", !!parseFilter(view.filters[column] ?? "", this.filterOptions).match);
     });
 
-    this.applyFilterRow(widget, info, view);
+    this.filterRow.apply(widget, info, view);
     this.pinColumns(info);
     widget.classList.toggle("tp-rearranged", isRearranged(view, this.filterOptions));
     // A taller table scrolls inside its own box (the table box already has overflow: auto)
@@ -1079,51 +1102,6 @@ export class Controller implements TableHost {
     for (let c = info.columns - 1; c >= info.columns - right; c--) {
       pin(c, "right", offset, c === info.columns - right);
       offset += header.cells[c]?.getBoundingClientRect().width ?? 0;
-    }
-  }
-
-  private applyFilterRow(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
-    let row = info.table.querySelector<HTMLTableRowElement>("tr.tp-filter-row");
-    if (!view.showFilters) {
-      row?.remove();
-      return;
-    }
-    if (!row) {
-      row = this.doc.createElement("tr");
-      row.className = `${UI_CLASS} tp-filter-row`;
-      for (let column = 0; column < info.columns; column++) {
-        const cell = this.doc.createElement("td");
-        const input = this.doc.createElement("input");
-        input.type = "search";
-        input.className = "tp-filter";
-        // Its natural width (20 characters) would widen the column: it fills the cell instead (CSS)
-        input.size = 1;
-        input.placeholder = "Filter";
-        input.dataset.tpColumn = String(column);
-        this.isolate(input);
-        input.addEventListener("input", () => {
-          const current = this.infos.get(widget);
-          if (current) this.setView(widget, current, withFilter(this.viewOf(current), column, input.value));
-          void this.refreshSettings();
-        });
-        input.addEventListener("keydown", (e) => {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            input.blur();
-          }
-        });
-        cell.append(input);
-        row.append(cell);
-      }
-      info.table.rows[0]!.after(row);
-    }
-    for (const input of Array.from(row.querySelectorAll<HTMLInputElement>("input"))) {
-      const value = view.filters[Number(input.dataset.tpColumn)] ?? "";
-      if (input.value !== value && this.doc.activeElement !== input) input.value = value;
-      // A filter that cannot be used filters nothing; the field says why
-      const { error } = parseFilter(input.value, this.filterOptions);
-      input.classList.toggle("tp-invalid", !!error);
-      input.title = error ?? (this.filterOptions.smart ? FILTER_HINT : "Text to find");
     }
   }
 
@@ -1229,6 +1207,12 @@ export class Controller implements TableHost {
     if (action?.dataset.tpAction === "sort") {
       e.preventDefault();
       this.setSort(widget, info, cycleSort(this.viewOf(info), Number(action.dataset.tpColumn)));
+    } else if (action?.dataset.tpAction === "filter") {
+      e.preventDefault();
+      this.openFilter(widget, info, Number(action.dataset.tpColumn));
+    } else if (action?.dataset.tpAction === "clear-filter") {
+      e.preventDefault();
+      this.filterRow.clear(widget, info, Number(action.dataset.tpColumn));
     }
   };
 
@@ -1585,6 +1569,7 @@ export class Controller implements TableHost {
     return (
       [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) ||
       !!this.tableMenu?.element.contains(node) ||
+      this.filterRow.owns(node) ||
       this.features.some((f) => f.owns?.(node))
     );
   }
@@ -1686,26 +1671,40 @@ export class Controller implements TableHost {
       chip.append(apply, clear);
       bar.append(chip);
     }
-    const rows = this.bodyRows(info);
-    const shown = rows.filter((tr) => !tr.classList.contains("tp-hidden")).length;
-    if (shown !== rows.length) {
-      const status = this.doc.createElement("span");
-      status.className = "tp-status";
-      status.textContent = `${shown} of ${rows.length} rows`;
-      bar.append(status);
+    if (view.filters.some((filter) => parseFilter(filter, this.filterOptions).match)) {
+      // "⧩ 3 of 10 rows ×": the cross clears the filters
+      const rows = this.bodyRows(info);
+      const shown = rows.filter((tr) => !tr.classList.contains("tp-hidden")).length;
+      const chip = this.doc.createElement("span");
+      chip.className = "tp-status tp-chip tp-filter-chip";
+      chip.innerHTML = ICONS.filter;
+      chip.append(`${shown} of ${rows.length} rows`);
+      const clear = this.doc.createElement("button");
+      clear.type = "button";
+      clear.tabIndex = -1;
+      clear.className = "tp-chip-clear";
+      clear.title = "Clear the filters";
+      clear.setAttribute("aria-label", clear.title);
+      clear.innerHTML = ICONS.clear;
+      clear.addEventListener("click", (e) => {
+        e.preventDefault();
+        const [w, i] = this.current(widget, info);
+        this.setView(w, i, { ...this.viewOf(i), filters: [] });
+      });
+      chip.append(clear);
+      bar.append(chip);
     }
     // At the right, icons always in the same places: the features' (Recalculate), Filter, and the menu
     for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
     button({
       label: "Filter",
-      title: "Show or hide the filter row",
+      title: "Show or hide the filter row (hidden, the filters still apply: the toolbar and the headers show them)",
       place: "icon",
       icon: ICONS.filter,
       run: () => {
-        // Hidden filters would hide rows without a visible reason, so hiding clears them
         const [w, i] = this.current(widget, info);
         const now = this.viewOf(i);
-        this.setView(w, i, now.showFilters ? { ...now, filters: [], showFilters: false } : { ...now, showFilters: true });
+        this.setView(w, i, { ...now, showFilters: !now.showFilters });
       },
       pressed: view.showFilters,
     });

@@ -472,10 +472,7 @@ export class Grips implements Feature {
         kind: "item",
         label: "Filter",
         icon: ICONS.filter,
-        run: this.runAndClose(() => {
-          host.setView(widget, info, { ...host.viewOf(info), showFilters: true });
-          info.table.querySelector<HTMLInputElement>(`.tp-filter[data-tp-column="${column}"]`)?.focus();
-        }),
+        run: this.runAndClose(() => host.openFilter(widget, info, column)),
       },
       ...host.columnMenuEntries(widget, info, column, (title, entries) => this.replaceMenu(title, entries)),
       { kind: "separator" },

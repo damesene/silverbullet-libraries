@@ -137,6 +137,25 @@ describe("filtering", () => {
   });
 });
 
+describe("alternatives", () => {
+  it("matches either of them, exactly with =, and empty cells with an empty one", () => {
+    const either = filterMatcher("pea|fig")!;
+    expect(["Pear", "Fig", "Kiwi"].map(either)).toEqual([true, true, false]);
+    const exact = filterMatcher("=pear|fig")!;
+    expect(["Pear", "Pears", "fig", ""].map(exact)).toEqual([true, false, true, false]);
+    expect(["", " ", "x"].map(filterMatcher("=|x")!)).toEqual([true, true, true]);
+    expect(["1", "5", "12"].map(filterMatcher("<2|>10")!)).toEqual([true, false, true]);
+    // Not: none of them
+    expect(["Pear", "Kiwi"].map(filterMatcher("!=pear|fig")!)).toEqual([false, true]);
+    // Still being typed, and in a regular expression a | of its own
+    expect(["Pear", "Kiwi"].map(filterMatcher("pear|")!)).toEqual([true, false]);
+    expect(["ab", "c"].map(filterMatcher("/^(a|c)/")!)).toEqual([true, true]);
+    expect(filterMatcher("=")).toBeUndefined();
+    // Without smart filters it is text
+    expect(filterMatcher("a|b", { smart: false })!("a|b")).toBe(true);
+  });
+});
+
 describe("remapColumns", () => {
   it("moves sort and filters with their columns and drops deleted ones", () => {
     const view = withFilter(withFilter(cycleSort(DEFAULT_VIEW, 1), 0, "x"), 2, "y");

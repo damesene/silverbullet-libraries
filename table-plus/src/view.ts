@@ -133,7 +133,9 @@ const COMPARISON_RE = /^(<=|>=|<|>)\s*(.*)$/s;
  * - `>10`, `<10`, `>=10`, `<=10` compare the cells as numbers (others are hidden)
  * - `/pattern/flags` is a regular expression, case-insensitive unless the flags
  *   include `c`; it is matched against the cell text as shown
- * - `=text` matches whole cells (case and diacritics ignored)
+ * - `=text` matches whole cells (case and diacritics ignored); `=a|b` cells
+ *   that are a or b, `=|a` also empty cells
+ * - `a|b` matches cells either alternative matches (each one a filter: `<2|>10`)
  * - `!filter` hides the cells the rest matches
  * A filter still being typed (only an operator, a regular expression without
  * its closing slash and flags) does not filter yet.
@@ -148,13 +150,17 @@ export function parseFilter(filter: string, options = DEFAULT_FILTER_OPTIONS): P
       return match ? { match: (value) => !match(value) } : inner;
     }
     if (text.startsWith("=")) {
-      const whole = normalizeForFilter(text.slice(1).trim());
-      return whole === "" ? {} : { match: (value) => normalizeForFilter(value.trim()) === whole };
+      const rest = text.slice(1);
+      // Only "=": still being typed. With "|" an alternative may be empty: empty cells
+      if (rest.trim() === "") return {};
+      const wholes = new Set(rest.split("|").map((part) => normalizeForFilter(part.trim())));
+      return { match: (value) => wholes.has(normalizeForFilter(value.trim())) };
     }
     const regex = REGEX_RE.exec(text);
     if (regex) return parseRegex(regex[1]!, regex[2]!);
     // A regular expression still being typed: wait for its closing slash
     if (text.startsWith("/")) return {};
+    if (text.includes("|")) return anyOf(text.split("|").map((part) => parseFilter(part, options)));
     const comparison = COMPARISON_RE.exec(text);
     if (comparison) {
       const [, operator, rest] = comparison;
@@ -176,6 +182,14 @@ export function parseFilter(filter: string, options = DEFAULT_FILTER_OPTIONS): P
   }
   const needle = normalizeForFilter(text);
   return { match: (value) => normalizeForFilter(value).includes(needle) };
+}
+
+/** Alternatives: a cell any of them matches; those still being typed (empty) are left out */
+function anyOf(parts: readonly ParsedFilter[]): ParsedFilter {
+  const error = parts.find((part) => part.error)?.error;
+  if (error) return { error };
+  const matches = parts.flatMap((part) => (part.match ? [part.match] : []));
+  return matches.length === 0 ? {} : { match: (value) => matches.some((match) => match(value)) };
 }
 
 function parseRegex(pattern: string, flags: string): ParsedFilter {

@@ -857,7 +857,7 @@ var CellEditing = class {
     if (!ref || this.editor) return;
     this.context.holdRow(widget, info, ref.row);
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
-    const bare = withoutName(original);
+    const bare2 = withoutName(original);
     const cellStyle = cell.getAttribute("style");
     const rect = cell.getBoundingClientRect();
     if (rect.width > 0) {
@@ -872,7 +872,7 @@ var CellEditing = class {
     field.className = `${UI_CLASS} tp-cell-editor`;
     field.size = 1;
     field.spellcheck = true;
-    field.value = this.context.features.reduce((text, f) => text ?? f.editorText?.(info, ref, bare), void 0) ?? unescapeCell(bare);
+    field.value = this.context.features.reduce((text, f) => text ?? f.editorText?.(info, ref, bare2), void 0) ?? unescapeCell(bare2);
     const kept = this.host.doc.createDocumentFragment();
     while (cell.firstChild) kept.append(cell.firstChild);
     cell.classList.add("tp-editing");
@@ -1144,6 +1144,484 @@ var CellEditing = class {
   }
 };
 
+// table-plus/src/icons.ts
+var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var lineIcon = (body) => svg(body);
+var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
+var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
+var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
+var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
+var ICONS = {
+  grip: svg(
+    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
+    true
+  ),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
+  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
+  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
+  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
+  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
+  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
+  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Sorted lines with a check: make the sorting the real order
+  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
+  // Two arrows round: calculate again
+  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
+  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
+  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
+  // A padlock: a name that stays
+  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
+  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
+  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
+  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
+  // A pushpin with its needle pointing to the edge it pins to
+  pinTop: PIN_POINT_UP,
+  pinBottom: PIN_POINT_DOWN,
+  pinLeft: PIN_POINT_LEFT,
+  pinRight: PIN_POINT_RIGHT
+};
+
+// table-plus/src/view.ts
+var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
+var DEFAULT_VIEW = { filters: [], showFilters: false };
+function pinsOf(view) {
+  return view.pins ?? NO_PINS;
+}
+function hasPins(pins) {
+  return pins.top + pins.bottom + pins.left + pins.right > 0;
+}
+function withPins(view, pins) {
+  if (hasPins(pins)) return { ...view, pins };
+  const { pins: _pins, ...rest } = view;
+  return rest;
+}
+var DEFAULT_FILTER_OPTIONS = { smart: true };
+function isRearranged(view, options = DEFAULT_FILTER_OPTIONS) {
+  return !!view.sort || view.filters.some((f) => filterMatcher(f, options) !== void 0);
+}
+function cycleSort(view, column) {
+  if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
+  if (view.sort.direction === "asc") return { ...view, sort: { column, direction: "desc" } };
+  return withoutSort(view);
+}
+function withSort(view, column, direction) {
+  return { ...view, sort: { column, direction } };
+}
+function withoutSort(view) {
+  const { sort: _sort, ...rest } = view;
+  return rest;
+}
+function withFilter(view, column, value) {
+  const filters = [...view.filters];
+  while (filters.length <= column) filters.push("");
+  filters[column] = value;
+  return { ...view, filters };
+}
+function remapColumns(view, map) {
+  const filters = [];
+  view.filters.forEach((value, column) => {
+    const target = map(column);
+    if (target === void 0 || value === "") return;
+    while (filters.length <= target) filters.push("");
+    filters[target] = value;
+  });
+  const sortColumn = view.sort ? map(view.sort.column) : void 0;
+  const result = view.pins ? { filters, showFilters: view.showFilters, pins: view.pins } : { filters, showFilters: view.showFilters };
+  return view.sort && sortColumn !== void 0 ? { ...result, sort: { column: sortColumn, direction: view.sort.direction } } : result;
+}
+function normalizeForFilter(s) {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+var NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
+function asNumber(s) {
+  const m = NUMBER_RE.exec(s.trim());
+  return m ? Number(m[1].replace(/[ \u00a0]/g, "").replace(",", ".")) : void 0;
+}
+var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
+function compareValues(a, b) {
+  const na = asNumber(a);
+  const nb = asNumber(b);
+  if (na !== void 0 && nb !== void 0) return na - nb;
+  return collator.compare(a.trim(), b.trim());
+}
+var REGEX_RE = /^\/(.*)\/([cimsu]*)$/s;
+var COMPARISON_RE = /^(<=|>=|<|>)\s*(.*)$/s;
+function parseFilter(filter, options = DEFAULT_FILTER_OPTIONS) {
+  const text = filter.trim();
+  if (text === "") return {};
+  if (options.smart) {
+    if (text.startsWith("!")) {
+      const inner = parseFilter(text.slice(1), options);
+      const match = inner.match;
+      return match ? { match: (value) => !match(value) } : inner;
+    }
+    if (text.startsWith("=")) {
+      const rest = text.slice(1);
+      if (rest.trim() === "") return {};
+      const wholes = new Set(rest.split("|").map((part) => normalizeForFilter(part.trim())));
+      return { match: (value) => wholes.has(normalizeForFilter(value.trim())) };
+    }
+    const regex = REGEX_RE.exec(text);
+    if (regex) return parseRegex(regex[1], regex[2]);
+    if (text.startsWith("/")) return {};
+    if (text.includes("|")) return anyOf(text.split("|").map((part) => parseFilter(part, options)));
+    const comparison = COMPARISON_RE.exec(text);
+    if (comparison) {
+      const [, operator, rest] = comparison;
+      if (rest.trim() === "") return {};
+      const limit = asNumber(rest);
+      if (limit !== void 0) {
+        return {
+          match: (value) => {
+            const n = asNumber(value);
+            if (n === void 0) return false;
+            if (operator === ">") return n > limit;
+            if (operator === "<") return n < limit;
+            if (operator === ">=") return n >= limit;
+            return n <= limit;
+          }
+        };
+      }
+    }
+  }
+  const needle = normalizeForFilter(text);
+  return { match: (value) => normalizeForFilter(value).includes(needle) };
+}
+function anyOf(parts) {
+  const error = parts.find((part) => part.error)?.error;
+  if (error) return { error };
+  const matches = parts.flatMap((part) => part.match ? [part.match] : []);
+  return matches.length === 0 ? {} : { match: (value) => matches.some((match) => match(value)) };
+}
+function parseRegex(pattern, flags) {
+  if (pattern === "") return {};
+  const caseSensitive = flags.includes("c");
+  const jsFlags = [...new Set(flags.replace(/[ci]/g, "") + (caseSensitive ? "" : "i"))].join("");
+  try {
+    const re = new RegExp(pattern, jsFlags);
+    return { match: (value) => re.test(value) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+function filterMatcher(filter, options = DEFAULT_FILTER_OPTIONS) {
+  return parseFilter(filter, options).match;
+}
+function visibleRows(values, view, options = DEFAULT_FILTER_OPTIONS) {
+  const { top, bottom } = pinsOf(view);
+  const matchers = view.filters.map((filter) => filterMatcher(filter, options));
+  const indexes = values.map((_, i) => i).filter((i) => i >= top && i < values.length - bottom).filter((i) => matchers.every((match, column) => !match || match(values[i][column] ?? "")));
+  const sort = view.sort;
+  if (!sort) return indexes;
+  const sign = sort.direction === "asc" ? 1 : -1;
+  return indexes.sort((a, b) => {
+    const va = values[a][sort.column] ?? "";
+    const vb = values[b][sort.column] ?? "";
+    const ea = va.trim() === "";
+    const eb = vb.trim() === "";
+    if (ea !== eb) return ea ? 1 : -1;
+    return sign * compareValues(va, vb) || a - b;
+  });
+}
+
+// table-plus/src/core/filters.ts
+var MAX_VALUES = 12;
+var OPERATOR_RE = /^(!|=|>=|<=|>|<)\s*/;
+var bare = (value) => value.replace(OPERATOR_RE, "");
+var NUMBER_HINTS = [
+  { code: ">10", text: "above", apply: (v) => `>${bare(v)}` },
+  { code: "<10", text: "below", apply: (v) => `<${bare(v)}` },
+  { code: ">=10", text: "at least", apply: (v) => `>=${bare(v)}` }
+];
+var TEXT_HINTS = [
+  { code: "=text", text: "exactly", apply: (v) => `=${bare(v)}` },
+  { code: "!text", text: "not", apply: (v) => v.startsWith("!") ? v : `!${v}` },
+  { code: "a|b", text: "either", apply: (v) => v === "" || v.endsWith("|") ? v : `${v}|` },
+  { code: "/^a.*z$/", text: "regular expression", apply: (v) => v.startsWith("/") ? v : `/${bare(v)}/` }
+];
+var FilterRow = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // The bubble under the field being typed in, or (popover) a column's filter on its own
+  bubble;
+  /** Whether a node is the bubble's */
+  owns(node) {
+    return !!this.bubble?.element.contains(node);
+  }
+  stop() {
+    this.hideBubble();
+  }
+  /** The filter row as the view has it: shown with the view's filters, or gone */
+  apply(widget, info, view) {
+    let row = info.table.querySelector("tr.tp-filter-row");
+    if (this.bubble?.popover && this.bubble.widget === widget) this.placeBubble();
+    if (!view.showFilters) {
+      if (row && this.bubble && row.contains(this.bubble.input)) this.hideBubble();
+      row?.remove();
+      return;
+    }
+    if (!row) {
+      row = this.host.doc.createElement("tr");
+      row.className = `${UI_CLASS} tp-filter-row`;
+      for (let column = 0; column < info.columns; column++) row.append(this.field(widget, column));
+      info.table.rows[0].after(row);
+    }
+    const options = this.host.filterOptions();
+    for (const input of Array.from(row.querySelectorAll("input.tp-filter"))) {
+      const value = view.filters[Number(input.dataset.tpColumn)] ?? "";
+      if (input.value !== value && this.host.doc.activeElement !== input) input.value = value;
+      const { match, error } = parseFilter(input.value, options);
+      input.classList.toggle("tp-invalid", !!error);
+      input.title = error ?? "";
+      const cell = input.closest("td");
+      cell.classList.toggle("tp-filter-active", !!match);
+      cell.classList.toggle("tp-filter-typed", input.value !== "");
+    }
+  }
+  /** A column's field in the filter row: the filter icon, the field, its clear button */
+  field(widget, column) {
+    const cell = this.host.doc.createElement("td");
+    const { box, input } = this.filterBox(widget, column);
+    input.addEventListener("focus", () => {
+      if (this.bubble?.input !== input) this.showBubble(widget, column, input, () => input);
+    });
+    input.addEventListener("blur", (e) => this.left(input, e));
+    cell.append(box);
+    return cell;
+  }
+  /** A filter field with the filter icon before it and its clear button after it */
+  filterBox(widget, column) {
+    const { doc } = this.host;
+    const box = doc.createElement("div");
+    box.className = "tp-filter-box";
+    const icon = doc.createElement("span");
+    icon.className = "tp-filter-icon";
+    icon.innerHTML = ICONS.filter;
+    const input = doc.createElement("input");
+    input.type = "text";
+    input.className = "tp-filter";
+    input.size = 1;
+    input.placeholder = "Filter";
+    input.spellcheck = false;
+    input.dataset.tpColumn = String(column);
+    this.host.isolate(input);
+    input.addEventListener("input", () => {
+      this.setFilter(widget, column, input.value);
+      this.host.filterTyped();
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" || e.key === "Enter") {
+        e.preventDefault();
+        input.blur();
+      }
+    });
+    const clear = doc.createElement("button");
+    clear.type = "button";
+    clear.tabIndex = -1;
+    clear.className = "tp-filter-clear";
+    clear.title = "Clear this filter";
+    clear.setAttribute("aria-label", clear.title);
+    clear.innerHTML = ICONS.clear;
+    clear.dataset.tpAction = "clear-filter";
+    clear.dataset.tpColumn = String(column);
+    clear.addEventListener("mousedown", (e) => e.preventDefault());
+    clear.addEventListener("click", (e) => {
+      e.preventDefault();
+      this.type(widget, input, column, "");
+    });
+    box.append(icon, input, clear);
+    return { box, input };
+  }
+  /** A field's clear button in the filter row */
+  clear(widget, info, column) {
+    const input = info.table.querySelector(`.tp-filter-row input.tp-filter[data-tp-column="${column}"]`);
+    if (input) this.type(widget, input, column, "");
+  }
+  setFilter(widget, column, value) {
+    const info = this.host.infoOf(widget);
+    if (info) this.host.setView(widget, info, withFilter(this.host.viewOf(info), column, value));
+    const bubble = this.bubble;
+    if (bubble && bubble.widget === widget && bubble.column === column) {
+      bubble.element.classList.toggle("tp-filter-typed", value !== "");
+      this.renderBubble();
+    }
+  }
+  /** Puts `value` in the field as if typed */
+  type(widget, input, column, value) {
+    input.value = value;
+    input.closest("td")?.classList.toggle("tp-filter-typed", value !== "");
+    this.setFilter(widget, column, value);
+  }
+  // ---- the bubble -------------------------------------------------------------
+  /**
+   * A column's filter alone, floating under its header (its filter mark, the
+   * column menu's Filter): nothing in the table moves. Asked again for the same
+   * column, it closes.
+   */
+  openFilter(widget, info, column) {
+    if (this.bubble?.popover && this.bubble.widget === widget && this.bubble.column === column) {
+      this.hideBubble();
+      return;
+    }
+    const { box, input } = this.filterBox(widget, column);
+    input.value = this.host.viewOf(info).filters[column] ?? "";
+    input.addEventListener("blur", (e) => this.left(input, e));
+    const anchor = () => {
+      const current = this.host.infoOf(widget);
+      return current?.table.rows[0]?.cells[column] ?? info.table.rows[0].cells[column];
+    };
+    this.showBubble(widget, column, input, anchor, box);
+    this.bubble?.element.classList.toggle("tp-filter-typed", input.value !== "");
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+  showBubble(widget, column, input, anchor, head) {
+    this.hideBubble();
+    const { doc } = this.host;
+    const element = doc.createElement("div");
+    element.className = `${UI_CLASS} tp-floating tp-filter-bubble`;
+    if (head) element.classList.add("tp-filter-popover");
+    element.addEventListener("mousedown", (e) => {
+      if (e.target !== input) e.preventDefault();
+    });
+    const body = doc.createElement("div");
+    body.className = "tp-filter-bubble-body";
+    if (head) element.append(head);
+    element.append(body);
+    doc.body.append(element);
+    this.bubble = { element, body, input, widget, column, anchor, popover: !!head };
+    this.renderBubble();
+  }
+  /** The field lost the focus: its bubble goes, unless the focus went into it (a value ticked) */
+  left(input, e) {
+    const bubble = this.bubble;
+    if (bubble?.input !== input) return;
+    if (e.relatedTarget instanceof Node && bubble.element.contains(e.relatedTarget)) return;
+    this.hideBubble();
+  }
+  hideBubble() {
+    this.bubble?.element.remove();
+    this.bubble = void 0;
+  }
+  /** The bubble's content for the field's text now, under what it belongs to */
+  renderBubble() {
+    const bubble = this.bubble;
+    const info = bubble && this.host.infoOf(bubble.widget);
+    if (!bubble || !info) return;
+    const { widget, column, input } = bubble;
+    const { doc } = this.host;
+    const smart = this.host.filterOptions().smart;
+    const values = this.columnValues(info, column);
+    const parts = [];
+    if (smart) {
+      const filled = values.filter((v) => v.value !== "");
+      const numeric = filled.length > 0 && filled.filter((v) => asNumber(v.value) !== void 0).length * 2 >= filled.length;
+      const hints = numeric ? [...NUMBER_HINTS, ...TEXT_HINTS.slice(0, 3)] : TEXT_HINTS;
+      const list = doc.createElement("div");
+      list.className = "tp-filter-hints";
+      for (const hint of hints) {
+        const b = doc.createElement("button");
+        b.type = "button";
+        b.tabIndex = -1;
+        b.className = "tp-filter-hint";
+        const code = doc.createElement("code");
+        code.textContent = hint.code;
+        b.append(code, ` ${hint.text}`);
+        b.addEventListener("click", (e) => {
+          e.preventDefault();
+          this.type(widget, input, column, hint.apply(input.value.trim()));
+          input.focus({ preventScroll: true });
+          input.setSelectionRange(input.value.length, input.value.length);
+        });
+        list.append(b);
+      }
+      parts.push(list);
+      const pickable = values.filter((v) => !v.value.includes("|"));
+      if (pickable.length > 0 && pickable.length <= MAX_VALUES && values.length <= MAX_VALUES) {
+        parts.push(this.valueList(widget, input, column, pickable));
+      }
+    }
+    bubble.body.replaceChildren(...parts);
+    bubble.element.classList.toggle("tp-visible", parts.length > 0 || bubble.popover);
+    this.placeBubble();
+  }
+  /** Under what the bubble belongs to (the field, the header), inside the window */
+  placeBubble() {
+    const bubble = this.bubble;
+    if (!bubble) return;
+    const win = this.host.doc.defaultView;
+    const r = bubble.anchor().getBoundingClientRect();
+    const m = bubble.element.getBoundingClientRect();
+    const left = Math.max(4, Math.min(r.left - (bubble.popover ? 0 : 6), win.innerWidth - m.width - 4));
+    const top = r.bottom + 6 + m.height > win.innerHeight - 4 ? Math.max(4, r.top - m.height - 6) : r.bottom + 6;
+    bubble.element.style.left = `${Math.round(left)}px`;
+    bubble.element.style.top = `${Math.round(top)}px`;
+  }
+  /** The column's values to tick: ticked are those the field's =a|b names */
+  valueList(widget, input, column, values) {
+    const { doc } = this.host;
+    const text = input.value.trim();
+    const ticked = new Set(text.startsWith("=") ? text.slice(1).split("|").map((v) => normalizeForFilter(v.trim())) : []);
+    const list = doc.createElement("div");
+    list.className = "tp-filter-values";
+    for (const value of values) {
+      const key = normalizeForFilter(value.value);
+      const item = doc.createElement("label");
+      item.className = "tp-filter-value";
+      const box = doc.createElement("input");
+      box.type = "checkbox";
+      box.tabIndex = -1;
+      box.checked = ticked.has(key);
+      const label = doc.createElement("span");
+      label.className = "tp-filter-value-label";
+      label.textContent = value.label || "(empty)";
+      const count = doc.createElement("span");
+      count.className = "tp-filter-value-count";
+      count.textContent = String(value.count);
+      item.append(box, label, count);
+      box.addEventListener("change", () => {
+        const chosen = values.filter((v) => {
+          const k = normalizeForFilter(v.value);
+          return k === key ? box.checked : ticked.has(k);
+        });
+        const filter = chosen.length === 0 ? "" : chosen.length === 1 && chosen[0].value === "" ? "=|" : `=${chosen.map((v) => v.value).join("|")}`;
+        this.type(widget, input, column, filter);
+        input.focus({ preventScroll: true });
+      });
+      list.append(item);
+    }
+    return list;
+  }
+  /** A column's different values in its body rows (not the pinned ones), in the order they first come */
+  columnValues(info, column) {
+    const { top, bottom } = info.pins;
+    const rows = this.host.bodyRows(info);
+    const found = /* @__PURE__ */ new Map();
+    rows.forEach((tr, i) => {
+      if (i < top || i >= rows.length - bottom) return;
+      const cell = tr.cells[column];
+      if (!cell) return;
+      const value = this.host.cellValue(cell).trim();
+      const key = normalizeForFilter(value);
+      const known = found.get(key);
+      if (known) known.count++;
+      else found.set(key, { value, label: cellText(cell).trim() || value, count: 1 });
+    });
+    return Array.from(found.values());
+  }
+};
+
 // table-plus/src/features/autoscroll.ts
 var DEAD_ZONE = 12;
 var Autoscroll = class {
@@ -1252,52 +1730,6 @@ var Autoscroll = class {
   }
 };
 
-// table-plus/src/icons.ts
-var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
-var lineIcon = (body) => svg(body);
-var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
-var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
-var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
-var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
-var ICONS = {
-  grip: svg(
-    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
-    true
-  ),
-  plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
-  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
-  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
-  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
-  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
-  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
-  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
-  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
-  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
-  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
-  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
-  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
-  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
-  // Sorted lines with a check: make the sorting the real order
-  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
-  // Two arrows round: calculate again
-  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
-  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
-  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
-  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
-  // A padlock: a name that stays
-  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
-  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
-  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
-  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
-  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
-  // A pushpin with its needle pointing to the edge it pins to
-  pinTop: PIN_POINT_UP,
-  pinBottom: PIN_POINT_DOWN,
-  pinLeft: PIN_POINT_LEFT,
-  pinRight: PIN_POINT_RIGHT
-};
-
 // table-plus/src/columns.ts
 var HASHTAG_RE = /(^|\s)#[^\s#]+/g;
 function columnName(header) {
@@ -1358,140 +1790,6 @@ function formatLuaNumber(n) {
 }
 function trimZeros(s) {
   return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
-}
-
-// table-plus/src/view.ts
-var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
-var DEFAULT_VIEW = { filters: [], showFilters: false };
-function pinsOf(view) {
-  return view.pins ?? NO_PINS;
-}
-function hasPins(pins) {
-  return pins.top + pins.bottom + pins.left + pins.right > 0;
-}
-function withPins(view, pins) {
-  if (hasPins(pins)) return { ...view, pins };
-  const { pins: _pins, ...rest } = view;
-  return rest;
-}
-var DEFAULT_FILTER_OPTIONS = { smart: true };
-function isRearranged(view, options = DEFAULT_FILTER_OPTIONS) {
-  return !!view.sort || view.filters.some((f) => filterMatcher(f, options) !== void 0);
-}
-function cycleSort(view, column) {
-  if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
-  if (view.sort.direction === "asc") return { ...view, sort: { column, direction: "desc" } };
-  return withoutSort(view);
-}
-function withSort(view, column, direction) {
-  return { ...view, sort: { column, direction } };
-}
-function withoutSort(view) {
-  const { sort: _sort, ...rest } = view;
-  return rest;
-}
-function withFilter(view, column, value) {
-  const filters = [...view.filters];
-  while (filters.length <= column) filters.push("");
-  filters[column] = value;
-  return { ...view, filters };
-}
-function remapColumns(view, map) {
-  const filters = [];
-  view.filters.forEach((value, column) => {
-    const target = map(column);
-    if (target === void 0 || value === "") return;
-    while (filters.length <= target) filters.push("");
-    filters[target] = value;
-  });
-  const sortColumn = view.sort ? map(view.sort.column) : void 0;
-  const result = view.pins ? { filters, showFilters: view.showFilters, pins: view.pins } : { filters, showFilters: view.showFilters };
-  return view.sort && sortColumn !== void 0 ? { ...result, sort: { column: sortColumn, direction: view.sort.direction } } : result;
-}
-function normalizeForFilter(s) {
-  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-}
-var NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
-function asNumber(s) {
-  const m = NUMBER_RE.exec(s.trim());
-  return m ? Number(m[1].replace(/[ \u00a0]/g, "").replace(",", ".")) : void 0;
-}
-var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
-function compareValues(a, b) {
-  const na = asNumber(a);
-  const nb = asNumber(b);
-  if (na !== void 0 && nb !== void 0) return na - nb;
-  return collator.compare(a.trim(), b.trim());
-}
-var REGEX_RE = /^\/(.*)\/([cimsu]*)$/s;
-var COMPARISON_RE = /^(<=|>=|<|>)\s*(.*)$/s;
-function parseFilter(filter, options = DEFAULT_FILTER_OPTIONS) {
-  const text = filter.trim();
-  if (text === "") return {};
-  if (options.smart) {
-    if (text.startsWith("!")) {
-      const inner = parseFilter(text.slice(1), options);
-      const match = inner.match;
-      return match ? { match: (value) => !match(value) } : inner;
-    }
-    if (text.startsWith("=")) {
-      const whole = normalizeForFilter(text.slice(1).trim());
-      return whole === "" ? {} : { match: (value) => normalizeForFilter(value.trim()) === whole };
-    }
-    const regex = REGEX_RE.exec(text);
-    if (regex) return parseRegex(regex[1], regex[2]);
-    if (text.startsWith("/")) return {};
-    const comparison = COMPARISON_RE.exec(text);
-    if (comparison) {
-      const [, operator, rest] = comparison;
-      if (rest.trim() === "") return {};
-      const limit = asNumber(rest);
-      if (limit !== void 0) {
-        return {
-          match: (value) => {
-            const n = asNumber(value);
-            if (n === void 0) return false;
-            if (operator === ">") return n > limit;
-            if (operator === "<") return n < limit;
-            if (operator === ">=") return n >= limit;
-            return n <= limit;
-          }
-        };
-      }
-    }
-  }
-  const needle = normalizeForFilter(text);
-  return { match: (value) => normalizeForFilter(value).includes(needle) };
-}
-function parseRegex(pattern, flags) {
-  if (pattern === "") return {};
-  const caseSensitive = flags.includes("c");
-  const jsFlags = [...new Set(flags.replace(/[ci]/g, "") + (caseSensitive ? "" : "i"))].join("");
-  try {
-    const re = new RegExp(pattern, jsFlags);
-    return { match: (value) => re.test(value) };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
-  }
-}
-function filterMatcher(filter, options = DEFAULT_FILTER_OPTIONS) {
-  return parseFilter(filter, options).match;
-}
-function visibleRows(values, view, options = DEFAULT_FILTER_OPTIONS) {
-  const { top, bottom } = pinsOf(view);
-  const matchers = view.filters.map((filter) => filterMatcher(filter, options));
-  const indexes = values.map((_, i) => i).filter((i) => i >= top && i < values.length - bottom).filter((i) => matchers.every((match, column) => !match || match(values[i][column] ?? "")));
-  const sort = view.sort;
-  if (!sort) return indexes;
-  const sign = sort.direction === "asc" ? 1 : -1;
-  return indexes.sort((a, b) => {
-    const va = values[a][sort.column] ?? "";
-    const vb = values[b][sort.column] ?? "";
-    const ea = va.trim() === "";
-    const eb = vb.trim() === "";
-    if (ea !== eb) return ea ? 1 : -1;
-    return sign * compareValues(va, vb) || a - b;
-  });
 }
 
 // table-plus/src/formula/values.ts
@@ -5053,10 +5351,7 @@ var Grips = class {
         kind: "item",
         label: "Filter",
         icon: ICONS.filter,
-        run: this.runAndClose(() => {
-          host.setView(widget, info, { ...host.viewOf(info), showFilters: true });
-          info.table.querySelector(`.tp-filter[data-tp-column="${column}"]`)?.focus();
-        })
+        run: this.runAndClose(() => host.openFilter(widget, info, column))
       },
       ...host.columnMenuEntries(widget, info, column, (title, entries2) => this.replaceMenu(title, entries2)),
       { kind: "separator" },
@@ -5916,7 +6211,6 @@ var STOPPED_EVENTS = [
 var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
 var BAR_GAP = 10;
 var STORE_SORT_DELAY_MS = 400;
-var FILTER_HINT = "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 function placeAtEnd(parent, rows) {
   let next = null;
@@ -5994,6 +6288,17 @@ var Controller = class {
     this.doc = doc;
     this.bridge = bridge;
     this.metadata = new Metadata(this);
+    this.filterRow = new FilterRow({
+      doc,
+      viewOf: (info) => this.viewOf(info),
+      setView: (widget, info, view) => this.setView(widget, info, view),
+      infoOf: (widget) => this.infoOf(widget),
+      isolate: (element) => this.isolate(element),
+      filterOptions: () => this.filterOptions,
+      filterTyped: () => void this.refreshSettings(),
+      bodyRows: (info) => this.bodyRows(info),
+      cellValue: (cell) => this.viewValue(cell)
+    });
     this.cellEditor = new CellEditing(this, {
       features: this.features,
       isolate: (element) => this.isolate(element),
@@ -6052,6 +6357,7 @@ var Controller = class {
   warnedIncompatible = false;
   observer;
   bar;
+  filterRow;
   addRow;
   addColumn;
   // Features that keep their own state and work through this controller
@@ -6146,6 +6452,7 @@ var Controller = class {
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.closeTableMenu(false);
+    this.filterRow.stop();
     for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
   }
   onBlur = () => this.cellEditor.setNavigating(false);
@@ -6465,6 +6772,13 @@ var Controller = class {
     Array.from(rows[0].cells).forEach((cell, column) => {
       if (column < left) cell.append(mark(ICONS.pinLeft, "Pinned to the left"));
       else if (column >= info.columns - right) cell.append(mark(ICONS.pinRight, "Pinned to the right"));
+      const filtered = this.doc.createElement("span");
+      filtered.className = `${UI_CLASS} tp-filter-mark`;
+      filtered.title = "Filtered: click to change the filter";
+      filtered.dataset.tpAction = "filter";
+      filtered.dataset.tpColumn = String(column);
+      filtered.innerHTML = ICONS.filter;
+      cell.append(filtered);
       const button = this.doc.createElement("button");
       button.type = "button";
       button.tabIndex = -1;
@@ -6535,6 +6849,9 @@ var Controller = class {
   }
   columnMenuEntries(widget, info, column, open) {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
+  }
+  openFilter(widget, info, column) {
+    this.filterRow.openFilter(widget, info, column);
   }
   columnMenuTopEntries(widget, info, column) {
     return this.features.flatMap((f) => f.columnMenuTopEntries?.(widget, info, column) ?? []);
@@ -6689,8 +7006,9 @@ var Controller = class {
       }
       if (direction) cell.setAttribute("aria-sort", direction === "asc" ? "ascending" : "descending");
       else cell.removeAttribute("aria-sort");
+      cell.classList.toggle("tp-filtered", !!parseFilter(view.filters[column] ?? "", this.filterOptions).match);
     });
-    this.applyFilterRow(widget, info, view);
+    this.filterRow.apply(widget, info, view);
     this.pinColumns(info);
     widget.classList.toggle("tp-rearranged", isRearranged(view, this.filterOptions));
     widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
@@ -6729,48 +7047,6 @@ var Controller = class {
     for (let c = info.columns - 1; c >= info.columns - right; c--) {
       pin(c, "right", offset, c === info.columns - right);
       offset += header.cells[c]?.getBoundingClientRect().width ?? 0;
-    }
-  }
-  applyFilterRow(widget, info, view) {
-    let row = info.table.querySelector("tr.tp-filter-row");
-    if (!view.showFilters) {
-      row?.remove();
-      return;
-    }
-    if (!row) {
-      row = this.doc.createElement("tr");
-      row.className = `${UI_CLASS} tp-filter-row`;
-      for (let column = 0; column < info.columns; column++) {
-        const cell = this.doc.createElement("td");
-        const input = this.doc.createElement("input");
-        input.type = "search";
-        input.className = "tp-filter";
-        input.size = 1;
-        input.placeholder = "Filter";
-        input.dataset.tpColumn = String(column);
-        this.isolate(input);
-        input.addEventListener("input", () => {
-          const current = this.infos.get(widget);
-          if (current) this.setView(widget, current, withFilter(this.viewOf(current), column, input.value));
-          void this.refreshSettings();
-        });
-        input.addEventListener("keydown", (e) => {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            input.blur();
-          }
-        });
-        cell.append(input);
-        row.append(cell);
-      }
-      info.table.rows[0].after(row);
-    }
-    for (const input of Array.from(row.querySelectorAll("input"))) {
-      const value = view.filters[Number(input.dataset.tpColumn)] ?? "";
-      if (input.value !== value && this.doc.activeElement !== input) input.value = value;
-      const { error } = parseFilter(input.value, this.filterOptions);
-      input.classList.toggle("tp-invalid", !!error);
-      input.title = error ?? (this.filterOptions.smart ? FILTER_HINT : "Text to find");
     }
   }
   // ---- event routing -----------------------------------------------------
@@ -6865,6 +7141,12 @@ var Controller = class {
     if (action?.dataset.tpAction === "sort") {
       e.preventDefault();
       this.setSort(widget, info, cycleSort(this.viewOf(info), Number(action.dataset.tpColumn)));
+    } else if (action?.dataset.tpAction === "filter") {
+      e.preventDefault();
+      this.openFilter(widget, info, Number(action.dataset.tpColumn));
+    } else if (action?.dataset.tpAction === "clear-filter") {
+      e.preventDefault();
+      this.filterRow.clear(widget, info, Number(action.dataset.tpColumn));
     }
   };
   onDoubleClick = (e) => {
@@ -7153,7 +7435,7 @@ var Controller = class {
     return button;
   }
   isFloating(node) {
-    return [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) || !!this.tableMenu?.element.contains(node) || this.features.some((f) => f.owns?.(node));
+    return [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) || !!this.tableMenu?.element.contains(node) || this.filterRow.owns(node) || this.features.some((f) => f.owns?.(node));
   }
   place(element, left, top) {
     const win = this.doc.defaultView;
@@ -7243,24 +7525,38 @@ var Controller = class {
       chip.append(apply, clear);
       bar.append(chip);
     }
-    const rows = this.bodyRows(info);
-    const shown = rows.filter((tr) => !tr.classList.contains("tp-hidden")).length;
-    if (shown !== rows.length) {
-      const status = this.doc.createElement("span");
-      status.className = "tp-status";
-      status.textContent = `${shown} of ${rows.length} rows`;
-      bar.append(status);
+    if (view.filters.some((filter) => parseFilter(filter, this.filterOptions).match)) {
+      const rows = this.bodyRows(info);
+      const shown = rows.filter((tr) => !tr.classList.contains("tp-hidden")).length;
+      const chip = this.doc.createElement("span");
+      chip.className = "tp-status tp-chip tp-filter-chip";
+      chip.innerHTML = ICONS.filter;
+      chip.append(`${shown} of ${rows.length} rows`);
+      const clear = this.doc.createElement("button");
+      clear.type = "button";
+      clear.tabIndex = -1;
+      clear.className = "tp-chip-clear";
+      clear.title = "Clear the filters";
+      clear.setAttribute("aria-label", clear.title);
+      clear.innerHTML = ICONS.clear;
+      clear.addEventListener("click", (e) => {
+        e.preventDefault();
+        const [w, i] = this.current(widget, info);
+        this.setView(w, i, { ...this.viewOf(i), filters: [] });
+      });
+      chip.append(clear);
+      bar.append(chip);
     }
     for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
     button({
       label: "Filter",
-      title: "Show or hide the filter row",
+      title: "Show or hide the filter row (hidden, the filters still apply: the toolbar and the headers show them)",
       place: "icon",
       icon: ICONS.filter,
       run: () => {
         const [w, i] = this.current(widget, info);
         const now2 = this.viewOf(i);
-        this.setView(w, i, now2.showFilters ? { ...now2, filters: [], showFilters: false } : { ...now2, showFilters: true });
+        this.setView(w, i, { ...now2, showFilters: !now2.showFilters });
       },
       pressed: view.showFilters
     });

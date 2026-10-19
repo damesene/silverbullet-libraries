@@ -93,7 +93,11 @@ A plain click edits a cell and no longer switches the table to its markdown. To 
 
 ## Filtering
 
-Hover the table and click the filter icon in its toolbar (or *Filter* in a column menu) to show a filter field under each header. The toolbar shows how many rows match. Hiding the filter row clears the filters. A row you are editing (or have just added) stays shown until you leave it, even when the filters do not match it.
+* **One column**: *Filter* in its column menu opens its filter in a bubble under the header, nothing in the table moves. While a column filters, its header shows a filter icon: click it to change the filter.
+* **All columns**: the filter icon in the table's toolbar shows a filter field under each header; click it again to hide them. Hidden, the filters still apply.
+* While filtered, the toolbar shows *3 of 10 rows*; its × clears all filters. A field's × clears that one.
+* Under the field you type in, a bubble shows what it understands (click one to put it in the field) and, for a column with up to 12 different values, those values with how many rows have each: tick them to show only those rows (`=open|blocked`).
+* A row you are editing (or have just added) stays shown until you leave it, even when the filters do not match it.
 
 Plain text is found anywhere in a cell, ignoring case and diacritics (`cesky` finds `Český`). With *Smart filters* (on by default, see [[#Settings]]) a field also understands:
 
@@ -104,12 +108,14 @@ Plain text is found anywhere in a cell, ignoring case and diacritics (`cesky` fi
 | `/pattern/` | match a regular expression |
 | `/pattern/c` | match it, with case |
 | `=text` | are exactly `text` |
+| `a\|b` | match `a` or `b` (each may be any filter: `<2\|>10`) |
+| `=a\|b` | are exactly `a` or `b` (`=\|a`: also empty cells) |
 | `!filter` | do **not** match `filter` |
 
 * Number filters hide cells that are not numbers. Numbers are read as for sorting.
 * Regular expressions ignore case unless flagged `c` (other flags: `m`, `s`, `u`), and see the cell text as shown, e.g. the alias of a link. Example: `/^item 1[0-9]$/`.
 * `=text` ignores case and diacritics, like plain text.
-* `!` works in front of any filter: `!done`, `!>10`, `!/^$/` (cells that are not empty).
+* `!` works in front of any filter: `!done`, `!>10`, `!/^$/` (cells that are not empty), `!=open|done` (neither).
 * A filter that is still being typed (only `>`, or a regular expression without its closing `/`) does not filter yet.
 * An invalid regular expression filters nothing; its field turns red and its tooltip says why.
 
@@ -553,7 +559,7 @@ config.define("tablePlus", {
         smart = {
           type = "boolean",
           default = true,
-          description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell) and !filter (not). Off: everything typed is text to find.",
+          description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell), a|b (either) and !filter (not). Off: everything typed is text to find.",
           ui = { category = "Table Plus", label = "Smart filters", priority = 1 },
         },
       },
@@ -914,39 +920,196 @@ body.tp-navigating .sb-table-widget.tp-table * {
   outline: none;
 }
 
-/* Filter row */
+/* Filter row: a field per column; the one filtering is marked */
 .sb-table-widget .tp-filter-row td {
-  padding: 4px 8px !important;
+  padding: 4px 6px !important;
+  vertical-align: middle;
 }
-/* Fills its cell without widening the column (the cell has a minimum width) */
+/* Its field gives the row its height: no empty line before it */
+.sb-table-widget.tp-table .tp-filter-row td::before {
+  content: none;
+}
+.tp-filter-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 4px;
+  font-family: var(--ui-font, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: normal;
+}
+.tp-filter-box:focus-within {
+  border-color: var(--ui-accent-color);
+}
+.tp-filter-active .tp-filter-box,
+.tp-filter-popover.tp-filter-typed .tp-filter-box {
+  background: color-mix(in srgb, var(--ui-accent-color) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ui-accent-color) 60%, transparent);
+}
+.tp-filter-icon {
+  display: inline-flex;
+  flex: none;
+  opacity: 0.45;
+}
+.tp-filter-active .tp-filter-icon {
+  color: var(--ui-accent-color);
+  opacity: 1;
+}
+.tp-filter-icon svg {
+  width: 12px;
+  height: 12px;
+}
+/* Fills its box without widening the column (the cell has a minimum width) */
 .tp-filter {
+  flex: 1;
   width: 100%;
   min-width: 0;
-  box-sizing: border-box;
-  padding: 2px 0;
+  padding: 0;
   font: inherit;
-  font-size: 0.85em;
-  font-weight: normal;
   color: inherit;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid currentColor;
-  border-radius: 0;
   outline: none;
   cursor: text !important;
 }
-.tp-filter:focus {
-  border-bottom-color: var(--ui-accent-color);
-  box-shadow: 0 1px 0 0 var(--ui-accent-color);
-}
-/* An invalid regular expression: it filters nothing, the tooltip says why */
-.tp-filter.tp-invalid {
-  border-bottom-color: var(--danger-color, #c62828);
-  box-shadow: 0 1px 0 0 var(--danger-color, #c62828);
-}
 .tp-filter::placeholder {
   color: inherit;
+  opacity: 0.5;
+}
+/* An invalid regular expression: it filters nothing, the tooltip says why */
+.tp-filter-box:has(.tp-filter.tp-invalid) {
+  border-color: var(--danger-color, #c62828);
+}
+/* Clears the field: shown while it holds something */
+.tp-filter-clear {
+  display: none;
+  flex: none;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
   opacity: 0.6;
+}
+.tp-filter-typed .tp-filter-clear {
+  display: inline-flex;
+}
+.tp-filter-clear:hover {
+  opacity: 1;
+  color: var(--ui-accent-color);
+}
+.tp-filter-clear svg {
+  width: 12px;
+  height: 12px;
+}
+/* In a filtered column's header (also while the filter row is hidden): opens its filter */
+.tp-filter-mark {
+  display: none;
+  margin-left: 4px;
+  color: var(--ui-accent-color);
+  vertical-align: -2px;
+  cursor: pointer;
+}
+.sb-table-widget.tp-table td.tp-filtered .tp-filter-mark {
+  display: inline-flex;
+}
+.tp-filter-mark svg {
+  width: 13px;
+  height: 13px;
+}
+/* Under the field typed in, or a column's filter on its own: what the field
+   understands, and a column's few values to tick */
+.tp-filter-bubble.tp-visible {
+  flex-direction: column;
+  gap: 6px;
+  max-width: 300px;
+  padding: 6px;
+  font-size: 12px;
+  color: var(--root-color);
+  background: var(--root-background-color);
+  border: 1px solid var(--button-border-color, rgba(128, 128, 128, 0.4));
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+}
+.tp-filter-popover.tp-visible {
+  min-width: 220px;
+}
+.tp-filter-popover .tp-filter-box {
+  padding: 4px 6px;
+  font-size: 13px;
+}
+.tp-filter-bubble-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tp-filter-bubble-body:empty {
+  display: none;
+}
+.tp-filter-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tp-filter-hint {
+  padding: 1px 6px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tp-filter-hint:hover {
+  background: color-mix(in srgb, var(--ui-accent-color) 14%, transparent);
+}
+.tp-filter-hint code {
+  font-size: 11px;
+  color: var(--ui-accent-color);
+}
+.tp-filter-values {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  padding-top: 4px;
+}
+.tp-filter-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.tp-filter-value:hover {
+  background: color-mix(in srgb, var(--ui-accent-color) 12%, transparent);
+}
+.tp-filter-value input {
+  margin: 0;
+  cursor: pointer;
+}
+.tp-filter-value-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tp-filter-value-count {
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+/* The toolbar's filter chip: its icon before the count */
+.tp-filter-chip > svg {
+  width: 12px;
+  height: 12px;
+  margin-right: 4px;
 }
 
 /* Floating controls */
