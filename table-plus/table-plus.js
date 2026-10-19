@@ -7981,18 +7981,16 @@ var Controller = class {
           }
         }
       ] : [],
-      // Its markdown not aligned (typed by hand, or the Format tables setting off)
-      ...serializeTable({ ...parseTable(info.source), padded: true }) !== info.source ? [
-        {
-          label: "Format table",
-          title: "Align the table's markdown: its columns padded to one width",
-          icon: ICONS.format,
-          run: () => {
-            const [w] = this.current(widget, info);
-            void this.write(w, (t) => ({ ...t, padded: true }));
-          }
+      // Aligned already, it writes nothing
+      {
+        label: "Format table",
+        title: "Align the table's markdown: its columns padded to one width",
+        icon: ICONS.format,
+        run: () => {
+          const [w] = this.current(widget, info);
+          void this.write(w, (t) => ({ ...t, padded: true }));
         }
-      ] : [],
+      },
       {
         label: "Edit markdown",
         title: "Show this table as markdown",

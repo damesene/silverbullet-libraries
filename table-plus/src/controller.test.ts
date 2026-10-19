@@ -167,13 +167,16 @@ describe("Controller", () => {
     });
   });
 
-  it("formats the table's markdown from the toolbar's menu, offered only when it is not aligned", async () => {
+  it("formats the table's markdown from the toolbar's menu; again, it writes nothing", async () => {
     await setup("| A | Long |\n|---|---|\n| 1 | x |\n", { "tablePlus.autoFormat": false });
     tableMenuItem(/^Format table$/)!.click();
     await flush();
     expect(text).toBe("| A   | Long |\n| --- | ---- |\n| 1   | x    |\n");
     await controller.scan();
-    expect(tableMenuItem(/^Format table$/)).toBeUndefined();
+    const formatted = text;
+    tableMenuItem(/^Format table$/)!.click();
+    await flush();
+    expect(text).toBe(formatted);
   });
 
   it("unpins all rows and columns from the toolbar's menu, leaving them where they are", async () => {
