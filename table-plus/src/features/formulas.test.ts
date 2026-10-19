@@ -178,6 +178,37 @@ describe("Formulas", () => {
       expect(text).toContain(unrelated);
     });
 
+    it("keeps the references of other tables on the cells they were to, and on the table when it is renamed", async () => {
+      const PAGE3 = [
+        "| Name | Price |",
+        "|---|---|",
+        "| Pear | 12 |",
+        "| Fig | 3 |",
+        '| <meta name="prices"> |',
+        "",
+        "| Item | Cost |",
+        "|---|---|",
+        '| Fig | 3 <meta f="=prices!B2"> |',
+        "",
+      ].join("\n");
+      await setup(PAGE3);
+      // A row inserted above Pear, from its row menu
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      document.querySelector(".tp-grip:not(.tp-grip-column)")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+      Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Insert row above")!.click();
+      await flush();
+      await controller.scan();
+      expect(text).toContain('| Fig | 3 <meta f="=prices!B3"> |');
+      // Renamed with Name
+      vi.spyOn(window, "prompt").mockReturnValue("costs");
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button")).find((b) => b.textContent!.startsWith("Name"))!.click();
+      await flush();
+      expect(text).toContain('<meta name="costs">');
+      expect(text).toContain('| Fig | 3 <meta f="=costs!B3"> |');
+    });
+
     it("offers to recalculate a table when the one it refers to was changed in the markdown", async () => {
       await setup(PAGE2.replace("| Fig | 3 |", "| Fig | 5 |"));
       second(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));

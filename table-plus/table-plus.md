@@ -173,7 +173,7 @@ A formula can use the cells of another table on the same page, once that table h
 * The other table's formulas are calculated too, so a total over its column is up to date, and tables can refer to each other in turn (not in a circle: that is `#CYCLE!`).
 * When Table Plus edits a table, the tables that refer to it get their new results in the same edit (one Ctrl+Z undoes both). When the other table is changed in the markdown, *Recalculate* in the toolbar is highlighted.
 * `[@column]` is always the formula's own row: another table's rows are reached with `XLOOKUP` or by cell.
-* References to another table's cells (`prices!B2`) do not follow when its rows or columns are moved or deleted; its columns (`prices![price]`) and `XLOOKUP` do not depend on where the rows are.
+* References to another table follow its edits made with Table Plus, as references in a table do (see [[#References]]): `prices!B2` follows its rows and columns when they are inserted, deleted, moved or sorted into the markdown, `prices![price]` a renamed or moved column, and a reference to deleted cells becomes `prices!#REF!`. Renaming the table with *Name* renames the references to it on the page. Edits made in the markdown do not change references.
 
 ### Operators and values
 
@@ -389,6 +389,7 @@ A table can have a name, so formulas in other tables can refer to it. Click *Nam
 * A name is letters, digits and `_`, not starting with a digit, e.g. `prices` or `price_list`. Names that read as a cell (`A1`, `AB12`) or as `TRUE` / `FALSE` are refused.
 * Names are compared ignoring case, and two tables on a page cannot have the same name.
 * The toolbar shows the name: *Name: prices*.
+* Renaming a table renames the references to it in the formulas on the page; removing the name (or the table's metadata) leaves them as they are, showing `#REF!`.
 
 ## Table metadata
 

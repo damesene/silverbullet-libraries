@@ -383,6 +383,11 @@ class Parser {
         // prices!B2, prices!A1:B3, prices![Price]
         const next = this.tokens[this.at];
         const prefix = this.text(token);
+        // A reference to deleted cells of the other table, as references following it write it
+        if (next?.kind === "ref-error") {
+          this.at++;
+          return { kind: "literal", value: new FormulaError("#REF!", `a reference to deleted cells of ${token.name}`) };
+        }
         if (next?.kind === "column") {
           this.at++;
           if (next.thisRow) {
@@ -951,8 +956,9 @@ export function referredTableNames(table: Table): Set<string> {
     for (const cell of row.cells) {
       const stored = formulaOf(cell);
       if (!stored) continue;
-      for (const ref of references(stored.formula)) {
-        if (ref.table && ref.table.page === undefined) names.add(ref.table.name.toLowerCase());
+      // Table tokens, not references: prices!#REF! is to prices too
+      for (const token of tokenize(stored.formula).tokens) {
+        if (token.kind === "table" && token.page === undefined) names.add(token.name.toLowerCase());
       }
     }
   });
@@ -1010,58 +1016,50 @@ function mapSpan(a: number, b: number, map: IndexMap): [number, number] | undefi
   return best;
 }
 
+/** How a table's rows and columns moved in an edit, for the references to it */
+type TableEdit = {
+  readonly before: Table;
+  readonly after: Table;
+  readonly rowMap?: IndexMap;
+  readonly columnMap?: IndexMap;
+};
+
 /**
- * The edited table with the references of its formulas following the edit:
- * A1 references follow moved, inserted and deleted rows and columns (a
- * reference to deleted cells becomes #REF!), [Name] references a renamed or
- * moved column. `rowMap` maps the rows of the markdown (header 0),
- * `columnMap` the columns; both default to "unchanged".
+ * What a reference to an edited table is written as after the edit: undefined
+ * when it stays as written. A1 references follow moved, inserted and deleted
+ * rows and columns (to deleted cells: #REF!), [Name] references a renamed or
+ * moved column.
  */
-export function shiftReferences(before: Table, after: Table, rowMap?: IndexMap, columnMap?: IndexMap): Table {
-  if (!hasFormulas(after)) return after;
-  const bodyMap: IndexMap = (b) => {
-    const r = rowMap ? rowMap(b + 1) : b + 1;
-    return r === undefined || r < 1 ? undefined : r - 1;
-  };
-  const columns: IndexMap = columnMap ?? ((c) => c);
-  const headersBefore = before.rows[0]?.cells ?? [];
-  const headersAfter = after.rows[0]?.cells ?? [];
-  const rewrite = (formula: string): string => {
-    let result = formula;
-    for (const ref of references(formula).reverse()) {
-      // References to another table do not follow this table's rows and columns
-      if (ref.table) continue;
-      let text: string | undefined;
-      if (ref.kind === "area") {
-        if (!rowMap && !columnMap) continue;
-        const rows = mapSpan(ref.area.top, ref.area.bottom, bodyMap);
-        const cols = mapSpan(ref.area.left, ref.area.right, columns);
-        const written = formula.slice(ref.from, ref.to);
-        const range = written.includes(":");
-        text =
-          rows && cols
-            ? range
-              ? `${cellName(rows[0], cols[0])}:${cellName(rows[1], cols[1])}`
-              : cellName(rows[0], cols[0])
-            : REF_ERROR;
-        if (text === written.toUpperCase()) continue;
-      } else {
-        const id = referencedColumnId(headersBefore, ref.name);
-        const followed = followColumn(headersBefore, headersAfter, id, columns);
-        if (followed === undefined) continue;
-        if (followed === null) text = REF_ERROR;
-        else {
-          if (sameColumnId(followed, id)) continue;
-          text = columnRefText(followed, ref.thisRow);
-          if (!text) continue;
-        }
-      }
-      result = result.slice(0, ref.from) + text + result.slice(ref.to);
-    }
-    return result;
-  };
-  let result = after;
-  after.rows.forEach((row, r) => {
+function followedReference(formula: string, ref: Reference, edit: TableEdit): string | undefined {
+  const { rowMap, columnMap } = edit;
+  if (ref.kind === "area") {
+    if (!rowMap && !columnMap) return undefined;
+    const bodyMap: IndexMap = (b) => {
+      const r = rowMap ? rowMap(b + 1) : b + 1;
+      return r === undefined || r < 1 ? undefined : r - 1;
+    };
+    const rows = mapSpan(ref.area.top, ref.area.bottom, bodyMap);
+    const cols = mapSpan(ref.area.left, ref.area.right, columnMap ?? ((c) => c));
+    const written = formula.slice(ref.from, ref.to);
+    const text =
+      rows && cols ? (written.includes(":") ? `${cellName(rows[0], cols[0])}:${cellName(rows[1], cols[1])}` : cellName(rows[0], cols[0])) : REF_ERROR;
+    return text === written.toUpperCase() ? undefined : text;
+  }
+  const headersBefore = edit.before.rows[0]?.cells ?? [];
+  const id = referencedColumnId(headersBefore, ref.name);
+  const followed = followColumn(headersBefore, edit.after.rows[0]?.cells ?? [], id, columnMap ?? ((c) => c));
+  if (followed === undefined) return undefined;
+  if (followed === null) return REF_ERROR;
+  return sameColumnId(followed, id) ? undefined : columnRefText(followed, ref.thisRow);
+}
+
+/**
+ * The table with each formula rewritten by `rewrite`, which gives the
+ * formula's new text (or the same text when it stays)
+ */
+function withFormulas(table: Table, rewrite: (formula: string) => string): Table {
+  let result = table;
+  table.rows.forEach((row, r) => {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
@@ -1071,6 +1069,72 @@ export function shiftReferences(before: Table, after: Table, rowMap?: IndexMap, 
     });
   });
   return result;
+}
+
+/** The formula with the references `follows` picks pointing where they point after `edit` (followedReference) */
+function rewriteReferences(formula: string, follows: (ref: Reference) => boolean, edit: TableEdit): string {
+  let result = formula;
+  for (const ref of references(formula).reverse()) {
+    if (!follows(ref)) continue;
+    const text = followedReference(formula, ref, edit);
+    if (text !== undefined) result = result.slice(0, ref.from) + text + result.slice(ref.to);
+  }
+  return result;
+}
+
+/** The table's name after an edit, if the edit renamed it (not when it removed the name) */
+function newName(edit: TableEdit): string | undefined {
+  const from = edit.before.meta?.name?.trim();
+  const to = edit.after.meta?.name?.trim();
+  return from && to && from.toLowerCase() !== to.toLowerCase() ? to : undefined;
+}
+
+/** Whether a reference is to the table named `name` on the formula's page */
+function isTo(ref: Reference, name: string | undefined): boolean {
+  return !!ref.table && ref.table.page === undefined && !!name && ref.table.name.toLowerCase() === name.toLowerCase();
+}
+
+/**
+ * The edited table with the references of its formulas following the edit
+ * (see followedReference), also those that name the table itself
+ * (mine!B2 in the table named mine), whose name follows a rename too.
+ * `rowMap` maps the rows of the markdown (header 0), `columnMap` the columns;
+ * both default to "unchanged". References to other tables stay as they are.
+ */
+export function shiftReferences(before: Table, after: Table, rowMap?: IndexMap, columnMap?: IndexMap): Table {
+  if (!hasFormulas(after)) return after;
+  const edit: TableEdit = { before, after, rowMap, columnMap };
+  const own = before.meta?.name?.trim();
+  const renamed = newName(edit);
+  return withFormulas(after, (formula) => renameIn(rewriteReferences(formula, (ref) => !ref.table || isTo(ref, own), edit), own, renamed));
+}
+
+/**
+ * The formula with the table `own` (on the formula's page) named `renamed`
+ * instead, also in references to its deleted cells (own!#REF!)
+ */
+function renameIn(formula: string, own: string | undefined, renamed: string | undefined): string {
+  if (!renamed || !own) return formula;
+  let result = formula;
+  for (const token of tokenize(formula).tokens.reverse()) {
+    if (token.kind === "table" && token.page === undefined && token.name.toLowerCase() === own.toLowerCase()) {
+      result = `${result.slice(0, token.from)}${renamed}!${result.slice(token.to)}`;
+    }
+  }
+  return result;
+}
+
+/**
+ * Another table of the page with its references to the edited table (named
+ * so before the edit) following the edit: where they point, and the table's
+ * new name if it was renamed. Other references stay as they are.
+ */
+export function followTable(table: Table, before: Table, after: Table, rowMap?: IndexMap, columnMap?: IndexMap): Table {
+  const name = before.meta?.name?.trim();
+  if (!name || !hasFormulas(table)) return table;
+  const edit: TableEdit = { before, after, rowMap, columnMap };
+  const renamed = newName(edit);
+  return withFormulas(table, (formula) => renameIn(rewriteReferences(formula, (ref) => isTo(ref, name), edit), name, renamed));
 }
 
 // ---- help while typing -------------------------------------------------------

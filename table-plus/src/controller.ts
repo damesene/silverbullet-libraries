@@ -38,7 +38,7 @@ import {
   UI_CLASS,
   WIDGET_SELECTOR,
 } from "./dom.ts";
-import { formulasAfterEdit, recalculate, referredTableNames, type TableSource } from "./formula/index.ts";
+import { followTable, formulasAfterEdit, recalculate, referredTableNames, type TableSource } from "./formula/index.ts";
 import { ICONS } from "./icons.ts";
 import {
   cellSourceOffset,
@@ -1175,17 +1175,21 @@ export class Controller implements TableHost {
       const updates: { readonly range: TableRange; readonly markdown: string }[] = [{ range, markdown }];
       const now = pageTables(() => all, { from: range.from, table: changed });
       const affected = new Set([metaName(before), metaName(changed)].filter((n) => n !== undefined).map((n) => n.toLowerCase()));
-      const others = all.filter((other) => other.range.from !== range.from);
+      const oldName = metaName(before)?.toLowerCase();
+      // What each other table refers to, read once for all the passes below
+      const others = all.filter((other) => other.range.from !== range.from).map((other) => ({ ...other, referred: referredTableNames(other.table) }));
       for (let found = affected.size > 0; found; ) {
         found = false;
         for (let i = others.length - 1; i >= 0; i--) {
-          const { range: otherRange, table } = others[i]!;
-          if (![...referredTableNames(table)].some((name) => affected.has(name))) continue;
+          const { range: otherRange, table, referred } = others[i]!;
+          if (![...referred].some((name) => affected.has(name))) continue;
           others.splice(i, 1);
           found = true;
           const own = metaName(table);
           if (own) affected.add(own.toLowerCase());
-          const recalculated = recalculate(table, now);
+          // Its references to this table follow the edit: moved rows and columns, a new name
+          const followed = oldName && referred.has(oldName) ? followTable(table, before, changed, options.rowMap, options.columnMap) : table;
+          const recalculated = recalculate(followed, now);
           if (recalculated !== table) updates.push({ range: otherRange, markdown: serialize(recalculated) });
         }
       }

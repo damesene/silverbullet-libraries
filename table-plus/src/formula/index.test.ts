@@ -5,6 +5,7 @@ import {
   calculatedFormula,
   columnLetters,
   completeFunction,
+  followTable,
   formulaCell,
   formulaErrors,
   formulaHelp,
@@ -22,6 +23,7 @@ import {
   withColumnKeys,
 } from "./index.ts";
 import { parseMetaRow, parseTable, serializeTable, splitRow } from "../markdown.ts";
+import { withMeta } from "../meta.ts";
 import { deleteColumn, deleteRow, insertRow, moveColumn, moveRow, reorderRows, setCell } from "../ops.ts";
 
 // A table whose cell `at` holds `formula`; returns what that cell shows after recalculating
@@ -551,5 +553,60 @@ describe("other tables", () => {
     // [price] of this table without the row that sums prices![price]
     const own = '| Price |\n|---|\n| 3 |\n| 0 <meta f="=SUM(prices![price])"> |\n| |';
     expect(result("=SUM([price])", tablesOf(PRICES), own)).toBe("17.5");
+  });
+});
+
+describe("references to another table follow its edits", () => {
+  const PRICES = '| Name | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 3 |\n| <meta name="prices"> |';
+  const prices = parseTable(PRICES);
+  const formulas = (table: ReturnType<typeof parseTable>) =>
+    table.rows.slice(1).flatMap((row) => row.cells.map((cell) => formulaOf(cell)?.formula).filter((f) => f !== undefined));
+  const referring = (...formula: string[]) =>
+    parseTable(["| X |", "|---|", ...formula.map((f) => `| ${formulaCell("", f)} |`)].join("\n"));
+
+  it("follows inserted, deleted and moved rows and columns of the named table", () => {
+    const table = referring("=prices!B1", "=SUM(prices!B1:B2)", "=other!B1+B1", "=[[Elsewhere]]prices!B1");
+    // A row inserted above Pear: its cells move down one row
+    const inserted = insertRow(prices, 1);
+    expect(formulas(followTable(table, prices, inserted, (r) => (r === 0 ? 0 : r + 1)))).toEqual([
+      "=prices!B2",
+      "=SUM(prices!B2:B3)",
+      "=other!B1+B1",
+      "=[[Elsewhere]]prices!B1",
+    ]);
+    // Column Price deleted: its cells are gone
+    const deleted = deleteColumn(prices, 1);
+    expect(formulas(followTable(referring("=prices!B1", "=prices![price]"), prices, deleted, undefined, (c) => (c === 1 ? undefined : c)))).toEqual([
+      "=prices!#REF!",
+      "=prices!#REF!",
+    ]);
+  });
+
+  it("follows a renamed column and a renamed table", () => {
+    const renamedColumn = setCell(prices, 0, 1, "Cost");
+    expect(formulas(followTable(referring("=SUM(prices![price])"), prices, renamedColumn))).toEqual(["=SUM(prices![cost])"]);
+    const renamed = withMeta(prices, "name", "cost");
+    expect(formulas(followTable(referring("=prices!B1*prices![price]", "=PRICES!A1"), prices, renamed))).toEqual([
+      "=cost!B1*cost![price]",
+      "=cost!A1",
+    ]);
+    // A reference to its deleted cells is renamed too
+    expect(formulas(followTable(referring("=prices!#REF!"), prices, renamed))).toEqual(["=cost!#REF!"]);
+    expect(referredTableNames(referring("=prices!#REF!"))).toEqual(new Set(["prices"]));
+    // The name removed: the references stay, and show #REF!
+    expect(formulas(followTable(referring("=prices!B1"), prices, withMeta(prices, "name", undefined)))).toEqual(["=prices!B1"]);
+  });
+
+  it("follows the table's own edits in references that name the table itself", () => {
+    const mine = parseTable('| A |\n|---|\n| 5 |\n| 0 <meta f="=mine!A1*2"> |\n| <meta name="mine"> |');
+    const inserted = insertRow(mine, 1);
+    expect(formulas(shiftReferences(mine, inserted, (r) => (r === 0 ? 0 : r + 1)))).toEqual(["=mine!A2*2"]);
+    expect(formulas(shiftReferences(mine, withMeta(mine, "name", "ours")))).toEqual(["=ours!A1*2"]);
+  });
+
+  it("evaluates a reference to deleted cells of another table as #REF!", () => {
+    const table = referring("=prices!#REF!");
+    const tables: TableSource = (name) => (name === "prices" ? prices : undefined);
+    expect(formulaErrors(table, tables).get("1,0")).toBe("#REF! a reference to deleted cells of prices");
   });
 });

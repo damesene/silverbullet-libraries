@@ -2495,6 +2495,10 @@ var Parser = class {
       case "table": {
         const next = this.tokens[this.at];
         const prefix = this.text(token);
+        if (next?.kind === "ref-error") {
+          this.at++;
+          return { kind: "literal", value: new FormulaError("#REF!", `a reference to deleted cells of ${token.name}`) };
+        }
         if (next?.kind === "column") {
           this.at++;
           if (next.thisRow) {
@@ -2971,8 +2975,8 @@ function referredTableNames(table) {
     for (const cell of row.cells) {
       const stored = formulaOf(cell);
       if (!stored) continue;
-      for (const ref of references(stored.formula)) {
-        if (ref.table && ref.table.page === void 0) names.add(ref.table.name.toLowerCase());
+      for (const token of tokenize(stored.formula).tokens) {
+        if (token.kind === "table" && token.page === void 0) names.add(token.name.toLowerCase());
       }
     }
   });
@@ -3014,45 +3018,30 @@ function mapSpan(a, b, map) {
   }
   return best;
 }
-function shiftReferences(before, after, rowMap, columnMap) {
-  if (!hasFormulas(after)) return after;
-  const bodyMap = (b) => {
-    const r = rowMap ? rowMap(b + 1) : b + 1;
-    return r === void 0 || r < 1 ? void 0 : r - 1;
-  };
-  const columns = columnMap ?? ((c) => c);
-  const headersBefore = before.rows[0]?.cells ?? [];
-  const headersAfter = after.rows[0]?.cells ?? [];
-  const rewrite = (formula) => {
-    let result2 = formula;
-    for (const ref of references(formula).reverse()) {
-      if (ref.table) continue;
-      let text;
-      if (ref.kind === "area") {
-        if (!rowMap && !columnMap) continue;
-        const rows = mapSpan(ref.area.top, ref.area.bottom, bodyMap);
-        const cols = mapSpan(ref.area.left, ref.area.right, columns);
-        const written = formula.slice(ref.from, ref.to);
-        const range = written.includes(":");
-        text = rows && cols ? range ? `${cellName(rows[0], cols[0])}:${cellName(rows[1], cols[1])}` : cellName(rows[0], cols[0]) : REF_ERROR;
-        if (text === written.toUpperCase()) continue;
-      } else {
-        const id = referencedColumnId(headersBefore, ref.name);
-        const followed = followColumn(headersBefore, headersAfter, id, columns);
-        if (followed === void 0) continue;
-        if (followed === null) text = REF_ERROR;
-        else {
-          if (sameColumnId(followed, id)) continue;
-          text = columnRefText(followed, ref.thisRow);
-          if (!text) continue;
-        }
-      }
-      result2 = result2.slice(0, ref.from) + text + result2.slice(ref.to);
-    }
-    return result2;
-  };
-  let result = after;
-  after.rows.forEach((row, r) => {
+function followedReference(formula, ref, edit) {
+  const { rowMap, columnMap } = edit;
+  if (ref.kind === "area") {
+    if (!rowMap && !columnMap) return void 0;
+    const bodyMap = (b) => {
+      const r = rowMap ? rowMap(b + 1) : b + 1;
+      return r === void 0 || r < 1 ? void 0 : r - 1;
+    };
+    const rows = mapSpan(ref.area.top, ref.area.bottom, bodyMap);
+    const cols = mapSpan(ref.area.left, ref.area.right, columnMap ?? ((c) => c));
+    const written = formula.slice(ref.from, ref.to);
+    const text = rows && cols ? written.includes(":") ? `${cellName(rows[0], cols[0])}:${cellName(rows[1], cols[1])}` : cellName(rows[0], cols[0]) : REF_ERROR;
+    return text === written.toUpperCase() ? void 0 : text;
+  }
+  const headersBefore = edit.before.rows[0]?.cells ?? [];
+  const id = referencedColumnId(headersBefore, ref.name);
+  const followed = followColumn(headersBefore, edit.after.rows[0]?.cells ?? [], id, columnMap ?? ((c) => c));
+  if (followed === void 0) return void 0;
+  if (followed === null) return REF_ERROR;
+  return sameColumnId(followed, id) ? void 0 : columnRefText(followed, ref.thisRow);
+}
+function withFormulas(table, rewrite) {
+  let result = table;
+  table.rows.forEach((row, r) => {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
@@ -3062,6 +3051,47 @@ function shiftReferences(before, after, rowMap, columnMap) {
     });
   });
   return result;
+}
+function rewriteReferences(formula, follows, edit) {
+  let result = formula;
+  for (const ref of references(formula).reverse()) {
+    if (!follows(ref)) continue;
+    const text = followedReference(formula, ref, edit);
+    if (text !== void 0) result = result.slice(0, ref.from) + text + result.slice(ref.to);
+  }
+  return result;
+}
+function newName(edit) {
+  const from = edit.before.meta?.name?.trim();
+  const to = edit.after.meta?.name?.trim();
+  return from && to && from.toLowerCase() !== to.toLowerCase() ? to : void 0;
+}
+function isTo(ref, name) {
+  return !!ref.table && ref.table.page === void 0 && !!name && ref.table.name.toLowerCase() === name.toLowerCase();
+}
+function shiftReferences(before, after, rowMap, columnMap) {
+  if (!hasFormulas(after)) return after;
+  const edit = { before, after, rowMap, columnMap };
+  const own = before.meta?.name?.trim();
+  const renamed = newName(edit);
+  return withFormulas(after, (formula) => renameIn(rewriteReferences(formula, (ref) => !ref.table || isTo(ref, own), edit), own, renamed));
+}
+function renameIn(formula, own, renamed) {
+  if (!renamed || !own) return formula;
+  let result = formula;
+  for (const token of tokenize(formula).tokens.reverse()) {
+    if (token.kind === "table" && token.page === void 0 && token.name.toLowerCase() === own.toLowerCase()) {
+      result = `${result.slice(0, token.from)}${renamed}!${result.slice(token.to)}`;
+    }
+  }
+  return result;
+}
+function followTable(table, before, after, rowMap, columnMap) {
+  const name = before.meta?.name?.trim();
+  if (!name || !hasFormulas(table)) return table;
+  const edit = { before, after, rowMap, columnMap };
+  const renamed = newName(edit);
+  return withFormulas(table, (formula) => renameIn(rewriteReferences(formula, (ref) => isTo(ref, name), edit), name, renamed));
 }
 var REFERENCE_HELP = {
   syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column] \xB7 name!A1 \xB7 name![Column]",
@@ -6375,17 +6405,19 @@ var Controller = class {
       const updates = [{ range, markdown }];
       const now2 = pageTables(() => all, { from: range.from, table: changed });
       const affected = new Set([metaName(before), metaName(changed)].filter((n) => n !== void 0).map((n) => n.toLowerCase()));
-      const others = all.filter((other) => other.range.from !== range.from);
+      const oldName = metaName(before)?.toLowerCase();
+      const others = all.filter((other) => other.range.from !== range.from).map((other) => ({ ...other, referred: referredTableNames(other.table) }));
       for (let found = affected.size > 0; found; ) {
         found = false;
         for (let i = others.length - 1; i >= 0; i--) {
-          const { range: otherRange, table } = others[i];
-          if (![...referredTableNames(table)].some((name) => affected.has(name))) continue;
+          const { range: otherRange, table, referred } = others[i];
+          if (![...referred].some((name) => affected.has(name))) continue;
           others.splice(i, 1);
           found = true;
           const own = metaName(table);
           if (own) affected.add(own.toLowerCase());
-          const recalculated = recalculate(table, now2);
+          const followed = oldName && referred.has(oldName) ? followTable(table, before, changed, options.rowMap, options.columnMap) : table;
+          const recalculated = recalculate(followed, now2);
           if (recalculated !== table) updates.push({ range: otherRange, markdown: serialize(recalculated) });
         }
       }
