@@ -168,6 +168,35 @@ describe("Controller", () => {
     });
   });
 
+  it("keeps a press beside the table that misses the + from SilverBullet, and hides the + when the pointer leaves the window", async () => {
+    await setup(PAGE);
+    const inner = controller as unknown as { insertAt: unknown; inInsertBand: boolean };
+    const mark = document.querySelector<HTMLElement>(".tp-insert")!;
+    // The band beside the table, a + shown (jsdom has no layout to hover it: set as the pointer would)
+    inner.inInsertBand = true;
+    inner.insertAt = { key: "Test#0", axis: "row", at: 4, beside: { after: 3 } };
+    mark.classList.add("tp-visible");
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+    editor.querySelector(".sb-table-widget")!.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    await flush();
+    expect(text).toBe(PAGE.replace("| Fig | 2 |\n", "| Fig | 2 |\n| | |\n"));
+    expect(cursorMoves).toEqual([]);
+    // In the band where no + shows: nothing happens, SilverBullet does not get it either
+    await controller.scan();
+    inner.insertAt = undefined;
+    inner.inInsertBand = true;
+    const again = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+    editor.querySelector(".sb-table-widget")!.dispatchEvent(again);
+    expect(again.defaultPrevented).toBe(true);
+    // The pointer leaves the window
+    inner.insertAt = { key: "Test#0", axis: "row", at: 1, beside: {} };
+    mark.classList.add("tp-visible");
+    document.body.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: null }));
+    expect(mark.classList.contains("tp-visible")).toBe(false);
+    expect(inner.inInsertBand).toBe(false);
+  });
+
   it("formats the table's markdown from the toolbar's menu; again, it writes nothing", async () => {
     await setup("| A | Long |\n|---|---|\n| 1 | x |\n", { "tablePlus.autoFormat": false });
     tableMenuItem(/^Format table$/)!.click();

@@ -7374,6 +7374,7 @@ var Controller = class {
     win.addEventListener("blur", this.onBlur);
     this.doc.addEventListener("pointermove", this.onPointerMove, { passive: true });
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
+    this.doc.addEventListener("pointerout", this.onPointerOut, { passive: true });
     this.insertMark.addEventListener("click", () => this.insertHere());
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
@@ -8052,6 +8053,12 @@ var Controller = class {
       this.closeTableMenu(false);
     }
     for (const feature of this.features) if (feature.mouseDown?.(e)) return;
+    if (e.button === 0 && this.inInsertBand && !(e.target instanceof Node && this.isFloating(e.target))) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.insertAt) this.insertHere();
+      return;
+    }
     if (e.button !== 0) return;
     for (const feature of this.features) feature.beforeMouseDown?.(e);
     if (e.altKey) {
@@ -8156,6 +8163,7 @@ var Controller = class {
     if (cell && cell.isConnected && this.isShown(widget, info, cell)) {
       for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
     } else this.endHover(true);
+    if (this.insertAt || this.inInsertBand) this.insertUnderPointer();
   }
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
   isShown(widget, info, element) {
@@ -8224,10 +8232,16 @@ var Controller = class {
   // Where a hovering pointer was last, and the table a + inserted into, to show the + again once it is rendered anew
   lastPointer;
   insertedIn;
+  // The pointer left the window: the + goes (no move tells it so)
+  onPointerOut = (e) => {
+    if (e.relatedTarget !== null) return;
+    this.lastPointer = void 0;
+    this.inInsertBand = this.hideInsert();
+  };
   onPointerMove = (e) => {
     this.lastPointer = { pointerType: e.pointerType, clientX: e.clientX, clientY: e.clientY };
     const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
-    this.inInsertBand = !this.tableMenu && busy !== "drag" && this.showInsert(e, !busy);
+    this.inInsertBand = !this.tableMenu && busy !== "drag" ? this.showInsert(e, !busy) : this.hideInsert();
   };
   onMouseMove = (e) => {
     const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
@@ -8473,11 +8487,21 @@ var Controller = class {
   }
   /** A table rendered anew after a + inserted into it: the + where the pointer still is */
   reshowInsert(widget, info) {
-    const pointer = this.lastPointer;
-    if (this.insertedIn !== info.key || !pointer) return;
+    if (this.insertedIn !== info.key || !this.lastPointer) return;
     this.insertedIn = void 0;
     this.hoverWidget = widget;
-    this.inInsertBand = this.showInsert({ ...pointer, buttons: 0, target: this.doc.elementFromPoint(pointer.clientX, pointer.clientY) });
+    this.insertUnderPointer();
+  }
+  /** The + where the pointer is now, as a move there would show it */
+  insertUnderPointer() {
+    const pointer = this.lastPointer;
+    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
+    if (!pointer || this.tableMenu || busy === "drag") {
+      this.inInsertBand = this.hideInsert();
+      return;
+    }
+    const target = this.doc.elementFromPoint(pointer.clientX, pointer.clientY);
+    this.inInsertBand = this.showInsert({ ...pointer, buttons: 0, target }, !busy);
   }
   /** The leftmost column in view, so editing a new row does not scroll a wide table back */
   firstVisibleColumn(widget, info) {
