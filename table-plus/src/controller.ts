@@ -997,6 +997,8 @@ export class Controller implements TableHost {
         const input = this.doc.createElement("input");
         input.type = "search";
         input.className = "tp-filter";
+        // Its natural width (20 characters) would widen the column: it fills the cell instead (CSS)
+        input.size = 1;
         input.placeholder = "Filter";
         input.dataset.tpColumn = String(column);
         this.isolate(input);

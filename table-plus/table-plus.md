@@ -917,9 +917,10 @@ body.tp-navigating .sb-table-widget.tp-table * {
 .sb-table-widget .tp-filter-row td {
   padding: 4px 8px !important;
 }
+/* Fills its cell without widening the column (the cell has a minimum width) */
 .tp-filter {
   width: 100%;
-  min-width: 4em;
+  min-width: 0;
   box-sizing: border-box;
   padding: 2px 0;
   font: inherit;

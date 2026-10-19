@@ -6652,6 +6652,7 @@ var Controller = class {
         const input = this.doc.createElement("input");
         input.type = "search";
         input.className = "tp-filter";
+        input.size = 1;
         input.placeholder = "Filter";
         input.dataset.tpColumn = String(column);
         this.isolate(input);
