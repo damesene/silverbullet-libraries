@@ -17,6 +17,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Sort**: click ⇅ in a column header. See [[#Sorting]].
 * **Filter**: hover the table and click *Filter*; `>10`, `/regex/`, `=text` and `!text` work too. See [[#Filtering]].
 * **Add, move or delete rows and columns**: click the ⠿ grip next to a row or above a column. See [[#Rows and columns]].
+* **Copy cells to a spreadsheet**: drag across cells to select them, Ctrl+C, paste in Excel or Google Sheets. See [[#Copying cells]].
 * **Paste from a spreadsheet**: copy cells in Excel or Google Sheets, click a cell, Ctrl+V; Ctrl+Shift+V adds them as new rows. See [[#Pasting from a spreadsheet]].
 * **Formulas**: type `=SUM(B1:B3)` or `=SUM([qty])` into a cell; the result is written into the markdown. See [[#Formulas]].
 * **Pin rows and columns** to the edges, where they stay in view (needs *Store table metadata*). See [[#Pinning]].
@@ -53,6 +54,14 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * With the `moveDown` setting, Enter (and Shift+Enter) also moves to the cell below. See [[#Settings]].
 * Browsers use Ctrl+PageUp / PageDown to switch tabs and do not pass them to the page. They work where SilverBullet runs without tabs (installed as an app).
 * While Ctrl is held, the pointer shows a move cursor. Without Ctrl, arrows, Home and End move within the cell's text as usual.
+
+## Copying cells
+
+* Press on a cell and drag across others, the header included if you like: the cells in between are selected. A plain click still edits the cell.
+* **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows).
+* Cells copy what they show: a formula's result, a link's text.
+* The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
+* Esc or a click elsewhere ends the selection.
 
 ## Pasting from a spreadsheet
 
@@ -836,6 +845,11 @@ body.tp-autoscrolling * {
 }
 
 /* Formulas */
+/* Cells selected by dragging, to copy */
+.sb-table-widget.tp-table td.tp-selected {
+  background-color: color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent);
+}
 /* While a formula waits for a reference, cells can be pointed at */
 .sb-table-widget.tp-table.tp-pointing td:not(.tp-editing) {
   cursor: move;

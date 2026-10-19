@@ -2101,6 +2101,15 @@ function withoutMetadata(table) {
 function plural(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
+function clipboardText(values) {
+  const quote = (v) => /[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+  return values.map((row) => row.map(quote).join("	")).join("\n");
+}
+function clipboardHtml(values) {
+  const escape = (v) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
+  return `<table>${rows}</table>`;
+}
 function rowAfterInsert(at) {
   return (r) => r >= at ? r + 1 : r;
 }
@@ -2218,6 +2227,9 @@ var Controller = class {
   stopPointing;
   // The paste on its way was asked for with Ctrl+Shift+V: as new rows
   pasteInserts = false;
+  // Cells selected by dragging across them (rows of the markdown, header 0), for copying
+  selection;
+  stopSelecting;
   setBridge(bridge) {
     this.bridge = bridge;
   }
@@ -2228,6 +2240,7 @@ var Controller = class {
     win.addEventListener("dblclick", this.onDoubleClick, true);
     win.addEventListener("scroll", this.onScroll, true);
     win.addEventListener("keydown", this.onKeyDown, true);
+    win.addEventListener("copy", this.onCopy, true);
     win.addEventListener("keyup", this.onKeyUp, true);
     win.addEventListener("blur", this.onBlur);
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
@@ -2249,6 +2262,8 @@ var Controller = class {
     win.removeEventListener("dblclick", this.onDoubleClick, true);
     win.removeEventListener("scroll", this.onScroll, true);
     win.removeEventListener("keydown", this.onKeyDown, true);
+    win.removeEventListener("copy", this.onCopy, true);
+    this.stopSelecting?.();
     win.removeEventListener("keyup", this.onKeyUp, true);
     win.removeEventListener("blur", this.onBlur);
     this.doc.removeEventListener("mousemove", this.onMouseMove);
@@ -2480,6 +2495,7 @@ var Controller = class {
       const scrollTop = this.scrollTops.get(info.key);
       if (scrollTop) widget.scrollTop = scrollTop;
       this.takePendingFocus(widget, info);
+      if (this.selection?.key === info.key) this.showSelection();
       this.queueStickyUpdate();
       void this.refreshSettings();
     } catch (e) {
@@ -2779,6 +2795,7 @@ ${error}` : stored.formula;
       return;
     }
     if (this.menu && target && !this.isFloating(target)) this.closeMenu(false);
+    if (this.selection && !(target && this.isFloating(target))) this.clearSelection();
     if (e.button === 1) this.onMiddleMouseDown(e);
     if (e.button !== 0) return;
     if (e.altKey) {
@@ -2807,6 +2824,7 @@ ${error}` : stored.formula;
     const select = e.shiftKey !== this.selectOnClick;
     if (this.editor) void this.finishEditing(true, { widget, ...ref, select });
     else this.openEditor(widget, info, cell, select);
+    this.trackSelection(info.key, ref);
   };
   /**
    * Middle-button autoscroll over a table that scrolls sideways. The browser's
@@ -3057,6 +3075,11 @@ ${error}` : stored.formula;
     return void 0;
   }
   onKeyDown = (e) => {
+    if (e.key === "Escape" && this.selection) {
+      e.preventDefault();
+      this.clearSelection();
+      return;
+    }
     if (e.key === "Escape" && this.menu) {
       e.preventDefault();
       e.stopPropagation();
@@ -3545,6 +3568,83 @@ ${error}` : stored.formula;
   focusEditor(widget) {
     widget.closest(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
+  // ---- selecting cells to copy ------------------------------------------------
+  /**
+   * After a press on a cell: dragging on to another cell of the table, with
+   * the button held, selects the cells between the two as shown (sorting and
+   * filters included), and closes the cell editor the press opened, unchanged
+   */
+  trackSelection(key, anchor) {
+    this.stopSelecting?.();
+    const win = this.doc.defaultView;
+    const move = (ev) => {
+      if (ev.buttons === 0) {
+        end();
+        return;
+      }
+      const hit = this.enhancedWidgetOf(ev.target);
+      const cell = hit && hit[1].key === key ? this.tableCellOf(hit[1], ev.target) : void 0;
+      const ref = hit && cell ? this.cellRef(hit[1], cell) : void 0;
+      if (!ref) return;
+      const current = this.selection;
+      if (!current) {
+        if (ref.row === anchor.row && ref.column === anchor.column) return;
+        this.pendingFocus = void 0;
+        if (this.editor) void this.finishEditing(false);
+        this.selection = { key, anchor, focus: ref };
+      } else if (current.focus.row === ref.row && current.focus.column === ref.column) return;
+      else current.focus = ref;
+      this.showSelection();
+    };
+    const end = () => {
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", end, true);
+      this.stopSelecting = void 0;
+    };
+    win.addEventListener("mousemove", move, true);
+    win.addEventListener("mouseup", end, true);
+    this.stopSelecting = end;
+  }
+  /** The selected cells as shown: rows top to bottom (the header first), columns left to right */
+  selectedCells() {
+    const selection = this.selection;
+    const widget = selection && this.widgetForKey(selection.key);
+    const info = widget && this.infos.get(widget);
+    if (!selection || !info) return void 0;
+    const shown = this.shownRows(info);
+    const index = (row) => shown.findIndex((tr) => row === 0 ? tr === info.table.rows[0] : tr.dataset.tpRow === String(row));
+    const a = index(selection.anchor.row);
+    const b = index(selection.focus.row);
+    if (a < 0 || b < 0) return void 0;
+    const left = Math.min(selection.anchor.column, selection.focus.column);
+    const right = Math.max(selection.anchor.column, selection.focus.column);
+    return shown.slice(Math.min(a, b), Math.max(a, b) + 1).map((tr) => Array.from(tr.cells).slice(left, right + 1));
+  }
+  showSelection() {
+    for (const cell of Array.from(this.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
+    for (const row of this.selectedCells() ?? []) for (const cell of row) cell.classList.add("tp-selected");
+  }
+  clearSelection() {
+    this.selection = void 0;
+    for (const cell of Array.from(this.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
+  }
+  /**
+   * Ctrl+C with cells selected copies them as a spreadsheet does: as text with
+   * a tab between cells and a line break between rows, and as an HTML table,
+   * so Excel and Google Sheets paste them into cells. Cells copy what they
+   * show (a formula's result, a link's text).
+   */
+  onCopy = (e) => {
+    const cells = this.selection && this.selectedCells();
+    const active = this.doc.activeElement;
+    if (!cells || !e.clipboardData || active instanceof HTMLInputElement && active.selectionStart !== active.selectionEnd) return;
+    const values = cells.map((row) => row.map(cellText));
+    e.clipboardData.setData("text/plain", clipboardText(values));
+    e.clipboardData.setData("text/html", clipboardHtml(values));
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    void this.bridge.flash(`Table Plus: copied ${values.length} \xD7 ${values[0]?.length ?? 0} cells`, "info");
+  };
   // ---- formula editing: help and references -------------------------------
   /**
    * While a formula is edited: the help for what is typed under the cell, and

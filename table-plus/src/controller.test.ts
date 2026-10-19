@@ -913,6 +913,59 @@ describe("Controller", () => {
     expect(flashes.length).toBe(1);
   });
 
+  describe("selecting cells to copy", () => {
+    const copy = () => {
+      const data: Record<string, string> = {};
+      const event = new Event("copy", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", { value: { setData: (type: string, value: string) => (data[type] = value) } });
+      document.dispatchEvent(event);
+      return { event, data };
+    };
+    const drag = (from: Element, to: Element) => {
+      press(from, "mousedown");
+      to.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, buttons: 1 }));
+      window.dispatchEvent(new MouseEvent("mouseup"));
+    };
+
+    it("selects the cells dragged across and copies them for a spreadsheet", async () => {
+      await setup('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| a "b" | 10 <meta f="=5*2"> |\n| Fig | 2 |\n');
+      drag(cell(0, 0), cell(2, 1));
+      await flush();
+      expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+      expect(editor.querySelectorAll(".tp-selected").length).toBe(6);
+      const { event, data } = copy();
+      expect(event.defaultPrevented).toBe(true);
+      expect(data["text/plain"]).toBe('Name\tQty\nPear\t3\n"a ""b"""\t10');
+      expect(data["text/html"]).toBe(
+        "<table><tr><td>Name</td><td>Qty</td></tr><tr><td>Pear</td><td>3</td></tr><tr><td>a &quot;b&quot;</td><td>10</td></tr></table>",
+      );
+      expect(flashes).toEqual(["Table Plus: copied 3 × 2 cells"]);
+      expect(text).toContain("| Pear | 3 |");
+    });
+
+    it("selects rows as shown when sorted, and ends with Esc or a click", async () => {
+      await setup(PAGE);
+      clickOn(cell(0, 1).querySelector(".tp-sort")!); // Qty ascending: Fig 2, Pear 3, apple 10
+      drag(cell(1, 0), cell(2, 1));
+      expect(copy().data["text/plain"]).toBe("Fig\t2\nPear\t3");
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      expect(editor.querySelectorAll(".tp-selected").length).toBe(0);
+      expect(copy().event.defaultPrevented).toBe(false);
+      drag(cell(1, 0), cell(1, 1));
+      expect(editor.querySelectorAll(".tp-selected").length).toBe(2);
+      press(cell(3, 0), "mousedown");
+      expect(editor.querySelectorAll(".tp-selected").length).toBe(0);
+    });
+
+    it("leaves a click on a cell to the cell editor", async () => {
+      await setup(PAGE);
+      clickOn(cell(1, 1));
+      window.dispatchEvent(new MouseEvent("mouseup"));
+      expect(editor.querySelector(".tp-cell-editor")).not.toBeNull();
+      expect(editor.querySelectorAll(".tp-selected").length).toBe(0);
+    });
+  });
+
   describe("formulas", () => {
     const TOTAL = "| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Apple | 10 |\n| Total | |\n";
     const field = () => editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
