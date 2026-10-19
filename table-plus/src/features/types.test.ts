@@ -82,21 +82,53 @@ describe("Column types", () => {
     await setup(PAGE);
     clickOn(cell(1, 2));
     const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
-    const list = document.getElementById(field.getAttribute("list")!)!;
-    expect(Array.from(list.querySelectorAll("option")).map((o) => [o.value, o.label])).toEqual([
-      ["0", "0 ☆☆☆☆☆"],
-      ["1", "1 ★☆☆☆☆"],
-      ["2", "2 ★★☆☆☆"],
-      ["3", "3 ★★★☆☆"],
-      ["4", "4 ★★★★☆"],
-      ["5", "5 ★★★★★"],
-    ]);
+    const picker = document.querySelector<HTMLElement>(".tp-choices")!;
+    const options = () => Array.from(picker.querySelectorAll<HTMLElement>(".tp-choice"));
+    // All the values, though the cell has one: to change it to another; its own marked
+    expect(picker.classList.contains("tp-visible")).toBe(true);
+    expect(options().map((o) => o.textContent)).toEqual(["0 ☆☆☆☆☆", "1 ★☆☆☆☆", "2 ★★☆☆☆", "3 ★★★☆☆", "4 ★★★★☆", "5 ★★★★★"]);
+    expect(options()[4]!.classList.contains("tp-current")).toBe(true);
+    // Typing narrows them to those containing what is typed
+    field.value = "★★★★";
+    field.dispatchEvent(new Event("input"));
+    expect(options().map((o) => o.textContent)).toEqual(["4 ★★★★☆", "5 ★★★★★"]);
     field.value = "9";
+    field.dispatchEvent(new Event("input"));
+    expect(picker.classList.contains("tp-visible")).toBe(false);
     key(field, "Enter");
     await flush();
     expect(text).toContain("| Pear | 12.99 | 9 | yes |");
     expect(flashes).toEqual(['Table Plus: "9" is not a whole number from 0 to 5 (#stars); saved as typed']);
-    expect(document.querySelector("datalist")).toBeNull();
+    expect(picker.classList.contains("tp-visible")).toBe(false);
+  });
+
+  it("picks a value from the list with the mouse, or with the arrows and Enter", async () => {
+    await setup(PAGE);
+    const field = () => editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+    const options = () => Array.from(document.querySelectorAll<HTMLElement>(".tp-choices .tp-choice"));
+    clickOn(cell(1, 3)); // Done: yes
+    options().find((o) => o.textContent === "❌ no")!.click();
+    await flush();
+    expect(text).toContain("| Pear | 12.99 | 4 | no |");
+    await controller.scan();
+
+    clickOn(cell(2, 2)); // Rating: 1, where the arrows start
+    expect(options()[1]!.classList.contains("tp-active")).toBe(true);
+    key(field(), "ArrowDown");
+    key(field(), "ArrowDown");
+    expect(options()[3]!.classList.contains("tp-active")).toBe(true);
+    expect(field().value).toBe("1"); // the arrows only move along the list
+    key(field(), "Enter");
+    await flush();
+    expect(text).toContain("| Fig | 3.5 | 3 | no |");
+    await controller.scan();
+
+    // A value not of the type: all the values to pick one, until something is typed
+    clickOn(cell(3, 3)); // Done: maybe
+    expect(options().map((o) => o.textContent)).toEqual(["✅ yes", "❌ no"]);
+    field().value = "mayb";
+    field().dispatchEvent(new Event("input"));
+    expect(document.querySelector(".tp-choices")!.classList.contains("tp-visible")).toBe(false);
   });
 
   it("shows a formula's result in its column's type", async () => {

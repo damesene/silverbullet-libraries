@@ -209,7 +209,7 @@ shows `$12.99`, `★★★★☆` and `✅`.
 * The type's hashtag is hidden in the header, and the type's icon shows after the column's name (hover it for the type); the menu marks the types with the same icons. SilverBullet leaves hashtags out of a column's key, so a query still reads `Price #currency-usd` as `price`, and the hashtag tags neither the rows nor the page.
 * A parameter goes after a dash: `#currency-usd`, `#number-2`, `#stars-10`. A hashtag that is not a type (or a type with a parameter it does not take) is an ordinary hashtag.
 * A cell whose value is not one of the type shows as written, in red; hover it to see why. Empty cells are left alone.
-* The cell editor offers the type's values where it has a few (`#stars`, `#check`, `#trend`): pick one or type. A value saved that is not of the type is kept as typed, and Table Plus says so.
+* The cell editor offers the type's values where it has a few (`#stars`, `#check`, `#trend`) in a list under the cell, all of them even when the cell has one: click one, or move along them with ↑ / ↓ and take one with Enter. Typing narrows the list. A value saved that is not of the type is kept as typed, and Table Plus says so.
 * A formula's result is shown in its column's type, e.g. `=SUM([price])` as an amount of money.
 * The hashtags of MdTableRender also work for these types: `#euro`, `#usd`, `#int`, `#float`, `#kg`, `#km`, `#watt`, `#logical`, `#evaluation`, `#gauge`.
 
@@ -916,6 +916,37 @@ body.tp-navigating .sb-table-widget.tp-table * {
 .tp-menu .tp-menu-value-icon svg {
   width: 14px;
   height: 14px;
+}
+/* The values a typed cell offers, under its editor */
+.tp-choices {
+  z-index: 57;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  font-size: 13px;
+  color: var(--root-color);
+  background: var(--root-background-color);
+  border: 1px solid var(--button-border-color, rgba(128, 128, 128, 0.4));
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+.tp-choice {
+  display: flex;
+  gap: 8px;
+  padding: 4px 8px;
+  white-space: nowrap;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tp-choice:hover,
+.tp-choice.tp-active {
+  background: color-mix(in srgb, var(--ui-accent-color) 14%, transparent);
+}
+.tp-choice.tp-current::after {
+  content: "\2713";
+  margin-left: auto;
+  color: var(--ui-accent-color);
 }
 .tp-menu-separator {
   height: 1px;

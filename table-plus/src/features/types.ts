@@ -10,6 +10,7 @@ import { setCell } from "../ops.ts";
 import { formulaOf } from "../formula/index.ts";
 import { escapeCell, parseTable, unescapeCell } from "../markdown.ts";
 import {
+  type Choice,
   type ColumnType,
   columnTypeOf,
   type Shown,
@@ -55,22 +56,41 @@ function hiddenTagsCss(): string {
   return `${selectors.join(",\n")} {\n  display: none;\n}\n`;
 }
 
+/** The values the open cell editor offers: the type's, those shown for what is typed, the one the arrows are on */
+type Picking = {
+  readonly editor: CellEditor;
+  readonly choices: readonly Choice[];
+  shown: readonly Choice[];
+  active: number;
+};
+
 export class ColumnTypes implements Feature {
   private readonly style: HTMLStyleElement;
-  // The values the open cell editor offers, and how many such lists were made (for their ids)
-  private choices: HTMLDataListElement | undefined;
-  private lists = 0;
+  // A list of the type's values under the cell editor (a datalist would offer
+  // only the values that start with what the field holds: none to change to)
+  private readonly picker: HTMLElement;
+  private picking: Picking | undefined;
 
   constructor(private readonly host: TableHost) {
     this.style = host.doc.createElement("style");
     this.style.dataset.tablePlus = "types";
     this.style.textContent = hiddenTagsCss();
     host.doc.head.append(this.style);
+    this.picker = host.floating("div", "tp-choices");
+    this.picker.setAttribute("role", "listbox");
   }
 
   stop(): void {
     this.style.remove();
-    this.choices?.remove();
+    this.picker.remove();
+  }
+
+  owns(node: Node): boolean {
+    return this.picker.contains(node);
+  }
+
+  layoutChanged(): void {
+    if (this.picking && this.picker.classList.contains("tp-visible")) this.placePicker(this.picking.editor);
   }
 
   // ---- the column menu ----------------------------------------------------------
@@ -130,27 +150,103 @@ export class ColumnTypes implements Feature {
     return header === undefined ? undefined : columnTypeOf(unescapeCell(header));
   }
 
-  /** A type with values to offer: the field suggests them as it is typed in (a datalist) */
+  /** A type with values to offer: a list of them under the cell, picked with the mouse or the arrows and Enter */
   editorOpened(editor: CellEditor): void {
     const typed = this.typeOfEdited(editor);
     const choices = typed?.type.choices?.(typed.param);
     if (!choices?.length) return;
-    const list = this.host.doc.createElement("datalist");
-    list.id = `tp-choices-${++this.lists}`;
-    for (const choice of choices) {
-      const option = this.host.doc.createElement("option");
-      option.value = choice.value;
-      option.label = choice.label;
-      list.append(option);
-    }
-    this.host.doc.body.append(list);
-    editor.field.setAttribute("list", list.id);
-    this.choices = list;
+    this.picking = { editor, choices, shown: [], active: -1 };
+    editor.field.addEventListener("input", () => {
+      if (this.picking?.editor === editor) this.showChoices();
+    });
+    this.showChoices();
   }
 
   editorClosed(): void {
-    this.choices?.remove();
-    this.choices = undefined;
+    this.picking = undefined;
+    this.picker.classList.remove("tp-visible");
+  }
+
+  /** Arrows move along the list, Enter takes the value they are on (and then saves as Enter does) */
+  editorKeyDown(e: KeyboardEvent, editor: CellEditor): boolean {
+    const picking = this.picking;
+    if (!picking || picking.editor !== editor || !this.picker.classList.contains("tp-visible")) return false;
+    if (e.ctrlKey || e.altKey || e.metaKey) return false;
+    const count = picking.shown.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      picking.active = e.key === "ArrowDown" ? (picking.active + 1) % count : (picking.active - 1 + count) % count;
+      this.renderChoices();
+      return true;
+    }
+    if (e.key === "Enter" && !e.shiftKey && picking.active >= 0) editor.field.value = picking.shown[picking.active]!.value;
+    return false;
+  }
+
+  /**
+   * The values for what the field holds: all of them while it holds what the
+   * cell had (even a value not of the type), is empty or is one of them (to
+   * change it to another), else those that contain what is typed
+   */
+  private showChoices(): void {
+    const picking = this.picking;
+    if (!picking) return;
+    const field = picking.editor.field;
+    const typed = field.value.trim().toLowerCase();
+    const isChoice = picking.choices.some((c) => c.value.toLowerCase() === typed);
+    picking.shown =
+      typed === "" || isChoice || field.value === picking.editor.initial
+        ? picking.choices
+        : picking.choices.filter((c) => c.value.toLowerCase().includes(typed) || c.label.toLowerCase().includes(typed));
+    // The arrows start from the cell's value: ↓ is the next one
+    picking.active = picking.shown.findIndex((c) => c.value.toLowerCase() === typed);
+    // A formula is not one of the values: its own help shows there
+    if (!picking.shown.length || typed.startsWith("=")) {
+      this.picker.classList.remove("tp-visible");
+      return;
+    }
+    this.renderChoices();
+    this.placePicker(picking.editor);
+  }
+
+  private renderChoices(): void {
+    const picking = this.picking;
+    if (!picking) return;
+    const typed = picking.editor.field.value.trim().toLowerCase();
+    this.picker.replaceChildren(
+      ...picking.shown.map((choice, index) => {
+        const option = this.host.doc.createElement("div");
+        option.className = "tp-choice";
+        option.setAttribute("role", "option");
+        option.textContent = choice.label;
+        option.classList.toggle("tp-current", choice.value.toLowerCase() === typed);
+        option.classList.toggle("tp-active", index === picking.active);
+        option.setAttribute("aria-selected", String(index === picking.active));
+        // Picking saves the value as Enter would
+        option.addEventListener("click", () => {
+          if (this.picking !== picking) return;
+          picking.editor.field.value = choice.value;
+          this.picker.classList.remove("tp-visible");
+          picking.editor.field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+        });
+        return option;
+      }),
+    );
+    // The value the arrows are on stays in the list's view (the list alone scrolls, not the page)
+    const active = this.picker.querySelector<HTMLElement>(".tp-active");
+    if (active && active.offsetTop < this.picker.scrollTop) this.picker.scrollTop = active.offsetTop;
+    else if (active && active.offsetTop + active.offsetHeight > this.picker.scrollTop + this.picker.clientHeight) {
+      this.picker.scrollTop = active.offsetTop + active.offsetHeight - this.picker.clientHeight;
+    }
+  }
+
+  /** Under the cell, or above it where the window has no room below */
+  private placePicker(editor: CellEditor): void {
+    const rect = editor.cell.getBoundingClientRect();
+    this.picker.style.minWidth = `${Math.round(rect.width)}px`;
+    this.host.place(this.picker, rect.left, rect.bottom + 2);
+    const viewHeight = this.host.doc.defaultView!.innerHeight;
+    const height = this.picker.offsetHeight;
+    if (rect.bottom + 2 + height > viewHeight && rect.top - 2 - height >= 0) this.host.place(this.picker, rect.left, rect.top - 2 - height);
   }
 
   /**

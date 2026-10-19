@@ -2620,15 +2620,24 @@ var ColumnTypes = class {
     this.style.dataset.tablePlus = "types";
     this.style.textContent = hiddenTagsCss();
     host.doc.head.append(this.style);
+    this.picker = host.floating("div", "tp-choices");
+    this.picker.setAttribute("role", "listbox");
   }
   host;
   style;
-  // The values the open cell editor offers, and how many such lists were made (for their ids)
-  choices;
-  lists = 0;
+  // A list of the type's values under the cell editor (a datalist would offer
+  // only the values that start with what the field holds: none to change to)
+  picker;
+  picking;
   stop() {
     this.style.remove();
-    this.choices?.remove();
+    this.picker.remove();
+  }
+  owns(node) {
+    return this.picker.contains(node);
+  }
+  layoutChanged() {
+    if (this.picking && this.picker.classList.contains("tp-visible")) this.placePicker(this.picking.editor);
   }
   // ---- the column menu ----------------------------------------------------------
   /** "Type: …" in a column's menu: picks the column's type, written as a hashtag in its header */
@@ -2675,26 +2684,91 @@ var ColumnTypes = class {
     const header = parseTable(this.host.infoOf(editor.widget)?.source ?? "").rows[0]?.cells[editor.column];
     return header === void 0 ? void 0 : columnTypeOf(unescapeCell(header));
   }
-  /** A type with values to offer: the field suggests them as it is typed in (a datalist) */
+  /** A type with values to offer: a list of them under the cell, picked with the mouse or the arrows and Enter */
   editorOpened(editor) {
     const typed = this.typeOfEdited(editor);
     const choices = typed?.type.choices?.(typed.param);
     if (!choices?.length) return;
-    const list = this.host.doc.createElement("datalist");
-    list.id = `tp-choices-${++this.lists}`;
-    for (const choice of choices) {
-      const option = this.host.doc.createElement("option");
-      option.value = choice.value;
-      option.label = choice.label;
-      list.append(option);
-    }
-    this.host.doc.body.append(list);
-    editor.field.setAttribute("list", list.id);
-    this.choices = list;
+    this.picking = { editor, choices, shown: [], active: -1 };
+    editor.field.addEventListener("input", () => {
+      if (this.picking?.editor === editor) this.showChoices();
+    });
+    this.showChoices();
   }
   editorClosed() {
-    this.choices?.remove();
-    this.choices = void 0;
+    this.picking = void 0;
+    this.picker.classList.remove("tp-visible");
+  }
+  /** Arrows move along the list, Enter takes the value they are on (and then saves as Enter does) */
+  editorKeyDown(e, editor) {
+    const picking = this.picking;
+    if (!picking || picking.editor !== editor || !this.picker.classList.contains("tp-visible")) return false;
+    if (e.ctrlKey || e.altKey || e.metaKey) return false;
+    const count = picking.shown.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      picking.active = e.key === "ArrowDown" ? (picking.active + 1) % count : (picking.active - 1 + count) % count;
+      this.renderChoices();
+      return true;
+    }
+    if (e.key === "Enter" && !e.shiftKey && picking.active >= 0) editor.field.value = picking.shown[picking.active].value;
+    return false;
+  }
+  /**
+   * The values for what the field holds: all of them while it holds what the
+   * cell had (even a value not of the type), is empty or is one of them (to
+   * change it to another), else those that contain what is typed
+   */
+  showChoices() {
+    const picking = this.picking;
+    if (!picking) return;
+    const field = picking.editor.field;
+    const typed = field.value.trim().toLowerCase();
+    const isChoice = picking.choices.some((c) => c.value.toLowerCase() === typed);
+    picking.shown = typed === "" || isChoice || field.value === picking.editor.initial ? picking.choices : picking.choices.filter((c) => c.value.toLowerCase().includes(typed) || c.label.toLowerCase().includes(typed));
+    picking.active = picking.shown.findIndex((c) => c.value.toLowerCase() === typed);
+    if (!picking.shown.length || typed.startsWith("=")) {
+      this.picker.classList.remove("tp-visible");
+      return;
+    }
+    this.renderChoices();
+    this.placePicker(picking.editor);
+  }
+  renderChoices() {
+    const picking = this.picking;
+    if (!picking) return;
+    const typed = picking.editor.field.value.trim().toLowerCase();
+    this.picker.replaceChildren(
+      ...picking.shown.map((choice, index) => {
+        const option = this.host.doc.createElement("div");
+        option.className = "tp-choice";
+        option.setAttribute("role", "option");
+        option.textContent = choice.label;
+        option.classList.toggle("tp-current", choice.value.toLowerCase() === typed);
+        option.classList.toggle("tp-active", index === picking.active);
+        option.setAttribute("aria-selected", String(index === picking.active));
+        option.addEventListener("click", () => {
+          if (this.picking !== picking) return;
+          picking.editor.field.value = choice.value;
+          this.picker.classList.remove("tp-visible");
+          picking.editor.field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+        });
+        return option;
+      })
+    );
+    const active = this.picker.querySelector(".tp-active");
+    if (active && active.offsetTop < this.picker.scrollTop) this.picker.scrollTop = active.offsetTop;
+    else if (active && active.offsetTop + active.offsetHeight > this.picker.scrollTop + this.picker.clientHeight) {
+      this.picker.scrollTop = active.offsetTop + active.offsetHeight - this.picker.clientHeight;
+    }
+  }
+  /** Under the cell, or above it where the window has no room below */
+  placePicker(editor) {
+    const rect = editor.cell.getBoundingClientRect();
+    this.picker.style.minWidth = `${Math.round(rect.width)}px`;
+    this.host.place(this.picker, rect.left, rect.bottom + 2);
+    const viewHeight = this.host.doc.defaultView.innerHeight;
+    const height = this.picker.offsetHeight;
+    if (rect.bottom + 2 + height > viewHeight && rect.top - 2 - height >= 0) this.host.place(this.picker, rect.left, rect.top - 2 - height);
   }
   /**
    * A header keeps its type's hashtag after the name typed (an emptied name
