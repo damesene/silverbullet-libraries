@@ -222,7 +222,7 @@ shows `$12.99`, `★★★★☆` and `✅`.
 | `#stars, #stars-10` | A rating as stars: a whole number from 0 to the most stars after the dash (default 5). |
 | `#check` | Yes or no as a check mark: yes, true, 1, x or ✅ shows ✅; no, false, 0 or ❌ shows ❌. |
 | `#date, #date-long` | A date written as 2025-11-06 (with a time: 2025-11-06 14:30), shown as the locale writes it: short, medium (default) or long after the dash. |
-| `#trend` | A trend as an arrow: + shows 🔼, - shows 🔽, = shows ➡️. |
+| `#trend` | A trend as an arrow: + or a number above 0 shows 🔼, - or one below 0 shows 🔽, = or 0 shows ➡️. |
 | `#progress, #progress-10` | Progress as a bar: a number from 0 to the maximum after the dash (default 100). |
 | `#link` | A web address as a link, shown without its https://. |
 

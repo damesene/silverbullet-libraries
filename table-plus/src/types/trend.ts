@@ -1,14 +1,23 @@
 import { lineIcon } from "../icons.ts";
+import { numberOf } from "./helpers.ts";
 import type { ColumnType } from "./types.ts";
 
 const ARROWS: Readonly<Record<string, string>> = { "+": "🔼", "-": "🔽", "=": "➡️" };
 
+/** The arrow for +, - or =, or for a number by its sign (a change: +3, -1.5, 0) */
+function arrowOf(text: string): string | undefined {
+  const t = text.trim();
+  if (ARROWS[t]) return ARROWS[t];
+  const n = numberOf(t);
+  return n === undefined ? undefined : n > 0 ? ARROWS["+"] : n < 0 ? ARROWS["-"] : ARROWS["="];
+}
+
 export default {
   name: "trend",
   syntax: "#trend",
-  description: "A trend as an arrow: + shows 🔼, - shows 🔽, = shows ➡️.",
+  description: "A trend as an arrow: + or a number above 0 shows 🔼, - or one below 0 shows 🔽, = or 0 shows ➡️.",
   icon: lineIcon('<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>'),
-  check: (text) => (ARROWS[text.trim()] ? undefined : `"${text}" is not +, - or =`),
-  format: (text) => ARROWS[text.trim()]!,
+  check: (text) => (arrowOf(text) ? undefined : `"${text}" is not +, -, = or a number`),
+  format: (text) => arrowOf(text)!,
   choices: () => Object.entries(ARROWS).map(([value, arrow]) => ({ value, label: `${arrow} ${value}` })),
 } satisfies ColumnType;

@@ -2528,13 +2528,19 @@ var stars_default = {
 
 // table-plus/src/types/trend.ts
 var ARROWS = { "+": "\u{1F53C}", "-": "\u{1F53D}", "=": "\u27A1\uFE0F" };
+function arrowOf(text) {
+  const t = text.trim();
+  if (ARROWS[t]) return ARROWS[t];
+  const n = numberOf(t);
+  return n === void 0 ? void 0 : n > 0 ? ARROWS["+"] : n < 0 ? ARROWS["-"] : ARROWS["="];
+}
 var trend_default = {
   name: "trend",
   syntax: "#trend",
-  description: "A trend as an arrow: + shows \u{1F53C}, - shows \u{1F53D}, = shows \u27A1\uFE0F.",
+  description: "A trend as an arrow: + or a number above 0 shows \u{1F53C}, - or one below 0 shows \u{1F53D}, = or 0 shows \u27A1\uFE0F.",
   icon: lineIcon('<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>'),
-  check: (text) => ARROWS[text.trim()] ? void 0 : `"${text}" is not +, - or =`,
-  format: (text) => ARROWS[text.trim()],
+  check: (text) => arrowOf(text) ? void 0 : `"${text}" is not +, -, = or a number`,
+  format: (text) => arrowOf(text),
   choices: () => Object.entries(ARROWS).map(([value, arrow]) => ({ value, label: `${arrow} ${value}` }))
 };
 
