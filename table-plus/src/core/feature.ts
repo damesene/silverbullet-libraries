@@ -144,6 +144,8 @@ export interface TableHost {
     column: number,
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[];
+  /** The entries features add to a row's menu, for the cell in `column` (see Feature.rowMenuEntries) */
+  rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[];
   /** A setting's value, its default when unset or not valid */
   setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>>;
   /** The metadata setting as last read */
@@ -191,6 +193,8 @@ export interface Feature {
     column: number,
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[];
+  /** Entries for a row's menu, about its cell in `column` (the one under the pointer or edited); they close the menu when run */
+  rowMenuEntries?(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[];
   /** Buttons for the table's toolbar, shown while the pointer is over the table */
   toolbarButtons?(widget: HTMLElement, info: WidgetInfo): ToolbarButton[];
   /**

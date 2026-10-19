@@ -25,6 +25,7 @@ import {
   recalculate,
   type Reference,
   referencedColumn,
+  referredCellNames,
   referredPages,
   referredTableNames,
   references,
@@ -185,7 +186,7 @@ export class Formulas implements Feature {
       const info = other === except ? undefined : this.host.infoOf(other);
       if (!info || !this.withFormulas.has(info.table)) continue;
       const model = parseTable(info.source);
-      if (referredTableNames(model).size === 0 && referredPages(model).size === 0) continue;
+      if (referredTableNames(model).size === 0 && referredPages(model).size === 0 && referredCellNames(model).size === 0) continue;
       if (recalculate(model, tables) !== model) this.stale.add(info.table);
       else this.stale.delete(info.table);
     }
@@ -366,7 +367,10 @@ export class Formulas implements Feature {
   private functionCompletion(active: CellEditor): FunctionCompletion | undefined {
     const field = active.field;
     const length = field.value.length;
-    return completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+    const completion = completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+    // A name typed in full that a cell on the page has is that cell, not the start of a function
+    const typed = completion && field.value.slice(completion.from, completion.to);
+    return typed && this.host.tableSource().cell?.(typed) ? undefined : completion;
   }
 
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */

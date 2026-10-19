@@ -3,6 +3,7 @@ import {
   areaText,
   autofixFormula,
   calculatedFormula,
+  cellNamesOf,
   columnLetters,
   completeFunction,
   followTable,
@@ -12,7 +13,9 @@ import {
   formulaOf,
   isFormulaInput,
   type IndexMap,
+  namedReferences,
   recalculate,
+  referredCellNames,
   references,
   referredTableNames,
   type TableSource,
@@ -24,6 +27,7 @@ import {
 } from "./index.ts";
 import { parseMetaRow, parseTable, serializeTable, splitRow } from "../markdown.ts";
 import { withMeta } from "../meta.ts";
+import { nameOf } from "../names.ts";
 import { deleteColumn, deleteRow, insertRow, moveColumn, moveRow, reorderRows, setCell } from "../ops.ts";
 
 // A table whose cell `at` holds `formula`; returns what that cell shows after recalculating
@@ -608,5 +612,52 @@ describe("references to another table follow its edits", () => {
     const table = referring("=prices!#REF!");
     const tables: TableSource = (name) => (name === "prices" ? prices : undefined);
     expect(formulaErrors(table, tables).get("1,0")).toBe("#REF! a reference to deleted cells of prices");
+  });
+});
+
+describe("named cells", () => {
+  const RATES = parseTable('| Rate | Value |\n|---|---|\n| VAT | 0.21 <meta n="vat"> |\n| Fee | 2 <meta f="=vat*10"> <meta n="fee"> |');
+  // A source with the named cells of `tables` on this page, and of `elsewhere` on the page "Other"
+  const sourceOf = (tables: ReturnType<typeof parseTable>[], elsewhere: ReturnType<typeof parseTable>[] = []): TableSource => {
+    const find = (list: ReturnType<typeof parseTable>[], name: string) => {
+      for (const table of list) {
+        for (let row = 1; row < table.rows.length; row++) {
+          const column = table.rows[row]!.cells.findIndex((cell) => nameOf(cell)?.toLowerCase() === name.toLowerCase());
+          if (column >= 0) return { table, row, column };
+        }
+      }
+      return undefined;
+    };
+    return Object.assign(() => undefined, {
+      cell: (name: string, page?: string) => find(page === "Other" ? elsewhere : tables, name),
+    });
+  };
+  const result = (formula: string, tables?: TableSource, own = "| A |\n|---|\n| |") => {
+    const table = parseTable(own);
+    const rows = table.rows.map((r, i) => (i === table.rows.length - 1 ? { cells: [formulaCell("", formula)] } : r));
+    return formulaOf(recalculate({ ...table, rows }, tables).rows[table.rows.length - 1]!.cells[0]!)!.value;
+  };
+
+  it("uses a named cell of its own table, of the page and of another page", () => {
+    expect(result("=rate*100", undefined, '| A |\n|---|\n| 0.5 <meta n="rate"> |\n| |')).toBe("50");
+    expect(result("=100*(1+VAT)", sourceOf([RATES]))).toBe("121");
+    // A named cell's formula is calculated too
+    expect(result("=fee+1", sourceOf([RATES]))).toBe("3.1");
+    expect(result("=[[Other]]vat*2", sourceOf([], [RATES]))).toBe("0.42");
+  });
+
+  it("says when no cell has the name, and finds circles", () => {
+    expect(result("=tax", sourceOf([RATES]))).toBe("#NAME?");
+    const table = parseTable("| A |\n|---|\n| |");
+    const errors = formulaErrors({ ...table, rows: [table.rows[0]!, { cells: [formulaCell("", "=[[Other]]tax")] }] }, sourceOf([], [RATES]));
+    expect(errors.get("1,0")).toBe("#NAME? there is no cell named tax on Other");
+    const loop = parseTable('| A |\n|---|\n| 0 <meta f="=self+1"> <meta n="self"> |');
+    expect(formulaOf(recalculate(loop).rows[1]!.cells[0]!)!.value).toBe("#CYCLE!");
+  });
+
+  it("finds the named cells a formula refers to, not functions, cells or other tables' references", () => {
+    expect(namedReferences("=SUM(A1:B2)*vat+prices!C3+[[Other]]fee+TRUE+[qty]")).toEqual([{ name: "vat" }, { name: "fee", page: "Other" }]);
+    expect([...referredCellNames(parseTable('| A |\n|---|\n| 1 <meta f="=VAT*2"> |'))]).toEqual(["vat"]);
+    expect([...cellNamesOf(RATES)]).toEqual(["vat", "fee"]);
   });
 });

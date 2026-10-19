@@ -2,17 +2,84 @@
 // menu. Formulas and the stored sorting name the column by it, so renaming the
 // header (also in the markdown) does not break them, nor references from
 // other pages. Setting or removing it rewrites the references to the column on
-// the page (the write steps follow the column's new name).
+// the page (the write steps follow the column's new name). And a cell's name,
+// set in its row's menu, by which formulas on the page (vat) and on other
+// pages ([[Page]]vat) use the cell wherever it is moved.
 import { columnIdOf, columnKey } from "../columns.ts";
 import type { Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import { FUNCTIONS } from "../formula/functions/index.ts";
 import { ICONS } from "../icons.ts";
-import { parseTable } from "../markdown.ts";
+import { findTables, locateBySource, parseTable } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
 import { nameOf, nameProblem, withName } from "../names.ts";
 import { setCell } from "../ops.ts";
 
 export class Names implements Feature {
   constructor(private readonly host: TableHost) {}
+
+  /** Named cells show a mark in their corner, and their name on hover */
+  decorate(_widget: HTMLElement, info: WidgetInfo): void {
+    const model = parseTable(info.source);
+    for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
+      model.rows[Number(tr.dataset.tpRow)]?.cells.forEach((raw, column) => {
+        const name = nameOf(raw);
+        const cell = tr.cells[column];
+        if (!name || !cell) return;
+        cell.classList.add("tp-named");
+        cell.title = cell.title ? `${cell.title}\nName: ${name}` : `Name: ${name}`;
+      });
+    }
+  }
+
+  /** "Name cell" in a row's menu, for its cell in `column` */
+  rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
+    const name = nameOf(parseTable(info.source).rows[row]?.cells[column] ?? "");
+    const allowed = this.host.metadataEnabled || name !== undefined;
+    return [
+      {
+        kind: "item",
+        label: "Name cell",
+        icon: ICONS.fixedName,
+        ...(name ? { value: { text: name } } : {}),
+        ...(allowed
+          ? {
+              hint: name
+                ? `Formulas use this cell as ${name} (on other pages [[Page]]${name}), wherever it is moved. Click to rename it`
+                : "Name this cell, so formulas use it by its name (vat), wherever it is moved",
+            }
+          : { disabled: "Needs the Store table metadata setting" }),
+        run: () => void this.nameCell(widget, info, row, column),
+      },
+    ];
+  }
+
+  private async nameCell(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number, column: number): Promise<void> {
+    const current = nameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
+    const answer = await this.host.promptText("Name of the cell (letters, digits and _; empty: none)", current);
+    if (answer === undefined) return;
+    const name = answer.trim();
+    if (name === current) return;
+    let problem = name === "" ? undefined : nameProblem(name, "cell");
+    if (!problem && name && FUNCTIONS[name.toUpperCase()]) problem = `${name} is a function's name`;
+    if (!problem && name) {
+      // The name is the page's: no other cell on it may have it
+      const text = await this.host.bridge.getText();
+      const own = locateBySource(text, shownInfo.hint, shownInfo.source);
+      const taken = findTables(text).some((range) =>
+        parseTable(range.text).rows.some((r, ri) =>
+          ri > 0 && r.cells.some((cell, ci) => nameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column)),
+        ),
+      );
+      if (taken) problem = `another cell on this page is named ${name}`;
+    }
+    if (problem) {
+      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
+      return;
+    }
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    await this.host.write(widget, (t) => setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || undefined)));
+    this.host.focusEditor(widget);
+  }
 
   /** "Fixed name" in a column's menu */
   columnMenuEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {

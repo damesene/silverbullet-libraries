@@ -162,6 +162,15 @@ A column can have a fixed name, by which formulas and the stored sorting name it
 * Setting or removing it rewrites the references to the column on the page: `[unit_price]` becomes `[price]`.
 * Editing the header changes only its name: the fixed name stays. It needs the *Store table metadata* setting, as formulas do; *Remove metadata* removes it.
 
+### Named cells
+
+A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)`, or on another page `[[Prices]]vat`. The name stays with the cell wherever it is moved (also in the markdown), so such references never need to change. Open the row's menu (the ⠿ grip left of the row, for the cell under the pointer or being edited), click *Name cell* and type the name (letters, digits and `_`); an empty name removes it.
+
+* It is stored in the cell as a hidden `<meta n="vat">`: `| VAT | 0.21 <meta n="vat"> |`. A named cell has a mark in its corner; hover it for the name.
+* A name is the page's: two cells on a page cannot have the same one, and it cannot be a function's name or read as a cell (`A1`). A formula looks for it in its own table first, then in the page's other tables.
+* When a table with named cells is edited, the tables that use them get their new results in the same edit. When the cell is changed in the markdown, *Recalculate* is highlighted.
+* Editing the cell changes its value only: the name stays. It needs the *Store table metadata* setting; *Remove metadata* removes it.
+
 ### Other tables
 
 A formula can use the cells of another table on the same page, once that table has a name (see [[#Table names]]): the name and `!` go before the reference.
@@ -254,7 +263,7 @@ In ranges, empty cells and text that is not a number are skipped by the number f
 | Shows | Because |
 |---|---|
 | `#REF!` | A reference outside the table, a column name that does not exist, or a table name that no table on the page (or on the page named) has |
-| `#NAME?` | An unknown function or name |
+| `#NAME?` | An unknown function, or a name no cell on the page (or on the page named) has |
 | `#VALUE!` | A value of the wrong kind (text where a number is needed), or a wrong number of arguments |
 | `#DIV/0!` | Division by zero, or an average of no numbers |
 | `#NUM!` | A result that is not a finite number |
@@ -1271,6 +1280,21 @@ body.tp-autoscrolling * {
 }
 
 /* Formulas */
+/* A named cell: a mark in its corner, as a spreadsheet marks a comment;
+   drawn over the cell, so a pinned or striped cell's background does not hide it */
+.sb-table-widget.tp-table td.tp-named:not(.tp-pin-left):not(.tp-pin-right) {
+  position: relative;
+}
+.sb-table-widget.tp-table td.tp-named::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-style: solid;
+  border-width: 0 6px 6px 0;
+  border-color: transparent color-mix(in srgb, var(--ui-accent-color) 70%, transparent) transparent transparent;
+  pointer-events: none;
+}
 /* Column types: the type's hashtag is hidden, its icon shows after the
    column's name; a value not of the type is red */
 .sb-table-widget .tp-type-tag {

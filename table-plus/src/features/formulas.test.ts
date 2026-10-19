@@ -333,6 +333,72 @@ describe("Formulas", () => {
     });
   });
 
+  describe("named cells", () => {
+    const PAGE4 = [
+      "| Rate | Value |",
+      "|---|---|",
+      "| VAT | 0.21 |",
+      "",
+      "| Item | Price | Gross |",
+      "|---|---|---|",
+      '| Pear | 100 | 121 <meta f="=[@price]*(1+vat)"> |',
+      "",
+    ].join("\n");
+    const openRowMenu = (row: number, column: number) => {
+      // A menu still open would be closed by the next grip click instead
+      if (document.querySelector(".tp-menu")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      // Over another cell first: the grips come back once the pointer moves to a cell
+      cell(0, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      cell(row, column).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      document.querySelector(".tp-grip:not(.tp-grip-column)")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    };
+    const item = (label: RegExp) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => label.test(b.textContent!))!;
+
+    it("names a cell from its row's menu; the tables using the name get its value in the same edit", async () => {
+      await setup(PAGE4.replace('121 <meta f="=[@price]*(1+vat)">', '0 <meta f="=[@price]*(1+vat)">'), { "tablePlus.editor.enterKey": "save" });
+      vi.spyOn(window, "prompt").mockReturnValue("vat");
+      openRowMenu(1, 1);
+      item(/^Name cell/).click();
+      await flush();
+      await controller.scan();
+      expect(text).toContain('| VAT | 0.21 <meta n="vat"> |');
+      expect(text).toContain('| Pear | 100 | 121 <meta f="=[@price]*(1+vat)"> |');
+      expect(cell(1, 1).classList.contains("tp-named")).toBe(true);
+      expect(cell(1, 1).title).toBe("Name: vat");
+      // Its value changed: the other table follows, in the same edit
+      clickOn(cell(1, 1));
+      expect(field().value).toBe("0.21");
+      await type("0.1");
+      expect(text).toContain('| VAT | 0.1 <meta n="vat"> |');
+      expect(text).toContain('| Pear | 100 | 110 <meta f="=[@price]*(1+vat)"> |');
+    });
+
+    it("refuses a name another cell on the page has, or a function's", async () => {
+      await setup('| A | B |\n|---|---|\n| 1 <meta n="one"> | 2 |\n');
+      const prompt = vi.spyOn(window, "prompt");
+      prompt.mockReturnValue("ONE");
+      openRowMenu(1, 1);
+      item(/^Name cell/).click();
+      await flush();
+      expect(flashes.pop()).toBe("Table Plus: another cell on this page is named ONE");
+      prompt.mockReturnValue("sum");
+      openRowMenu(1, 1);
+      item(/^Name cell/).click();
+      await flush();
+      expect(flashes.pop()).toBe("Table Plus: sum is a function's name");
+      expect(text).toBe('| A | B |\n|---|---|\n| 1 <meta n="one"> | 2 |\n');
+    });
+
+    it("leaves the names out of a duplicated row: a name is the page's", async () => {
+      await setup('| A | B |\n|---|---|\n| 1 <meta n="one"> | 2 |\n');
+      openRowMenu(1, 1);
+      item(/^Duplicate row/).click();
+      await flush();
+      expect(text).toBe('| A | B |\n|---|---|\n| 1 <meta n="one"> | 2 |\n| 1 | 2 |\n');
+    });
+  });
+
   describe("with the metadata setting off", () => {
     const OFF = { "tablePlus.metadata": false };
 

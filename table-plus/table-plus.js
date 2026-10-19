@@ -492,6 +492,17 @@ function withName(cell, name) {
   const tag = `<meta n="${escapeMetaValue(name)}">`;
   return text === "" ? tag : `${text} ${tag}`;
 }
+function namedCells(table) {
+  const cells = /* @__PURE__ */ new Map();
+  table.rows.forEach((r, row) => {
+    if (row === 0) return;
+    r.cells.forEach((cell, column) => {
+      const name = nameOf(cell)?.toLowerCase();
+      if (name && !cells.has(name)) cells.set(name, { row, column });
+    });
+  });
+  return cells;
+}
 function hasNames(table) {
   return table.rows.some((row) => row.cells.some((cell) => nameOf(cell) !== void 0));
 }
@@ -697,7 +708,7 @@ function duplicateRowAt(host, widget, info, row) {
   return host.write(
     widget,
     (t) => {
-      const cells = t.rows[row]?.cells;
+      const cells = t.rows[row]?.cells.map((cell) => nameOf(cell) === void 0 ? cell : withoutName(cell));
       return cells ? insertRow(t, insert.at, cells) : void 0;
     },
     { pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
@@ -2392,12 +2403,15 @@ function tokenize(formula) {
     }
     if (formula.startsWith("[[", i)) {
       const close = formula.indexOf("]]", i + 2);
-      const table2 = close < 0 ? null : /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(close + 2));
+      const after = close < 0 ? null : /^([A-Za-z_][A-Za-z0-9_]*)(!?)/.exec(formula.slice(close + 2));
       if (close < 0) return fail("a page name is missing its closing ]]");
-      if (!table2) return fail("[[Page]] is followed by a table's name and !, as in [[Page]]prices!A1");
+      if (!after || !after[2] && (CELL_RE.test(after[1]) || /^(true|false)$/i.test(after[1]))) {
+        return fail("[[Page]] is followed by a table's name and !, as in [[Page]]prices!A1, or a cell's name");
+      }
       const page = formula.slice(i + 2, close).trim();
-      tokens.push({ kind: "table", name: table2[1], page, from: i, to: close + 2 + table2[0].length });
-      i = close + 2 + table2[0].length;
+      const to = close + 2 + after[0].length;
+      tokens.push(after[2] ? { kind: "table", name: after[1], page, from: i, to } : { kind: "named", name: after[1], page, from: i, to });
+      i = to;
       continue;
     }
     const table = /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(i));
@@ -2540,6 +2554,8 @@ var Parser = class {
         return { kind: "column", name: token.name, thisRow: token.thisRow };
       case "ref-error":
         return { kind: "literal", value: new FormulaError("#REF!", "a reference to deleted cells") };
+      case "named":
+        return { kind: "named", name: token.name, page: token.page };
       case "table": {
         const next = this.tokens[this.at];
         const prefix = this.text(token);
@@ -2595,7 +2611,7 @@ var Parser = class {
     const upper = text.toUpperCase();
     if (upper === "TRUE" || upper === "FALSE") return { kind: "literal", value: upper === "TRUE" };
     const start = parseCellName(text);
-    if (!start) throw new FormulaError("#NAME?", `unknown name "${text}"`);
+    if (!start) return { kind: "named", name: text };
     if (!this.peekOp(":")) {
       return { kind: "area", area: { top: start.row, left: start.column, bottom: start.row, right: start.column }, range: false };
     }
@@ -2706,6 +2722,23 @@ var Book = class {
   }
   source;
   sheets = /* @__PURE__ */ new Map();
+  // The sheets by table, whether reached by the table's name or a named cell's
+  tableSheets = /* @__PURE__ */ new Map();
+  /** The cell named so on `page` (undefined: the formulas' page), in its table's sheet */
+  cell(name, page) {
+    const found = this.source?.cell?.(name, page);
+    if (!found || found.row < 1) return void 0;
+    return { sheet: this.sheetOf(found.table, page), row: found.row - 1, column: found.column };
+  }
+  /** The table's sheet, made on its first use (by its name or by a named cell's) */
+  sheetOf(table, page) {
+    let sheet = this.tableSheets.get(table);
+    if (!sheet) {
+      sheet = new Sheet(table, this, page);
+      this.tableSheets.set(table, sheet);
+    }
+    return sheet;
+  }
   /** The sheet a reference from `from` is to: the other table, or `from` itself when it is named so */
   sheet(ref, from) {
     const page = ref.page ?? from.page;
@@ -2715,7 +2748,7 @@ var Book = class {
     if (!sheet) {
       const table = this.source?.(ref.name, page);
       if (!table) return new FormulaError("#REF!", `there is no table named ${ref.name}${page === void 0 ? " on this page" : ` on ${page}`}`);
-      sheet = new Sheet(table, this, page);
+      sheet = this.sheetOf(table, page);
       this.sheets.set(key, sheet);
     }
     return sheet;
@@ -2724,6 +2757,7 @@ var Book = class {
 var Sheet = class {
   /** `page`: the page the table is on, when it is not the formulas' own (its unnamed references are to tables there) */
   constructor(table, book = new Book(void 0), page) {
+    this.table = table;
     this.book = book;
     this.page = page;
     this.name = table.meta?.name?.trim() || void 0;
@@ -2742,6 +2776,7 @@ var Sheet = class {
     }
     this.decimalComma = comma > point;
   }
+  table;
   book;
   page;
   headers;
@@ -2753,6 +2788,7 @@ var Sheet = class {
   // The table's name, by which formulas refer to it
   name;
   totals;
+  cellNames;
   get rows() {
     return this.body.length;
   }
@@ -2849,6 +2885,22 @@ var Sheet = class {
     this.totals = totals;
     return totals;
   }
+  /** A named cell's value: in this table, else on this table's page (or `page`) */
+  named(name, page) {
+    if (page === void 0 || page === this.page) {
+      const own = this.cellNamed(name);
+      if (own) return this.value(own.row, own.column);
+    }
+    const found = this.book.cell(name, page ?? this.page);
+    if (!found) return new FormulaError("#NAME?", `there is no cell named ${name}${page ? ` on ${page}` : " on this page"}`);
+    return found.sheet.value(found.row, found.column);
+  }
+  /** The body cell of this table named so (ignoring case), if any */
+  cellNamed(name) {
+    this.cellNames ??= namedCells(this.table);
+    const found = this.cellNames.get(name.toLowerCase());
+    return found && { row: found.row - 1, column: found.column };
+  }
   /** The sheet a reference's table is: this one, or another the book has */
   sheetOf(table) {
     return table ? this.book.sheet(table, this) : this;
@@ -2871,6 +2923,8 @@ var Sheet = class {
         }
         return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
       }
+      case "named":
+        return this.named(node.name, node.page);
       case "call": {
         const f = FUNCTIONS[node.name];
         if (!f) return new FormulaError("#NAME?", `there is no function ${node.name}`);
@@ -3016,28 +3070,55 @@ function formulasAfterEdit(before, after, edit) {
   }
   return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap), edit.tables);
 }
-function referredPages(table) {
-  const pages = /* @__PURE__ */ new Set();
+function namedReferences(formula) {
+  const { tokens } = tokenize(formula);
+  const result = [];
+  tokens.forEach((token, i) => {
+    if (token.kind === "named") {
+      result.push({ name: token.name, page: token.page });
+      return;
+    }
+    if (token.kind !== "name" || parseCellName(token.text) || /^(true|false)$/i.test(token.text)) return;
+    const next = tokens[i + 1];
+    if (next?.kind === "op" && next.text === "(") return;
+    const previous = tokens[i - 1];
+    if (previous?.kind === "table" || previous?.kind === "op" && previous.text === ":") return;
+    result.push({ name: token.text });
+  });
+  return result;
+}
+function referredCellNames(table) {
+  const names = /* @__PURE__ */ new Set();
+  forFormulas(table, (formula) => {
+    for (const ref of namedReferences(formula)) if (ref.page === void 0) names.add(ref.name.toLowerCase());
+  });
+  return names;
+}
+function cellNamesOf(table) {
+  return new Set(namedCells(table).keys());
+}
+function forFormulas(table, each) {
   table.rows.forEach((row, r) => {
     if (r === 0) return;
     for (const cell of row.cells) {
       const stored = formulaOf(cell);
-      if (!stored) continue;
-      for (const ref of references(stored.formula)) if (ref.table?.page) pages.add(ref.table.page);
+      if (stored) each(stored.formula);
     }
+  });
+}
+function referredPages(table) {
+  const pages = /* @__PURE__ */ new Set();
+  forFormulas(table, (formula) => {
+    for (const ref of references(formula)) if (ref.table?.page) pages.add(ref.table.page);
+    for (const ref of namedReferences(formula)) if (ref.page) pages.add(ref.page);
   });
   return pages;
 }
 function referredTableNames(table) {
   const names = /* @__PURE__ */ new Set();
-  table.rows.forEach((row, r) => {
-    if (r === 0) return;
-    for (const cell of row.cells) {
-      const stored = formulaOf(cell);
-      if (!stored) continue;
-      for (const token of tokenize(stored.formula).tokens) {
-        if (token.kind === "table" && token.page === void 0) names.add(token.name.toLowerCase());
-      }
+  forFormulas(table, (formula) => {
+    for (const token of tokenize(formula).tokens) {
+      if (token.kind === "table" && token.page === void 0) names.add(token.name.toLowerCase());
     }
   });
   return names;
@@ -3154,8 +3235,8 @@ function followTable(table, before, after, rowMap, columnMap) {
   return withFormulas(table, (formula) => renameIn(rewriteReferences(formula, (ref) => isTo(ref, name), edit), name, renamed));
 }
 var REFERENCE_HELP = {
-  syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column] \xB7 name!A1 \xB7 name![Column]",
-  description: "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, or a cell, range or column of another table on the page by its name. Click or drag in the table to insert one, click a header for its column."
+  syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column] \xB7 table!A1 \xB7 table![Column] \xB7 cell_name",
+  description: "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell. Click or drag in the table to insert one, click a header for its column."
 };
 var BEFORE_OPERAND = /* @__PURE__ */ new Set(["=", "(", ",", ";", "+", "-", "*", "/", "^", "&", "<", ">"]);
 function referenceSlot(formula, start, end, pointed) {
@@ -3912,7 +3993,7 @@ ${error}` : stored.formula;
       const info = other === except ? void 0 : this.host.infoOf(other);
       if (!info || !this.withFormulas.has(info.table)) continue;
       const model = parseTable(info.source);
-      if (referredTableNames(model).size === 0 && referredPages(model).size === 0) continue;
+      if (referredTableNames(model).size === 0 && referredPages(model).size === 0 && referredCellNames(model).size === 0) continue;
       if (recalculate(model, tables) !== model) this.stale.add(info.table);
       else this.stale.delete(info.table);
     }
@@ -4075,7 +4156,9 @@ ${error}` : stored.formula;
   functionCompletion(active) {
     const field = active.field;
     const length = field.value.length;
-    return completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+    const completion = completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+    const typed = completion && field.value.slice(completion.from, completion.to);
+    return typed && this.host.tableSource().cell?.(typed) ? void 0 : completion;
   }
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
   pointingSlot(active) {
@@ -4797,8 +4880,18 @@ var Grips = class {
         run: act(() => pinRowAt(host, widget, info, row, zone === "bottom" ? void 0 : "bottom")),
         disabled: pinBlocked("bottom")
       },
+      ...this.featureRowEntries(widget, info, row, column),
       { kind: "separator" },
       { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => deleteRowAt(host, widget, info, row)) }
+    ];
+  }
+  /** The entries features add for the row's cell, after a separator, closing the menu when run */
+  featureRowEntries(widget, info, row, column) {
+    const entries = this.host.rowMenuEntries(widget, info, row, column);
+    if (entries.length === 0) return [];
+    return [
+      { kind: "separator" },
+      ...entries.map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry)
     ];
   }
   columnMenu(widget, info, column) {
@@ -5162,6 +5255,63 @@ var Names = class {
     this.host = host;
   }
   host;
+  /** Named cells show a mark in their corner, and their name on hover */
+  decorate(_widget, info) {
+    const model = parseTable(info.source);
+    for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
+      model.rows[Number(tr.dataset.tpRow)]?.cells.forEach((raw, column) => {
+        const name = nameOf(raw);
+        const cell = tr.cells[column];
+        if (!name || !cell) return;
+        cell.classList.add("tp-named");
+        cell.title = cell.title ? `${cell.title}
+Name: ${name}` : `Name: ${name}`;
+      });
+    }
+  }
+  /** "Name cell" in a row's menu, for its cell in `column` */
+  rowMenuEntries(widget, info, row, column) {
+    const name = nameOf(parseTable(info.source).rows[row]?.cells[column] ?? "");
+    const allowed = this.host.metadataEnabled || name !== void 0;
+    return [
+      {
+        kind: "item",
+        label: "Name cell",
+        icon: ICONS.fixedName,
+        ...name ? { value: { text: name } } : {},
+        ...allowed ? {
+          hint: name ? `Formulas use this cell as ${name} (on other pages [[Page]]${name}), wherever it is moved. Click to rename it` : "Name this cell, so formulas use it by its name (vat), wherever it is moved"
+        } : { disabled: "Needs the Store table metadata setting" },
+        run: () => void this.nameCell(widget, info, row, column)
+      }
+    ];
+  }
+  async nameCell(shownWidget, shownInfo, row, column) {
+    const current = nameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
+    const answer = await this.host.promptText("Name of the cell (letters, digits and _; empty: none)", current);
+    if (answer === void 0) return;
+    const name = answer.trim();
+    if (name === current) return;
+    let problem = name === "" ? void 0 : nameProblem(name, "cell");
+    if (!problem && name && FUNCTIONS[name.toUpperCase()]) problem = `${name} is a function's name`;
+    if (!problem && name) {
+      const text = await this.host.bridge.getText();
+      const own = locateBySource(text, shownInfo.hint, shownInfo.source);
+      const taken = findTables(text).some(
+        (range) => parseTable(range.text).rows.some(
+          (r, ri) => ri > 0 && r.cells.some((cell, ci) => nameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column))
+        )
+      );
+      if (taken) problem = `another cell on this page is named ${name}`;
+    }
+    if (problem) {
+      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
+      return;
+    }
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    await this.host.write(widget, (t) => setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || void 0)));
+    this.host.focusEditor(widget);
+  }
   /** "Fixed name" in a column's menu */
   columnMenuEntries(widget, info, column) {
     const fixed = nameOf(parseTable(info.source).rows[0]?.cells[column] ?? "");
@@ -5604,42 +5754,57 @@ function pageTablesOf(text) {
   return findTables(text).map((range) => ({ range, table: parseTable(range.text) }));
 }
 function pageTables(tables, replace, others) {
-  const named = /* @__PURE__ */ new Map();
-  return (name, page) => {
+  const pages = /* @__PURE__ */ new Map();
+  const namesOf = (page) => {
     const here = page === void 0 || page === others?.here;
     const key = here ? "" : page;
-    let byName = named.get(key);
-    if (!byName) {
+    let names = pages.get(key);
+    if (!names) {
       const list = here ? tables() : others?.tables(page);
       if (!list) return void 0;
-      byName = /* @__PURE__ */ new Map();
+      names = { tables: /* @__PURE__ */ new Map(), cells: /* @__PURE__ */ new Map() };
       for (const { range, table: parsed2 } of list) {
         const table = here && replace && range.from === replace.from ? replace.table : parsed2;
         const own = metaName(table)?.toLowerCase();
-        if (own && !byName.has(own)) byName.set(own, table);
+        if (own && !names.tables.has(own)) names.tables.set(own, table);
+        for (const [name, cell] of namedCells(table)) if (!names.cells.has(name)) names.cells.set(name, { table, ...cell });
       }
-      named.set(key, byName);
+      pages.set(key, names);
     }
-    return byName.get(name.toLowerCase());
+    return names;
   };
+  return Object.assign((name, page) => namesOf(page)?.tables.get(name.toLowerCase()), {
+    cell: (name, page) => namesOf(page)?.cells.get(name.toLowerCase())
+  });
+}
+function affectedBy(...tables) {
+  const affected = { tables: /* @__PURE__ */ new Set(), cells: /* @__PURE__ */ new Set() };
+  for (const table of tables) addAffected(affected, table);
+  return affected;
+}
+function addAffected(affected, table) {
+  const name = metaName(table)?.toLowerCase();
+  if (name) affected.tables.add(name);
+  for (const cell of cellNamesOf(table)) affected.cells.add(cell);
+}
+function referredBy(table) {
+  return { tables: referredTableNames(table), cells: referredCellNames(table) };
+}
+function isAffected(referred, affected) {
+  return [...referred.tables].some((n) => affected.tables.has(n)) || [...referred.cells].some((n) => affected.cells.has(n));
 }
 function tablesWritten(all, source) {
   const own = all.find((t) => t.range.text === source)?.table;
   if (!own) return all.map((t) => t.table);
   const result = [own];
-  const names = /* @__PURE__ */ new Set();
-  const add = (table) => {
-    const name = metaName(table)?.toLowerCase();
-    if (name) names.add(name);
-  };
-  add(own);
-  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredTableNames(t.table) }));
-  for (let found = names.size > 0; found; ) {
+  const affected = affectedBy(own);
+  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredBy(t.table) }));
+  for (let found = true; found; ) {
     found = false;
     for (let i = rest.length - 1; i >= 0; i--) {
-      if (![...rest[i].referred].some((name) => names.has(name))) continue;
+      if (!isAffected(rest[i].referred, affected)) continue;
       result.push(rest[i].table);
-      add(rest[i].table);
+      addAffected(affected, rest[i].table);
       rest.splice(i, 1);
       found = true;
     }
@@ -6154,6 +6319,9 @@ var Controller = class {
   columnMenuEntries(widget, info, column, open) {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
   }
+  rowMenuEntries(widget, info, row, column) {
+    return this.features.flatMap((f) => f.rowMenuEntries?.(widget, info, row, column) ?? []);
+  }
   get metadataEnabled() {
     return this.metadataOn;
   }
@@ -6605,19 +6773,18 @@ var Controller = class {
       if (markdown === range.text) return "unchanged";
       const updates = [{ range, markdown }];
       const now2 = pageTables(() => all, { from: range.from, table: changed }, this.others());
-      const affected = new Set([metaName(before), metaName(changed)].filter((n) => n !== void 0).map((n) => n.toLowerCase()));
+      const affected = affectedBy(before, changed);
       const oldName = metaName(before)?.toLowerCase();
-      const others = all.filter((other) => other.range.from !== range.from).map((other) => ({ ...other, referred: referredTableNames(other.table) }));
-      for (let found = affected.size > 0; found; ) {
+      const others = all.filter((other) => other.range.from !== range.from).map((other) => ({ ...other, referred: referredBy(other.table) }));
+      for (let found = true; found; ) {
         found = false;
         for (let i = others.length - 1; i >= 0; i--) {
           const { range: otherRange, table, referred } = others[i];
-          if (![...referred].some((name) => affected.has(name))) continue;
+          if (!isAffected(referred, affected)) continue;
           others.splice(i, 1);
           found = true;
-          const own = metaName(table);
-          if (own) affected.add(own.toLowerCase());
-          const followed = oldName && referred.has(oldName) ? followTable(table, before, changed, options.rowMap, options.columnMap) : table;
+          addAffected(affected, table);
+          const followed = oldName && referred.tables.has(oldName) ? followTable(table, before, changed, options.rowMap, options.columnMap) : table;
           const recalculated = recalculate(followed, now2);
           if (recalculated !== table) updates.push({ range: otherRange, markdown: serialize(recalculated) });
         }

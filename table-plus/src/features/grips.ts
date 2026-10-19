@@ -408,8 +408,19 @@ export class Grips implements Feature {
         run: act(() => pinRowAt(host, widget, info, row, zone === "bottom" ? undefined : "bottom")),
         disabled: pinBlocked("bottom"),
       },
+      ...this.featureRowEntries(widget, info, row, column),
       { kind: "separator" },
       { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => deleteRowAt(host, widget, info, row)) },
+    ];
+  }
+
+  /** The entries features add for the row's cell, after a separator, closing the menu when run */
+  private featureRowEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
+    const entries = this.host.rowMenuEntries(widget, info, row, column);
+    if (entries.length === 0) return [];
+    return [
+      { kind: "separator" },
+      ...entries.map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry)),
     ];
   }
 

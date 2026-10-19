@@ -18,7 +18,7 @@ import { type ColumnId, columnIdOf, columnKey, findColumn, followColumn, sameCol
 import { dateArithmetic, parseDate } from "./dates.ts";
 import { FUNCTIONS } from "./functions/index.ts";
 import { escapeCell, escapeMetaValue, type Table, unescapeCell, unescapeMetaValue } from "../markdown.ts";
-import { CELL_RE, nameOf, withName, withoutName } from "../names.ts";
+import { CELL_RE, namedCells, nameOf, withName, withoutName } from "../names.ts";
 import { setCell } from "../ops.ts";
 import {
   asTime,
@@ -166,6 +166,8 @@ type Token =
   | { readonly kind: "op"; readonly text: string; readonly from: number; readonly to: number }
   // "prices!" or "[[Page]]prices!": the table the next reference is to
   | { readonly kind: "table"; readonly name: string; readonly page?: string; readonly from: number; readonly to: number }
+  // "[[Page]]vat": the cell named vat on another page (a bare name is a "name" token)
+  | { readonly kind: "named"; readonly name: string; readonly page: string; readonly from: number; readonly to: number }
   // A reference to cells that were deleted, as written by shiftReferences
   | { readonly kind: "ref-error"; readonly from: number; readonly to: number };
 
@@ -196,12 +198,16 @@ function tokenize(formula: string): { tokens: Token[]; error?: FormulaError } {
     }
     if (formula.startsWith("[[", i)) {
       const close = formula.indexOf("]]", i + 2);
-      const table = close < 0 ? null : /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(close + 2));
+      const after = close < 0 ? null : /^([A-Za-z_][A-Za-z0-9_]*)(!?)/.exec(formula.slice(close + 2));
       if (close < 0) return fail("a page name is missing its closing ]]");
-      if (!table) return fail("[[Page]] is followed by a table's name and !, as in [[Page]]prices!A1");
+      // A1, TRUE or FALSE right after [[Page]] is not a cell's name (names.ts refuses those)
+      if (!after || (!after[2] && (CELL_RE.test(after[1]!) || /^(true|false)$/i.test(after[1]!)))) {
+        return fail("[[Page]] is followed by a table's name and !, as in [[Page]]prices!A1, or a cell's name");
+      }
       const page = formula.slice(i + 2, close).trim();
-      tokens.push({ kind: "table", name: table[1]!, page, from: i, to: close + 2 + table[0].length });
-      i = close + 2 + table[0].length;
+      const to = close + 2 + after[0].length;
+      tokens.push(after[2] ? { kind: "table", name: after[1]!, page, from: i, to } : { kind: "named", name: after[1]!, page, from: i, to });
+      i = to;
       continue;
     }
     const table = /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(i));
@@ -309,6 +315,8 @@ type Node =
   | { readonly kind: "area"; readonly area: Area; readonly range: boolean; readonly table?: TableRef }
   | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly table?: TableRef }
   | { readonly kind: "call"; readonly name: string; readonly args: readonly Node[] }
+  // A named cell (names.ts): vat, or [[Page]]vat on another page
+  | { readonly kind: "named"; readonly name: string; readonly page?: string }
   | { readonly kind: "unary"; readonly op: string; readonly arg: Node }
   | { readonly kind: "binary"; readonly op: string; readonly left: Node; readonly right: Node };
 
@@ -376,6 +384,8 @@ class Parser {
         return { kind: "column", name: token.name, thisRow: token.thisRow };
       case "ref-error":
         return { kind: "literal", value: new FormulaError("#REF!", "a reference to deleted cells") };
+      case "named":
+        return { kind: "named", name: token.name, page: token.page };
       case "table": {
         // prices!B2, prices!A1:B3, prices![Price]
         const next = this.tokens[this.at];
@@ -434,7 +444,8 @@ class Parser {
     const upper = text.toUpperCase();
     if (upper === "TRUE" || upper === "FALSE") return { kind: "literal", value: upper === "TRUE" };
     const start = parseCellName(text);
-    if (!start) throw new FormulaError("#NAME?", `unknown name "${text}"`);
+    // Any other name is a named cell's
+    if (!start) return { kind: "named", name: text };
     if (!this.peekOp(":")) {
       return { kind: "area", area: { top: start.row, left: start.column, bottom: start.row, right: start.column }, range: false };
     }
@@ -570,12 +581,37 @@ const DECIMAL_COMMA_RE = /\d,\d/;
  * (compared ignoring case) on the formula's page, or with `page` on another;
  * undefined when there is none
  */
-export type TableSource = (name: string, page?: string) => Table | undefined;
+export type TableSource = ((name: string, page?: string) => Table | undefined) & {
+  /** The cell named so (compared ignoring case) on the page or on `page`, its row of the markdown (header 0) */
+  readonly cell?: (name: string, page?: string) => NamedCell | undefined;
+};
+
+/** Where a named cell is: its table, and its row (of the markdown, header 0) and column */
+export type NamedCell = { readonly table: Table; readonly row: number; readonly column: number };
 
 /** The sheets of the tables formulas refer to, each made once: their results are computed once too */
 class Book {
   private readonly sheets = new Map<string, Sheet>();
+  // The sheets by table, whether reached by the table's name or a named cell's
+  private readonly tableSheets = new Map<Table, Sheet>();
   constructor(private readonly source: TableSource | undefined) {}
+
+  /** The cell named so on `page` (undefined: the formulas' page), in its table's sheet */
+  cell(name: string, page: string | undefined): { sheet: Sheet; row: number; column: number } | undefined {
+    const found = this.source?.cell?.(name, page);
+    if (!found || found.row < 1) return undefined;
+    return { sheet: this.sheetOf(found.table, page), row: found.row - 1, column: found.column };
+  }
+
+  /** The table's sheet, made on its first use (by its name or by a named cell's) */
+  private sheetOf(table: Table, page: string | undefined): Sheet {
+    let sheet = this.tableSheets.get(table);
+    if (!sheet) {
+      sheet = new Sheet(table, this, page);
+      this.tableSheets.set(table, sheet);
+    }
+    return sheet;
+  }
 
   /** The sheet a reference from `from` is to: the other table, or `from` itself when it is named so */
   sheet(ref: TableRef, from: Sheet): Sheet | FormulaError {
@@ -586,7 +622,7 @@ class Book {
     if (!sheet) {
       const table = this.source?.(ref.name, page);
       if (!table) return new FormulaError("#REF!", `there is no table named ${ref.name}${page === undefined ? " on this page" : ` on ${page}`}`);
-      sheet = new Sheet(table, this, page);
+      sheet = this.sheetOf(table, page);
       this.sheets.set(key, sheet);
     }
     return sheet;
@@ -604,10 +640,11 @@ class Sheet {
   // The table's name, by which formulas refer to it
   readonly name: string | undefined;
   private totals: ReadonlySet<number> | undefined;
+  private cellNames: Map<string, { readonly row: number; readonly column: number }> | undefined;
 
   /** `page`: the page the table is on, when it is not the formulas' own (its unnamed references are to tables there) */
   constructor(
-    table: Table,
+    private readonly table: Table,
     private readonly book: Book = new Book(undefined),
     readonly page?: string,
   ) {
@@ -734,6 +771,25 @@ class Sheet {
     return totals;
   }
 
+  /** A named cell's value: in this table, else on this table's page (or `page`) */
+  private named(name: string, page: string | undefined): Value {
+    if (page === undefined || page === this.page) {
+      const own = this.cellNamed(name);
+      if (own) return this.value(own.row, own.column);
+    }
+    const found = this.book.cell(name, page ?? this.page);
+    if (!found) return new FormulaError("#NAME?", `there is no cell named ${name}${page ? ` on ${page}` : " on this page"}`);
+    return found.sheet.value(found.row, found.column);
+  }
+
+  /** The body cell of this table named so (ignoring case), if any */
+  private cellNamed(name: string): { row: number; column: number } | undefined {
+    this.cellNames ??= namedCells(this.table);
+    const found = this.cellNames.get(name.toLowerCase());
+    // namedCells counts the header as row 0, the body starts at 0 here
+    return found && { row: found.row - 1, column: found.column };
+  }
+
   /** The sheet a reference's table is: this one, or another the book has */
   private sheetOf(table: TableRef | undefined): Sheet | FormulaError {
     return table ? this.book.sheet(table, this) : this;
@@ -757,6 +813,8 @@ class Sheet {
         }
         return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
       }
+      case "named":
+        return this.named(node.name, node.page);
       case "call": {
         const f = FUNCTIONS[node.name];
         if (!f) return new FormulaError("#NAME?", `there is no function ${node.name}`);
@@ -945,16 +1003,59 @@ export function formulasAfterEdit(
   return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap), edit.tables);
 }
 
-/** The other pages whose tables a table's formulas refer to ([[Page]]prices!B2) */
-export function referredPages(table: Table): Set<string> {
-  const pages = new Set<string>();
+/**
+ * The named cells a formula refers to: vat, or [[Page]]vat. A bare name that
+ * is a function's (before "("), a cell's (A1), TRUE or FALSE is not one.
+ */
+export function namedReferences(formula: string): { readonly name: string; readonly page?: string }[] {
+  const { tokens } = tokenize(formula);
+  const result: { name: string; page?: string }[] = [];
+  tokens.forEach((token, i) => {
+    if (token.kind === "named") {
+      result.push({ name: token.name, page: token.page });
+      return;
+    }
+    if (token.kind !== "name" || parseCellName(token.text) || /^(true|false)$/i.test(token.text)) return;
+    const next = tokens[i + 1];
+    if (next?.kind === "op" && next.text === "(") return;
+    const previous = tokens[i - 1];
+    // The end of a range (A1:B2) or a table's reference (prices!B2) is a cell
+    if (previous?.kind === "table" || (previous?.kind === "op" && previous.text === ":")) return;
+    result.push({ name: token.text });
+  });
+  return result;
+}
+
+/** The names (lowercase) of the cells on the page a table's formulas refer to */
+export function referredCellNames(table: Table): Set<string> {
+  const names = new Set<string>();
+  forFormulas(table, (formula) => {
+    for (const ref of namedReferences(formula)) if (ref.page === undefined) names.add(ref.name.toLowerCase());
+  });
+  return names;
+}
+
+/** The names (lowercase) of a table's named body cells */
+export function cellNamesOf(table: Table): Set<string> {
+  return new Set(namedCells(table).keys());
+}
+
+function forFormulas(table: Table, each: (formula: string) => void): void {
   table.rows.forEach((row, r) => {
     if (r === 0) return;
     for (const cell of row.cells) {
       const stored = formulaOf(cell);
-      if (!stored) continue;
-      for (const ref of references(stored.formula)) if (ref.table?.page) pages.add(ref.table.page);
+      if (stored) each(stored.formula);
     }
+  });
+}
+
+/** The other pages whose tables a table's formulas refer to ([[Page]]prices!B2) */
+export function referredPages(table: Table): Set<string> {
+  const pages = new Set<string>();
+  forFormulas(table, (formula) => {
+    for (const ref of references(formula)) if (ref.table?.page) pages.add(ref.table.page);
+    for (const ref of namedReferences(formula)) if (ref.page) pages.add(ref.page);
   });
   return pages;
 }
@@ -962,15 +1063,10 @@ export function referredPages(table: Table): Set<string> {
 /** The names (lowercase) of the tables on the page that a table's formulas refer to, so they change when those do */
 export function referredTableNames(table: Table): Set<string> {
   const names = new Set<string>();
-  table.rows.forEach((row, r) => {
-    if (r === 0) return;
-    for (const cell of row.cells) {
-      const stored = formulaOf(cell);
-      if (!stored) continue;
-      // Table tokens, not references: prices!#REF! is to prices too
-      for (const token of tokenize(stored.formula).tokens) {
-        if (token.kind === "table" && token.page === undefined) names.add(token.name.toLowerCase());
-      }
+  forFormulas(table, (formula) => {
+    // Table tokens, not references: prices!#REF! is to prices too
+    for (const token of tokenize(formula).tokens) {
+      if (token.kind === "table" && token.page === undefined) names.add(token.name.toLowerCase());
     }
   });
   return names;
@@ -1153,9 +1249,9 @@ export function followTable(table: Table, before: Table, after: Table, rowMap?: 
 export type FormulaHelp = { readonly syntax: string; readonly description: string };
 
 export const REFERENCE_HELP: FormulaHelp = {
-  syntax: "A1 · A1:B3 · [Column] · [@Column] · name!A1 · name![Column]",
+  syntax: "A1 · A1:B3 · [Column] · [@Column] · table!A1 · table![Column] · cell_name",
   description:
-    "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, or a cell, range or column of another table on the page by its name. Click or drag in the table to insert one, click a header for its column.",
+    "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell. Click or drag in the table to insert one, click a header for its column.",
 };
 
 // After these a reference can follow: clicking the table inserts one there

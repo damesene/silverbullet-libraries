@@ -40,9 +40,12 @@ import {
   WIDGET_SELECTOR,
 } from "./dom.ts";
 import {
+  cellNamesOf,
   followTable,
   formulasAfterEdit,
+  type NamedCell,
   recalculate,
+  referredCellNames,
   referredPages,
   referredTableNames,
   type TableSource,
@@ -62,6 +65,7 @@ import {
 } from "./markdown.ts";
 import type { MenuEntry } from "./menu.ts";
 import { metadataAfterEdit, metaName, metaPins, metaSort, withMetaSort } from "./meta.ts";
+import { namedCells } from "./names.ts";
 import { appendColumnAt, appendRowAt } from "./pins.ts";
 import { nameEmptyHeaders, reorderRows } from "./ops.ts";
 import {
@@ -137,34 +141,65 @@ function pageTablesOf(text: string): PageTable[] {
 /** The other pages formulas can read: this page's name, and the tables of the others as read (undefined: not read, null: no such page) */
 type OtherPages = { readonly here: string; readonly tables: (page: string) => readonly PageTable[] | null | undefined };
 
+/** A page's tables by their names, and its named cells by their names (lowercase) */
+type PageNames = { readonly tables: Map<string, Table>; readonly cells: Map<string, NamedCell> };
+
 /**
- * The tables of a page by their names, for formulas that refer to other
- * tables: `replace` stands in for one of them (the table being written), and
- * `others` has those of other pages. `tables` is read on the first lookup.
+ * The tables of a page by their names, and its named cells, for formulas that
+ * refer to them: `replace` stands in for one table (the one being written),
+ * and `others` has those of other pages. `tables` is read on the first lookup.
  */
 function pageTables(
   tables: () => readonly PageTable[],
   replace?: { readonly from: number; readonly table: Table },
   others?: OtherPages,
 ): TableSource {
-  const named = new Map<string, Map<string, Table>>();
-  return (name, page) => {
+  const pages = new Map<string, PageNames>();
+  const namesOf = (page: string | undefined): PageNames | undefined => {
     const here = page === undefined || page === others?.here;
     const key = here ? "" : page;
-    let byName = named.get(key);
-    if (!byName) {
+    let names = pages.get(key);
+    if (!names) {
       const list = here ? tables() : others?.tables(page);
       if (!list) return undefined;
-      byName = new Map();
+      names = { tables: new Map(), cells: new Map() };
       for (const { range, table: parsed } of list) {
         const table = here && replace && range.from === replace.from ? replace.table : parsed;
         const own = metaName(table)?.toLowerCase();
-        if (own && !byName.has(own)) byName.set(own, table);
+        if (own && !names.tables.has(own)) names.tables.set(own, table);
+        for (const [name, cell] of namedCells(table)) if (!names.cells.has(name)) names.cells.set(name, { table, ...cell });
       }
-      named.set(key, byName);
+      pages.set(key, names);
     }
-    return byName.get(name.toLowerCase());
+    return names;
   };
+  return Object.assign((name: string, page?: string) => namesOf(page)?.tables.get(name.toLowerCase()), {
+    cell: (name: string, page?: string) => namesOf(page)?.cells.get(name.toLowerCase()),
+  });
+}
+
+/** What a table's write affects in the other tables: its name and the names of its cells (lowercase) */
+type Affected = { readonly tables: Set<string>; readonly cells: Set<string> };
+
+function affectedBy(...tables: Table[]): Affected {
+  const affected: Affected = { tables: new Set(), cells: new Set() };
+  for (const table of tables) addAffected(affected, table);
+  return affected;
+}
+
+function addAffected(affected: Affected, table: Table): void {
+  const name = metaName(table)?.toLowerCase();
+  if (name) affected.tables.add(name);
+  for (const cell of cellNamesOf(table)) affected.cells.add(cell);
+}
+
+/** What a table's formulas refer to on the page: tables by name, cells by name */
+function referredBy(table: Table): Affected {
+  return { tables: referredTableNames(table), cells: referredCellNames(table) };
+}
+
+function isAffected(referred: Affected, affected: Affected): boolean {
+  return [...referred.tables].some((n) => affected.tables.has(n)) || [...referred.cells].some((n) => affected.cells.has(n));
 }
 
 /**
@@ -176,19 +211,14 @@ function tablesWritten(all: readonly PageTable[], source: string): Table[] {
   const own = all.find((t) => t.range.text === source)?.table;
   if (!own) return all.map((t) => t.table);
   const result = [own];
-  const names = new Set<string>();
-  const add = (table: Table) => {
-    const name = metaName(table)?.toLowerCase();
-    if (name) names.add(name);
-  };
-  add(own);
-  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredTableNames(t.table) }));
-  for (let found = names.size > 0; found; ) {
+  const affected = affectedBy(own);
+  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredBy(t.table) }));
+  for (let found = true; found; ) {
     found = false;
     for (let i = rest.length - 1; i >= 0; i--) {
-      if (![...rest[i]!.referred].some((name) => names.has(name))) continue;
+      if (!isAffected(rest[i]!.referred, affected)) continue;
       result.push(rest[i]!.table);
-      add(rest[i]!.table);
+      addAffected(affected, rest[i]!.table);
       rest.splice(i, 1);
       found = true;
     }
@@ -771,6 +801,10 @@ export class Controller implements TableHost {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
   }
 
+  rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
+    return this.features.flatMap((f) => f.rowMenuEntries?.(widget, info, row, column) ?? []);
+  }
+
   get metadataEnabled(): boolean {
     return this.metadataOn;
   }
@@ -1301,21 +1335,22 @@ export class Controller implements TableHost {
       // left as they are.
       const updates: { readonly range: TableRange; readonly markdown: string }[] = [{ range, markdown }];
       const now = pageTables(() => all, { from: range.from, table: changed }, this.others());
-      const affected = new Set([metaName(before), metaName(changed)].filter((n) => n !== undefined).map((n) => n.toLowerCase()));
+      // Its name and the names of its cells, before and after the edit, and in
+      // turn those of the tables that refer to them
+      const affected = affectedBy(before, changed);
       const oldName = metaName(before)?.toLowerCase();
       // What each other table refers to, read once for all the passes below
-      const others = all.filter((other) => other.range.from !== range.from).map((other) => ({ ...other, referred: referredTableNames(other.table) }));
-      for (let found = affected.size > 0; found; ) {
+      const others = all.filter((other) => other.range.from !== range.from).map((other) => ({ ...other, referred: referredBy(other.table) }));
+      for (let found = true; found; ) {
         found = false;
         for (let i = others.length - 1; i >= 0; i--) {
           const { range: otherRange, table, referred } = others[i]!;
-          if (![...referred].some((name) => affected.has(name))) continue;
+          if (!isAffected(referred, affected)) continue;
           others.splice(i, 1);
           found = true;
-          const own = metaName(table);
-          if (own) affected.add(own.toLowerCase());
+          addAffected(affected, table);
           // Its references to this table follow the edit: moved rows and columns, a new name
-          const followed = oldName && referred.has(oldName) ? followTable(table, before, changed, options.rowMap, options.columnMap) : table;
+          const followed = oldName && referred.tables.has(oldName) ? followTable(table, before, changed, options.rowMap, options.columnMap) : table;
           const recalculated = recalculate(followed, now);
           if (recalculated !== table) updates.push({ range: otherRange, markdown: serialize(recalculated) });
         }

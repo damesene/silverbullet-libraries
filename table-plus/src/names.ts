@@ -42,6 +42,19 @@ export function withName(cell: string, name: string | undefined): string {
   return text === "" ? tag : `${text} ${tag}`;
 }
 
+/** A table's named body cells by their names (lowercase), the first cell of each name; rows of the markdown (header 0) */
+export function namedCells(table: Table): Map<string, { readonly row: number; readonly column: number }> {
+  const cells = new Map<string, { readonly row: number; readonly column: number }>();
+  table.rows.forEach((r, row) => {
+    if (row === 0) return;
+    r.cells.forEach((cell, column) => {
+      const name = nameOf(cell)?.toLowerCase();
+      if (name && !cells.has(name)) cells.set(name, { row, column });
+    });
+  });
+  return cells;
+}
+
 /** Whether a table has names in its cells */
 export function hasNames(table: Table): boolean {
   return table.rows.some((row) => row.cells.some((cell) => nameOf(cell) !== undefined));
