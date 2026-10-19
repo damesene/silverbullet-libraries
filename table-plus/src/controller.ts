@@ -20,6 +20,7 @@ import { History } from "./features/history.ts";
 import { Metadata } from "./features/metadata.ts";
 import { Paste } from "./features/paste.ts";
 import { Selection } from "./features/selection.ts";
+import { STICKY_GAP, Sticky } from "./features/sticky.ts";
 import {
   caretTextOffset,
   cellText,
@@ -137,10 +138,6 @@ const SORT_GLYPH = { asc: "▲", desc: "▼", none: "⇅" } as const;
 // Pointer travel that turns a press on a grip into a drag instead of a click
 const DRAG_THRESHOLD = 4;
 
-// Space between the top of the view and a header held there, room for the
-// toolbar (25px) above the header. The CSS covers it with the page color, so no
-// row shows above the header; keep both in step.
-const STICKY_GAP = 38;
 // Toolbar distance above the header: clear of the column grip on the header's top edge
 const BAR_GAP = 10;
 
@@ -241,6 +238,8 @@ export class Controller implements TableHost {
     this.metadata = new Metadata(this);
     this.expressions = new Expressions(this);
     this.features = [
+      // First: the header moves before what follows it
+      new Sticky(this),
       new Autoscroll(this),
       new Formulas(this),
       this.metadata,
@@ -683,7 +682,7 @@ export class Controller implements TableHost {
       tr.classList.toggle("tp-hidden", !pinned && !shown.has(i));
     });
     // Rows pinned to the top go with the header, rows pinned to the bottom into
-    // the footer: both stay in view (updateStickyHeaders). Then the shown rows,
+    // the footer: both stay in view (features/sticky.ts). Then the shown rows,
     // the hidden ones and the (hidden) metadata row, last as in the markdown.
     const metaRow = info.table.querySelector<HTMLTableRowElement>("tr.tp-meta-row");
     const middle = rows.filter((_, i) => i >= top && i < rows.length - bottom);
@@ -969,61 +968,22 @@ export class Controller implements TableHost {
     return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
   }
 
-  // ---- sticky header -----------------------------------------------------
+  // ---- layout: what follows scrolling ------------------------------------------
 
+  /** Once per frame after scrolling or rendering: the sticky header, then what points at it */
   private queueStickyUpdate(): void {
     if (this.stickyQueued) return;
     this.stickyQueued = true;
     const run = () => {
       this.stickyQueued = false;
       if (this.stopped) return;
-      this.updateStickyHeaders();
+      for (const feature of this.features) feature.layoutChanged?.();
       // After the header has moved: controls that point at it follow
       this.followScroll();
-      for (const feature of this.features) feature.layoutChanged?.();
     };
     const win = this.doc.defaultView;
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
     else setTimeout(run, 0);
-  }
-
-  /**
-   * Keeps each table's header in view while the page scrolls past the table.
-   * CSS `position: sticky` cannot do it: the table sits in a sideways
-   * scrolling box, which captures sticky positioning. So the header is moved
-   * down with a transform, never past the table's last row.
-   */
-  private updateStickyHeaders(): void {
-    for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
-      const info = this.infos.get(widget);
-      const head = info?.table.tHead;
-      if (!info || !head || renderedTable(widget) !== info.table) continue;
-      // Held below the page top (with room for the toolbar), or, in a table
-      // scrolled inside its own box, at the top of that box
-      const pageTop = (this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0) + STICKY_GAP;
-      const boxTop = this.scrollsInside(widget) ? this.innerBox(widget).top : -Infinity;
-      const table = info.table.getBoundingClientRect();
-      // Rows pinned to the bottom first: held at the bottom of the view (the
-      // page, or the table's box), never above the header's own place
-      const foot = info.table.tFoot;
-      const footHeight = foot?.offsetHeight ?? 0;
-      let footTop = table.bottom - footHeight;
-      if (foot && footHeight > 0) {
-        const pageBottom = this.scrollParentOf(widget)?.getBoundingClientRect().bottom ?? this.doc.defaultView!.innerHeight;
-        const boxBottom = this.scrollsInside(widget) ? this.innerBox(widget).bottom : Infinity;
-        const lift = Math.min(
-          0,
-          Math.max(Math.min(pageBottom, boxBottom) - table.bottom, -(table.height - head.offsetHeight - footHeight)),
-        );
-        foot.style.transform = lift < 0 ? `translateY(${lift}px)` : "";
-        foot.classList.toggle("tp-stuck", lift < 0);
-        footTop += lift;
-      }
-      // The header (with the rows pinned to the top): never past the bottom rows
-      const offset = Math.max(0, Math.min(Math.max(pageTop, boxTop), footTop - head.offsetHeight) - table.top);
-      head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
-      head.classList.toggle("tp-stuck", offset > 0);
-    }
   }
 
   /** Where the table's box shows its content: without its border and scrollbars */

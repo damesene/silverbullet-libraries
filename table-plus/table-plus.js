@@ -2952,6 +2952,46 @@ var Selection = class {
   };
 };
 
+// table-plus/src/features/sticky.ts
+var STICKY_GAP = 38;
+var Sticky = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  layoutChanged() {
+    const { doc } = this.host;
+    for (const widget of Array.from(doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.host.infoOf(widget);
+      const head = info?.table.tHead;
+      if (!info || !head || renderedTable(widget) !== info.table) continue;
+      const scroller = this.host.scrollParentOf(widget)?.getBoundingClientRect();
+      const inside = this.host.scrollsInside(widget);
+      const box = this.host.innerBox(widget);
+      const pageTop = (scroller?.top ?? 0) + STICKY_GAP;
+      const boxTop = inside ? box.top : -Infinity;
+      const table = info.table.getBoundingClientRect();
+      const foot = info.table.tFoot;
+      const footHeight = foot?.offsetHeight ?? 0;
+      let footTop = table.bottom - footHeight;
+      if (foot && footHeight > 0) {
+        const pageBottom = scroller?.bottom ?? doc.defaultView.innerHeight;
+        const boxBottom = inside ? box.bottom : Infinity;
+        const lift = Math.min(
+          0,
+          Math.max(Math.min(pageBottom, boxBottom) - table.bottom, -(table.height - head.offsetHeight - footHeight))
+        );
+        foot.style.transform = lift < 0 ? `translateY(${lift}px)` : "";
+        foot.classList.toggle("tp-stuck", lift < 0);
+        footTop += lift;
+      }
+      const offset = Math.max(0, Math.min(Math.max(pageTop, boxTop), footTop - head.offsetHeight) - table.top);
+      head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
+      head.classList.toggle("tp-stuck", offset > 0);
+    }
+  }
+};
+
 // table-plus/src/icons.ts
 var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
 var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
@@ -3100,7 +3140,6 @@ var STOPPED_EVENTS = [
 ];
 var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
 var DRAG_THRESHOLD = 4;
-var STICKY_GAP = 38;
 var BAR_GAP = 10;
 var STORE_SORT_DELAY_MS = 400;
 var MOVE_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
@@ -3134,6 +3173,8 @@ var Controller = class {
     this.metadata = new Metadata(this);
     this.expressions = new Expressions(this);
     this.features = [
+      // First: the header moves before what follows it
+      new Sticky(this),
       new Autoscroll(this),
       new Formulas(this),
       this.metadata,
@@ -3830,53 +3871,20 @@ var Controller = class {
     const bottom = Math.min(view?.bottom ?? this.doc.defaultView.innerHeight, box.bottom);
     return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
   }
-  // ---- sticky header -----------------------------------------------------
+  // ---- layout: what follows scrolling ------------------------------------------
+  /** Once per frame after scrolling or rendering: the sticky header, then what points at it */
   queueStickyUpdate() {
     if (this.stickyQueued) return;
     this.stickyQueued = true;
     const run = () => {
       this.stickyQueued = false;
       if (this.stopped) return;
-      this.updateStickyHeaders();
-      this.followScroll();
       for (const feature of this.features) feature.layoutChanged?.();
+      this.followScroll();
     };
     const win = this.doc.defaultView;
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
     else setTimeout(run, 0);
-  }
-  /**
-   * Keeps each table's header in view while the page scrolls past the table.
-   * CSS `position: sticky` cannot do it: the table sits in a sideways
-   * scrolling box, which captures sticky positioning. So the header is moved
-   * down with a transform, never past the table's last row.
-   */
-  updateStickyHeaders() {
-    for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
-      const info = this.infos.get(widget);
-      const head = info?.table.tHead;
-      if (!info || !head || renderedTable(widget) !== info.table) continue;
-      const pageTop = (this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0) + STICKY_GAP;
-      const boxTop = this.scrollsInside(widget) ? this.innerBox(widget).top : -Infinity;
-      const table = info.table.getBoundingClientRect();
-      const foot = info.table.tFoot;
-      const footHeight = foot?.offsetHeight ?? 0;
-      let footTop = table.bottom - footHeight;
-      if (foot && footHeight > 0) {
-        const pageBottom = this.scrollParentOf(widget)?.getBoundingClientRect().bottom ?? this.doc.defaultView.innerHeight;
-        const boxBottom = this.scrollsInside(widget) ? this.innerBox(widget).bottom : Infinity;
-        const lift = Math.min(
-          0,
-          Math.max(Math.min(pageBottom, boxBottom) - table.bottom, -(table.height - head.offsetHeight - footHeight))
-        );
-        foot.style.transform = lift < 0 ? `translateY(${lift}px)` : "";
-        foot.classList.toggle("tp-stuck", lift < 0);
-        footTop += lift;
-      }
-      const offset = Math.max(0, Math.min(Math.max(pageTop, boxTop), footTop - head.offsetHeight) - table.top);
-      head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
-      head.classList.toggle("tp-stuck", offset > 0);
-    }
   }
   /** Where the table's box shows its content: without its border and scrollbars */
   innerBox(widget) {
