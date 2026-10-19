@@ -66,6 +66,8 @@ import { nameEmptyHeaders, reorderRows } from "./ops.ts";
 import {
   cycleSort,
   DEFAULT_VIEW,
+  hasPins,
+  NO_PINS,
   withPins,
   remapColumns,
   type ViewState,
@@ -1495,6 +1497,20 @@ export class Controller implements TableHost {
     for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
     const menuItems = [
       ...featureButtons.filter((b) => (b.place ?? "menu") === "menu"),
+      // Pinned rows and columns are at the edges already: unpinned, they stay where they are
+      ...(hasPins(info.pins)
+        ? [
+            {
+              label: "Unpin all",
+              title: "Unpin all rows and columns: they stay where they are, and scroll and sort with the others",
+              icon: ICONS.unpin,
+              run: () => {
+                const [w] = this.current(widget, info);
+                void this.write(w, (t) => t, { pins: NO_PINS });
+              },
+            },
+          ]
+        : []),
       {
         label: "Edit markdown",
         title: "Show this table as markdown",

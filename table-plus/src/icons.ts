@@ -50,6 +50,7 @@ export const ICONS = {
   alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
   // A pushpin with its needle pointing to the edge it pins to
   pinTop: PIN_POINT_UP,
+  unpin: svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/><path d="M4 4l16 16"/>'),
   pinBottom: PIN_POINT_DOWN,
   pinLeft: PIN_POINT_LEFT,
   pinRight: PIN_POINT_RIGHT,

@@ -346,6 +346,7 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 * Moving (drag, menu, Ctrl+Alt+arrows) keeps a pinned row (column) among the pinned ones and the others outside them.
 * Pinned rows are not sorted or filtered: they always show.
 * Unpinning moves the row (column) out of its edge, next to the unpinned ones; it does not go back to where it was before pinning (Ctrl+Z does).
+* *Unpin all* in the ⋯ menu of the table's toolbar unpins every row and column at once; they stay where they are (at the edges) and scroll and sort with the others again.
 * "Pinned" means a number of rows (columns) at an edge: a row typed by hand above the first pinned row becomes the pinned one.
 * Rows pinned to the top look like the header.
 

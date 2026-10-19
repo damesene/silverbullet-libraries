@@ -165,6 +165,17 @@ describe("Controller", () => {
     });
   });
 
+  it("unpins all rows and columns from the toolbar's menu, leaving them where they are", async () => {
+    const PINNED = '| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |\n| <meta sort.b="desc" pin-top="1" pin-bottom="1" pin-left="1"> |\n';
+    await setup(PINNED);
+    tableMenuItem(/^Unpin all$/)!.click();
+    await flush();
+    expect(text).toBe('| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |\n| <meta sort.b="desc"> |\n');
+    // Nothing pinned: no such item
+    await controller.scan();
+    expect(tableMenuItem(/^Unpin all$/)).toBeUndefined();
+  });
+
   it("sorts and restores the order without touching the markdown", async () => {
     await setup(PAGE);
     const sort = cell(0, 0).querySelector(".tp-sort")!;
