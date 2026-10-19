@@ -87,6 +87,27 @@ button {
   gap: 6px 14px;
   flex-basis: 100%;
 }
+/* A module with its settings in brackets after it: Filters (smart) */
+#settings .module-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+#settings .module-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  color: var(--muted, inherit);
+}
+#settings .module-settings::before {
+  content: "(";
+}
+#settings .module-settings::after {
+  content: ")";
+}
+#settings .module-settings label:has(:disabled) {
+  opacity: 0.5;
+}
 main {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);

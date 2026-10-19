@@ -218,7 +218,7 @@ const LABELS: Record<Key, string> = {
   enterKey: "Enter",
   selectOnClick: "Click selects text",
   ctrlEnterAddsRow: "Ctrl+Enter adds a row",
-  smartFilters: "Smart filters",
+  smartFilters: "smart",
   expressionsDelay: "Refresh ${…} cells after (ms)",
 };
 
@@ -243,7 +243,9 @@ function settingsChanged(): void {
 }
 
 const settingsBox = document.querySelector<HTMLElement>("#settings")!;
-for (const key of Object.keys(SETTINGS) as Key[]) {
+
+/** A setting's control: a checkbox, a number field or a choice */
+function settingControl(key: Key): HTMLLabelElement {
   const setting = SETTINGS[key];
   const label = document.createElement("label");
   const current = setting.path in settings ? settings[setting.path] : setting.default;
@@ -272,7 +274,13 @@ for (const key of Object.keys(SETTINGS) as Key[]) {
     });
     label.append(LABELS[key], input);
   }
-  settingsBox.append(label);
+  return label;
+}
+
+// A module's settings go with it (in the Modules row), the others here
+const moduleOf = (key: Key) => /^tablePlus\.modules\.([^.]+)\./.exec(SETTINGS[key].path)?.[1];
+for (const key of Object.keys(SETTINGS) as Key[]) {
+  if (!moduleOf(key)) settingsBox.append(settingControl(key));
 }
 
 // Modules are read when Table Plus starts: a change reloads the playground
@@ -289,7 +297,23 @@ for (const name of FEATURE_NAMES) {
     location.reload();
   });
   label.append(input, MODULE_LABELS[name]);
-  modulesBox.append(label);
+  // Its settings in brackets after it, off while it is
+  const own = (Object.keys(SETTINGS) as Key[]).filter((key) => moduleOf(key) === name);
+  if (own.length === 0) {
+    modulesBox.append(label);
+    continue;
+  }
+  const group = document.createElement("span");
+  group.className = "module-group";
+  const settingsOf = document.createElement("span");
+  settingsOf.className = "module-settings";
+  for (const key of own) {
+    const control = settingControl(key);
+    for (const field of Array.from(control.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select"))) field.disabled = !input.checked;
+    settingsOf.append(control);
+  }
+  group.append(label, settingsOf);
+  modulesBox.append(group);
 }
 settingsBox.append(modulesBox);
 
