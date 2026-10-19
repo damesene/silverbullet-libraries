@@ -195,7 +195,7 @@ In ranges, empty cells and text that is not a number are skipped by the number f
 
 ## Column types
 
-A hashtag in a column's header gives the column a type, which changes how its cells show. Pick it in the column's menu (the ⠿ grip above the column, *Type*): the types show in the same menu, *Back* returns to the column's menu, and the type picked is written as a hashtag in the header. Editing a header changes only the column's name: its type's hashtag stays. In the markdown, the hashtag can also be typed by hand, e.g. for a parameter the menu does not offer (`#currency-usd`).
+A hashtag in a column's header gives the column a type, which changes how its cells show. Pick it in the column's menu (the ⠿ grip above the column, *Type*): the types show in the same menu (hover one to see how it is written and what it shows), the arrow before the menu's title (or the Left key) returns to the column's menu, and the type picked is written as a hashtag in the header. Editing a header changes only the column's name: its type's hashtag stays. In the markdown, the hashtag can also be typed by hand, e.g. for a parameter the menu does not offer (`#currency-usd`).
 
 ```
 | Item | Price #currency-usd | Rating #stars | Done #check |
@@ -206,7 +206,7 @@ A hashtag in a column's header gives the column a type, which changes how its ce
 shows `$12.99`, `★★★★☆` and `✅`.
 
 * The markdown keeps the value as written: the type only changes what the cell shows. The cell editor shows the value. Sorting, filters and copying (Ctrl+C) use the value too, so a rating sorts by its number.
-* The type's hashtag is hidden in the header. SilverBullet leaves hashtags out of a column's key, so a query still reads `Price #currency-usd` as `price`, and the hashtag tags neither the rows nor the page.
+* The type's hashtag is hidden in the header, and the type's icon shows after the column's name (hover it for the type); the menu marks the types with the same icons. SilverBullet leaves hashtags out of a column's key, so a query still reads `Price #currency-usd` as `price`, and the hashtag tags neither the rows nor the page.
 * A parameter goes after a dash: `#currency-usd`, `#number-2`, `#stars-10`. A hashtag that is not a type (or a type with a parameter it does not take) is an ordinary hashtag.
 * A cell whose value is not one of the type shows as written, in red; hover it to see why. Empty cells are left alone.
 * The cell editor offers the type's values where it has a few (`#stars`, `#check`, `#trend`): pick one or type. A value saved that is not of the type is kept as typed, and Table Plus says so.
@@ -778,13 +778,44 @@ body.tp-navigating .sb-table-widget.tp-table * {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
   outline: none;
 }
+/* The title centered; a submenu's back arrow at the left */
 .tp-menu-title {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, max-content) 1fr;
+  align-items: center;
+  gap: 4px;
   padding: 4px 8px 6px;
   font-size: 12px;
   font-weight: 600;
+}
+.tp-menu-back {
+  justify-self: start;
+}
+.tp-menu-title-text {
+  grid-column: 2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A submenu's way back: an arrow before its title */
+.tp-menu-back {
+  display: inline-flex;
+  margin: -3px 0 -3px -5px;
+  padding: 3px;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tp-menu-back:hover,
+.tp-menu-back:focus-visible {
+  background: color-mix(in srgb, var(--ui-accent-color) 14%, transparent);
+  outline: none;
+}
+.tp-menu .tp-menu-back svg {
+  width: 14px;
+  height: 14px;
 }
 .tp-menu-item {
   display: flex;
@@ -829,6 +860,62 @@ body.tp-navigating .sb-table-widget.tp-table * {
 .tp-menu svg {
   width: 16px;
   height: 16px;
+}
+/* An item's detail: a bubble beside the menu, at the item's height */
+.tp-menu-detail {
+  position: absolute;
+  left: calc(100% + 8px);
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--root-color);
+  background: var(--root-background-color);
+  border: 1px solid var(--button-border-color, rgba(128, 128, 128, 0.4));
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+.tp-menu-detail.tp-left {
+  left: auto;
+  right: calc(100% + 8px);
+}
+.tp-menu-detail[hidden] {
+  display: none;
+}
+.tp-menu-detail-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.tp-menu-detail-code {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.tp-menu-detail-code code {
+  padding: 1px 5px;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--ui-accent-color) 12%, transparent);
+  border-radius: 4px;
+}
+.tp-menu-detail p {
+  margin: 0;
+}
+.tp-menu-detail .tp-menu-detail-note {
+  margin-top: 6px;
+  opacity: 0.7;
+}
+/* The icon of an item's value: Type: ☆ Stars */
+.tp-menu-value-icon {
+  display: inline-flex;
+  margin-right: 3px;
+  vertical-align: -2px;
+}
+.tp-menu .tp-menu-value-icon svg {
+  width: 14px;
+  height: 14px;
 }
 .tp-menu-separator {
   height: 1px;
@@ -884,9 +971,24 @@ body.tp-autoscrolling * {
 }
 
 /* Formulas */
-/* Column types: the type's hashtag is hidden; a value not of the type is red */
+/* Column types: the type's hashtag is hidden, its icon shows after the
+   column's name; a value not of the type is red */
 .sb-table-widget .tp-type-tag {
   display: none;
+}
+/* the icon stays on the name's line */
+.sb-table-widget thead :is(th, td):has(> .tp-type-icon) {
+  white-space: nowrap;
+}
+.tp-type-icon {
+  display: inline-flex;
+  margin-left: 4px;
+  vertical-align: -2px;
+  opacity: 0.6;
+}
+.tp-type-icon svg {
+  width: 14px;
+  height: 14px;
 }
 .sb-table-widget.tp-table td.tp-type-invalid {
   color: var(--danger-color);

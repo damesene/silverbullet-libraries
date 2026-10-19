@@ -1,3 +1,4 @@
+import { lineIcon } from "../icons.ts";
 import { formatNumber, numberOf } from "./helpers.ts";
 import type { ColumnType } from "./types.ts";
 
@@ -7,6 +8,7 @@ export default {
   name: "progress",
   syntax: "#progress, #progress-10",
   description: "Progress as a bar: a number from 0 to the maximum after the dash (default 100).",
+  icon: lineIcon('<rect x="2" y="8" width="20" height="8" rx="4"/><path d="M6 12h5"/>'),
   param: /^[1-9]\d*$/,
   aliases: { gauge: "100" },
   check: (text, param) => {

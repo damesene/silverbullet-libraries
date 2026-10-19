@@ -43,7 +43,7 @@ table-plus/
       types.ts         column types in the table: formatting, hidden type hashtags, invalid marks, editor choices, Type menu
       selection.ts     drag-select cells, Ctrl+C (text + HTML table), Delete
       paste.ts         paste from spreadsheets (Ctrl+V overwrite, Ctrl+Shift+V new rows)
-      grips.ts         row/column grips, drag to move, row and column menus (with submenus and Back)
+      grips.ts         row/column grips, drag to move, row and column menus (with submenus and a back arrow)
       metadata.ts      Remove metadata (toolbar and the page command)
       sticky.ts        sticky header and bottom-pinned rows
       autoscroll.ts    middle-button autoscroll
@@ -95,8 +95,8 @@ A new `space-lua` block on a page is not active until Space Lua is reloaded; an 
 ### Column types (`types/`, `features/types.ts`)
 - A type is a **hashtag in the header** (`| Price #currency-usd |`), as MdTableRender does: verified not to change the column key nor tag rows or the page, needs no metadata setting, and MdTableRender's tables work (aliases: `#euro`, `#usd`, `#int`, `#float`, `#kg`, `#km`, `#watt`, `#logical`, `#evaluation`, `#gauge`). Parameters after a dash (`#number-2`, `#stars-10`); MdTableRender's number suffixes (`#percent10`) are not supported.
 - Display only: the markdown keeps the value; the editor shows it; sort/filter/copy use it (`sortValue` where the text does not sort, e.g. check marks). Invalid values show red with the reason; saving one is allowed and announced.
-- The type is changed in the column menu (*Type* → list in the same dropdown, *Back*); editing a header shows and changes only the name, the type hashtag is kept.
-- Types live one per file; a test requires each type's syntax and description in the library page's Column types table.
+- The type is changed in the column menu (*Type* → list in the same dropdown, a back arrow before its title); editing a header shows and changes only the name, the type hashtag is kept.
+- Types live one per file; a test requires each type's syntax and description in the library page's Column types table. Each has an `icon` (`lineIcon` from `icons.ts`), shown after the column's name in the header and in the Type menu; the menu shows a type's syntax and description in a bubble beside it (`MenuDetail` in `menu.ts`), not a native tooltip.
 
 ### Other features
 - **Selection** follows the rows as shown (sorted/filtered); Delete empties cells (header names kept).

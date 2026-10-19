@@ -19,6 +19,9 @@ export type ColumnType = {
   readonly name: string;
   readonly syntax: string;
   readonly description: string;
+  // The type's icon, in the column menu and in its columns' headers: an SVG,
+  // 24x24 and drawn with currentColor (lineIcon draws one); none: a tag
+  readonly icon?: string;
   // What the parameter after "name-" may be; no `param`: the type takes none
   readonly param?: RegExp;
   // Other hashtags that mean this type, with the parameter they stand for

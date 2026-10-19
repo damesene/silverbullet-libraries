@@ -1,10 +1,20 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
+import { cellText } from "../dom.ts";
+import { ICONS } from "../icons.ts";
+import { TYPES } from "../types/index.ts";
 import { bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, press, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Column types", () => {
   useTablePage();
 
+  // An icon as the page holds it (the browser writes <path/> as <path></path>)
+  const asRendered = (html: string) => {
+    const span = document.createElement("span");
+    span.innerHTML = html;
+    return span.innerHTML;
+  };
+  const iconHtml = (name: string) => asRendered(TYPES.get(name)!.icon!);
   const usd = (n: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(n);
   const PAGE = [
     "| Item | Price #currency-usd | Rating #stars | Done #check |",
@@ -21,6 +31,14 @@ describe("Column types", () => {
     expect([cell(1, 1).textContent, cell(1, 2).textContent, cell(1, 3).textContent]).toEqual([usd(12.99), "★★★★☆", "✅"]);
     expect(cell(2, 3).textContent).toBe("❌");
     expect(cell(0, 1).querySelector(".tp-type-tag")!.textContent).toBe("#currency-usd");
+    // The type's icon goes after the column's name, before the sort button, and is not part of the name
+    const icon = cell(0, 1).querySelector(".tp-type-icon")!;
+    expect(cell(0, 1).firstChild!.textContent).toContain("Price");
+    expect(icon.nextElementSibling!.classList.contains("tp-sort")).toBe(true);
+    expect(icon.innerHTML).toBe(iconHtml("currency"));
+    expect((icon as HTMLElement).title).toContain("Currency (#currency-usd)");
+    expect(cell(0, 0).querySelector(".tp-type-icon")).toBeNull();
+    expect(cellText(cell(0, 1))).toBe("Price");
     // The markdown is left as written
     expect(text).toBe(PAGE);
   });
@@ -103,8 +121,21 @@ describe("Column types", () => {
     // The types show in the same dropdown; Back shows the column's menu again
     item("Type").click();
     expect(title()).toBe("Column type");
-    expect(item("Unit").title).toBe("#unit-kg: A number with a unit: the unit after the dash.");
-    item("Back").click();
+    // A type's detail shows in a bubble beside the menu while it is hovered
+    item("Unit").dispatchEvent(new MouseEvent("mouseenter"));
+    const bubble = document.querySelector<HTMLElement>(".tp-menu-detail")!;
+    expect(bubble.hidden).toBe(false);
+    expect(bubble.querySelector(".tp-menu-detail-title")!.textContent).toBe("Unit");
+    expect(Array.from(bubble.querySelectorAll("code"), (c) => c.textContent)).toEqual(["#unit-kg"]);
+    expect(bubble.querySelector("p")!.textContent).toBe("A number with a unit: the unit after the dash.");
+    expect(bubble.querySelector(".tp-menu-detail-note")!.textContent).toBe("Also written as #kg, #km, #watt");
+    expect(item("Unit").title).toBe("");
+    item("Unit").dispatchEvent(new MouseEvent("mouseleave"));
+    expect(bubble.hidden).toBe(true);
+    // Each type with its icon
+    expect(item("Stars").querySelector(".tp-icon")!.innerHTML).toBe(iconHtml("stars"));
+    // The arrow before the title goes back
+    document.querySelector<HTMLElement>(".tp-menu-title .tp-menu-back")!.click();
     expect(title()).toBe("Column: Rating #todo");
     item("Type").click();
     item("Stars").click();
@@ -113,8 +144,12 @@ describe("Column types", () => {
     expect(text).toBe("| Item | Rating #todo #stars |\n|---|---|\n| Pear | 4 |\n");
     expect(document.querySelector(".tp-menu")).toBeNull();
     expect(cell(1, 1).textContent).toBe("★★★★☆");
+    expect(cell(0, 1).querySelector(".tp-type-icon")!.innerHTML).toBe(iconHtml("stars"));
 
     openColumnMenu();
+    // The item keeps its icon; the type's icon goes before the type's name
+    expect(item("Type: Stars").querySelector(".tp-icon")!.innerHTML).toBe(asRendered(ICONS.columnType));
+    expect(item("Type: Stars").querySelector(".tp-menu-value-icon")!.innerHTML).toBe(iconHtml("stars"));
     item("Type: Stars").click();
     item("No type").click();
     await flush();

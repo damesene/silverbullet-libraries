@@ -1,8 +1,8 @@
 // The column types, one per file in this folder.
 //
 // To add one: copy a file such as stars.ts, change its name, syntax,
-// description, check and format (and param, aliases, sortValue, choices if it
-// needs them), import it here and add it to the list. Then add its syntax and
+// description, icon, check and format (and param, aliases, sortValue, choices
+// if it needs them), import it here and add it to the list. Then add its syntax and
 // description to the Column types table in table-plus.md (a test checks that).
 import check from "./check.ts";
 import currency from "./currency.ts";

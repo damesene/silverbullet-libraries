@@ -273,15 +273,14 @@ export class Grips implements Feature {
 
   /**
    * Shows other entries in the open menu's place, in the same dropdown: they
-   * close it when run, and Back shows the menu they replaced
+   * close it when run, and the arrow before the title (Back) shows the menu they replaced
    */
   private replaceMenu(title: string, entries: readonly MenuEntry[]): void {
     const menu = this.menu;
     if (!menu) return;
     const previous = menu.element;
-    const back: MenuEntry = { kind: "item", label: "Back", icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) };
     const closing = entries.map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry));
-    const element = renderMenu(this.host.doc, title, [back, { kind: "separator" }, ...closing]);
+    const element = renderMenu(this.host.doc, title, closing, { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) });
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     this.swapMenu(element);

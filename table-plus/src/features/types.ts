@@ -5,15 +5,40 @@
 import type { CellEditor, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellText, TYPE_TAG_CLASS, UI_CLASS } from "../dom.ts";
 import { ICONS } from "../icons.ts";
-import type { MenuEntry } from "../menu.ts";
+import type { MenuDetail, MenuEntry } from "../menu.ts";
 import { setCell } from "../ops.ts";
 import { formulaOf } from "../formula/index.ts";
 import { escapeCell, parseTable, unescapeCell } from "../markdown.ts";
-import { columnTypeOf, type Shown, type TypedColumn, typeOfTag, TYPES, typeTagPatterns, withColumnType } from "../types/index.ts";
+import {
+  type ColumnType,
+  columnTypeOf,
+  type Shown,
+  type TypedColumn,
+  typeOfTag,
+  TYPES,
+  typeTagPatterns,
+  withColumnType,
+} from "../types/index.ts";
+
+/** A type's icon, or a tag for a type without one */
+function iconOf(type: ColumnType): string {
+  return type.icon ?? ICONS.columnType;
+}
 
 /** A type's name for menus: stars is Stars */
 function typeLabel(name: string): string {
   return name[0]!.toUpperCase() + name.slice(1);
+}
+
+/** A type in the menu's bubble: how it is written, what it shows, and MdTableRender's hashtags for it */
+function typeDetail(type: ColumnType, tag?: string): MenuDetail {
+  const aliases = Object.keys(type.aliases ?? {}).map((alias) => `#${alias}`);
+  return {
+    title: tag ? `${typeLabel(type.name)}: #${tag}` : typeLabel(type.name),
+    code: type.syntax.split(",").map((form) => form.trim()),
+    text: type.description,
+    notes: aliases.length ? [`Also written as ${aliases.join(", ")}`] : undefined,
+  };
 }
 
 /**
@@ -70,9 +95,9 @@ export class ColumnTypes implements Feature {
         return {
           kind: "item",
           label: typeLabel(type.name),
-          icon: ICONS.columnType,
+          icon: iconOf(type),
           checked: current?.type === type,
-          hint: `${type.syntax}: ${type.description}`,
+          detail: typeDetail(type),
           run: setType(current?.type === type ? current.tag : first.slice(1)),
         };
       }),
@@ -80,9 +105,11 @@ export class ColumnTypes implements Feature {
     return [
       {
         kind: "item",
-        label: current ? `Type: ${typeLabel(current.type.name)}` : "Type",
+        // The same icon whatever the type, so the item is easy to find; the type's own after its name
+        label: "Type",
         icon: ICONS.columnType,
-        hint: current ? `#${current.tag}: ${current.type.description}` : "How the column's cells show",
+        ...(current ? { value: { text: typeLabel(current.type.name), icon: iconOf(current.type) } } : {}),
+        ...(current ? { detail: typeDetail(current.type, current.tag) } : { hint: "How the column's cells show" }),
         run: () => open("Column type", choices),
       },
     ];
@@ -150,9 +177,18 @@ export class ColumnTypes implements Feature {
     model.rows[0]?.cells.forEach((name, column) => {
       const typed = columnTypeOf(unescapeCell(name));
       if (!typed) return;
-      // The type's hashtag is not part of the column's name as Table Plus shows it
-      for (const tag of Array.from(header?.cells[column]?.querySelectorAll<HTMLElement>("[data-tag-name]") ?? [])) {
+      // The type's hashtag is not part of the column's name as Table Plus shows it;
+      // the type's icon goes after the name instead, before Table Plus' own controls
+      const headerCell = header?.cells[column];
+      for (const tag of Array.from(headerCell?.querySelectorAll<HTMLElement>("[data-tag-name]") ?? [])) {
         if (typeOfTag(tag.dataset.tagName ?? "")) tag.classList.add(TYPE_TAG_CLASS);
+      }
+      if (headerCell && !headerCell.querySelector(".tp-type-icon")) {
+        const icon = this.host.doc.createElement("span");
+        icon.className = `${UI_CLASS} tp-type-icon`;
+        icon.title = `${typeLabel(typed.type.name)} (#${typed.tag}): ${typed.type.description}`;
+        icon.innerHTML = iconOf(typed.type);
+        headerCell.insertBefore(icon, headerCell.querySelector(`:scope > .${UI_CLASS}`));
       }
       for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
         const raw = model.rows[Number(tr.dataset.tpRow)]?.cells[column];

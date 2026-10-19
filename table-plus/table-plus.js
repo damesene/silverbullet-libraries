@@ -1114,6 +1114,7 @@ var Autoscroll = class {
 
 // table-plus/src/icons.ts
 var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var lineIcon = (body) => svg(body);
 var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
 var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
 var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
@@ -2359,6 +2360,7 @@ var check_default = {
   name: "check",
   syntax: "#check",
   description: "Yes or no as a check mark: yes, true, 1, x or \u2705 shows \u2705; no, false, 0 or \u274C shows \u274C.",
+  icon: lineIcon('<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/>'),
   aliases: { logical: "" },
   check: (text) => YES.has(text.trim().toLowerCase()) || NO.has(text.trim().toLowerCase()) ? void 0 : `"${text}" is not yes or no`,
   format: (text) => YES.has(text.trim().toLowerCase()) ? "\u2705" : "\u274C",
@@ -2385,6 +2387,7 @@ var currency_default = {
   name: "currency",
   syntax: "#currency, #currency-usd",
   description: "An amount of money: the currency's three-letter code after the dash (default EUR).",
+  icon: lineIcon('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>'),
   param: /^[a-z]{3}$/i,
   aliases: { euro: "eur", eur: "eur", usd: "usd", czk: "czk", gbp: "gbp" },
   check: notANumber,
@@ -2404,6 +2407,7 @@ var date_default = {
   name: "date",
   syntax: "#date, #date-long",
   description: "A date written as 2025-11-06 (with a time: 2025-11-06 14:30), shown as the locale writes it: short, medium (default) or long after the dash.",
+  icon: lineIcon('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
   param: /^(short|medium|long)$/i,
   check: (text) => dateOf(text) ? void 0 : `"${text}" is not a date written as 2025-11-06`,
   format: (text, param, locale) => {
@@ -2418,6 +2422,7 @@ var link_default = {
   name: "link",
   syntax: "#link",
   description: "A web address as a link, shown without its https://.",
+  icon: lineIcon('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
   check: (text) => /^https?:\/\/\S+$/.test(text.trim()) ? void 0 : `"${text}" is not a web address starting with http:// or https://`,
   format: (text) => ({ text: text.trim().replace(/^https?:\/\//, "").replace(/\/$/, ""), href: text.trim() })
 };
@@ -2427,6 +2432,7 @@ var number_default = {
   name: "number",
   syntax: "#number, #number-2",
   description: "A number with thousands separators: the decimal places after the dash (default: as written).",
+  icon: lineIcon('<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>'),
   param: /^\d$/,
   aliases: { int: "0", float: "2" },
   check: notANumber,
@@ -2448,6 +2454,7 @@ var percent_default = {
   name: "percent",
   syntax: "#percent, #percent-1",
   description: "A fraction as a percentage, 0.15 is 15 % (15 % stays 15 %): the decimal places after the dash (default 0).",
+  icon: lineIcon('<path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>'),
   param: /^\d$/,
   check: notANumber,
   format: (text, param, locale) => {
@@ -2463,6 +2470,7 @@ var progress_default = {
   name: "progress",
   syntax: "#progress, #progress-10",
   description: "Progress as a bar: a number from 0 to the maximum after the dash (default 100).",
+  icon: lineIcon('<rect x="2" y="8" width="20" height="8" rx="4"/><path d="M6 12h5"/>'),
   param: /^[1-9]\d*$/,
   aliases: { gauge: "100" },
   check: (text, param) => {
@@ -2482,6 +2490,7 @@ var stars_default = {
   name: "stars",
   syntax: "#stars, #stars-10",
   description: "A rating as stars: a whole number from 0 to the most stars after the dash (default 5).",
+  icon: lineIcon('<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9z"/>'),
   param: /^[1-9]\d?$/,
   aliases: { evaluation: "5" },
   check: (text, param) => {
@@ -2504,6 +2513,7 @@ var trend_default = {
   name: "trend",
   syntax: "#trend",
   description: "A trend as an arrow: + shows \u{1F53C}, - shows \u{1F53D}, = shows \u27A1\uFE0F.",
+  icon: lineIcon('<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>'),
   check: (text) => ARROWS[text.trim()] ? void 0 : `"${text}" is not +, - or =`,
   format: (text) => ARROWS[text.trim()],
   choices: () => Object.entries(ARROWS).map(([value, arrow]) => ({ value, label: `${arrow} ${value}` }))
@@ -2514,6 +2524,7 @@ var unit_default = {
   name: "unit",
   syntax: "#unit-kg",
   description: "A number with a unit: the unit after the dash.",
+  icon: lineIcon('<path d="M3 16 16 3l5 5L8 21z"/><path d="M7 12l2 2M10 9l2 2M13 6l2 2"/>'),
   param: /^[^\s#]+$/,
   aliases: { kg: "kg", km: "km", watt: "W" },
   check: (text, param) => param === void 0 ? "#unit needs a unit, e.g. #unit-kg" : notANumber(text),
@@ -2557,8 +2568,20 @@ function typeTagPatterns() {
 }
 
 // table-plus/src/features/types.ts
+function iconOf(type) {
+  return type.icon ?? ICONS.columnType;
+}
 function typeLabel(name) {
   return name[0].toUpperCase() + name.slice(1);
+}
+function typeDetail(type, tag) {
+  const aliases = Object.keys(type.aliases ?? {}).map((alias) => `#${alias}`);
+  return {
+    title: tag ? `${typeLabel(type.name)}: #${tag}` : typeLabel(type.name),
+    code: type.syntax.split(",").map((form) => form.trim()),
+    text: type.description,
+    notes: aliases.length ? [`Also written as ${aliases.join(", ")}`] : void 0
+  };
 }
 function hiddenTagsCss() {
   const { exact, prefixes } = typeTagPatterns();
@@ -2602,9 +2625,9 @@ var ColumnTypes = class {
         return {
           kind: "item",
           label: typeLabel(type.name),
-          icon: ICONS.columnType,
+          icon: iconOf(type),
           checked: current?.type === type,
-          hint: `${type.syntax}: ${type.description}`,
+          detail: typeDetail(type),
           run: setType(current?.type === type ? current.tag : first.slice(1))
         };
       })
@@ -2612,9 +2635,11 @@ var ColumnTypes = class {
     return [
       {
         kind: "item",
-        label: current ? `Type: ${typeLabel(current.type.name)}` : "Type",
+        // The same icon whatever the type, so the item is easy to find; the type's own after its name
+        label: "Type",
         icon: ICONS.columnType,
-        hint: current ? `#${current.tag}: ${current.type.description}` : "How the column's cells show",
+        ...current ? { value: { text: typeLabel(current.type.name), icon: iconOf(current.type) } } : {},
+        ...current ? { detail: typeDetail(current.type, current.tag) } : { hint: "How the column's cells show" },
         run: () => open("Column type", choices)
       }
     ];
@@ -2675,8 +2700,16 @@ var ColumnTypes = class {
     model.rows[0]?.cells.forEach((name, column) => {
       const typed = columnTypeOf(unescapeCell(name));
       if (!typed) return;
-      for (const tag of Array.from(header?.cells[column]?.querySelectorAll("[data-tag-name]") ?? [])) {
+      const headerCell = header?.cells[column];
+      for (const tag of Array.from(headerCell?.querySelectorAll("[data-tag-name]") ?? [])) {
         if (typeOfTag(tag.dataset.tagName ?? "")) tag.classList.add(TYPE_TAG_CLASS);
+      }
+      if (headerCell && !headerCell.querySelector(".tp-type-icon")) {
+        const icon = this.host.doc.createElement("span");
+        icon.className = `${UI_CLASS} tp-type-icon`;
+        icon.title = `${typeLabel(typed.type.name)} (#${typed.tag}): ${typed.type.description}`;
+        icon.innerHTML = iconOf(typed.type);
+        headerCell.insertBefore(icon, headerCell.querySelector(`:scope > .${UI_CLASS}`));
       }
       for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
         const raw = model.rows[Number(tr.dataset.tpRow)]?.cells[column];
@@ -3259,14 +3292,71 @@ ${error}` : stored.formula;
 };
 
 // table-plus/src/menu.ts
-function renderMenu(doc, title, entries) {
+function renderMenu(doc, title, entries, back) {
   const menu = doc.createElement("div");
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", title);
   const heading = doc.createElement("div");
   heading.className = "tp-menu-title";
-  heading.textContent = title;
+  if (back) {
+    const arrow = doc.createElement("button");
+    arrow.type = "button";
+    arrow.className = "tp-menu-back";
+    arrow.title = "Back";
+    arrow.setAttribute("aria-label", "Back");
+    arrow.innerHTML = back.icon;
+    arrow.addEventListener("click", (e) => {
+      e.preventDefault();
+      back.run();
+    });
+    heading.append(arrow);
+  }
+  const titleText = doc.createElement("span");
+  titleText.className = "tp-menu-title-text";
+  titleText.textContent = title;
+  heading.append(titleText);
   menu.append(heading);
+  let bubble;
+  const showDetail = (item, detail) => {
+    if (!bubble) {
+      bubble = doc.createElement("div");
+      bubble.className = "tp-menu-detail";
+      bubble.setAttribute("role", "tooltip");
+      menu.append(bubble);
+    }
+    const title2 = doc.createElement("div");
+    title2.className = "tp-menu-detail-title";
+    title2.textContent = detail.title;
+    const parts = [title2];
+    if (detail.code?.length) {
+      const code = doc.createElement("div");
+      code.className = "tp-menu-detail-code";
+      for (const form of detail.code) {
+        const c = doc.createElement("code");
+        c.textContent = form;
+        code.append(c);
+      }
+      parts.push(code);
+    }
+    const text = doc.createElement("p");
+    text.textContent = detail.text;
+    parts.push(text);
+    for (const note of detail.notes ?? []) {
+      const p = doc.createElement("p");
+      p.className = "tp-menu-detail-note";
+      p.textContent = note;
+      parts.push(p);
+    }
+    bubble.replaceChildren(...parts);
+    bubble.hidden = false;
+    bubble.classList.remove("tp-left");
+    bubble.style.top = `${item.offsetTop}px`;
+    const view = doc.defaultView;
+    if (view && bubble.getBoundingClientRect().right > view.innerWidth - 8) bubble.classList.add("tp-left");
+  };
+  const hideDetail = () => {
+    if (bubble) bubble.hidden = true;
+  };
   const button = (className, run, disabled) => {
     const b = doc.createElement("button");
     b.type = "button";
@@ -3292,11 +3382,27 @@ function renderMenu(doc, title, entries) {
       item.setAttribute("role", entry.checked === void 0 ? "menuitem" : "menuitemcheckbox");
       if (entry.checked !== void 0) item.setAttribute("aria-checked", String(entry.checked));
       if (entry.danger) item.classList.add("tp-danger");
-      if (entry.hint && !entry.disabled) item.title = entry.hint;
+      const detail = entry.detail;
+      if (detail && !entry.disabled) {
+        item.addEventListener("mouseenter", () => showDetail(item, detail));
+        item.addEventListener("focus", () => showDetail(item, detail));
+        item.addEventListener("mouseleave", hideDetail);
+        item.addEventListener("blur", hideDetail);
+      } else if (entry.hint && !entry.disabled) item.title = entry.hint;
       item.innerHTML = `<span class="tp-icon">${entry.icon}</span>`;
       const label = doc.createElement("span");
       label.className = "tp-label";
       label.textContent = entry.label;
+      if (entry.value) {
+        label.append(": ");
+        if (entry.value.icon) {
+          const icon = doc.createElement("span");
+          icon.className = "tp-menu-value-icon";
+          icon.innerHTML = entry.value.icon;
+          label.append(icon);
+        }
+        label.append(entry.value.text);
+      }
       item.append(label);
       menu.append(item);
     } else {
@@ -3335,6 +3441,9 @@ function renderMenu(doc, title, entries) {
     } else if (e.key === "ArrowUp" || e.key === "ArrowLeft" && index >= 0 && buttons[index].classList.contains("tp-segment")) {
       e.preventDefault();
       focus(index < 0 ? -1 : index - 1);
+    } else if (e.key === "ArrowLeft" && back) {
+      e.preventDefault();
+      back.run();
     } else if (e.key === "Home") {
       e.preventDefault();
       focus(0);
@@ -3563,15 +3672,14 @@ var Grips = class {
   }
   /**
    * Shows other entries in the open menu's place, in the same dropdown: they
-   * close it when run, and Back shows the menu they replaced
+   * close it when run, and the arrow before the title (Back) shows the menu they replaced
    */
   replaceMenu(title, entries) {
     const menu = this.menu;
     if (!menu) return;
     const previous = menu.element;
-    const back = { kind: "item", label: "Back", icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) };
     const closing = entries.map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry);
-    const element = renderMenu(this.host.doc, title, [back, { kind: "separator" }, ...closing]);
+    const element = renderMenu(this.host.doc, title, closing, { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) });
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     this.swapMenu(element);

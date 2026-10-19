@@ -1,3 +1,4 @@
+import { lineIcon } from "../icons.ts";
 import type { ColumnType } from "./types.ts";
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/;
@@ -16,6 +17,7 @@ export default {
   name: "date",
   syntax: "#date, #date-long",
   description: "A date written as 2025-11-06 (with a time: 2025-11-06 14:30), shown as the locale writes it: short, medium (default) or long after the dash.",
+  icon: lineIcon('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
   param: /^(short|medium|long)$/i,
   check: (text) => (dateOf(text) ? undefined : `"${text}" is not a date written as 2025-11-06`),
   format: (text, param, locale) => {

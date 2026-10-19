@@ -7,6 +7,9 @@ const svg = (body: string, fill = false) =>
       : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
   }>${body}</svg>`;
 
+/** A line icon from its SVG body (column types draw theirs with it) */
+export const lineIcon = (body: string): string => svg(body);
+
 // Pushpins by where the needle points
 const PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
 const PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');

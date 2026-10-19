@@ -1,3 +1,4 @@
+import { lineIcon } from "../icons.ts";
 import { numberOf } from "./helpers.ts";
 import type { ColumnType } from "./types.ts";
 
@@ -7,6 +8,7 @@ export default {
   name: "stars",
   syntax: "#stars, #stars-10",
   description: "A rating as stars: a whole number from 0 to the most stars after the dash (default 5).",
+  icon: lineIcon('<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9z"/>'),
   param: /^[1-9]\d?$/,
   aliases: { evaluation: "5" },
   check: (text, param) => {

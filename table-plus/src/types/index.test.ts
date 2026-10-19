@@ -11,6 +11,7 @@ describe("TYPES", () => {
     expect(name).toBe(name.toLowerCase());
     expect(t.syntax.startsWith(`#${name}`)).toBe(true);
     expect(t.description).not.toBe("");
+    expect(t.icon).toMatch(/^<svg viewBox="0 0 24 24"[^>]*>.+<\/svg>$/);
     // The Column types table in table-plus.md: | `SYNTAX` | Description |
     expect(libraryPage).toContain(`| \`${t.syntax}\` | ${t.description} |`);
   });
