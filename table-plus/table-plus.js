@@ -2968,6 +2968,18 @@ function formulasAfterEdit(before, after, edit) {
   }
   return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap), edit.tables);
 }
+function referredPages(table) {
+  const pages = /* @__PURE__ */ new Set();
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    for (const cell of row.cells) {
+      const stored = formulaOf(cell);
+      if (!stored) continue;
+      for (const ref of references(stored.formula)) if (ref.table?.page) pages.add(ref.table.page);
+    }
+  });
+  return pages;
+}
 function referredTableNames(table) {
   const names = /* @__PURE__ */ new Set();
   table.rows.forEach((row, r) => {
@@ -3839,15 +3851,24 @@ ${error}` : stored.formula;
    * results are checked again, as SilverBullet keeps their widgets as they were
    */
   enhanced(widget) {
+    this.recheck(widget);
+  }
+  /** Another page whose tables formulas read was changed */
+  tablesChanged() {
+    this.recheck();
+  }
+  /** Checks again whether the tables that refer to other tables (but `except`) are out of date */
+  recheck(except) {
     const tables = this.host.tableSource();
     for (const other of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
-      const info = other === widget ? void 0 : this.host.infoOf(other);
+      const info = other === except ? void 0 : this.host.infoOf(other);
       if (!info || !this.withFormulas.has(info.table)) continue;
       const model = parseTable(info.source);
-      if (referredTableNames(model).size === 0) continue;
+      if (referredTableNames(model).size === 0 && referredPages(model).size === 0) continue;
       if (recalculate(model, tables) !== model) this.stale.add(info.table);
       else this.stale.delete(info.table);
     }
+    this.host.toolbarChanged();
   }
   /** Recalculate, first in the toolbar of a table with formulas; highlighted when results are out of date */
   toolbarButtons(widget, info) {
@@ -5492,21 +5513,50 @@ function placeAtEnd(parent, rows) {
 function pageTablesOf(text) {
   return findTables(text).map((range) => ({ range, table: parseTable(range.text) }));
 }
-function pageTables(tables, replace) {
-  let named;
+function pageTables(tables, replace, others) {
+  const named = /* @__PURE__ */ new Map();
   return (name, page) => {
-    if (page !== void 0) return void 0;
-    if (!named) {
-      named = /* @__PURE__ */ new Map();
-      for (const { range, table: parsed2 } of tables()) {
-        const table = replace && range.from === replace.from ? replace.table : parsed2;
+    const here = page === void 0 || page === others?.here;
+    const key = here ? "" : page;
+    let byName = named.get(key);
+    if (!byName) {
+      const list = here ? tables() : others?.tables(page);
+      if (!list) return void 0;
+      byName = /* @__PURE__ */ new Map();
+      for (const { range, table: parsed2 } of list) {
+        const table = here && replace && range.from === replace.from ? replace.table : parsed2;
         const own = metaName(table)?.toLowerCase();
-        if (own && !named.has(own)) named.set(own, table);
+        if (own && !byName.has(own)) byName.set(own, table);
       }
+      named.set(key, byName);
     }
-    return named.get(name.toLowerCase());
+    return byName.get(name.toLowerCase());
   };
 }
+function tablesWritten(all, source) {
+  const own = all.find((t) => t.range.text === source)?.table;
+  if (!own) return all.map((t) => t.table);
+  const result = [own];
+  const names = /* @__PURE__ */ new Set();
+  const add = (table) => {
+    const name = metaName(table)?.toLowerCase();
+    if (name) names.add(name);
+  };
+  add(own);
+  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredTableNames(t.table) }));
+  for (let found = names.size > 0; found; ) {
+    found = false;
+    for (let i = rest.length - 1; i >= 0; i--) {
+      if (![...rest[i].referred].some((name) => names.has(name))) continue;
+      result.push(rest[i].table);
+      add(rest[i].table);
+      rest.splice(i, 1);
+      found = true;
+    }
+  }
+  return result;
+}
+var MAX_OTHER_PAGES = 20;
 var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
@@ -5529,6 +5579,10 @@ var Controller = class {
   // The page's text as last read, and its tables for formulas that refer to them
   pageText = "";
   pageSource;
+  currentPage = "";
+  // The other pages formulas refer to, as last read: their tables (null: the page could not be read)
+  otherPages = /* @__PURE__ */ new Map();
+  otherPagesRead = 0;
   // Tables being enhanced: a scan meanwhile waits for it instead of starting again
   enhancing = /* @__PURE__ */ new WeakMap();
   views = /* @__PURE__ */ new Map();
@@ -5680,13 +5734,50 @@ var Controller = class {
   async ask(question) {
     return this.bridge.confirm ? await this.bridge.confirm(question, { destructive: true }) : this.doc.defaultView.confirm(question);
   }
-  /** The page's tables (as last read) that formulas can refer to by name */
+  /** The page's tables (as last read) that formulas can refer to by name, and those of the other pages read */
   tableSource() {
-    if (this.pageSource?.text !== this.pageText) {
+    const key = `${this.otherPagesRead}\0${this.currentPage}\0${this.pageText}`;
+    if (this.pageSource?.key !== key) {
       const text = this.pageText;
-      this.pageSource = { text, source: pageTables(() => pageTablesOf(text)) };
+      this.pageSource = { key, source: pageTables(() => pageTablesOf(text), void 0, this.others()) };
     }
     return this.pageSource.source;
+  }
+  toolbarChanged() {
+    const widget = this.hoverWidget;
+    const info = widget && this.infos.get(widget);
+    if (widget && info && this.bar.classList.contains("tp-visible")) this.showTableControls(widget, info);
+  }
+  others() {
+    return { here: this.currentPage, tables: (page) => this.otherPages.get(page) };
+  }
+  /**
+   * Reads the other pages these tables' formulas refer to, and in turn the
+   * pages those pages' tables refer to; `fresh`: also those read before
+   */
+  async loadPages(tables, fresh) {
+    if (!this.bridge.readPage) return;
+    const queue = /* @__PURE__ */ new Set();
+    for (const table of tables) for (const page of referredPages(table)) queue.add(page);
+    const done = /* @__PURE__ */ new Set();
+    for (const page of queue) {
+      if (done.size >= MAX_OTHER_PAGES) break;
+      done.add(page);
+      if (page === this.currentPage) continue;
+      if (fresh === true || fresh && fresh.has(page) || !this.otherPages.has(page)) await this.readOtherPage(page);
+      for (const { table } of this.otherPages.get(page) ?? []) for (const next of referredPages(table)) queue.add(next);
+    }
+  }
+  /** Reads another page's tables; the earlier ones stay until it is read, so formulas never see it missing meanwhile */
+  async readOtherPage(page) {
+    let tables;
+    try {
+      tables = pageTablesOf(await this.bridge.readPage(page));
+    } catch {
+      tables = null;
+    }
+    this.otherPages.set(page, tables);
+    this.otherPagesRead++;
   }
   async promptText(message, value = "") {
     const answer = this.bridge.prompt ? await this.bridge.prompt(message, value) : this.doc.defaultView.prompt(message, value);
@@ -5821,7 +5912,10 @@ var Controller = class {
       }
       const page = await this.bridge.getCurrentPage();
       if (this.stopped || renderedTable(widget) !== table) return;
+      this.currentPage = page;
       const model = parseTable(range.text);
+      await this.loadPages([model], false);
+      if (this.stopped || renderedTable(widget) !== table) return;
       const info = {
         table,
         source: range.text,
@@ -5981,8 +6075,22 @@ var Controller = class {
     return this.metadata.removeFromPage();
   }
   /** SilverBullet's `page:index` event */
-  pageIndexed(name) {
-    return this.expressions?.pageIndexed(name) ?? Promise.resolve();
+  async pageIndexed(name) {
+    if (this.otherPages.has(name)) {
+      if (name === this.currentPage) this.otherPages.delete(name);
+      else {
+        await this.loadPages(this.tablesShown(), /* @__PURE__ */ new Set([name]));
+        for (const feature of this.features) feature.tablesChanged?.();
+      }
+    }
+    await this.expressions?.pageIndexed(name);
+  }
+  /** The tables Table Plus shows, as last read */
+  tablesShown() {
+    return Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`)).flatMap((widget) => {
+      const info = this.infos.get(widget);
+      return info ? [parseTable(info.source)] : [];
+    });
   }
   cancelEditing() {
     this.cellEditor.dropPending();
@@ -6386,6 +6494,7 @@ var Controller = class {
     const info = this.infos.get(widget);
     if (!info) return "failed";
     try {
+      await this.loadPages(tablesWritten(pageTablesOf(this.pageText), info.source), true);
       const text = await this.bridge.getText();
       this.pageText = text;
       const range = locateBySource(text, info.hint, info.source);
@@ -6396,14 +6505,15 @@ var Controller = class {
         return "failed";
       }
       const all = pageTablesOf(text);
-      const steps = { ...options, tables: pageTables(() => all, { from: range.from, table: edited }) };
+      await this.loadPages([...all.map((t) => t.table), edited], false);
+      const steps = { ...options, tables: pageTables(() => all, { from: range.from, table: edited }, this.others()) };
       const changed = this.writeSteps.reduce((table, step) => step(before, table, steps), edited);
       const format = await this.setting("autoFormat");
       const serialize = (t) => serializeTable(format ? { ...t, padded: true } : t);
       const markdown = serialize(changed);
       if (markdown === range.text) return "unchanged";
       const updates = [{ range, markdown }];
-      const now2 = pageTables(() => all, { from: range.from, table: changed });
+      const now2 = pageTables(() => all, { from: range.from, table: changed }, this.others());
       const affected = new Set([metaName(before), metaName(changed)].filter((n) => n !== void 0).map((n) => n.toLowerCase()));
       const oldName = metaName(before)?.toLowerCase();
       const others = all.filter((other) => other.range.from !== range.from).map((other) => ({ ...other, referred: referredTableNames(other.table) }));

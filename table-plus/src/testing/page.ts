@@ -82,7 +82,7 @@ export function renderPage(page: string, into: HTMLElement, moves: number[]): vo
 
 // Most tests check the markdown byte for byte as written, so formatting is off
 // unless a test turns it on
-export async function setup(page: string, settings: Record<string, unknown> = {}): Promise<void> {
+export async function setup(page: string, settings: Record<string, unknown> = {}, bridgeExtras: Partial<Bridge> = {}): Promise<void> {
   const config: Record<string, unknown> = { "tablePlus.autoFormat": false, ...settings };
   text = page;
   editor = document.createElement("div");
@@ -102,6 +102,7 @@ export async function setup(page: string, settings: Record<string, unknown> = {}
     getCurrentPage: () => "Test",
     flash: (message) => flashes.push(message),
     getConfig: (path, defaultValue) => (path in config ? config[path] : defaultValue),
+    ...bridgeExtras,
   };
   controller = new Controller(document, bridge);
   controller.start();

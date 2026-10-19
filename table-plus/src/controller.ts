@@ -38,7 +38,14 @@ import {
   UI_CLASS,
   WIDGET_SELECTOR,
 } from "./dom.ts";
-import { followTable, formulasAfterEdit, recalculate, referredTableNames, type TableSource } from "./formula/index.ts";
+import {
+  followTable,
+  formulasAfterEdit,
+  recalculate,
+  referredPages,
+  referredTableNames,
+  type TableSource,
+} from "./formula/index.ts";
 import { ICONS } from "./icons.ts";
 import {
   cellSourceOffset,
@@ -126,32 +133,80 @@ function pageTablesOf(text: string): PageTable[] {
   return findTables(text).map((range) => ({ range, table: parseTable(range.text) }));
 }
 
+/** The other pages formulas can read: this page's name, and the tables of the others as read (undefined: not read, null: no such page) */
+type OtherPages = { readonly here: string; readonly tables: (page: string) => readonly PageTable[] | null | undefined };
+
 /**
  * The tables of a page by their names, for formulas that refer to other
- * tables: `replace` stands in for one of them (the table being written).
- * Other pages have none yet. `tables` is read on the first lookup.
+ * tables: `replace` stands in for one of them (the table being written), and
+ * `others` has those of other pages. `tables` is read on the first lookup.
  */
-function pageTables(tables: () => readonly PageTable[], replace?: { readonly from: number; readonly table: Table }): TableSource {
-  let named: Map<string, Table> | undefined;
+function pageTables(
+  tables: () => readonly PageTable[],
+  replace?: { readonly from: number; readonly table: Table },
+  others?: OtherPages,
+): TableSource {
+  const named = new Map<string, Map<string, Table>>();
   return (name, page) => {
-    if (page !== undefined) return undefined;
-    if (!named) {
-      named = new Map();
-      for (const { range, table: parsed } of tables()) {
-        const table = replace && range.from === replace.from ? replace.table : parsed;
+    const here = page === undefined || page === others?.here;
+    const key = here ? "" : page;
+    let byName = named.get(key);
+    if (!byName) {
+      const list = here ? tables() : others?.tables(page);
+      if (!list) return undefined;
+      byName = new Map();
+      for (const { range, table: parsed } of list) {
+        const table = here && replace && range.from === replace.from ? replace.table : parsed;
         const own = metaName(table)?.toLowerCase();
-        if (own && !named.has(own)) named.set(own, table);
+        if (own && !byName.has(own)) byName.set(own, table);
       }
+      named.set(key, byName);
     }
-    return named.get(name.toLowerCase());
+    return byName.get(name.toLowerCase());
   };
 }
+
+/**
+ * The tables a write of the table `source` recalculates: that table, and the
+ * tables that refer to it by name, or in turn to those. All of the page's when
+ * the table is not found.
+ */
+function tablesWritten(all: readonly PageTable[], source: string): Table[] {
+  const own = all.find((t) => t.range.text === source)?.table;
+  if (!own) return all.map((t) => t.table);
+  const result = [own];
+  const names = new Set<string>();
+  const add = (table: Table) => {
+    const name = metaName(table)?.toLowerCase();
+    if (name) names.add(name);
+  };
+  add(own);
+  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredTableNames(t.table) }));
+  for (let found = names.size > 0; found; ) {
+    found = false;
+    for (let i = rest.length - 1; i >= 0; i--) {
+      if (![...rest[i]!.referred].some((name) => names.has(name))) continue;
+      result.push(rest[i]!.table);
+      add(rest[i]!.table);
+      rest.splice(i, 1);
+      found = true;
+    }
+  }
+  return result;
+}
+
+// At most this many other pages are read for one page's formulas (pages that refer on and on)
+const MAX_OTHER_PAGES = 20;
 
 export class Controller implements TableHost {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
   // The page's text as last read, and its tables for formulas that refer to them
   private pageText = "";
-  private pageSource: { readonly text: string; readonly source: TableSource } | undefined;
+  private pageSource: { readonly key: string; readonly source: TableSource } | undefined;
+  private currentPage = "";
+  // The other pages formulas refer to, as last read: their tables (null: the page could not be read)
+  private readonly otherPages = new Map<string, readonly PageTable[] | null>();
+  private otherPagesRead = 0;
   // Tables being enhanced: a scan meanwhile waits for it instead of starting again
   private readonly enhancing = new WeakMap<HTMLElement, Promise<void>>();
   private readonly views = new Map<string, ViewState>();
@@ -336,13 +391,54 @@ export class Controller implements TableHost {
       : this.doc.defaultView!.confirm(question);
   }
 
-  /** The page's tables (as last read) that formulas can refer to by name */
+  /** The page's tables (as last read) that formulas can refer to by name, and those of the other pages read */
   tableSource(): TableSource {
-    if (this.pageSource?.text !== this.pageText) {
+    const key = `${this.otherPagesRead}\u0000${this.currentPage}\u0000${this.pageText}`;
+    if (this.pageSource?.key !== key) {
       const text = this.pageText;
-      this.pageSource = { text, source: pageTables(() => pageTablesOf(text)) };
+      this.pageSource = { key, source: pageTables(() => pageTablesOf(text), undefined, this.others()) };
     }
     return this.pageSource.source;
+  }
+
+  toolbarChanged(): void {
+    const widget = this.hoverWidget;
+    const info = widget && this.infos.get(widget);
+    if (widget && info && this.bar.classList.contains("tp-visible")) this.showTableControls(widget, info);
+  }
+
+  private others(): OtherPages {
+    return { here: this.currentPage, tables: (page) => this.otherPages.get(page) };
+  }
+
+  /**
+   * Reads the other pages these tables' formulas refer to, and in turn the
+   * pages those pages' tables refer to; `fresh`: also those read before
+   */
+  private async loadPages(tables: Iterable<Table>, fresh: boolean | ReadonlySet<string>): Promise<void> {
+    if (!this.bridge.readPage) return;
+    const queue = new Set<string>();
+    for (const table of tables) for (const page of referredPages(table)) queue.add(page);
+    const done = new Set<string>();
+    for (const page of queue) {
+      if (done.size >= MAX_OTHER_PAGES) break;
+      done.add(page);
+      if (page === this.currentPage) continue;
+      if (fresh === true || (fresh && fresh.has(page)) || !this.otherPages.has(page)) await this.readOtherPage(page);
+      for (const { table } of this.otherPages.get(page) ?? []) for (const next of referredPages(table)) queue.add(next);
+    }
+  }
+
+  /** Reads another page's tables; the earlier ones stay until it is read, so formulas never see it missing meanwhile */
+  private async readOtherPage(page: string): Promise<void> {
+    let tables: readonly PageTable[] | null;
+    try {
+      tables = pageTablesOf(await this.bridge.readPage!(page));
+    } catch {
+      tables = null;
+    }
+    this.otherPages.set(page, tables);
+    this.otherPagesRead++;
   }
 
   async promptText(message: string, value = ""): Promise<string | undefined> {
@@ -494,7 +590,11 @@ export class Controller implements TableHost {
       }
       const page = await this.bridge.getCurrentPage();
       if (this.stopped || renderedTable(widget) !== table) return;
+      this.currentPage = page;
       const model = parseTable(range.text);
+      // The other pages its formulas read, if not read yet
+      await this.loadPages([model], false);
+      if (this.stopped || renderedTable(widget) !== table) return;
       const info: WidgetInfo = {
         table,
         source: range.text,
@@ -684,8 +784,26 @@ export class Controller implements TableHost {
   }
 
   /** SilverBullet's `page:index` event */
-  pageIndexed(name: string): Promise<void> {
-    return this.expressions?.pageIndexed(name) ?? Promise.resolve();
+  async pageIndexed(name: string): Promise<void> {
+    // Another page formulas read was changed: read it again, and check the
+    // results. Also when it is the page shown now (it was read from another
+    // page before), so going back there does not use it as it was.
+    if (this.otherPages.has(name)) {
+      if (name === this.currentPage) this.otherPages.delete(name);
+      else {
+        await this.loadPages(this.tablesShown(), new Set([name]));
+        for (const feature of this.features) feature.tablesChanged?.();
+      }
+    }
+    await this.expressions?.pageIndexed(name);
+  }
+
+  /** The tables Table Plus shows, as last read */
+  private tablesShown(): Table[] {
+    return Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`)).flatMap((widget) => {
+      const info = this.infos.get(widget);
+      return info ? [parseTable(info.source)] : [];
+    });
   }
 
   cancelEditing(): void {
@@ -1150,6 +1268,11 @@ export class Controller implements TableHost {
     const info = this.infos.get(widget);
     if (!info) return "failed";
     try {
+      // The other pages the tables this write recalculates refer to are read
+      // again, before the page's text, so the text the edit is computed from is
+      // not stale by the time it is written (reading pages takes a while); a
+      // page referred to only by this edit is read below
+      await this.loadPages(tablesWritten(pageTablesOf(this.pageText), info.source), true);
       const text = await this.bridge.getText();
       this.pageText = text;
       const range = locateBySource(text, info.hint, info.source);
@@ -1159,9 +1282,11 @@ export class Controller implements TableHost {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
-      // Formulas see the other tables of the page, this one as edited
+      // Formulas see the other tables of the page, this one as edited, and
+      // those of the other pages they refer to
       const all = pageTablesOf(text);
-      const steps = { ...options, tables: pageTables(() => all, { from: range.from, table: edited }) };
+      await this.loadPages([...all.map((t) => t.table), edited], false);
+      const steps = { ...options, tables: pageTables(() => all, { from: range.from, table: edited }, this.others()) };
       const changed = this.writeSteps.reduce((table, step) => step(before, table, steps), edited);
       // With the autoFormat setting every edited table is written aligned
       const format = await this.setting("autoFormat");
@@ -1173,7 +1298,7 @@ export class Controller implements TableHost {
       // written, in the same edit (one Ctrl+Z undoes it all). Other tables are
       // left as they are.
       const updates: { readonly range: TableRange; readonly markdown: string }[] = [{ range, markdown }];
-      const now = pageTables(() => all, { from: range.from, table: changed });
+      const now = pageTables(() => all, { from: range.from, table: changed }, this.others());
       const affected = new Set([metaName(before), metaName(changed)].filter((n) => n !== undefined).map((n) => n.toLowerCase()));
       const oldName = metaName(before)?.toLowerCase();
       // What each other table refers to, read once for all the passes below

@@ -175,6 +175,15 @@ A formula can use the cells of another table on the same page, once that table h
 * `[@column]` is always the formula's own row: another table's rows are reached with `XLOOKUP` or by cell.
 * References to another table follow its edits made with Table Plus, as references in a table do (see [[#References]]): `prices!B2` follows its rows and columns when they are inserted, deleted, moved or sorted into the markdown, `prices![price]` a renamed or moved column, and a reference to deleted cells becomes `prices!#REF!`. Renaming the table with *Name* renames the references to it on the page. Edits made in the markdown do not change references.
 
+### Tables on other pages
+
+The page's name in double brackets goes before the table's name: `[[Prices]]fruit!B2`, `[[Shop/Prices]]fruit![price]`, `XLOOKUP([@name], [[Prices]]fruit![name], [[Prices]]fruit![price])`.
+
+* Table Plus reads the other page when a table that refers to it shows, and again each time it writes that table (or one it refers to), so the results written are up to date. When the other page is changed (SilverBullet indexes it again), *Recalculate* in the toolbar is highlighted.
+* The other page's formulas are calculated too, and references there without a page are to tables on that page.
+* Edits on the other page do not change the references to it here, and renaming that page or its table leaves them showing `#REF!`. Column references (`[[Prices]]fruit![price]`) and `XLOOKUP` keep working when its rows are moved.
+* The page is the name as SilverBullet writes it in links, without `#` or `|`.
+
 ### Operators and values
 
 * `+ - * / ^` (power), `%` after a number (`50%` is 0.5), `&` joins text, `= <> < > <= >=` compare (numbers as numbers, text ignoring case).
@@ -235,7 +244,7 @@ In ranges, empty cells and text that is not a number are skipped by the number f
 
 | Shows | Because |
 |---|---|
-| `#REF!` | A reference outside the table, a column name that does not exist, or a table name that no table on the page has |
+| `#REF!` | A reference outside the table, a column name that does not exist, or a table name that no table on the page (or on the page named) has |
 | `#NAME?` | An unknown function or name |
 | `#VALUE!` | A value of the wrong kind (text where a number is needed), or a wrong number of arguments |
 | `#DIV/0!` | Division by zero, or an average of no numbers |
@@ -628,6 +637,7 @@ if js and js.window then
     evalExpression = lua.evalExpression,
     confirm = editor.confirm,
     prompt = editor.prompt,
+    readPage = space.readPage,
   })
   -- Once the page is re-indexed, `${…}` cells show results from the new index
   event.listen {

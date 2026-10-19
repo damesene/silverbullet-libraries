@@ -948,6 +948,20 @@ export function formulasAfterEdit(
   return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap), edit.tables);
 }
 
+/** The other pages whose tables a table's formulas refer to ([[Page]]prices!B2) */
+export function referredPages(table: Table): Set<string> {
+  const pages = new Set<string>();
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    for (const cell of row.cells) {
+      const stored = formulaOf(cell);
+      if (!stored) continue;
+      for (const ref of references(stored.formula)) if (ref.table?.page) pages.add(ref.table.page);
+    }
+  });
+  return pages;
+}
+
 /** The names (lowercase) of the tables on the page that a table's formulas refer to, so they change when those do */
 export function referredTableNames(table: Table): Set<string> {
   const names = new Set<string>();

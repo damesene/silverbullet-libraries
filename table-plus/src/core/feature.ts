@@ -112,6 +112,8 @@ export interface TableHost {
   ask(question: string): Promise<boolean>;
   /** The page's tables (as last read) that formulas can refer to by name */
   tableSource(): TableSource;
+  /** What a feature's toolbar buttons show changed: the toolbar in view is shown again */
+  toolbarChanged(): void;
   /** Asks for a text (SilverBullet's dialog, else the browser's); undefined: cancelled */
   promptText(message: string, value?: string): Promise<string | undefined>;
   /** Hands the keyboard back to SilverBullet's editor */
@@ -197,6 +199,8 @@ export interface Feature {
    * the text got
    */
   beforeWrite?(text: string, from: number, to: number): Promise<((editFrom: number, lengthChange: number) => void) | undefined>;
+  /** Another page whose tables formulas refer to was changed: results may be out of date */
+  tablesChanged?(): void;
   /** The page or a table scrolled, or tables moved: floating elements follow */
   layoutChanged?(): void;
   /** What the cell editor shows for a cell's markdown; undefined: its text */

@@ -7,8 +7,8 @@ describe("Formulas", () => {
   useTablePage();
 
   // New formulas are stored in the table: the metadata setting is on unless a test turns it off
-  const setup = (page: string, settings: Record<string, unknown> = {}) =>
-    setupPage(page, { "tablePlus.metadata": true, ...settings });
+  const setup = (page: string, settings: Record<string, unknown> = {}, bridgeExtras: Parameters<typeof setupPage>[2] = {}) =>
+    setupPage(page, { "tablePlus.metadata": true, ...settings }, bridgeExtras);
 
   const TOTAL = "| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Apple | 10 |\n| Total | |\n";
   const field = () => editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
@@ -218,6 +218,74 @@ describe("Formulas", () => {
       await flush();
       expect(text).toContain('| Fig | 5 <meta f="=XLOOKUP([@fruit], prices![name], prices![price])"> |');
       expect(text).toContain('| All | 17 <meta f="=SUM(prices![price])"> |');
+    });
+  });
+
+  describe("referring to tables on other pages", () => {
+    const OTHER = '# Prices\n\n| Name | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 3 |\n| <meta name="fruit"> |\n';
+    const HERE = "| Item | Cost |\n|---|---|\n| Fig | |\n";
+    const withPages = (pages: Record<string, string>) => {
+      const read: string[] = [];
+      (controller as unknown as { bridge: Record<string, unknown> }).bridge.readPage = (name: string) => {
+        read.push(name);
+        if (!(name in pages)) throw new Error(`no page ${name}`);
+        return pages[name]!;
+      };
+      return read;
+    };
+
+    it("reads a table of another page, again for every edit", async () => {
+      await setup(HERE, { "tablePlus.editor.enterKey": "save" });
+      const pages: Record<string, string> = { Prices: OTHER };
+      const read = withPages(pages);
+      clickOn(cell(1, 1));
+      await type("=XLOOKUP([@item], [[Prices]]fruit![name], [[Prices]]fruit![price])");
+      expect(text).toBe('| Item | Cost |\n|---|---|\n| Fig | 3 <meta f="=XLOOKUP([@item], [[Prices]]fruit![name], [[Prices]]fruit![price])"> |\n');
+      expect(read).toEqual(["Prices"]);
+      // The other page changed: the next edit reads it again
+      pages.Prices = OTHER.replace("| Fig | 3 |", "| Fig | 7 |");
+      clickOn(cell(1, 0));
+      await type("fig");
+      expect(text).toContain("| fig | 7 <meta");
+      expect(read).toEqual(["Prices", "Prices"]);
+    });
+
+    it("highlights Recalculate when the other page is indexed again with changes", async () => {
+      const pages: Record<string, string> = { Prices: OTHER };
+      // Read when the table shows
+      await setup('| Item | Cost |\n|---|---|\n| Fig | 3 <meta f="=[[Prices]]fruit!B2"> |\n', {}, { readPage: (name) => pages[name]! });
+      const recalc = () => {
+        cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        return document.querySelector<HTMLElement>('.tp-bar button[aria-label="Recalculate"]')!;
+      };
+      expect(recalc().classList.contains("tp-attention")).toBe(false);
+      pages.Prices = OTHER.replace("| Fig | 3 |", "| Fig | 5 |");
+      await controller.pageIndexed("Prices");
+      expect(recalc().classList.contains("tp-attention")).toBe(true);
+      recalc().click();
+      await flush();
+      expect(text).toContain('| Fig | 5 <meta f="=[[Prices]]fruit!B2"> |');
+    });
+
+    it("does not read other pages for an edit of a table that has nothing to do with them", async () => {
+      const read: string[] = [];
+      const page = '| Item | Cost |\n|---|---|\n| Fig | 3 <meta f="=[[Prices]]fruit!B2"> |\n\n| A |\n|---|\n| 1 |\n';
+      await setup(page, { "tablePlus.editor.enterKey": "save" }, { readPage: (name) => (read.push(name), OTHER) });
+      expect(read).toEqual(["Prices"]); // read when the table showed
+      const unrelated = editor.querySelectorAll("table")[1]!.rows[1]!.cells[0]!;
+      clickOn(unrelated);
+      await type("2");
+      expect(text).toContain("| 2 |");
+      expect(read).toEqual(["Prices"]);
+    });
+
+    it("says when the page or its table is not there", async () => {
+      await setup(HERE, { "tablePlus.editor.enterKey": "save" });
+      withPages({ Prices: OTHER });
+      clickOn(cell(1, 1));
+      await type("=[[Nowhere]]fruit!B1");
+      expect(text).toContain("| Fig | #REF! <meta");
+      expect(cell(1, 1).title).toContain("there is no table named fruit on Nowhere");
     });
   });
 

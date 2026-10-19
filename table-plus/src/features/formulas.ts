@@ -25,6 +25,7 @@ import {
   recalculate,
   type Reference,
   referencedColumn,
+  referredPages,
   referredTableNames,
   references,
   referenceSlot,
@@ -169,15 +170,26 @@ export class Formulas implements Feature {
    * results are checked again, as SilverBullet keeps their widgets as they were
    */
   enhanced(widget: HTMLElement): void {
+    this.recheck(widget);
+  }
+
+  /** Another page whose tables formulas read was changed */
+  tablesChanged(): void {
+    this.recheck();
+  }
+
+  /** Checks again whether the tables that refer to other tables (but `except`) are out of date */
+  private recheck(except?: HTMLElement): void {
     const tables = this.host.tableSource();
     for (const other of Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
-      const info = other === widget ? undefined : this.host.infoOf(other);
+      const info = other === except ? undefined : this.host.infoOf(other);
       if (!info || !this.withFormulas.has(info.table)) continue;
       const model = parseTable(info.source);
-      if (referredTableNames(model).size === 0) continue;
+      if (referredTableNames(model).size === 0 && referredPages(model).size === 0) continue;
       if (recalculate(model, tables) !== model) this.stale.add(info.table);
       else this.stale.delete(info.table);
     }
+    this.host.toolbarChanged();
   }
 
   /** Recalculate, first in the toolbar of a table with formulas; highlighted when results are out of date */
