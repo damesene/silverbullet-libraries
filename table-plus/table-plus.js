@@ -10,6 +10,12 @@ var SETTINGS = {
     default: true,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
+  // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
+  ctrlEnterAddsRow: {
+    path: "tablePlus.ctrlEnterAddsRow",
+    default: true,
+    parse: (v) => typeof v === "boolean" ? v : void 0
+  },
   // Write edited tables with aligned pipes; off: keep each table's own style
   autoFormat: {
     path: "tablePlus.autoFormat",
@@ -1552,6 +1558,9 @@ var Controller = class {
       } else if (e.key === "Escape") {
         e.preventDefault();
         void this.finishEditing(false);
+      } else if (e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        void this.ctrlEnter();
       } else if (e.key === "Enter") {
         e.preventDefault();
         void this.enter(e.shiftKey);
@@ -1624,6 +1633,28 @@ var Controller = class {
    * the cell below (Shift+Enter: above), as in a spreadsheet; at the table's
    * edge it just saves.
    */
+  /**
+   * Ctrl+Enter: save the cell, add an empty row below its row and edit the
+   * new row in the same column, as one edit. The ctrlEnterAddsRow setting off:
+   * a plain Enter.
+   */
+  async ctrlEnter() {
+    const active = this.editor;
+    if (!active) return;
+    if (!await this.setting("ctrlEnterAddsRow") || this.editor !== active) {
+      if (this.editor === active) await this.enter(false);
+      return;
+    }
+    const closed = this.closeEditor();
+    await this.write(
+      closed.widget,
+      (t) => {
+        const edited = closed.value !== closed.original ? this.withCellEdit(t, closed) : t;
+        return edited && insertRow(edited, closed.row + 1);
+      },
+      { row: closed.row + 1, column: closed.column }
+    );
+  }
   async enter(up) {
     const active = this.editor;
     const info = active && this.infos.get(active.widget);

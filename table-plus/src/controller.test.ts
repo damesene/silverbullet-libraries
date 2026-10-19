@@ -170,6 +170,27 @@ describe("Controller", () => {
     );
   });
 
+  it("adds a row below with Ctrl+Enter, unless the setting is off", async () => {
+    await setup(PAGE);
+    clickOn(cell(1, 1)); // Pear's Qty
+    editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "4";
+    key(editor.querySelector(".tp-cell-editor")!, "Enter", { ctrlKey: true });
+    await flush();
+    await controller.scan();
+    expect(text).toBe("Intro\n\n| Name | Qty |\n|---|---|\n| Pear | 4 |\n| | |\n| apple | 10 |\n| Fig | 2 |\n");
+    const td = editor.querySelector(".tp-cell-editor")!.closest("td")!;
+    expect([(td.parentElement as HTMLTableRowElement).rowIndex, td.cellIndex]).toEqual([2, 1]);
+
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(PAGE, { "tablePlus.ctrlEnterAddsRow": false });
+    clickOn(cell(1, 1));
+    key(editor.querySelector(".tp-cell-editor")!, "Enter", { ctrlKey: true });
+    await flush();
+    expect(text).toBe(PAGE);
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+  });
+
   it("cancels an edit with Escape", async () => {
     await setup(PAGE);
     clickOn(cell(1, 0));

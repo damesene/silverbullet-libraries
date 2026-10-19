@@ -36,6 +36,12 @@ export const SETTINGS = {
     default: true,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
+  // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
+  ctrlEnterAddsRow: {
+    path: "tablePlus.ctrlEnterAddsRow",
+    default: true,
+    parse: (v) => (typeof v === "boolean" ? v : undefined),
+  } satisfies Setting<boolean>,
   // Write edited tables with aligned pipes; off: keep each table's own style
   autoFormat: {
     path: "tablePlus.autoFormat",

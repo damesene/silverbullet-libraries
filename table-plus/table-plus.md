@@ -30,6 +30,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Key | While editing a cell |
 |---|---|
 | Enter | Save |
+| Ctrl+Enter | Save, add a row below, edit it |
 | Esc | Cancel |
 | Tab | Save, edit the next cell |
 | Shift+Tab | Save, edit the previous cell |
@@ -111,6 +112,9 @@ Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, 
 * **Smart filters** (`tablePlus.smartFilters`), default `true`
   * `true`: filter fields understand `>10`, `/pattern/`, `=text` and `!filter`.
   * `false`: everything typed in a filter field is text to find.
+* **Ctrl+Enter adds a row** (`tablePlus.ctrlEnterAddsRow`), default `true`
+  * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
+  * `false`: Ctrl+Enter works like Enter.
 * **Format tables** (`tablePlus.autoFormat`), default `true`
   * `true`: a table edited with Table Plus is written with aligned pipes, padded to the widest cell of each column and aligned as its delimiter row says.
   * `false`: each table keeps its own style: aligned tables stay aligned, compact tables stay compact, untouched rows are kept byte for byte.
@@ -122,6 +126,7 @@ Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, 
 config.set("tablePlus.enterKey", "moveDown")
 config.set("tablePlus.smartFilters", false)
 config.set("tablePlus.autoFormat", false)
+config.set("tablePlus.ctrlEnterAddsRow", false)
 config.set("tablePlus.maxHeight", 400)
 ```
 
@@ -164,6 +169,12 @@ config.define("tablePlus", {
       default = true,
       description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell) and !filter (not). Off: everything typed is text to find.",
       ui = { category = "Table Plus", label = "Smart filters", priority = 0 },
+    },
+    ctrlEnterAddsRow = {
+      type = "boolean",
+      default = true,
+      description = "Ctrl+Enter in a cell editor saves the cell, adds an empty row below and edits it. Off: Ctrl+Enter works like Enter.",
+      ui = { category = "Table Plus", label = "Ctrl+Enter adds a row", priority = 0.5 },
     },
     autoFormat = {
       type = "boolean",

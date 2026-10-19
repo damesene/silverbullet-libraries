@@ -1068,6 +1068,9 @@ export class Controller {
       } else if (e.key === "Escape") {
         e.preventDefault();
         void this.finishEditing(false);
+      } else if (e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        void this.ctrlEnter();
       } else if (e.key === "Enter") {
         e.preventDefault();
         void this.enter(e.shiftKey);
@@ -1154,6 +1157,29 @@ export class Controller {
    * the cell below (Shift+Enter: above), as in a spreadsheet; at the table's
    * edge it just saves.
    */
+  /**
+   * Ctrl+Enter: save the cell, add an empty row below its row and edit the
+   * new row in the same column, as one edit. The ctrlEnterAddsRow setting off:
+   * a plain Enter.
+   */
+  private async ctrlEnter(): Promise<void> {
+    const active = this.editor;
+    if (!active) return;
+    if (!(await this.setting("ctrlEnterAddsRow")) || this.editor !== active) {
+      if (this.editor === active) await this.enter(false);
+      return;
+    }
+    const closed = this.closeEditor()!;
+    await this.write(
+      closed.widget,
+      (t) => {
+        const edited = closed.value !== closed.original ? this.withCellEdit(t, closed) : t;
+        return edited && insertRow(edited, closed.row + 1);
+      },
+      { row: closed.row + 1, column: closed.column },
+    );
+  }
+
   private async enter(up: boolean): Promise<void> {
     const active = this.editor;
     const info = active && this.infos.get(active.widget);
