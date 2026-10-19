@@ -608,6 +608,8 @@ const DECIMAL_COMMA_RE = /\d,\d/;
 export type TableSource = ((name: string, page?: string) => Table | undefined) & {
   /** The cell named so (compared ignoring case) on the page or on `page`, its row of the markdown (header 0) */
   readonly cell?: (name: string, page?: string) => NamedCell | undefined;
+  /** Whether formulas may not read `page` (links to other pages are off): those referring to it keep their results */
+  readonly unread?: (page: string) => boolean;
 };
 
 /** Where a named cell is: its table, and its row (of the markdown, header 0) and column */
@@ -619,6 +621,12 @@ class Book {
   // The sheets by table, whether reached by the table's name or a named cell's
   private readonly tableSheets = new Map<Table, Sheet>();
   constructor(private readonly source: TableSource | undefined) {}
+
+  /** Whether a formula refers to a page formulas may not read: it keeps its stored result */
+  keepsResult(formula: string): boolean {
+    const unread = this.source?.unread;
+    return !!unread && formulaPages(formula).some(unread);
+  }
 
   /** The cell named so on `page` (undefined: the formulas' page), in its table's sheet */
   cell(name: string, page: string | undefined): { sheet: Sheet; row: number; column: number } | undefined {
@@ -721,6 +729,16 @@ class Sheet {
     if (known !== undefined) return known;
     if (this.evaluating.has(key)) {
       return new FormulaError("#CYCLE!", `${cellName(row, column)} depends on its own result`);
+    }
+    // Refers to a page formulas may not read: the result stored, which
+    // the formulas using the cell use too
+    if (this.book.keepsResult(formula)) {
+      const shown = unescapeCell(formulaOf(this.body[row]?.[column] ?? "")?.value ?? "").trim();
+      // None yet, or an error code written: an error, saying why it is not calculated
+      const code = shown === "" ? "#REF!" : ERROR_CODES.find((c) => c === shown);
+      const kept: Scalar = code ? new FormulaError(code, "links to other pages are turned off") : (asNumber(shown) ?? parseClock(shown) ?? shown);
+      this.results.set(key, kept);
+      return kept;
     }
     this.evaluating.add(key);
     let result: Scalar;
@@ -951,13 +969,15 @@ function hasFormulas(table: Table): boolean {
  */
 export function recalculate(table: Table, tables?: TableSource): Table {
   if (!hasFormulas(table)) return table;
-  const sheet = new Sheet(table, new Book(tables));
+  const book = new Book(tables);
+  const sheet = new Sheet(table, book);
   let result = table;
   table.rows.forEach((row, r) => {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
-      if (!stored) return;
+      // A result kept as it is written (a link to a page not read)
+      if (!stored || (book.keepsResult(stored.formula) && stored.value.trim() !== "")) return;
       const updated = keepNames(formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula), cell);
       if (updated !== cell) result = setCell(result, r, c, updated);
     });
@@ -1095,10 +1115,17 @@ function forFormulas(table: Table, each: (formula: string) => void): void {
 export function referredPages(table: Table): Set<string> {
   const pages = new Set<string>();
   forFormulas(table, (formula) => {
-    for (const ref of references(formula)) if (ref.table?.page) pages.add(ref.table.page);
-    for (const ref of namedReferences(formula)) if (ref.page) pages.add(ref.page);
+    for (const page of formulaPages(formula)) pages.add(page);
   });
   return pages;
+}
+
+/** The other pages a formula refers to */
+function formulaPages(formula: string): string[] {
+  return [
+    ...references(formula).flatMap((ref) => (ref.table?.page ? [ref.table.page] : [])),
+    ...namedReferences(formula).flatMap((ref) => (ref.page ? [ref.page] : [])),
+  ];
 }
 
 /** The names (lowercase) of the tables on the page that a table's formulas refer to, so they change when those do */

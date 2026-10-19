@@ -210,6 +210,7 @@ The page's name in double brackets goes before the table's name: `[[Prices]]frui
 * The other page's formulas are calculated too, and references there without a page are to tables on that page.
 * Edits on the other page do not change the references to it here, and renaming that page or its table leaves them showing `#REF!`. Column references (`[[Prices]]fruit![price]`) and `XLOOKUP` keep working when its rows are moved.
 * The page is the name as SilverBullet writes it in links, without `#` or `|`.
+* With the `pageLinks` module off (see [[#Settings]]) Table Plus reads no other page: formulas that refer to one keep the results they have, and a new one shows `#REF!`.
 
 ### Operators and values
 
@@ -412,6 +413,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 |---|---|
 | `formulas` | Formulas can be typed into cells, with their help and references; *Recalculate* in the toolbar. Off: a typed formula is saved as text. Formulas already in a table keep their results and are still recalculated when Table Plus edits the table, so their references stay right. See [[#Formulas]]. |
 | `names` | Tables, columns, rows and cells can be named: *Name* in a table's toolbar, *Name column* in the column menu, *Name row* and *Name cell* in the row menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them. See [[#Table names]]. |
+| `pageLinks` | Formulas can refer to tables and named cells on other pages (`[[Prices]]fruit!B2`), which Table Plus reads for them. Off: it reads no other page; formulas that refer to one keep the results they have (the formulas using them too), a new one shows `#REF!`. See [[#Tables on other pages]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
 | `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
@@ -567,7 +569,7 @@ config.define("tablePlus", {
               type = "boolean",
               default = true,
               description = "Formulas in cells (=SUM(B1:B3)): typing them, their help and references, and Recalculate. Off: a typed formula is saved as text; formulas already in a table keep their results and are still recalculated when Table Plus edits the table.",
-              ui = { category = "Table Plus: Modules", label = "Formulas", priority = 9 },
+              ui = { category = "Table Plus: Modules", label = "Formulas", priority = 10 },
             },
           },
         },
@@ -579,7 +581,19 @@ config.define("tablePlus", {
               type = "boolean",
               default = true,
               description = "Naming tables (Name in the toolbar), columns (Name column in the column menu), rows and cells (Name row, Name cell in the row menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
-              ui = { category = "Table Plus: Modules", label = "Names", priority = 8 },
+              ui = { category = "Table Plus: Modules", label = "Names", priority = 9 },
+            },
+          },
+        },
+        pageLinks = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Formulas referring to tables and named cells on other pages ([[Prices]]fruit!B2), which Table Plus reads for them. Off: no other page is read; formulas referring to one keep the results they have, a new one shows #REF!.",
+              ui = { category = "Table Plus: Modules", label = "Links to other pages", priority = 8 },
             },
           },
         },

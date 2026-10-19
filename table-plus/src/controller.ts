@@ -138,8 +138,16 @@ function pageTablesOf(text: string): PageTable[] {
   return findTables(text).map((range) => ({ range, table: parseTable(range.text) }));
 }
 
-/** The other pages formulas can read: this page's name, and the tables of the others as read (undefined: not read, null: no such page) */
-type OtherPages = { readonly here: string; readonly tables: (page: string) => readonly PageTable[] | null | undefined };
+/**
+ * The other pages formulas can read: this page's name, and the tables of the
+ * others as read (undefined: not read, null: no such page). Without `linked`
+ * (the pageLinks module off) formulas read none: those referring to them keep their results.
+ */
+type OtherPages = {
+  readonly here: string;
+  readonly tables: (page: string) => readonly PageTable[] | null | undefined;
+  readonly linked: boolean;
+};
 
 /** A page's tables by their names, and its named cells by their names (lowercase) */
 type PageNames = { readonly tables: Map<string, Table>; readonly cells: Map<string, NamedCell> };
@@ -175,6 +183,7 @@ function pageTables(
   };
   return Object.assign((name: string, page?: string) => namesOf(page)?.tables.get(name.toLowerCase()), {
     cell: (name: string, page?: string) => namesOf(page)?.cells.get(name.toLowerCase()),
+    ...(others && !others.linked ? { unread: (page: string) => page !== others.here } : {}),
   });
 }
 
@@ -272,6 +281,8 @@ export class Controller implements TableHost {
   // (core/feature.ts): those turned on, filled in when Table Plus starts
   private readonly features: Feature[] = [];
   private featuresStarted: Promise<void> | undefined;
+  // Formulas read other pages (the pageLinks module); read when Table Plus starts
+  private pageLinks = true;
   private readonly metadata: Metadata;
   private expressions: Expressions | undefined;
   // Steps every write goes through after the edit, in this order
@@ -344,8 +355,12 @@ export class Controller implements TableHost {
       always(() => (this.expressions = new Expressions(this))),
       always(() => new History(this)),
     ];
-    const enabled = await Promise.all(all.map(({ name }) => (name ? this.featureEnabled(name) : true)));
+    const [enabled, pageLinks] = await Promise.all([
+      Promise.all(all.map(({ name }) => (name ? this.featureEnabled(name) : true))),
+      this.featureEnabled("pageLinks"),
+    ]);
     if (this.stopped) return;
+    this.pageLinks = pageLinks;
     const features = all.filter((_, i) => enabled[i]).map(({ create }) => create());
     this.features.push(...features);
     for (const feature of features) feature.start?.();
@@ -426,7 +441,7 @@ export class Controller implements TableHost {
 
   /** The page's tables (as last read) that formulas can refer to by name, and those of the other pages read */
   tableSource(): TableSource {
-    const key = `${this.otherPagesRead}\u0000${this.currentPage}\u0000${this.pageText}`;
+    const key = `${this.pageLinks}\u0000${this.otherPagesRead}\u0000${this.currentPage}\u0000${this.pageText}`;
     if (this.pageSource?.key !== key) {
       const text = this.pageText;
       this.pageSource = { key, source: pageTables(() => pageTablesOf(text), undefined, this.others()) };
@@ -441,7 +456,7 @@ export class Controller implements TableHost {
   }
 
   private others(): OtherPages {
-    return { here: this.currentPage, tables: (page) => this.otherPages.get(page) };
+    return { here: this.currentPage, tables: (page) => this.otherPages.get(page), linked: this.pageLinks };
   }
 
   /**
@@ -449,7 +464,8 @@ export class Controller implements TableHost {
    * pages those pages' tables refer to; `fresh`: also those read before
    */
   private async loadPages(tables: Iterable<Table>, fresh: boolean | ReadonlySet<string>): Promise<void> {
-    if (!this.bridge.readPage) return;
+    await this.featuresStarted;
+    if (!this.bridge.readPage || !this.pageLinks) return;
     const queue = new Set<string>();
     for (const table of tables) for (const page of referredPages(table)) queue.add(page);
     const done = new Set<string>();

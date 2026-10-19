@@ -2797,6 +2797,11 @@ var Book = class {
   sheets = /* @__PURE__ */ new Map();
   // The sheets by table, whether reached by the table's name or a named cell's
   tableSheets = /* @__PURE__ */ new Map();
+  /** Whether a formula refers to a page formulas may not read: it keeps its stored result */
+  keepsResult(formula) {
+    const unread = this.source?.unread;
+    return !!unread && formulaPages(formula).some(unread);
+  }
   /** The cell named so on `page` (undefined: the formulas' page), in its table's sheet */
   cell(name, page) {
     const found = this.source?.cell?.(name, page);
@@ -2890,6 +2895,13 @@ var Sheet = class {
     if (known !== void 0) return known;
     if (this.evaluating.has(key)) {
       return new FormulaError("#CYCLE!", `${cellName(row, column)} depends on its own result`);
+    }
+    if (this.book.keepsResult(formula)) {
+      const shown = unescapeCell(formulaOf(this.body[row]?.[column] ?? "")?.value ?? "").trim();
+      const code = shown === "" ? "#REF!" : ERROR_CODES.find((c) => c === shown);
+      const kept = code ? new FormulaError(code, "links to other pages are turned off") : asNumber(shown) ?? parseClock(shown) ?? shown;
+      this.results.set(key, kept);
+      return kept;
     }
     this.evaluating.add(key);
     let result;
@@ -3093,13 +3105,14 @@ function hasFormulas(table) {
 }
 function recalculate(table, tables) {
   if (!hasFormulas(table)) return table;
-  const sheet = new Sheet(table, new Book(tables));
+  const book = new Book(tables);
+  const sheet = new Sheet(table, book);
   let result = table;
   table.rows.forEach((row, r) => {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
-      if (!stored) return;
+      if (!stored || book.keepsResult(stored.formula) && stored.value.trim() !== "") return;
       const updated = keepNames(formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula), cell);
       if (updated !== cell) result = setCell(result, r, c, updated);
     });
@@ -3197,10 +3210,15 @@ function forFormulas(table, each) {
 function referredPages(table) {
   const pages = /* @__PURE__ */ new Set();
   forFormulas(table, (formula) => {
-    for (const ref of references(formula)) if (ref.table?.page) pages.add(ref.table.page);
-    for (const ref of namedReferences(formula)) if (ref.page) pages.add(ref.page);
+    for (const page of formulaPages(formula)) pages.add(page);
   });
   return pages;
+}
+function formulaPages(formula) {
+  return [
+    ...references(formula).flatMap((ref) => ref.table?.page ? [ref.table.page] : []),
+    ...namedReferences(formula).flatMap((ref) => ref.page ? [ref.page] : [])
+  ];
 }
 function referredTableNames(table) {
   const names = /* @__PURE__ */ new Set();
@@ -5920,7 +5938,8 @@ function pageTables(tables, replace, others) {
     return names;
   };
   return Object.assign((name, page) => namesOf2(page)?.tables.get(name.toLowerCase()), {
-    cell: (name, page) => namesOf2(page)?.cells.get(name.toLowerCase())
+    cell: (name, page) => namesOf2(page)?.cells.get(name.toLowerCase()),
+    ...others && !others.linked ? { unread: (page) => page !== others.here } : {}
   });
 }
 function affectedBy(...tables) {
@@ -6018,6 +6037,8 @@ var Controller = class {
   // (core/feature.ts): those turned on, filled in when Table Plus starts
   features = [];
   featuresStarted;
+  // Formulas read other pages (the pageLinks module); read when Table Plus starts
+  pageLinks = true;
   metadata;
   expressions;
   // Steps every write goes through after the edit, in this order
@@ -6067,8 +6088,12 @@ var Controller = class {
       always(() => this.expressions = new Expressions(this)),
       always(() => new History(this))
     ];
-    const enabled = await Promise.all(all.map(({ name }) => name ? this.featureEnabled(name) : true));
+    const [enabled, pageLinks] = await Promise.all([
+      Promise.all(all.map(({ name }) => name ? this.featureEnabled(name) : true)),
+      this.featureEnabled("pageLinks")
+    ]);
     if (this.stopped) return;
+    this.pageLinks = pageLinks;
     const features = all.filter((_, i) => enabled[i]).map(({ create }) => create());
     this.features.push(...features);
     for (const feature of features) feature.start?.();
@@ -6139,7 +6164,7 @@ var Controller = class {
   }
   /** The page's tables (as last read) that formulas can refer to by name, and those of the other pages read */
   tableSource() {
-    const key = `${this.otherPagesRead}\0${this.currentPage}\0${this.pageText}`;
+    const key = `${this.pageLinks}\0${this.otherPagesRead}\0${this.currentPage}\0${this.pageText}`;
     if (this.pageSource?.key !== key) {
       const text = this.pageText;
       this.pageSource = { key, source: pageTables(() => pageTablesOf(text), void 0, this.others()) };
@@ -6152,14 +6177,15 @@ var Controller = class {
     if (widget && info && this.bar.classList.contains("tp-visible")) this.showTableControls(widget, info);
   }
   others() {
-    return { here: this.currentPage, tables: (page) => this.otherPages.get(page) };
+    return { here: this.currentPage, tables: (page) => this.otherPages.get(page), linked: this.pageLinks };
   }
   /**
    * Reads the other pages these tables' formulas refer to, and in turn the
    * pages those pages' tables refer to; `fresh`: also those read before
    */
   async loadPages(tables, fresh) {
-    if (!this.bridge.readPage) return;
+    await this.featuresStarted;
+    if (!this.bridge.readPage || !this.pageLinks) return;
     const queue = /* @__PURE__ */ new Set();
     for (const table of tables) for (const page of referredPages(table)) queue.add(page);
     const done = /* @__PURE__ */ new Set();

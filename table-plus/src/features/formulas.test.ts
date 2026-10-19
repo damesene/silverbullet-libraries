@@ -279,6 +279,29 @@ describe("Formulas", () => {
       expect(read).toEqual(["Prices"]);
     });
 
+    it("reads no other page with the pageLinks module off: the results stay as written", async () => {
+      const read: string[] = [];
+      const page = '| Item | Cost | Twice |\n|---|---|---|\n| Fig | 7 <meta f="=[[Prices]]fruit!B2"> | 0 <meta f="=[@cost]*2"> |\n| Kiwi | | |\n';
+      await setup(
+        page,
+        { "tablePlus.editor.enterKey": "save", "tablePlus.modules.pageLinks.enabled": false },
+        { readPage: (name) => (read.push(name), OTHER) },
+      );
+      // Stale only for the formula using it: Twice is not yet 14
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      expect(document.querySelector('.tp-bar button[aria-label="Recalculate"]')!.classList.contains("tp-attention")).toBe(true);
+      document.querySelector<HTMLElement>('.tp-bar button[aria-label="Recalculate"]')!.click();
+      await flush();
+      // The kept result counts for the formulas using it; a new link has none to keep
+      expect(text).toContain('| Fig | 7 <meta f="=[[Prices]]fruit!B2"> | 14 <meta f="=[@cost]*2"> |');
+      await controller.scan();
+      clickOn(cell(2, 1));
+      await type("=[[Prices]]fruit!B1");
+      expect(text).toContain('| Kiwi | #REF! <meta f="=[[Prices]]fruit!B1"> |');
+      expect(cell(2, 1).title).toContain("links to other pages are turned off");
+      expect(read).toEqual([]);
+    });
+
     it("says when the page or its table is not there", async () => {
       await setup(HERE, { "tablePlus.editor.enterKey": "save" });
       withPages({ Prices: OTHER });
