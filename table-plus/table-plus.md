@@ -150,7 +150,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * Formulas are metadata, as the sorting stored in a table is: with the setting off, a typed formula is saved as text (Table Plus says so, and shows it while it is typed). Formulas already in a table keep working: they can be edited, are recalculated, and fill new rows of calculated columns.
 * SilverBullet and browsers show only the result, other renderers (GitHub, Obsidian) drop the tag. Queries over the table (`index.tag "table"`) see the cell's text with the tag, e.g. `13 <meta f="=SUM([qty])">`.
 * Saving a formula fixes mistakes that have only one possible fix, and says what it changed: missing `)` at the end are added (`=SUM(A1:A3` becomes `=SUM(A1:A3)`), a text in quotes or a `[column]` left open at the end is closed, and extra `)` at the very end are dropped. Anything else stays as typed and shows `#ERROR!`.
-* **Calculated columns**: when every row of a column holds the same formula, such as `=[@qty]*[@price]`, a new row (*+ Row*, Ctrl+Enter, Tab on the last cell, *Insert row*) gets it too. Total rows (with a formula over a whole column, such as `=SUM([qty])`) do not count.
+* **Calculated columns**: when every row of a column holds the same formula, such as `=[@qty]*[@price]`, a new row (the **+** on a border, Ctrl+Enter, Tab on the last cell, *Insert row*) gets it too. Total rows (with a formula over a whole column, such as `=SUM([qty])`) do not count.
 * Click the cell to edit its formula. Typing a plain value removes the formula. To type a text that starts with `=`, start it with `'=`; such a text opens with the `'` again, so it stays text.
 * Results are written whenever Table Plus edits the table, in the same edit (one Ctrl+Z undoes both). Viewing a table never changes it. The toolbar of a table with formulas has *Recalculate* (the ↻ icon), which writes the current results; it is highlighted when some are out of date, e.g. after the table was changed outside Table Plus (by typing in the markdown).
 * A formula's result has a dotted underline; hover it to see its formula, or why it shows an error.
@@ -342,13 +342,13 @@ Numbers and dates are written as your browser's language writes them.
 
 ## Rows and columns
 
-Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column. While a cell is edited, they stay with it.
+Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; moving the pointer along the left of the table (above it) takes them from row to row (column to column). Hovering a grip tints its row or column. While a cell is edited, they stay with it.
 
-* **Click a grip** for a menu:
+* **Click a grip**: the row (column) is selected, for Ctrl+C or Delete, and its menu opens:
   * Row: insert above or below, duplicate, move up or down, delete.
   * Column: sort, filter, type (see [[#Column types]]), align (left, center, right), insert left or right, move, delete.
-* **Drag a grip** to move the row or column; Esc cancels the drag.
-* **Add at the end**: *+ Row* below the table adds a row, *+* right of the header adds a column (named *Column N*, ready to rename).
+* **Drag a grip** to move the row or column: a copy follows the pointer and the others move aside to show where it goes; near the top or bottom of the view the page scrolls. Esc cancels the drag.
+* **Insert with +**: with a mouse or a pen, hover the left edge of the table on the border between two rows, or the top edge above the header on the border between two columns: a **+** inserts a row (column) there. On the last border it adds one at the end. A new column is named *Column N*, ready to rename. On a touch screen, insert from the row's or column's menu.
 * Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.
 
 ## Pinning
@@ -369,7 +369,7 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 
 On a phone or a tablet:
 
-* Tap a cell to edit it. The handles of its row and column show next to it: tap one for the row's or column's menu, or drag it to move the row or column.
+* Tap a cell to edit it. The handles of its row and column show next to it: tap one for the row's or column's menu (insert rows and columns there), or drag it to move the row or column. A pen that hovers (such as the S Pen) also gets the **+** on the borders, as a mouse does.
 * The sort buttons in the header are always shown (there is no hover to show them on). The toolbar (the filter icon, the ⋯ menu) shows while a cell of the table is edited.
 * Swiping scrolls a wide table sideways and the page up and down, as usual.
 * Press and hold a cell for its menu (copy, clear, filter by its value, name it).
@@ -439,7 +439,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them; *Copy* and *Clear* in the cell menu. |
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
-| `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and *+ Row* and *+* still add them. |
+| `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
 | `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
 | `autoscroll` | The middle mouse button over a table scrolls it. |
 
@@ -1244,15 +1244,16 @@ body.tp-navigating .sb-table-widget.tp-table * {
   width: 12px;
   height: 12px;
 }
+/* The row and column grips: quiet bars until hovered (their size is set where
+   they are placed); hovered, opaque, as they lie half over a cell */
 .tp-handle {
-  width: 18px;
-  height: 18px;
   padding: 0;
   align-items: center;
   justify-content: center;
   color: var(--root-color);
-  background: var(--root-background-color);
-  border: 1px solid var(--button-border-color, rgba(128, 128, 128, 0.4));
+  background: none;
+  opacity: 0.5;
+  border: 0;
   border-radius: 4px;
   cursor: grab;
   touch-action: none;
@@ -1260,43 +1261,48 @@ body.tp-navigating .sb-table-widget.tp-table * {
 .tp-handle:hover,
 .tp-handle.tp-active {
   color: var(--ui-accent-color);
-  border-color: var(--ui-accent-color);
+  background: color-mix(in srgb, var(--ui-accent-color) 18%, var(--root-background-color));
+  /* A border that takes no room: set off from the tinted row (column) */
+  box-shadow: 0 0 0 1px var(--ui-accent-color);
+  opacity: 1;
 }
 .tp-handle.tp-no-drag {
   cursor: pointer;
 }
 .tp-handle svg {
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
 }
 .tp-grip-column svg {
   transform: rotate(90deg);
 }
-.tp-add {
+/* What the hovered grip acts on */
+.sb-table-widget.tp-table .tp-handle-hover {
+  box-shadow: inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 10%, transparent);
+}
+.tp-insert {
+  /* Over its line */
+  z-index: 51;
+  width: 18px;
+  height: 18px;
+  padding: 0;
   align-items: center;
-  gap: 2px;
-  height: 20px;
-  padding: 0 6px 0 3px;
-  font-size: 12px;
-  color: var(--root-color);
-  background: var(--root-background-color);
-  border: 1px dashed var(--button-border-color, rgba(128, 128, 128, 0.5));
-  border-radius: 4px;
+  justify-content: center;
+  color: #fff;
+  background: var(--ui-accent-color);
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   cursor: pointer;
 }
-.tp-add-column {
-  width: 20px;
-  padding: 0;
-  justify-content: center;
+.tp-insert svg {
+  width: 12px;
+  height: 12px;
 }
-.tp-add:hover {
-  color: var(--ui-accent-color);
-  border-color: var(--ui-accent-color);
-  border-style: solid;
-}
-.tp-add svg {
-  width: 14px;
-  height: 14px;
+/* The border a row (column) goes to: over the table, not taking the pointer */
+.tp-insert-line {
+  background: var(--ui-accent-color);
+  pointer-events: none;
 }
 
 /* Row and column menus */
@@ -1683,13 +1689,28 @@ body.tp-ref-dragging * {
 }
 
 /* Dragging */
-.tp-drop {
+/* A row (column) dragged: its copy follows the pointer, the others move aside */
+.tp-drag-ghost {
   z-index: 55;
   pointer-events: none;
-  background: var(--ui-accent-color);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
 }
+/* Opaque: the table's cells take their background from their rows */
+.tp-drag-ghost table {
+  border-collapse: collapse;
+  background: var(--root-background-color);
+}
+/* Its place is covered by the rows (columns) moving aside: the gap left is where it goes */
 .sb-table-widget .tp-dragged {
-  opacity: 0.4;
+  opacity: 0;
+}
+body.tp-dragging .sb-table-widget.tp-table :is(td, th) {
+  transition: transform 0.15s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  body.tp-dragging .sb-table-widget.tp-table :is(td, th) {
+    transition: none;
+  }
 }
 body.tp-dragging,
 body.tp-dragging * {

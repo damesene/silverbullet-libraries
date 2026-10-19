@@ -111,6 +111,11 @@ export class Selection implements Feature {
     return [at];
   }
 
+  selectCells(info: WidgetInfo, anchor: CellRef, focus: CellRef): void {
+    this.selection = { key: info.key, anchor, focus };
+    this.show();
+  }
+
   /** Copy and Clear in the menu of a cell or of the cells selected */
   cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): { order: number; entries: MenuEntry[] } {
     const body = cells.filter((ref) => ref.row > 0).length;

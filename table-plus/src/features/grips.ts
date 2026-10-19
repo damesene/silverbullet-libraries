@@ -1,5 +1,7 @@
 // The row and column grips: shown next to the hovered cell's row and above its
-// column; a click opens the row or column menu, a drag moves the row or column.
+// column, quiet bars of a bounded length (a tall row or a wide column does not
+// stretch them); hovering one tints its row or column, a click opens the row or
+// column menu, a drag moves the row or column.
 import type { Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import {
   deleteColumnAt,
@@ -34,6 +36,15 @@ type HandleTarget = {
 // Pointer travel that turns a press on a grip into a drag instead of a click
 const DRAG_THRESHOLD = 4;
 
+// A grip's thickness, and its length at most (centred on its row or column)
+const GRIP_THICKNESS = 12;
+const ROW_GRIP_LENGTH = 32;
+const COLUMN_GRIP_LENGTH = 44;
+
+// While a row is dragged near the top or bottom of the view, the page scrolls by this much a move
+const AUTOSCROLL_EDGE = 40;
+const AUTOSCROLL_STEP = 12;
+
 const PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 
 export class Grips implements Feature {
@@ -51,6 +62,29 @@ export class Grips implements Feature {
   start(): void {
     this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
     this.columnGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "column"));
+    // Hovering a grip tints what it acts on
+    for (const [grip, axis] of [[this.rowGrip, "row"], [this.columnGrip, "column"]] as const) {
+      grip.addEventListener("pointerenter", () => this.tint(axis));
+      grip.addEventListener("pointerleave", () => this.tint(undefined));
+    }
+  }
+
+  /** The cells of the hovered grip's row or column tinted; undefined: none */
+  private tint(axis: Axis | undefined): void {
+    for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-handle-hover"))) cell.classList.remove("tp-handle-hover");
+    const target = this.target;
+    if (!axis || !target || this.dragging) return;
+    for (const cell of this.cellsOf(target, axis)) cell.classList.add("tp-handle-hover");
+  }
+
+  /** The cells of the target's row, or of its column (the header's included) */
+  private cellsOf(target: HandleTarget, axis: Axis): HTMLTableCellElement[] {
+    const { info } = target;
+    if (axis === "row") {
+      const tr = target.row === undefined ? undefined : info.table.querySelector<HTMLTableRowElement>(`tr[data-tp-row="${target.row}"]`);
+      return tr ? Array.from(tr.cells) : [];
+    }
+    return [info.table.rows[0]!, ...this.host.bodyRows(info)].flatMap((tr) => tr.cells[target.column] ?? []);
   }
 
   stop(): void {
@@ -96,16 +130,22 @@ export class Grips implements Feature {
       const rowRect = tr.getBoundingClientRect();
       this.rowGrip.classList.toggle("tp-no-drag", rearranged);
       this.rowGrip.title = rearranged ? `Row: click for actions (${MOVE_BLOCKED.toLowerCase()})` : "Row: click for actions, drag to move";
-      this.host.place(this.rowGrip, shown.left - 22, rowRect.top + (rowRect.height - 18) / 2);
+      const length = Math.max(GRIP_THICKNESS, Math.min(rowRect.height - 8, ROW_GRIP_LENGTH));
+      Object.assign(this.rowGrip.style, { width: `${GRIP_THICKNESS}px`, height: `${length}px` });
+      // Half on the table's left edge, half in the cell
+      this.host.place(this.rowGrip, shown.left - GRIP_THICKNESS / 2, rowRect.top + (rowRect.height - length) / 2);
     } else {
       this.rowGrip.classList.remove("tp-visible");
     }
     const headerCell = info.table.rows[0]!.cells[ref.column];
     if (headerCell) {
       const h = headerCell.getBoundingClientRect();
+      const length = Math.max(GRIP_THICKNESS, Math.min(h.width - 8, COLUMN_GRIP_LENGTH));
+      Object.assign(this.columnGrip.style, { width: `${length}px`, height: `${GRIP_THICKNESS}px` });
       // Centered on the column, as far as the column is in view
-      const center = Math.max(shown.left + 9, Math.min(h.left + h.width / 2, shown.right - 9));
-      this.host.place(this.columnGrip, center - 9, h.top - 9);
+      const center = Math.max(shown.left + length / 2, Math.min(h.left + h.width / 2, shown.right - length / 2));
+      // Half on the header's top edge, half in the header cell
+      this.host.place(this.columnGrip, center - length / 2, h.top - GRIP_THICKNESS / 2);
     }
     this.positionMenu();
   }
@@ -128,6 +168,7 @@ export class Grips implements Feature {
 
   private hideGrips(): void {
     for (const el of [this.rowGrip, this.columnGrip]) el.classList.remove("tp-visible");
+    this.tint(undefined);
     this.target = undefined;
   }
 
@@ -166,7 +207,11 @@ export class Grips implements Feature {
     const up = () => {
       cleanup();
       if (drag) drag.finish(true);
-      else this.toggleMenu(axis, target, grip);
+      else {
+        // A click selects the row (column) and opens its menu
+        this.select(target, axis);
+        this.toggleMenu(axis, target, grip);
+      }
     };
     const escape = (ev: KeyboardEvent) => {
       if (ev.key !== "Escape" || !drag) return;
@@ -181,74 +226,128 @@ export class Grips implements Feature {
     win.addEventListener("keydown", escape, true);
   }
 
+  /**
+   * A drag of a grip: a copy of the row (column) follows the pointer, the
+   * others move aside to show where it goes (within its pin zone), and the
+   * page scrolls near its edges. Dropped, the row (column) moves there.
+   */
+  /** The whole row (column) selected, as shown: the header and the rows a filter leaves */
+  private select(target: HandleTarget, axis: Axis): void {
+    const { info } = target;
+    if (axis === "row") {
+      this.host.selectCells(info, { row: target.row!, column: 0 }, { row: target.row!, column: info.columns - 1 });
+      return;
+    }
+    const shown = this.host.shownRows(info);
+    const last = Number(shown[shown.length - 1]?.dataset.tpRow ?? 0);
+    this.host.selectCells(info, { row: 0, column: target.column }, { row: last, column: target.column });
+  }
+
   private beginDrag(target: HandleTarget, axis: Axis): { move: (e: PointerEvent) => void; finish: (commit: boolean) => void } {
     const { widget, info } = target;
     const { doc } = this.host;
     const from = axis === "row" ? target.row! : target.column;
     const table = info.table;
     const header = table.rows[0]!;
-    const bodyRows = this.host.bodyRows(info);
-    const carried =
+    const rows = [header, ...this.host.bodyRows(info)];
+    // The cells of each row (column), by its row of the markdown (its column), and its size
+    const items =
       axis === "row"
-        ? bodyRows.filter((tr) => Number(tr.dataset.tpRow) === from)
-        : [header, ...bodyRows].map((tr) => tr.cells[from]).filter((c): c is HTMLTableCellElement => !!c);
+        ? rows.slice(1).map((tr) => Array.from(tr.cells))
+        : Array.from(header.cells).map((_, c) => rows.flatMap((tr) => tr.cells[c] ?? []));
+    const index = axis === "row" ? from - 1 : from;
+    const carried = items[index] ?? [];
+    const size = (cells: readonly HTMLTableCellElement[]) => {
+      const r = cells[0]?.getBoundingClientRect();
+      return r ? (axis === "row" ? r.height : r.width) : 0;
+    };
+    const carriedSize = size(carried);
+    const starts = items.map((cells) => {
+      const r = cells[0]?.getBoundingClientRect();
+      return r ? (axis === "row" ? r.top : r.left) : 0;
+    });
+    const ghost = this.ghostOf(axis, carried);
+    const start = carried[0]!.getBoundingClientRect();
     carried.forEach((el) => el.classList.add("tp-dragged"));
-    const line = this.host.floating("div", "tp-drop tp-visible");
     doc.body.classList.add("tp-dragging");
+    this.tint(undefined);
     this.dragging = true;
-    let slot = from;
+    let to = from;
+    let grab: number | undefined;
 
-    // A slot is "before item i"; one past the last item means "at the end"
     const move = (ev: PointerEvent) => {
-      const tableRect = table.getBoundingClientRect();
-      const shown = this.host.shownRect(widget, info);
-      if (axis === "row") {
-        slot = bodyRows.length + 1;
-        for (let i = 0; i < bodyRows.length; i++) {
-          const r = bodyRows[i]!.getBoundingClientRect();
-          if (ev.clientY < r.top + r.height / 2) {
-            slot = i + 1;
-            break;
-          }
-        }
-        const y = slot <= bodyRows.length ? bodyRows[slot - 1]!.getBoundingClientRect().top : tableRect.bottom;
-        Object.assign(line.style, {
-          left: `${shown.left}px`,
-          top: `${y - 1}px`,
-          width: `${shown.right - shown.left}px`,
-          height: "2px",
-        });
-      } else {
-        const cells = Array.from(header.cells);
-        slot = cells.length;
-        for (let i = 0; i < cells.length; i++) {
-          const r = cells[i]!.getBoundingClientRect();
-          if (ev.clientX < r.left + r.width / 2) {
-            slot = i;
-            break;
-          }
-        }
-        const x = slot < cells.length ? cells[slot]!.getBoundingClientRect().left : tableRect.right;
-        Object.assign(line.style, {
-          left: `${x - 1}px`,
-          top: `${tableRect.top}px`,
-          width: "2px",
-          height: `${tableRect.height}px`,
-        });
-      }
+      const pointer = axis === "row" ? ev.clientY : ev.clientX;
+      grab ??= pointer - (axis === "row" ? start.top : start.left);
+      if (axis === "row") this.host.place(ghost, start.left, pointer - grab);
+      else this.host.place(ghost, pointer - grab, start.top);
+      // The slot the copy's middle is over, in the places the rows (columns) had
+      const middle = pointer - grab + carriedSize / 2;
+      let slot = 0;
+      for (let i = 0; i < items.length; i++) if (middle >= starts[i]! + size(items[i]!) / 2) slot = i;
+      const asked = axis === "row" ? slot + 1 : slot;
+      to = axis === "row" ? clampRowMove(info.pins, info.rows, from, asked) : clampColumnMove(info.pins, info.columns, from, asked);
+      const target = axis === "row" ? to - 1 : to;
+      items.forEach((cells, i) => {
+        const shift = i > index && i <= target ? -carriedSize : i < index && i >= target ? carriedSize : 0;
+        for (const cell of cells) cell.style.transform = shift ? (axis === "row" ? `translateY(${shift}px)` : `translateX(${shift}px)`) : "";
+      });
+      this.autoscroll(widget, ev);
     };
     const finish = (commit: boolean) => {
+      for (const cells of items) for (const cell of cells) cell.style.transform = "";
       carried.forEach((el) => el.classList.remove("tp-dragged"));
-      line.remove();
+      ghost.remove();
       doc.body.classList.remove("tp-dragging");
       this.dragging = false;
       this.hideGrips();
-      const to = slot > from ? slot - 1 : slot;
       if (!commit || to === from) return;
       if (axis === "row") void moveRowTo(this.host, widget, info, from, to);
       else void moveColumnTo(this.host, widget, info, from, to);
     };
     return { move, finish };
+  }
+
+  /**
+   * The copy that follows the pointer: the row's (column's) cells cloned with
+   * their sizes and looks, as it is outside the table that styles them
+   */
+  private ghostOf(axis: Axis, cells: readonly HTMLTableCellElement[]): HTMLElement {
+    const { doc } = this.host;
+    const ghost = this.host.floating("div", "tp-drag-ghost tp-visible");
+    const table = doc.createElement("table");
+    const look = (cell: HTMLTableCellElement) => {
+      const copy = cell.cloneNode(true) as HTMLTableCellElement;
+      copy.classList.remove("tp-dragged", "tp-selected", "tp-handle-hover");
+      const style = doc.defaultView!.getComputedStyle(cell);
+      const r = cell.getBoundingClientRect();
+      for (const name of ["font", "color", "background-color", "padding", "border", "text-align", "vertical-align", "white-space"]) {
+        copy.style.setProperty(name, style.getPropertyValue(name));
+      }
+      Object.assign(copy.style, { boxSizing: "border-box", width: `${r.width}px`, height: `${r.height}px`, transform: "" });
+      return copy;
+    };
+    if (axis === "row") {
+      const tr = doc.createElement("tr");
+      tr.append(...cells.map(look));
+      table.append(tr);
+    } else {
+      for (const cell of cells) {
+        const tr = doc.createElement("tr");
+        tr.append(look(cell));
+        table.append(tr);
+      }
+    }
+    ghost.append(table);
+    return ghost;
+  }
+
+  /** Near the top or bottom edge of the box the page scrolls in, it scrolls on */
+  private autoscroll(widget: HTMLElement, ev: PointerEvent): void {
+    const scroller = this.host.scrollParentOf(widget);
+    if (!scroller) return;
+    const view = scroller.getBoundingClientRect();
+    if (ev.clientY < view.top + AUTOSCROLL_EDGE) scroller.scrollTop -= AUTOSCROLL_STEP;
+    else if (ev.clientY > view.bottom - AUTOSCROLL_EDGE) scroller.scrollTop += AUTOSCROLL_STEP;
   }
 
   // ---- menus ----------------------------------------------------------------------

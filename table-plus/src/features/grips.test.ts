@@ -33,6 +33,23 @@ describe("Row and column grips", () => {
     expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 2");
   });
 
+  it("tints what a hovered grip acts on, and selects it when clicked", async () => {
+    await setup(PAGE);
+    const tinted = () => Array.from(editor.querySelectorAll(".tp-handle-hover"));
+    cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const rowGrip = document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+    rowGrip.dispatchEvent(new PointerEvent("pointerenter"));
+    expect(tinted()).toEqual([cell(2, 0), cell(2, 1)]);
+    rowGrip.dispatchEvent(new PointerEvent("pointerleave"));
+    expect(tinted()).toEqual([]);
+    // A click: the row selected, its menu open
+    openMenu(2, "row");
+    expect(Array.from(editor.querySelectorAll(".tp-selected"))).toEqual([cell(2, 0), cell(2, 1)]);
+    // The column: its header and its cells
+    openMenu(1, "column", 1);
+    expect(Array.from(editor.querySelectorAll(".tp-selected"))).toEqual([cell(0, 1), cell(1, 1), cell(2, 1), cell(3, 1)]);
+  });
+
   it("offers pinning only with the metadata setting", async () => {
     await setup(PAGE);
     await flush();

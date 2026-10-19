@@ -5586,6 +5586,11 @@ function focusMenu(menu) {
 
 // table-plus/src/features/grips.ts
 var DRAG_THRESHOLD = 4;
+var GRIP_THICKNESS = 12;
+var ROW_GRIP_LENGTH = 32;
+var COLUMN_GRIP_LENGTH = 44;
+var AUTOSCROLL_EDGE = 40;
+var AUTOSCROLL_STEP = 12;
 var PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 var Grips = class {
   constructor(host) {
@@ -5602,6 +5607,26 @@ var Grips = class {
   start() {
     this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
     this.columnGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "column"));
+    for (const [grip, axis] of [[this.rowGrip, "row"], [this.columnGrip, "column"]]) {
+      grip.addEventListener("pointerenter", () => this.tint(axis));
+      grip.addEventListener("pointerleave", () => this.tint(void 0));
+    }
+  }
+  /** The cells of the hovered grip's row or column tinted; undefined: none */
+  tint(axis) {
+    for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-handle-hover"))) cell.classList.remove("tp-handle-hover");
+    const target = this.target;
+    if (!axis || !target || this.dragging) return;
+    for (const cell of this.cellsOf(target, axis)) cell.classList.add("tp-handle-hover");
+  }
+  /** The cells of the target's row, or of its column (the header's included) */
+  cellsOf(target, axis) {
+    const { info } = target;
+    if (axis === "row") {
+      const tr = target.row === void 0 ? void 0 : info.table.querySelector(`tr[data-tp-row="${target.row}"]`);
+      return tr ? Array.from(tr.cells) : [];
+    }
+    return [info.table.rows[0], ...this.host.bodyRows(info)].flatMap((tr) => tr.cells[target.column] ?? []);
   }
   stop() {
     this.closeMenu(false);
@@ -5639,15 +5664,19 @@ var Grips = class {
       const rowRect = tr.getBoundingClientRect();
       this.rowGrip.classList.toggle("tp-no-drag", rearranged);
       this.rowGrip.title = rearranged ? `Row: click for actions (${MOVE_BLOCKED.toLowerCase()})` : "Row: click for actions, drag to move";
-      this.host.place(this.rowGrip, shown.left - 22, rowRect.top + (rowRect.height - 18) / 2);
+      const length = Math.max(GRIP_THICKNESS, Math.min(rowRect.height - 8, ROW_GRIP_LENGTH));
+      Object.assign(this.rowGrip.style, { width: `${GRIP_THICKNESS}px`, height: `${length}px` });
+      this.host.place(this.rowGrip, shown.left - GRIP_THICKNESS / 2, rowRect.top + (rowRect.height - length) / 2);
     } else {
       this.rowGrip.classList.remove("tp-visible");
     }
     const headerCell = info.table.rows[0].cells[ref.column];
     if (headerCell) {
       const h = headerCell.getBoundingClientRect();
-      const center = Math.max(shown.left + 9, Math.min(h.left + h.width / 2, shown.right - 9));
-      this.host.place(this.columnGrip, center - 9, h.top - 9);
+      const length = Math.max(GRIP_THICKNESS, Math.min(h.width - 8, COLUMN_GRIP_LENGTH));
+      Object.assign(this.columnGrip.style, { width: `${length}px`, height: `${GRIP_THICKNESS}px` });
+      const center = Math.max(shown.left + length / 2, Math.min(h.left + h.width / 2, shown.right - length / 2));
+      this.host.place(this.columnGrip, center - length / 2, h.top - GRIP_THICKNESS / 2);
     }
     this.positionMenu();
   }
@@ -5667,6 +5696,7 @@ var Grips = class {
   }
   hideGrips() {
     for (const el of [this.rowGrip, this.columnGrip]) el.classList.remove("tp-visible");
+    this.tint(void 0);
     this.target = void 0;
   }
   // ---- a press on a grip: a click opens its menu, a drag moves -------------
@@ -5701,7 +5731,10 @@ var Grips = class {
     const up = () => {
       cleanup();
       if (drag) drag.finish(true);
-      else this.toggleMenu(axis, target, grip);
+      else {
+        this.select(target, axis);
+        this.toggleMenu(axis, target, grip);
+      }
     };
     const escape = (ev) => {
       if (ev.key !== "Escape" || !drag) return;
@@ -5715,69 +5748,119 @@ var Grips = class {
     win.addEventListener("pointercancel", cancel);
     win.addEventListener("keydown", escape, true);
   }
+  /**
+   * A drag of a grip: a copy of the row (column) follows the pointer, the
+   * others move aside to show where it goes (within its pin zone), and the
+   * page scrolls near its edges. Dropped, the row (column) moves there.
+   */
+  /** The whole row (column) selected, as shown: the header and the rows a filter leaves */
+  select(target, axis) {
+    const { info } = target;
+    if (axis === "row") {
+      this.host.selectCells(info, { row: target.row, column: 0 }, { row: target.row, column: info.columns - 1 });
+      return;
+    }
+    const shown = this.host.shownRows(info);
+    const last = Number(shown[shown.length - 1]?.dataset.tpRow ?? 0);
+    this.host.selectCells(info, { row: 0, column: target.column }, { row: last, column: target.column });
+  }
   beginDrag(target, axis) {
     const { widget, info } = target;
     const { doc } = this.host;
     const from = axis === "row" ? target.row : target.column;
     const table = info.table;
     const header = table.rows[0];
-    const bodyRows = this.host.bodyRows(info);
-    const carried = axis === "row" ? bodyRows.filter((tr) => Number(tr.dataset.tpRow) === from) : [header, ...bodyRows].map((tr) => tr.cells[from]).filter((c) => !!c);
+    const rows = [header, ...this.host.bodyRows(info)];
+    const items = axis === "row" ? rows.slice(1).map((tr) => Array.from(tr.cells)) : Array.from(header.cells).map((_, c) => rows.flatMap((tr) => tr.cells[c] ?? []));
+    const index = axis === "row" ? from - 1 : from;
+    const carried = items[index] ?? [];
+    const size = (cells) => {
+      const r = cells[0]?.getBoundingClientRect();
+      return r ? axis === "row" ? r.height : r.width : 0;
+    };
+    const carriedSize = size(carried);
+    const starts = items.map((cells) => {
+      const r = cells[0]?.getBoundingClientRect();
+      return r ? axis === "row" ? r.top : r.left : 0;
+    });
+    const ghost = this.ghostOf(axis, carried);
+    const start = carried[0].getBoundingClientRect();
     carried.forEach((el) => el.classList.add("tp-dragged"));
-    const line = this.host.floating("div", "tp-drop tp-visible");
     doc.body.classList.add("tp-dragging");
+    this.tint(void 0);
     this.dragging = true;
-    let slot = from;
+    let to = from;
+    let grab;
     const move = (ev) => {
-      const tableRect = table.getBoundingClientRect();
-      const shown = this.host.shownRect(widget, info);
-      if (axis === "row") {
-        slot = bodyRows.length + 1;
-        for (let i = 0; i < bodyRows.length; i++) {
-          const r = bodyRows[i].getBoundingClientRect();
-          if (ev.clientY < r.top + r.height / 2) {
-            slot = i + 1;
-            break;
-          }
-        }
-        const y = slot <= bodyRows.length ? bodyRows[slot - 1].getBoundingClientRect().top : tableRect.bottom;
-        Object.assign(line.style, {
-          left: `${shown.left}px`,
-          top: `${y - 1}px`,
-          width: `${shown.right - shown.left}px`,
-          height: "2px"
-        });
-      } else {
-        const cells = Array.from(header.cells);
-        slot = cells.length;
-        for (let i = 0; i < cells.length; i++) {
-          const r = cells[i].getBoundingClientRect();
-          if (ev.clientX < r.left + r.width / 2) {
-            slot = i;
-            break;
-          }
-        }
-        const x = slot < cells.length ? cells[slot].getBoundingClientRect().left : tableRect.right;
-        Object.assign(line.style, {
-          left: `${x - 1}px`,
-          top: `${tableRect.top}px`,
-          width: "2px",
-          height: `${tableRect.height}px`
-        });
-      }
+      const pointer = axis === "row" ? ev.clientY : ev.clientX;
+      grab ??= pointer - (axis === "row" ? start.top : start.left);
+      if (axis === "row") this.host.place(ghost, start.left, pointer - grab);
+      else this.host.place(ghost, pointer - grab, start.top);
+      const middle = pointer - grab + carriedSize / 2;
+      let slot = 0;
+      for (let i = 0; i < items.length; i++) if (middle >= starts[i] + size(items[i]) / 2) slot = i;
+      const asked = axis === "row" ? slot + 1 : slot;
+      to = axis === "row" ? clampRowMove(info.pins, info.rows, from, asked) : clampColumnMove(info.pins, info.columns, from, asked);
+      const target2 = axis === "row" ? to - 1 : to;
+      items.forEach((cells, i) => {
+        const shift = i > index && i <= target2 ? -carriedSize : i < index && i >= target2 ? carriedSize : 0;
+        for (const cell of cells) cell.style.transform = shift ? axis === "row" ? `translateY(${shift}px)` : `translateX(${shift}px)` : "";
+      });
+      this.autoscroll(widget, ev);
     };
     const finish = (commit) => {
+      for (const cells of items) for (const cell of cells) cell.style.transform = "";
       carried.forEach((el) => el.classList.remove("tp-dragged"));
-      line.remove();
+      ghost.remove();
       doc.body.classList.remove("tp-dragging");
       this.dragging = false;
       this.hideGrips();
-      const to = slot > from ? slot - 1 : slot;
       if (!commit || to === from) return;
       if (axis === "row") void moveRowTo(this.host, widget, info, from, to);
       else void moveColumnTo(this.host, widget, info, from, to);
     };
     return { move, finish };
+  }
+  /**
+   * The copy that follows the pointer: the row's (column's) cells cloned with
+   * their sizes and looks, as it is outside the table that styles them
+   */
+  ghostOf(axis, cells) {
+    const { doc } = this.host;
+    const ghost = this.host.floating("div", "tp-drag-ghost tp-visible");
+    const table = doc.createElement("table");
+    const look = (cell) => {
+      const copy = cell.cloneNode(true);
+      copy.classList.remove("tp-dragged", "tp-selected", "tp-handle-hover");
+      const style = doc.defaultView.getComputedStyle(cell);
+      const r = cell.getBoundingClientRect();
+      for (const name of ["font", "color", "background-color", "padding", "border", "text-align", "vertical-align", "white-space"]) {
+        copy.style.setProperty(name, style.getPropertyValue(name));
+      }
+      Object.assign(copy.style, { boxSizing: "border-box", width: `${r.width}px`, height: `${r.height}px`, transform: "" });
+      return copy;
+    };
+    if (axis === "row") {
+      const tr = doc.createElement("tr");
+      tr.append(...cells.map(look));
+      table.append(tr);
+    } else {
+      for (const cell of cells) {
+        const tr = doc.createElement("tr");
+        tr.append(look(cell));
+        table.append(tr);
+      }
+    }
+    ghost.append(table);
+    return ghost;
+  }
+  /** Near the top or bottom edge of the box the page scrolls in, it scrolls on */
+  autoscroll(widget, ev) {
+    const scroller = this.host.scrollParentOf(widget);
+    if (!scroller) return;
+    const view = scroller.getBoundingClientRect();
+    if (ev.clientY < view.top + AUTOSCROLL_EDGE) scroller.scrollTop -= AUTOSCROLL_STEP;
+    else if (ev.clientY > view.bottom - AUTOSCROLL_EDGE) scroller.scrollTop += AUTOSCROLL_STEP;
   }
   // ---- menus ----------------------------------------------------------------------
   toggleMenu(axis, target, anchor) {
@@ -6711,6 +6794,10 @@ var Selection = class {
     this.show();
     return [at];
   }
+  selectCells(info, anchor, focus) {
+    this.selection = { key: info.key, anchor, focus };
+    this.show();
+  }
   /** Copy and Clear in the menu of a cell or of the cells selected */
   cellMenuEntries(widget, info, cells) {
     const body = cells.filter((ref) => ref.row > 0).length;
@@ -6883,7 +6970,9 @@ var STOPPED_EVENTS = [
   "compositionend"
 ];
 var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
-var BAR_GAP = 10;
+var BAR_GAP = 12;
+var INSERT_BAND = 16;
+var INSERT_REACH = 6;
 var LONG_PRESS_MS = 550;
 var STORE_SORT_DELAY_MS = 400;
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
@@ -6910,9 +6999,8 @@ var Controller = class {
       editingEnded: (widget) => this.editingEnded(widget)
     });
     this.bar = this.floating("div", "tp-bar");
-    this.addRow = this.floatingButton("tp-add tp-add-row", "Add a row at the end", ICONS.plus);
-    this.addRow.insertAdjacentText("beforeend", "Row");
-    this.addColumn = this.floatingButton("tp-add tp-add-column", "Add a column at the end", ICONS.plus);
+    this.insertMark = this.floatingButton("tp-insert", "Insert here", ICONS.plus);
+    this.insertLine = this.floating("div", "tp-insert-line");
   }
   doc;
   bridge;
@@ -6953,8 +7041,10 @@ var Controller = class {
   warnedIncompatible = false;
   observer;
   bar;
-  addRow;
-  addColumn;
+  // Inserting rows and columns: a + on a border of the table, and the border marked
+  insertMark;
+  insertLine;
+  insertAt;
   // Features that keep their own state and work through this controller
   // (core/feature.ts): those turned on, filled in when Table Plus starts
   features = [];
@@ -6984,9 +7074,9 @@ var Controller = class {
     win.addEventListener("keydown", this.onKeyDown, true);
     win.addEventListener("keyup", this.onKeyUp, true);
     win.addEventListener("blur", this.onBlur);
+    this.doc.addEventListener("pointermove", this.onPointerMove, { passive: true });
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
-    this.addRow.addEventListener("click", () => this.appendRow());
-    this.addColumn.addEventListener("click", () => this.appendColumn());
+    this.insertMark.addEventListener("click", () => this.insertHere());
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
     this.featuresStarted = this.startFeatures();
@@ -7054,12 +7144,13 @@ var Controller = class {
     for (const feature of this.features) feature.stop?.();
     win.removeEventListener("keyup", this.onKeyUp, true);
     win.removeEventListener("blur", this.onBlur);
+    this.doc.removeEventListener("pointermove", this.onPointerMove);
     this.doc.removeEventListener("mousemove", this.onMouseMove);
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.closeTableMenu(false);
-    for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
+    for (const el of [this.bar, this.insertMark, this.insertLine]) el.remove();
   }
   onBlur = () => this.cellEditor.setNavigating(false);
   /**
@@ -7105,6 +7196,9 @@ var Controller = class {
       if (pages) return pages;
     }
     return void 0;
+  }
+  selectCells(info, anchor, focus) {
+    for (const feature of this.features) feature.selectCells?.(info, anchor, focus);
   }
   moduleOn(name) {
     return this.modulesOn.has(name);
@@ -7282,6 +7376,7 @@ var Controller = class {
       if (scrollTop) widget.scrollTop = scrollTop;
       this.cellEditor.takePending(widget, info);
       for (const feature of this.features) feature.enhanced?.(widget, info);
+      this.reshowInsert(widget, info);
       this.queueStickyUpdate();
       void this.refreshSettings();
     } catch (e) {
@@ -7816,10 +7911,19 @@ var Controller = class {
   onKeyUp = (e) => {
     if (e.key === "Control") this.cellEditor.setNavigating(false);
   };
+  // Over the band around the table where a + inserts: as over the table, its controls stay
+  inInsertBand = false;
+  // Where a hovering pointer was last, and the table a + inserted into, to show the + again once it is rendered anew
+  lastPointer;
+  insertedIn;
+  onPointerMove = (e) => {
+    this.lastPointer = { pointerType: e.pointerType, clientX: e.clientX, clientY: e.clientY };
+    this.inInsertBand = !this.tableMenu && !this.features.some((f) => f.pointerBusy?.()) && this.showInsert(e);
+  };
   onMouseMove = (e) => {
     if (this.tableMenu || this.features.some((f) => f.pointerBusy?.()) || e.buttons !== 0) return;
     const target = e.target;
-    if (target instanceof Node && this.isFloating(target)) {
+    if (target instanceof Node && this.isFloating(target) || this.inInsertBand) {
       this.cancelHide();
       return;
     }
@@ -7964,11 +8068,104 @@ var Controller = class {
     const offset = at ? cellSourceOffset(range.text, at.row, at.column, at.within) : 0;
     await this.bridge.moveCursor(range.from + offset);
   }
-  appendRow() {
+  // ---- inserting rows and columns: a + on a border --------------------------
+  /**
+   * A pointer that hovers (a mouse, a pen) near a border of the table shown:
+   * on a border between rows (or under the last), left of the table, or between
+   * columns (or right of the last), above the header, a + inserts one there.
+   * A finger does not hover: it inserts from the row and column menus.
+   * Whether the pointer is in that band around the table.
+   */
+  showInsert(e) {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
-    if (!widget || !info) return;
-    void insertRowWith(this, widget, info, appendRowAt(info.pins, info.rows), this.firstVisibleColumn(widget, info));
+    if (e.pointerType === "touch" || e.buttons !== 0 || !widget || !info || renderedTable(widget) !== info.table) return this.hideInsert();
+    if (e.target instanceof Node && this.insertMark.contains(e.target)) return true;
+    if (e.target instanceof Node && this.isFloating(e.target)) return this.hideInsert();
+    const shown = this.shownRect(widget, info);
+    const header = info.table.rows[0].getBoundingClientRect();
+    const { clientX: x, clientY: y } = e;
+    const near = (a, b) => Math.abs(a - b) <= INSERT_REACH;
+    if (x >= shown.left - INSERT_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + INSERT_REACH) {
+      const rows = this.shownRows(info);
+      const beside = rows.find((tr, i) => i > 0 && y >= tr.getBoundingClientRect().top && y < tr.getBoundingClientRect().bottom);
+      if (beside) this.hoverAt(widget, info, beside.cells[this.hoverCell?.cellIndex ?? 0] ?? beside.cells[0]);
+      for (let i = 0; i < rows.length; i++) {
+        const edge = rows[i].getBoundingClientRect().bottom;
+        if (!near(y, edge)) continue;
+        const next = rows[i + 1];
+        const below = next && Number(next.dataset.tpRow);
+        const above = i > 0 ? Number(rows[i].dataset.tpRow) : void 0;
+        const at = below !== void 0 && below > 0 ? below : appendRowAt(info.pins, info.rows);
+        const beside2 = below !== void 0 && below > 0 ? { before: below } : above !== void 0 ? { after: above } : {};
+        this.markInsert(widget, info, { key: info.key, axis: "row", at, beside: beside2 }, edge, shown);
+        return true;
+      }
+      return this.hideInsert(true);
+    }
+    if (y >= header.top - INSERT_BAND && y <= header.top + 2 && x >= shown.left - INSERT_REACH && x <= shown.right + INSERT_REACH) {
+      const cells = Array.from(info.table.rows[0].cells);
+      const column = cells.findIndex((c) => x >= c.getBoundingClientRect().left && x < c.getBoundingClientRect().right);
+      const row = this.hoverCell?.parentElement ?? info.table.rows[0];
+      if (column >= 0 && row.closest("table") === info.table) this.hoverAt(widget, info, row.cells[column]);
+      const edges = [cells[0].getBoundingClientRect().left, ...cells.map((c) => c.getBoundingClientRect().right)];
+      for (let i = 0; i < edges.length; i++) {
+        if (!near(x, edges[i]) || edges[i] < shown.left - INSERT_REACH || edges[i] > shown.right + INSERT_REACH) continue;
+        const at = i < cells.length ? i : appendColumnAt(info.pins, info.columns);
+        this.markInsert(widget, info, { key: info.key, axis: "column", at, beside: {} }, edges[i], shown);
+        return true;
+      }
+      return this.hideInsert(true);
+    }
+    return this.hideInsert();
+  }
+  /** As if the pointer were over this cell: the grips go to its row and column */
+  hoverAt(widget, info, cell) {
+    if (!cell || cell === this.hoverCell || this.cellEditor.active) return;
+    this.hoverCell = cell;
+    for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
+  }
+  markInsert(_widget, info, at, edge, shown) {
+    this.insertAt = at;
+    const mark = this.insertMark;
+    const line = this.insertLine;
+    mark.title = at.axis === "row" ? "Insert a row here" : "Insert a column here";
+    mark.setAttribute("aria-label", mark.title);
+    line.classList.add("tp-visible");
+    mark.classList.add("tp-visible");
+    if (at.axis === "row") {
+      Object.assign(line.style, { left: `${shown.left}px`, top: `${edge - 1}px`, width: `${shown.right - shown.left}px`, height: "2px" });
+      this.place(mark, shown.left - mark.offsetWidth / 2, edge - mark.offsetHeight / 2);
+    } else {
+      const top = info.table.rows[0].getBoundingClientRect().top;
+      Object.assign(line.style, { left: `${edge - 1}px`, top: `${top}px`, width: "2px", height: `${shown.bottom - top}px` });
+      this.place(mark, edge - mark.offsetWidth / 2, top - mark.offsetHeight / 2);
+    }
+  }
+  /** The + goes; `inBand`: the pointer is still in the band around the table (the table's controls stay) */
+  hideInsert(inBand = false) {
+    this.insertAt = void 0;
+    this.insertMark.classList.remove("tp-visible");
+    this.insertLine.classList.remove("tp-visible");
+    return inBand;
+  }
+  /** The + clicked: a row (column) inserted there, its first cell (name) edited */
+  insertHere() {
+    const at = this.insertAt;
+    const widget = at && this.widgetForKey(at.key);
+    const info = widget && this.infos.get(widget);
+    if (!at || !widget || !info) return;
+    this.insertedIn = at.key;
+    if (at.axis === "row") void insertRowWith(this, widget, info, at.at, this.firstVisibleColumn(widget, info), void 0, at.beside);
+    else void insertColumnWith(this, widget, info, at.at);
+  }
+  /** A table rendered anew after a + inserted into it: the + where the pointer still is */
+  reshowInsert(widget, info) {
+    const pointer = this.lastPointer;
+    if (this.insertedIn !== info.key || !pointer) return;
+    this.insertedIn = void 0;
+    this.hoverWidget = widget;
+    this.inInsertBand = this.showInsert({ ...pointer, buttons: 0, target: this.doc.elementFromPoint(pointer.clientX, pointer.clientY) });
   }
   /** The leftmost column in view, so editing a new row does not scroll a wide table back */
   firstVisibleColumn(widget, info) {
@@ -7977,13 +8174,7 @@ var Controller = class {
     const index = cells.findIndex((cell) => cell.getBoundingClientRect().left >= left - 1);
     return Math.max(0, index);
   }
-  appendColumn() {
-    const widget = this.hoverWidget;
-    const info = widget && this.infos.get(widget);
-    if (!widget || !info) return;
-    void insertColumnWith(this, widget, info, appendColumnAt(info.pins, info.columns));
-  }
-  // ---- floating UI: toolbar and add buttons ---------------------------------
+  // ---- floating UI: the toolbar ----------------------------------------------
   floating(tag, className) {
     const element = this.doc.createElement(tag);
     element.className = `tp-floating ${className}`;
@@ -8003,7 +8194,7 @@ var Controller = class {
     return button;
   }
   isFloating(node) {
-    return [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) || !!this.tableMenu?.element.contains(node) || this.features.some((f) => f.owns?.(node));
+    return [this.bar, this.insertMark, this.insertLine].some((el) => el.contains(node)) || !!this.tableMenu?.element.contains(node) || this.features.some((f) => f.owns?.(node));
   }
   place(element, left, top) {
     const win = this.doc.defaultView;
@@ -8031,7 +8222,8 @@ var Controller = class {
   hideFloating(closeMenus = false) {
     this.endHover(closeMenus);
     this.closeTableMenu(false);
-    for (const el of [this.bar, this.addRow, this.addColumn]) el.classList.remove("tp-visible");
+    for (const el of [this.bar, this.insertMark, this.insertLine]) el.classList.remove("tp-visible");
+    this.insertAt = void 0;
     this.hoverWidget = void 0;
   }
   /** The toolbar above the table and the add-row / add-column buttons */
@@ -8157,15 +8349,6 @@ var Controller = class {
     const viewRight = this.scrollParentOf(widget)?.getBoundingClientRect().right ?? this.doc.defaultView.innerWidth;
     this.place(bar, Math.min(rect.right, tableRect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
     this.positionTableMenu();
-    this.addRow.classList.add("tp-visible");
-    const inView = this.shownRect(widget, info);
-    this.place(this.addRow, inView.left, inView.bottom + 4);
-    this.addColumn.classList.add("tp-visible");
-    this.place(
-      this.addColumn,
-      Math.min(tableRect.right, rect.right) + 4,
-      headerRect.top + (headerRect.height - this.addColumn.offsetHeight) / 2
-    );
   }
   /**
    * The toolbar's ⋯ menu: the table's actions that are not used all the time,

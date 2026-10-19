@@ -105,8 +105,9 @@ describe("Controller", () => {
       filter.dispatchEvent(new Event("input"));
       await flush();
       expect(bodyTexts()).toEqual(["apple"]);
-      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-      document.querySelector<HTMLElement>(".tp-add-row")!.click();
+      // The + under the last row shown (jsdom has no layout to hover it: set as the pointer would)
+      (controller as unknown as { insertAt: unknown }).insertAt = { key: "Test#0", axis: "row", at: 4, beside: { after: 3 } };
+      document.querySelector<HTMLElement>(".tp-insert")!.click();
       await waitFor(() => !!editing());
       expect(bodyTexts()).toEqual(["apple", ""]);
       // Tab within the row: still shown, though Plum (no Qty) does not match

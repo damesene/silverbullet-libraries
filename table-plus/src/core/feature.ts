@@ -151,6 +151,8 @@ export interface TableHost {
   readonly currentPage: string;
   /** The other pages a feature read for formulas (pageLinks); undefined: none reads them */
   otherPages(): OtherPages | undefined;
+  /** Selects cells, where a feature selects (Feature.selectCells) */
+  selectCells(info: WidgetInfo, anchor: CellRef, focus: CellRef): void;
   /** Whether a module is on (one feature serves another: pageLinks reads pages for formulas) */
   moduleOn(name: FeatureName): boolean;
   /** Tables changed outside the page (another page read anew): features check them again */
@@ -275,6 +277,8 @@ export interface Feature {
    * shown) when the selection holds it, else `at`, now selected
    */
   selectedCells?(info: WidgetInfo, at: CellRef): readonly CellRef[] | undefined;
+  /** Selects the cells from `anchor` to `focus` (rows as shown): a row's or a column's grip clicked */
+  selectCells?(info: WidgetInfo, anchor: CellRef, focus: CellRef): void;
   /** Entries at the top of a column's menu, before its sorting (naming the column); they close the menu when run */
   columnMenuTopEntries?(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
   /** Entries at the top of a row's menu, about its cell in `column` (the one under the pointer or edited); they close the menu when run */
