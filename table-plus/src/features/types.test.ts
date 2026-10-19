@@ -98,11 +98,16 @@ describe("Column types", () => {
     };
     const item = (label: string) =>
       Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label)!;
+    const title = () => document.querySelector(".tp-menu-title")!.textContent;
     openColumnMenu();
-    item("Type…").click();
-    expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Column type");
-    expect(item("#unit-kg").title).toBe("#unit-kg: A number with a unit: the unit after the dash.");
-    item("#stars").click();
+    // The types show in the same dropdown; Back shows the column's menu again
+    item("Type").click();
+    expect(title()).toBe("Column type");
+    expect(item("Unit").title).toBe("#unit-kg: A number with a unit: the unit after the dash.");
+    item("Back").click();
+    expect(title()).toBe("Column: Rating #todo");
+    item("Type").click();
+    item("Stars").click();
     await flush();
     await controller.scan();
     expect(text).toBe("| Item | Rating #todo #stars |\n|---|---|\n| Pear | 4 |\n");
@@ -110,10 +115,28 @@ describe("Column types", () => {
     expect(cell(1, 1).textContent).toBe("★★★★☆");
 
     openColumnMenu();
-    item("Type: #stars").click();
+    item("Type: Stars").click();
     item("No type").click();
     await flush();
     expect(text).toBe("| Item | Rating #todo |\n|---|---|\n| Pear | 4 |\n");
+  });
+
+  it("edits a header as the column's name, keeping its type", async () => {
+    await setup("| Item | Rating #stars-3 |\n|---|---|\n| Pear | 2 |\n");
+    clickOn(cell(0, 1));
+    const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+    expect(field.value).toBe("Rating");
+    field.value = "Score";
+    key(field, "Enter");
+    await flush();
+    expect(text).toBe("| Item | Score #stars-3 |\n|---|---|\n| Pear | 2 |\n");
+    // An emptied name keeps the old one, type and all
+    await controller.scan();
+    clickOn(cell(0, 1));
+    editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = " ";
+    key(editor.querySelector(".tp-cell-editor")!, "Enter");
+    await flush();
+    expect(text).toBe("| Item | Score #stars-3 |\n|---|---|\n| Pear | 2 |\n");
   });
 
   it("makes links of web addresses", async () => {

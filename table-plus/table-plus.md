@@ -195,7 +195,7 @@ In ranges, empty cells and text that is not a number are skipped by the number f
 
 ## Column types
 
-A hashtag in a column's header gives the column a type, which changes how its cells show. Type it in the header, or pick it in the column's menu (the ⠿ grip above the column, *Type…*): the menu writes the hashtag.
+A hashtag in a column's header gives the column a type, which changes how its cells show. Pick it in the column's menu (the ⠿ grip above the column, *Type*): the types show in the same menu, *Back* returns to the column's menu, and the type picked is written as a hashtag in the header. Editing a header changes only the column's name: its type's hashtag stays. In the markdown, the hashtag can also be typed by hand, e.g. for a parameter the menu does not offer (`#currency-usd`).
 
 ```
 | Item | Price #currency-usd | Rating #stars | Done #check |

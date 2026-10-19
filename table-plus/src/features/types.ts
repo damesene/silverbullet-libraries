@@ -2,14 +2,19 @@
 // (`| Price #currency |`) shows its cells as that type (types/), hides that
 // hashtag, and marks the cells that are not values of the type. The markdown
 // keeps the values as written: sorting, filters and copying use them.
-import type { CellEditor, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import type { CellEditor, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellText, TYPE_TAG_CLASS, UI_CLASS } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import type { MenuEntry } from "../menu.ts";
 import { setCell } from "../ops.ts";
 import { formulaOf } from "../formula/index.ts";
-import { parseTable, unescapeCell } from "../markdown.ts";
+import { escapeCell, parseTable, unescapeCell } from "../markdown.ts";
 import { columnTypeOf, type Shown, type TypedColumn, typeOfTag, TYPES, typeTagPatterns, withColumnType } from "../types/index.ts";
+
+/** A type's name for menus: stars is Stars */
+function typeLabel(name: string): string {
+  return name[0]!.toUpperCase() + name.slice(1);
+}
 
 /**
  * CSS that hides the type hashtags of headers from the start: SilverBullet
@@ -64,7 +69,7 @@ export class ColumnTypes implements Feature {
         const first = type.syntax.split(",")[0]!.trim();
         return {
           kind: "item",
-          label: first,
+          label: typeLabel(type.name),
           icon: ICONS.columnType,
           checked: current?.type === type,
           hint: `${type.syntax}: ${type.description}`,
@@ -75,15 +80,21 @@ export class ColumnTypes implements Feature {
     return [
       {
         kind: "item",
-        label: current ? `Type: #${current.tag}` : "Type…",
+        label: current ? `Type: ${typeLabel(current.type.name)}` : "Type",
         icon: ICONS.columnType,
-        hint: "How the column's cells show: a hashtag in its header",
+        hint: current ? `#${current.tag}: ${current.type.description}` : "How the column's cells show",
         run: () => open("Column type", choices),
       },
     ];
   }
 
   // ---- the cell editor ------------------------------------------------------------
+
+  /** A header is edited as the column's name: its type's hashtag is the menu's business */
+  editorText(info: WidgetInfo, cell: CellRef, original: string): string | undefined {
+    if (cell.row !== 0 || !columnTypeOf(unescapeCell(original))) return undefined;
+    return unescapeCell(withColumnType(original, undefined));
+  }
 
   /** The type of the edited cell's column, if any (header cells have none) */
   private typeOfEdited(editor: CellEditor): TypedColumn | undefined {
@@ -115,8 +126,16 @@ export class ColumnTypes implements Feature {
     this.choices = undefined;
   }
 
-  /** A value that is not of the column's type is saved as typed, and said so */
+  /**
+   * A header keeps its type's hashtag after the name typed (an emptied name
+   * stays the old one: a column needs a name). A value that is not of the
+   * column's type is saved as typed, and said so.
+   */
   editorValue(editor: CellEditor, typed: string): string | undefined {
+    if (editor.row === 0) {
+      const kept = columnTypeOf(unescapeCell(editor.original));
+      return kept && typed.trim() !== "" ? withColumnType(escapeCell(typed), kept.tag) : undefined;
+    }
     const column = this.typeOfEdited(editor);
     const text = typed.trim();
     if (!column || text === "" || text.startsWith("=")) return undefined;

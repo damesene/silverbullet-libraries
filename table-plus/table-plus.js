@@ -2557,6 +2557,9 @@ function typeTagPatterns() {
 }
 
 // table-plus/src/features/types.ts
+function typeLabel(name) {
+  return name[0].toUpperCase() + name.slice(1);
+}
 function hiddenTagsCss() {
   const { exact, prefixes } = typeTagPatterns();
   const selectors = [
@@ -2598,7 +2601,7 @@ var ColumnTypes = class {
         const first = type.syntax.split(",")[0].trim();
         return {
           kind: "item",
-          label: first,
+          label: typeLabel(type.name),
           icon: ICONS.columnType,
           checked: current?.type === type,
           hint: `${type.syntax}: ${type.description}`,
@@ -2609,14 +2612,19 @@ var ColumnTypes = class {
     return [
       {
         kind: "item",
-        label: current ? `Type: #${current.tag}` : "Type\u2026",
+        label: current ? `Type: ${typeLabel(current.type.name)}` : "Type",
         icon: ICONS.columnType,
-        hint: "How the column's cells show: a hashtag in its header",
+        hint: current ? `#${current.tag}: ${current.type.description}` : "How the column's cells show",
         run: () => open("Column type", choices)
       }
     ];
   }
   // ---- the cell editor ------------------------------------------------------------
+  /** A header is edited as the column's name: its type's hashtag is the menu's business */
+  editorText(info, cell, original) {
+    if (cell.row !== 0 || !columnTypeOf(unescapeCell(original))) return void 0;
+    return unescapeCell(withColumnType(original, void 0));
+  }
   /** The type of the edited cell's column, if any (header cells have none) */
   typeOfEdited(editor) {
     if (editor.row === 0) return void 0;
@@ -2644,8 +2652,16 @@ var ColumnTypes = class {
     this.choices?.remove();
     this.choices = void 0;
   }
-  /** A value that is not of the column's type is saved as typed, and said so */
+  /**
+   * A header keeps its type's hashtag after the name typed (an emptied name
+   * stays the old one: a column needs a name). A value that is not of the
+   * column's type is saved as typed, and said so.
+   */
   editorValue(editor, typed) {
+    if (editor.row === 0) {
+      const kept = columnTypeOf(unescapeCell(editor.original));
+      return kept && typed.trim() !== "" ? withColumnType(escapeCell(typed), kept.tag) : void 0;
+    }
     const column = this.typeOfEdited(editor);
     const text = typed.trim();
     if (!column || text === "" || text.startsWith("=")) return void 0;
@@ -3545,14 +3561,25 @@ var Grips = class {
     anchor.classList.add("tp-active");
     focusMenu(element);
   }
-  /** Shows other entries in the open menu's place (they close it when run) */
+  /**
+   * Shows other entries in the open menu's place, in the same dropdown: they
+   * close it when run, and Back shows the menu they replaced
+   */
   replaceMenu(title, entries) {
     const menu = this.menu;
     if (!menu) return;
+    const previous = menu.element;
+    const back = { kind: "item", label: "Back", icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) };
     const closing = entries.map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry);
-    const element = renderMenu(this.host.doc, title, closing);
+    const element = renderMenu(this.host.doc, title, [back, { kind: "separator" }, ...closing]);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
+    this.swapMenu(element);
+  }
+  /** Puts `element` in the open menu's place */
+  swapMenu(element) {
+    const menu = this.menu;
+    if (!menu) return;
     menu.element.replaceWith(element);
     this.menu = { ...menu, element };
     this.positionMenu();
