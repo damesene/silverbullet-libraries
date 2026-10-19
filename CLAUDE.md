@@ -1,0 +1,113 @@
+# silverbullet-libraries: context for working on this repo
+
+Libraries for [SilverBullet](https://silverbullet.md), installed straight from this repository. The main one is **Table Plus** (`table-plus/`): interactive markdown tables (in-place editing, sorting, filtering, rows and columns, pinning, formulas, column types, copy and paste with spreadsheets). The user-facing documentation is the library page [table-plus/table-plus.md](table-plus/table-plus.md); this file is the context behind it: how the code is built, what was verified about SilverBullet, and why things are the way they are.
+
+## Commands
+
+```
+npm install
+npm run build        # bundle table-plus/src/index.ts into table-plus/table-plus.js
+npm test             # vitest (unit tests and jsdom UI tests)
+npm run check        # tsc
+npm run playground   # http://localhost:8000/: Table Plus without SilverBullet, on mock data
+npm run deploy -- <space folder>   # copy the library into a local space
+```
+
+## Working rules
+
+- **Rebuild before every commit**: `table-plus/table-plus.js` is committed, because SilverBullet installs it from the repo and runs no build. A commit with `src/` changes and a stale `.js` ships the old code. Nothing checks this automatically.
+- **Commit messages**: one line, `Table Plus: <what changed>` (or `Playground: …`), no body, **no AI co-author trailer**. One feature or fix per commit.
+- Never push without being asked; never push to `main` directly unless asked.
+- Every commit: `npx tsc --noEmit`, `npx vitest run`, `npm run build` all pass. Run `npx tsc --noEmit --noUnusedLocals` too after moving code (tsconfig does not enforce it).
+- Code style: match the surrounding code. Comments explain why, in full sentences or fragments; user-facing strings and docs are English. The library page is written for users: plain, specific, no internals.
+- Line endings are LF (`.gitattributes`); editors on Windows may write CRLF into the working copy, git normalizes on commit.
+- When editing files from a shell on this machine, heredocs mangle backslashes: write scripts to a file (or use an editor tool) when the text has `\`.
+
+## Layout
+
+```
+table-plus/
+  table-plus.md        library page: user docs, settings (config.define), the Space Lua that loads the JS, the CSS (space-style)
+  table-plus.js        built bundle (committed)
+  src/
+    index.ts           entry: init(bridge), pageIndexed(name), removeAllMetadata()
+    bridge.ts          the SilverBullet API Table Plus uses (editor.*, config.get), handed over by the library page's Lua; SETTINGS
+    controller.ts      the core: finds and enhances rendered tables, routes events, view (sort/filter/pins layout), toolbar, write pipeline
+    core/
+      feature.ts       TableHost (what the controller offers) and Feature (hooks); shared types (WidgetInfo, CellRef, WriteOptions…)
+      editor.ts        the cell editor (CellEditing): open/close/save, Enter, Tab, Ctrl+arrows, Ctrl+Alt moves, pending focus after writes
+      structure.ts     structural edits as functions over TableHost (insert/duplicate/delete/move/pin rows and columns)
+      layout.ts        STICKY_GAP (kept in step with the CSS)
+    features/          one feature per file, each a class implementing Feature, with its UI test next to it
+      formulas.ts      formula editing UI: hint, colored reference outlines and dragging, pointing, Tab completion, autofix, Recalculate
+      types.ts         column types in the table: formatting, hidden type hashtags, invalid marks, editor choices, Type menu
+      selection.ts     drag-select cells, Ctrl+C (text + HTML table), Delete
+      paste.ts         paste from spreadsheets (Ctrl+V overwrite, Ctrl+Shift+V new rows)
+      grips.ts         row/column grips, drag to move, row and column menus (with submenus and Back)
+      metadata.ts      Remove metadata (toolbar and the page command)
+      sticky.ts        sticky header and bottom-pinned rows
+      autoscroll.ts    middle-button autoscroll
+      history.ts       undo/redo scrolling (history markers)
+      expressions.ts   re-evaluating `${…}` cells after page:index
+    formula/           formulas: tokenizer, parser, evaluator, stored form, reference shifting, autofix, help
+      functions/       one function per file (SUM.ts …), registry index.ts
+      values.ts        value types and coercions for functions
+    types/             column types: one per file, registry index.ts (hashtag parsing, aliases, CSS patterns)
+    markdown.ts        table model: parse/serialize GFM tables, minimal edits, metadata row
+    columns.ts         column identity: SilverBullet column keys, occurrence for duplicates, following renames/moves
+    ops.ts pins.ts meta.ts view.ts paste.ts   pure table operations, pin rules, metadata row, view state, clipboard parsing
+    testing/page.ts    jsdom harness: renders tables as SilverBullet does; setup(), cell(), clickOn(), key()…; state as live exports
+playground/            a page that mocks SilverBullet (playground.ts renders tables like SilverBullet); sample.md mock data
+scripts/               build.mjs, deploy.mjs, playground.mjs (esbuild serve on 127.0.0.1)
+```
+
+## Architecture
+
+- **The controller is the host.** Features never touch its internals; they get a `TableHost` (`core/feature.ts`) and implement optional hooks: `start/stop`, `mouseDown` (any button, first), `beforeMouseDown`, `beforeCellPress` (true: taken, e.g. pointing), `afterCellPress`, `keyDown`, `enhanced`, `decorate`, `toolbarButtons`, `columnMenuEntries`, `cellHovered/hoverEnded`, `pointerBusy`, `owns`, `layoutChanged`, `beforeWrite`, and the editor hooks `editorText`, `editorOpened`, `editorKeyDown`, `editorValue`, `editorClosed`. Features get events in the order of the list in the controller's constructor (Sticky first, so the header moves before what points at it; ColumnTypes after Formulas, so formula results get formatted).
+- **Every write is one `editor.replaceRange`** (one undo step): `write(widget, change, { focus, rowMap, columnMap, pins })` re-reads the table, applies `change`, then the **write steps** (`formulasAfterEdit`: calculated cells for new rows, references follow moved rows/columns, recalculation; `metadataAfterEdit`: stored sort follows its column, pins), formats (autoFormat setting) and writes. `rowMap`/`columnMap` say where each row (markdown index, header 0) or column went; undefined means deleted. A row no old row maps to is new.
+- **Viewing never writes.** Sorting and filtering are views unless the metadata setting stores the sort. Stale formula results are offered as *Recalculate*, not rewritten on view.
+- **Sorting, filtering and copying use `cellValue(cell)`**: `data-tp-value` (set by column types) or the shown text.
+- **Rendered tables are SilverBullet's.** Table Plus decorates the DOM SilverBullet rendered and matches it to the markdown by position (`data-pos`) and shape. Everything assumed about SilverBullet's DOM lives in `dom.ts`.
+
+## What was verified in SilverBullet (by probe pages)
+
+Probes were pages with a test table and a one-line Lua expression listing the index, e.g.
+`${(function() local p = editor.getCurrentPage() local out = {} for _, row in ipairs(query[[from index.tag "table" where page == p order by pos]]) do … end … end)()}`.
+A new `space-lua` block on a page is not active until Space Lua is reloaded; an inline `${(function() … end)()}` needs no reload.
+
+- **Column keys** in the index: `cleanHeaderFieldName` in `plugs/index/table.ts`: `str.replace(/[\W_]+/g, "_").toLowerCase()`, where `\W` is ASCII-only, so letters with diacritics become `_` (`Množství` → `mno_stv_`). **Hashtags in a header are left out** (`Price #euro` → `price`, `#stars Rating` → `rating`). `columns.ts` mirrors both.
+- **Hashtags in a header tag neither the rows (`tags` stays empty) nor the page** (no tag objects).
+- **Hashtags render** as `<a class="hashtag sb-hashtag" data-tag-name="…" data-ref="…">#…</a>` (`client/markdown_renderer/markdown_render.ts`).
+- **`<meta …>` in a table cell is not shown** (any position, self-closing, single quotes, with `\|`); an HTML comment *is* shown. The index stores the **raw cell text** including the `<meta>` tag, with `\|` still escaped.
+- **Empty cells** are indexed with an empty value (the key is present).
+- MdTableRender hides header hashtags with JS (`display: none`), which flickered while tables rendered; Table Plus hides type hashtags with CSS injected at load.
+
+## Design decisions (and why)
+
+### Formulas (`formula/`, `features/formulas.ts`)
+- Stored in the cell as the **result plus a hidden `<meta f="=…">`**: every renderer and the index see a value; `<meta>` is invisible (verified). Chosen over storing formulas in the metadata row, because a formula addressed by cell position there could, after an edit outside Table Plus, overwrite a value typed by hand.
+- **New formulas need the Store table metadata setting** (they are metadata); with it off a typed formula is saved as text, existing ones keep working (also as calculated columns).
+- References: `A1` = first body row (header not counted, as MdTableSheet does), ranges, `[name]` (whole column, without cells whose formulas refer to that whole column: totals), `[@name]` (this row), `[name:2]` for duplicate names. Column references are written by **SilverBullet's column key** (`[unit_price]`), the same key a query uses; any spelling with the same key matches.
+- Edits made with Table Plus shift references (rows/columns inserted, deleted, moved, sorted into the markdown, columns renamed); `#REF!` for deleted cells. Edits made in the markdown do not.
+- Functions live one per file; a test requires each function's syntax and description in the library page's Functions table. The evaluator is synchronous; values are errors-as-values (`FormulaError`).
+- Compared with MdTableSheet (malys): it locates a formula's table by searching the formula text in the index (fragile, stale until re-indexed, no chaining, results not visible elsewhere). Table Plus evaluates from the markdown model it already has.
+
+### Column types (`types/`, `features/types.ts`)
+- A type is a **hashtag in the header** (`| Price #currency-usd |`), as MdTableRender does: verified not to change the column key nor tag rows or the page, needs no metadata setting, and MdTableRender's tables work (aliases: `#euro`, `#usd`, `#int`, `#float`, `#kg`, `#km`, `#watt`, `#logical`, `#evaluation`, `#gauge`). Parameters after a dash (`#number-2`, `#stars-10`); MdTableRender's number suffixes (`#percent10`) are not supported.
+- Display only: the markdown keeps the value; the editor shows it; sort/filter/copy use it (`sortValue` where the text does not sort, e.g. check marks). Invalid values show red with the reason; saving one is allowed and announced.
+- The type is changed in the column menu (*Type* → list in the same dropdown, *Back*); editing a header shows and changes only the name, the type hashtag is kept.
+- Types live one per file; a test requires each type's syntax and description in the library page's Column types table.
+
+### Other features
+- **Selection** follows the rows as shown (sorted/filtered); Delete empties cells (header names kept).
+- **Paste**: tab/line-break text (CSV-style quotes); Ctrl+V overwrites from the cell, adding rows/columns before the pinned ones; Ctrl+Shift+V inserts new rows; formula cells keep their formulas; refused while sorted or filtered.
+- **Metadata removal** also removes formulas (cells keep their results) and ends a stored sort.
+- **Pointing** in formulas (click/drag cells, click header) uses the move cursor; only right after an operator, `(`, `,`, `=`, or replacing the reference just pointed at.
+
+## Deferred / open
+
+- **User-defined functions and column types from Space Lua** (`tablePlus.defineFunction` / a type equivalent). Calling Lua from JS is probably asynchronous; the formula evaluator is synchronous. Needs a probe first.
+- A parameter picker for column types in the menu (today only the base form is offered; parameters are typed in the markdown).
+- Extracting the sort/filter UI (toolbar chip, filter row) from the controller; the row layout itself stays in the core.
+- A check that `table-plus.js` matches `src/` (`npm run check-build` or a pre-commit hook).
+- Nothing has been verified in a real browser by an agent: tests run in jsdom (layout is mocked where needed); the user checks UI in SilverBullet and the playground.
