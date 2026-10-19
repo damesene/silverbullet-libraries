@@ -38,10 +38,11 @@ import {
   UI_CLASS,
   WIDGET_SELECTOR,
 } from "./dom.ts";
-import { formulasAfterEdit } from "./formula/index.ts";
+import { formulasAfterEdit, recalculate, referredTableNames, type TableSource } from "./formula/index.ts";
 import { ICONS } from "./icons.ts";
 import {
   cellSourceOffset,
+  findTables,
   locateBySource,
   locateByShape,
   locateWithEmptyHeaders,
@@ -49,9 +50,10 @@ import {
   parseTable,
   serializeTable,
   type Table,
+  type TableRange,
 } from "./markdown.ts";
 import type { MenuEntry } from "./menu.ts";
-import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
+import { metadataAfterEdit, metaName, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { appendColumnAt, appendRowAt } from "./pins.ts";
 import { nameEmptyHeaders, reorderRows } from "./ops.ts";
 import {
@@ -117,8 +119,39 @@ function placeAtEnd(parent: Element, rows: readonly HTMLTableRowElement[]): void
   }
 }
 
+type PageTable = { readonly range: TableRange; readonly table: Table };
+
+/** The tables of a page's text, parsed */
+function pageTablesOf(text: string): PageTable[] {
+  return findTables(text).map((range) => ({ range, table: parseTable(range.text) }));
+}
+
+/**
+ * The tables of a page by their names, for formulas that refer to other
+ * tables: `replace` stands in for one of them (the table being written).
+ * Other pages have none yet. `tables` is read on the first lookup.
+ */
+function pageTables(tables: () => readonly PageTable[], replace?: { readonly from: number; readonly table: Table }): TableSource {
+  let named: Map<string, Table> | undefined;
+  return (name, page) => {
+    if (page !== undefined) return undefined;
+    if (!named) {
+      named = new Map();
+      for (const { range, table: parsed } of tables()) {
+        const table = replace && range.from === replace.from ? replace.table : parsed;
+        const own = metaName(table)?.toLowerCase();
+        if (own && !named.has(own)) named.set(own, table);
+      }
+    }
+    return named.get(name.toLowerCase());
+  };
+}
+
 export class Controller implements TableHost {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
+  // The page's text as last read, and its tables for formulas that refer to them
+  private pageText = "";
+  private pageSource: { readonly text: string; readonly source: TableSource } | undefined;
   // Tables being enhanced: a scan meanwhile waits for it instead of starting again
   private readonly enhancing = new WeakMap<HTMLElement, Promise<void>>();
   private readonly views = new Map<string, ViewState>();
@@ -303,6 +336,15 @@ export class Controller implements TableHost {
       : this.doc.defaultView!.confirm(question);
   }
 
+  /** The page's tables (as last read) that formulas can refer to by name */
+  tableSource(): TableSource {
+    if (this.pageSource?.text !== this.pageText) {
+      const text = this.pageText;
+      this.pageSource = { text, source: pageTables(() => pageTablesOf(text)) };
+    }
+    return this.pageSource.source;
+  }
+
   async promptText(message: string, value = ""): Promise<string | undefined> {
     const answer = this.bridge.prompt
       ? await this.bridge.prompt(message, value)
@@ -441,6 +483,7 @@ export class Controller implements TableHost {
       };
       const text = await this.bridge.getText();
       if (this.stopped || renderedTable(widget) !== table) return;
+      this.pageText = text;
       const range = locateByShape(text, hint, shape);
       if (!range) {
         const broken = locateWithEmptyHeaders(text, hint, shape);
@@ -1108,6 +1151,7 @@ export class Controller implements TableHost {
     if (!info) return "failed";
     try {
       const text = await this.bridge.getText();
+      this.pageText = text;
       const range = locateBySource(text, info.hint, info.source);
       const before = range && parseTable(range.text);
       const edited = before && change(before);
@@ -1115,23 +1159,57 @@ export class Controller implements TableHost {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
-      const changed = this.writeSteps.reduce((table, step) => step(before, table, options), edited);
+      // Formulas see the other tables of the page, this one as edited
+      const all = pageTablesOf(text);
+      const steps = { ...options, tables: pageTables(() => all, { from: range.from, table: edited }) };
+      const changed = this.writeSteps.reduce((table, step) => step(before, table, steps), edited);
       // With the autoFormat setting every edited table is written aligned
       const format = await this.setting("autoFormat");
-      const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
+      const serialize = (t: Table) => serializeTable(format ? { ...t, padded: true } : t);
+      const markdown = serialize(changed);
       if (markdown === range.text) return "unchanged";
+      // The tables whose formulas refer to this one (by its name before or after
+      // the edit), or in turn to those, get their results for this one as
+      // written, in the same edit (one Ctrl+Z undoes it all). Other tables are
+      // left as they are.
+      const updates: { readonly range: TableRange; readonly markdown: string }[] = [{ range, markdown }];
+      const now = pageTables(() => all, { from: range.from, table: changed });
+      const affected = new Set([metaName(before), metaName(changed)].filter((n) => n !== undefined).map((n) => n.toLowerCase()));
+      const others = all.filter((other) => other.range.from !== range.from);
+      for (let found = affected.size > 0; found; ) {
+        found = false;
+        for (let i = others.length - 1; i >= 0; i--) {
+          const { range: otherRange, table } = others[i]!;
+          if (![...referredTableNames(table)].some((name) => affected.has(name))) continue;
+          others.splice(i, 1);
+          found = true;
+          const own = metaName(table);
+          if (own) affected.add(own.toLowerCase());
+          const recalculated = recalculate(table, now);
+          if (recalculated !== table) updates.push({ range: otherRange, markdown: serialize(recalculated) });
+        }
+      }
       if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
       if (focus) this.cellEditor.editAfterWrite(info.key, focus);
       this.scrollLefts.set(info.key, widget.scrollLeft);
       this.scrollTops.set(info.key, widget.scrollTop);
-      const edit = minimalEdit(range.text, markdown);
+      let written = text;
+      for (const update of [...updates].sort((a, b) => b.range.from - a.range.from)) {
+        written = written.slice(0, update.range.from) + update.markdown + written.slice(update.range.to);
+      }
+      const edit = minimalEdit(text, written);
+      // The edit spans all the tables written: features see that span, so what
+      // they place after it (the history marker) is outside every one of them
+      const spanFrom = Math.min(...updates.map((update) => update.range.from));
+      const spanTo = Math.max(...updates.map((update) => update.range.to));
       const after: ((editFrom: number, lengthChange: number) => void)[] = [];
       for (const feature of this.features) {
-        const then = await feature.beforeWrite?.(text, range.from, range.to);
+        const then = await feature.beforeWrite?.(text, spanFrom, spanTo);
         if (then) after.push(then);
       }
-      await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
-      for (const then of after) then(range.from + edit.from, markdown.length - range.text.length);
+      await this.bridge.replaceRange(edit.from, edit.to, edit.insert);
+      this.pageText = written;
+      for (const then of after) then(edit.from, written.length - text.length);
       return "written";
     } catch (e) {
       this.cellEditor.dropPending();

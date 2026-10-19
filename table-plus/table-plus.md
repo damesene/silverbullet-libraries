@@ -139,7 +139,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 |---|---|
 | `B1` | Column B, the first row under the header |
 | `A1:B3` | The range from A1 to B3 |
-| `[qty]` | The whole column named Qty (written by its key, see below), without the cells whose formulas refer to the whole column (a total or an average under it) |
+| `[qty]` | The whole column named Qty (written by its key, see below), without the table's total rows: rows with a cell whose formula refers to its own whole column (a total or an average under it) |
 | `[qty:2]` | The second column named Qty, when several share the name |
 | `[@qty]` | The Qty cell in the formula's own row, e.g. `=[@price]*[@qty]` |
 
@@ -152,6 +152,28 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * While you edit a formula, each reference is outlined in the table in its own color. Drag an outline's edge to move the reference, a range's corner to resize it; Esc while dragging puts it back.
 * Under the cell, the formula shows with its references in the same colors, with help for the function being typed.
 * **Tab completes a function name**: `=AVE` and Tab gives `=AVERAGE(`. It works when the name can only be one function (or is one's whole name, as `IF` next to `IFERROR`); the help shows *Tab: AVERAGE(* then. Elsewhere Tab moves to the next cell as usual.
+
+### Other tables
+
+A formula can use the cells of another table on the same page, once that table has a name (see [[#Table names]]): the name and `!` go before the reference.
+
+| Reference | Means |
+|---|---|
+| `prices!B2` | Cell B2 of the table named prices |
+| `prices!A1:B3` | A range of it |
+| `prices![price]` | Its column Price, without its total rows (as `[price]` in its own table) |
+
+```
+| Fruit | Qty | Total                                                  |
+| ----- | --: | -----------------------------------------------------: |
+| Pear  |   3 | 38.97 <meta f="=[@qty]*XLOOKUP([@fruit], prices![name], prices![price])"> |
+```
+
+* `XLOOKUP(value, lookup_range, result_range)` finds a value in one column and gives the one beside it in another: the usual way to take a price, a rate or a name from another table, whatever its order. See [[#Functions]].
+* The other table's formulas are calculated too, so a total over its column is up to date, and tables can refer to each other in turn (not in a circle: that is `#CYCLE!`).
+* When Table Plus edits a table, the tables that refer to it get their new results in the same edit (one Ctrl+Z undoes both). When the other table is changed in the markdown, *Recalculate* in the toolbar is highlighted.
+* `[@column]` is always the formula's own row: another table's rows are reached with `XLOOKUP` or by cell.
+* References to another table's cells (`prices!B2`) do not follow when its rows or columns are moved or deleted; its columns (`prices![price]`) and `XLOOKUP` do not depend on where the rows are.
 
 ### Operators and values
 
@@ -191,6 +213,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 | `OR(logical1, [logical2], …)` | TRUE if any of the values is true. |
 | `NOT(logical)` | TRUE if the value is false, FALSE if it is true. |
 | `CONCAT(text1, [text2], …)` | Joins the values into one text. |
+| `XLOOKUP(value, lookup_range, result_range, [if_not_found])` | Finds the value in one range or column and gives the value in the same place of another, e.g. XLOOKUP("Pear", prices![Name], prices![Price]); text is found ignoring case. Not found: if_not_found, else #N/A. |
 | `TEXT(value, format)` | A date or a time as text in a format: TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is. |
 | `TODAY()` | Today's date, e.g. 2025-11-06. The result is written when the table is calculated: the next day, Recalculate updates it. |
 | `NOW()` | The date and time now, e.g. 2025-11-06 14:30:15. The result is written when the table is calculated: Recalculate updates it. |
@@ -212,11 +235,12 @@ In ranges, empty cells and text that is not a number are skipped by the number f
 
 | Shows | Because |
 |---|---|
-| `#REF!` | A reference outside the table, or a column name that does not exist |
+| `#REF!` | A reference outside the table, a column name that does not exist, or a table name that no table on the page has |
 | `#NAME?` | An unknown function or name |
 | `#VALUE!` | A value of the wrong kind (text where a number is needed), or a wrong number of arguments |
 | `#DIV/0!` | Division by zero, or an average of no numbers |
 | `#NUM!` | A result that is not a finite number |
+| `#N/A` | `XLOOKUP` did not find the value |
 | `#CYCLE!` | The formula depends on its own result |
 | `#ERROR!` | The formula cannot be read (e.g. a missing `)`) |
 

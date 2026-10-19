@@ -1367,7 +1367,7 @@ function visibleRows(values, view, options = DEFAULT_FILTER_OPTIONS) {
 }
 
 // table-plus/src/formula/values.ts
-var ERROR_CODES = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NUM!", "#CYCLE!", "#ERROR!"];
+var ERROR_CODES = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NUM!", "#N/A", "#CYCLE!", "#ERROR!"];
 var FormulaError = class {
   constructor(code, detail) {
     this.code = code;
@@ -1513,6 +1513,18 @@ function flatten(args) {
 }
 function formatNumber(n) {
   return formatLuaNumber(n);
+}
+function sameValue(a, b) {
+  if (isError(a) || isError(b)) return false;
+  const emptyA = a === null || typeof a === "string" && a.trim() === "";
+  const emptyB = b === null || typeof b === "string" && b.trim() === "";
+  if (emptyA || emptyB) return emptyA && emptyB;
+  if (typeof a !== "boolean" && typeof b !== "boolean") {
+    const na = toNumber(a);
+    const nb = toNumber(b);
+    if (!isError(na) && !isError(nb)) return na === nb;
+  }
+  return toText(a).toLowerCase() === toText(b).toLowerCase();
 }
 
 // table-plus/src/formula/dates.ts
@@ -2048,6 +2060,29 @@ var text_default = {
   }
 };
 
+// table-plus/src/formula/functions/xlookup.ts
+var xlookup_default = {
+  name: "XLOOKUP",
+  syntax: "XLOOKUP(value, lookup_range, result_range, [if_not_found])",
+  description: 'Finds the value in one range or column and gives the value in the same place of another, e.g. XLOOKUP("Pear", prices![Name], prices![Price]); text is found ignoring case. Not found: if_not_found, else #N/A.',
+  minArgs: 3,
+  maxArgs: 4,
+  call: ([value, lookIn, results, notFound]) => {
+    const v = single(value);
+    if (isError(v)) return v;
+    if (isError(lookIn)) return lookIn;
+    if (isError(results)) return results;
+    const keys = isRange(lookIn) ? lookIn : [lookIn];
+    const found = isRange(results) ? results : [results];
+    if (keys.length !== found.length) {
+      return new FormulaError("#VALUE!", `the ranges are not the same size (${keys.length} and ${found.length} cells)`);
+    }
+    const index = keys.findIndex((key) => sameValue(v, key));
+    if (index < 0) return notFound === void 0 ? new FormulaError("#N/A", `"${toText(v)}" is not in the range`) : single(notFound);
+    return found[index] ?? null;
+  }
+};
+
 // table-plus/src/formula/functions/dateadd.ts
 var dateadd_default = {
   name: "DATEADD",
@@ -2212,7 +2247,8 @@ var ALL = [
   second_default,
   weekday_default,
   int_default,
-  text_default
+  text_default,
+  xlookup_default
 ];
 var FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
 
@@ -2264,7 +2300,7 @@ function columnRefText(id, thisRow) {
 function withColumnKeys(formula, headers) {
   let result = formula;
   for (const ref of references(formula).reverse()) {
-    if (ref.kind !== "column") continue;
+    if (ref.kind !== "column" || ref.table) continue;
     const column = referencedColumn(headers, ref.name);
     const text = column === void 0 ? void 0 : columnRefText(columnIdOf(headers, column), ref.thisRow);
     if (text) result = result.slice(0, ref.from) + text + result.slice(ref.to);
@@ -2304,6 +2340,22 @@ function tokenize(formula) {
     if (number) {
       tokens.push({ kind: "number", value: Number(number[0]), from: i, to: i + number[0].length });
       i += number[0].length;
+      continue;
+    }
+    if (formula.startsWith("[[", i)) {
+      const close = formula.indexOf("]]", i + 2);
+      const table2 = close < 0 ? null : /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(close + 2));
+      if (close < 0) return fail("a page name is missing its closing ]]");
+      if (!table2) return fail("[[Page]] is followed by a table's name and !, as in [[Page]]prices!A1");
+      const page = formula.slice(i + 2, close).trim();
+      tokens.push({ kind: "table", name: table2[1], page, from: i, to: close + 2 + table2[0].length });
+      i = close + 2 + table2[0].length;
+      continue;
+    }
+    const table = /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(i));
+    if (table) {
+      tokens.push({ kind: "table", name: table[1], from: i, to: i + table[0].length });
+      i += table[0].length;
       continue;
     }
     const name = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(formula.slice(i));
@@ -2353,8 +2405,10 @@ function references(formula) {
   const result = [];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
+    const previous = tokens[i - 1];
+    const table = previous?.kind === "table" ? { table: tableRefOf(previous) } : {};
     if (token.kind === "column") {
-      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to });
+      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to, ...table });
       continue;
     }
     if (token.kind !== "name") continue;
@@ -2371,10 +2425,13 @@ function references(formula) {
       bottom: Math.max(start.row, end.row),
       right: Math.max(start.column, end.column)
     } : { top: start.row, left: start.column, bottom: start.row, right: start.column };
-    result.push({ kind: "area", area, from: token.from, to: end ? endToken.to : token.to });
+    result.push({ kind: "area", area, from: token.from, to: end ? endToken.to : token.to, ...table });
     if (end) i += 2;
   }
   return result;
+}
+function tableRefOf(token) {
+  return token.page === void 0 ? { name: token.name } : { name: token.name, page: token.page };
 }
 var Parser = class {
   constructor(formula, tokens) {
@@ -2435,6 +2492,23 @@ var Parser = class {
         return { kind: "column", name: token.name, thisRow: token.thisRow };
       case "ref-error":
         return { kind: "literal", value: new FormulaError("#REF!", "a reference to deleted cells") };
+      case "table": {
+        const next = this.tokens[this.at];
+        const prefix = this.text(token);
+        if (next?.kind === "column") {
+          this.at++;
+          if (next.thisRow) {
+            throw new FormulaError("#ERROR!", `[@${next.name}] is a cell of the formula's own row: ${prefix}[${next.name}] is the other table's column`);
+          }
+          return { kind: "column", name: next.name, thisRow: false, table: tableRefOf(token) };
+        }
+        if (next?.kind === "name" && parseCellName(next.text) && !(this.tokens[this.at + 1]?.kind === "op" && this.text(this.tokens[this.at + 1]) === "(")) {
+          this.at++;
+          const area = this.name(next.text);
+          if (area.kind === "area") return { ...area, table: tableRefOf(token) };
+        }
+        throw new FormulaError("#ERROR!", `${prefix} is followed by a cell, a range or a [column], as in ${prefix}A1`);
+      }
       case "op":
         if (token.text === "(") {
           const inner = this.comparison();
@@ -2558,7 +2632,7 @@ function autofixFormula(formula) {
 function wholeColumnNames(node, names) {
   switch (node.kind) {
     case "column":
-      if (!node.thisRow) names.add(node.name);
+      if (!node.thisRow && !node.table) names.add(node.name);
       break;
     case "call":
       for (const arg of node.args) wholeColumnNames(arg, names);
@@ -2574,14 +2648,33 @@ function wholeColumnNames(node, names) {
   return names;
 }
 var DECIMAL_COMMA_RE = /\d,\d/;
+var Book = class {
+  constructor(source) {
+    this.source = source;
+  }
+  source;
+  sheets = /* @__PURE__ */ new Map();
+  /** The sheet a reference from `from` is to: the other table, or `from` itself when it is named so */
+  sheet(ref, from) {
+    const page = ref.page ?? from.page;
+    if (page === from.page && from.name !== void 0 && from.name.toLowerCase() === ref.name.toLowerCase()) return from;
+    const key = `${page ?? ""}\0${ref.name.toLowerCase()}`;
+    let sheet = this.sheets.get(key);
+    if (!sheet) {
+      const table = this.source?.(ref.name, page);
+      if (!table) return new FormulaError("#REF!", `there is no table named ${ref.name}${page === void 0 ? " on this page" : ` on ${page}`}`);
+      sheet = new Sheet(table, this, page);
+      this.sheets.set(key, sheet);
+    }
+    return sheet;
+  }
+};
 var Sheet = class {
-  headers;
-  body;
-  results = /* @__PURE__ */ new Map();
-  evaluating = /* @__PURE__ */ new Set();
-  // Numbers in the table are written with a decimal comma: results are too
-  decimalComma;
-  constructor(table) {
+  /** `page`: the page the table is on, when it is not the formulas' own (its unnamed references are to tables there) */
+  constructor(table, book = new Book(void 0), page) {
+    this.book = book;
+    this.page = page;
+    this.name = table.meta?.name?.trim() || void 0;
     this.headers = table.rows[0]?.cells ?? [];
     this.body = table.rows.slice(1).map((r) => r.cells);
     let comma = 0;
@@ -2597,6 +2690,17 @@ var Sheet = class {
     }
     this.decimalComma = comma > point;
   }
+  book;
+  page;
+  headers;
+  body;
+  results = /* @__PURE__ */ new Map();
+  evaluating = /* @__PURE__ */ new Set();
+  // Numbers in the table are written with a decimal comma: results are too
+  decimalComma;
+  // The table's name, by which formulas refer to it
+  name;
+  totals;
   get rows() {
     return this.body.length;
   }
@@ -2653,30 +2757,67 @@ var Sheet = class {
     if (!tree || isError(tree)) return false;
     return Array.from(wholeColumnNames(tree, /* @__PURE__ */ new Set())).some((name) => referencedColumn(this.headers, name) === target);
   }
+  /** The values of an area: one cell's value, or a range's (`range`) */
+  areaValue(area, range, prefix = "") {
+    const { top, left, bottom, right } = area;
+    if (bottom >= this.rows || right >= this.columns) {
+      return new FormulaError("#REF!", `${prefix}${areaText(area)} is outside the table`);
+    }
+    const values = [];
+    for (let r = top; r <= bottom; r++) {
+      for (let c = left; c <= right; c++) values.push(this.value(r, c));
+    }
+    return range ? values : values[0];
+  }
+  /**
+   * A column's values, without the table's total rows (see totalRows), so the
+   * columns of a table line up: XLOOKUP over one gives the value beside it in another
+   */
+  columnValue(name, prefix = "") {
+    const index = referencedColumn(this.headers, name);
+    if (index === void 0) return new FormulaError("#REF!", `there is no column named "${name}"${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
+    const totals = this.totalRows();
+    const values = [];
+    for (let r = 0; r < this.rows; r++) {
+      if (!totals.has(r)) values.push(this.value(r, index));
+    }
+    return values;
+  }
+  /**
+   * The total rows: those with a cell that refers to its own whole column, as
+   * =SUM([qty]) under Qty. A cell that refers to another column ([@qty] /
+   * SUM([qty]) in a Share column) does not make its row one.
+   */
+  totalRows() {
+    if (this.totals) return this.totals;
+    const totals = /* @__PURE__ */ new Set();
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.columns; c++) if (this.refersToColumn(r, c, c)) totals.add(r);
+    }
+    this.totals = totals;
+    return totals;
+  }
+  /** The sheet a reference's table is: this one, or another the book has */
+  sheetOf(table) {
+    return table ? this.book.sheet(table, this) : this;
+  }
   evaluate(node, row, column) {
     switch (node.kind) {
       case "literal":
         return node.value;
       case "area": {
-        const { top, left, bottom, right } = node.area;
-        if (bottom >= this.rows || right >= this.columns) {
-          return new FormulaError("#REF!", `${areaText(node.area)} is outside the table`);
-        }
-        const values = [];
-        for (let r = top; r <= bottom; r++) {
-          for (let c = left; c <= right; c++) values.push(this.value(r, c));
-        }
-        return node.range ? values : values[0];
+        const sheet = this.sheetOf(node.table);
+        if (isError(sheet)) return sheet;
+        return sheet.areaValue(node.area, node.range, node.table ? `${node.table.name}!` : "");
       }
       case "column": {
-        const index = referencedColumn(this.headers, node.name);
-        if (index === void 0) return new FormulaError("#REF!", `there is no column named "${node.name}"`);
-        if (node.thisRow) return this.value(row, index);
-        const values = [];
-        for (let r = 0; r < this.rows; r++) {
-          if (!this.refersToColumn(r, index, index)) values.push(this.value(r, index));
+        const sheet = this.sheetOf(node.table);
+        if (isError(sheet)) return sheet;
+        if (node.thisRow) {
+          const index = referencedColumn(this.headers, node.name);
+          return index === void 0 ? new FormulaError("#REF!", `there is no column named "${node.name}"`) : this.value(row, index);
         }
-        return values;
+        return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
       }
       case "call": {
         const f = FUNCTIONS[node.name];
@@ -2756,9 +2897,9 @@ function compare(a, b) {
 function hasFormulas(table) {
   return table.rows.some((row, r) => r > 0 && row.cells.some((cell) => formulaOf(cell) !== void 0));
 }
-function recalculate(table) {
+function recalculate(table, tables) {
   if (!hasFormulas(table)) return table;
-  const sheet = new Sheet(table);
+  const sheet = new Sheet(table, new Book(tables));
   let result = table;
   table.rows.forEach((row, r) => {
     if (r === 0) return;
@@ -2821,12 +2962,26 @@ function formulasAfterEdit(before, after, edit) {
     }
     for (let r = 1; r < after.rows.length; r++) if (!kept.has(r)) table = withCalculatedCells(table, r);
   }
-  return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap));
+  return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap), edit.tables);
 }
-function formulaErrors(table) {
+function referredTableNames(table) {
+  const names = /* @__PURE__ */ new Set();
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    for (const cell of row.cells) {
+      const stored = formulaOf(cell);
+      if (!stored) continue;
+      for (const ref of references(stored.formula)) {
+        if (ref.table && ref.table.page === void 0) names.add(ref.table.name.toLowerCase());
+      }
+    }
+  });
+  return names;
+}
+function formulaErrors(table, tables) {
   const errors = /* @__PURE__ */ new Map();
   if (!hasFormulas(table)) return errors;
-  const sheet = new Sheet(table);
+  const sheet = new Sheet(table, new Book(tables));
   table.rows.forEach((row, r) => {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
@@ -2871,6 +3026,7 @@ function shiftReferences(before, after, rowMap, columnMap) {
   const rewrite = (formula) => {
     let result2 = formula;
     for (const ref of references(formula).reverse()) {
+      if (ref.table) continue;
       let text;
       if (ref.kind === "area") {
         if (!rowMap && !columnMap) continue;
@@ -2908,8 +3064,8 @@ function shiftReferences(before, after, rowMap, columnMap) {
   return result;
 }
 var REFERENCE_HELP = {
-  syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column]",
-  description: "A cell (A1 is the first row under the header), a range, a whole column by its name, or that column in this row. Click or drag in the table to insert one, click a header for its column."
+  syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column] \xB7 name!A1 \xB7 name![Column]",
+  description: "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, or a cell, range or column of another table on the page by its name. Click or drag in the table to insert one, click a header for its column."
 };
 var BEFORE_OPERAND = /* @__PURE__ */ new Set(["=", "(", ",", ";", "+", "-", "*", "/", "^", "&", "<", ">"]);
 function referenceSlot(formula, start, end, pointed) {
@@ -3631,8 +3787,9 @@ var Formulas = class {
   decorate(_widget, info) {
     const model = parseTable(info.source);
     if (formulaCount(model) > 0) this.withFormulas.add(info.table);
-    if (recalculate(model) !== model) this.stale.add(info.table);
-    const errors = formulaErrors(model);
+    const tables = this.host.tableSource();
+    if (recalculate(model, tables) !== model) this.stale.add(info.table);
+    const errors = formulaErrors(model, tables);
     for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
       const row = Number(tr.dataset.tpRow);
       model.rows[row]?.cells.forEach((raw, column) => {
@@ -3645,6 +3802,21 @@ var Formulas = class {
         cell.title = error ? `${stored.formula}
 ${error}` : stored.formula;
       });
+    }
+  }
+  /**
+   * A table rendered anew (it changed) may be one that others refer to: their
+   * results are checked again, as SilverBullet keeps their widgets as they were
+   */
+  enhanced(widget) {
+    const tables = this.host.tableSource();
+    for (const other of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = other === widget ? void 0 : this.host.infoOf(other);
+      if (!info || !this.withFormulas.has(info.table)) continue;
+      const model = parseTable(info.source);
+      if (referredTableNames(model).size === 0) continue;
+      if (recalculate(model, tables) !== model) this.stale.add(info.table);
+      else this.stale.delete(info.table);
     }
   }
   /** Recalculate, first in the toolbar of a table with formulas; highlighted when results are out of date */
@@ -3879,6 +4051,7 @@ ${error}` : stored.formula;
   }
   /** The body rows and columns a reference covers, within the table; undefined if none */
   referenceArea(info, headers, ref, row) {
+    if (ref.table) return void 0;
     const lastRow = info.rows - 2;
     const lastColumn = info.columns - 1;
     if (ref.kind === "column") {
@@ -5286,6 +5459,24 @@ function placeAtEnd(parent, rows) {
     next = tr;
   }
 }
+function pageTablesOf(text) {
+  return findTables(text).map((range) => ({ range, table: parseTable(range.text) }));
+}
+function pageTables(tables, replace) {
+  let named;
+  return (name, page) => {
+    if (page !== void 0) return void 0;
+    if (!named) {
+      named = /* @__PURE__ */ new Map();
+      for (const { range, table: parsed2 } of tables()) {
+        const table = replace && range.from === replace.from ? replace.table : parsed2;
+        const own = metaName(table)?.toLowerCase();
+        if (own && !named.has(own)) named.set(own, table);
+      }
+    }
+    return named.get(name.toLowerCase());
+  };
+}
 var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
@@ -5305,6 +5496,9 @@ var Controller = class {
   doc;
   bridge;
   infos = /* @__PURE__ */ new WeakMap();
+  // The page's text as last read, and its tables for formulas that refer to them
+  pageText = "";
+  pageSource;
   // Tables being enhanced: a scan meanwhile waits for it instead of starting again
   enhancing = /* @__PURE__ */ new WeakMap();
   views = /* @__PURE__ */ new Map();
@@ -5456,6 +5650,14 @@ var Controller = class {
   async ask(question) {
     return this.bridge.confirm ? await this.bridge.confirm(question, { destructive: true }) : this.doc.defaultView.confirm(question);
   }
+  /** The page's tables (as last read) that formulas can refer to by name */
+  tableSource() {
+    if (this.pageSource?.text !== this.pageText) {
+      const text = this.pageText;
+      this.pageSource = { text, source: pageTables(() => pageTablesOf(text)) };
+    }
+    return this.pageSource.source;
+  }
   async promptText(message, value = "") {
     const answer = this.bridge.prompt ? await this.bridge.prompt(message, value) : this.doc.defaultView.prompt(message, value);
     return answer ?? void 0;
@@ -5579,6 +5781,7 @@ var Controller = class {
       };
       const text = await this.bridge.getText();
       if (this.stopped || renderedTable(widget) !== table) return;
+      this.pageText = text;
       const range = locateByShape(text, hint, shape);
       if (!range) {
         const broken = locateWithEmptyHeaders(text, hint, shape);
@@ -6154,6 +6357,7 @@ var Controller = class {
     if (!info) return "failed";
     try {
       const text = await this.bridge.getText();
+      this.pageText = text;
       const range = locateBySource(text, info.hint, info.source);
       const before = range && parseTable(range.text);
       const edited = before && change(before);
@@ -6161,22 +6365,49 @@ var Controller = class {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
-      const changed = this.writeSteps.reduce((table, step) => step(before, table, options), edited);
+      const all = pageTablesOf(text);
+      const steps = { ...options, tables: pageTables(() => all, { from: range.from, table: edited }) };
+      const changed = this.writeSteps.reduce((table, step) => step(before, table, steps), edited);
       const format = await this.setting("autoFormat");
-      const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
+      const serialize = (t) => serializeTable(format ? { ...t, padded: true } : t);
+      const markdown = serialize(changed);
       if (markdown === range.text) return "unchanged";
+      const updates = [{ range, markdown }];
+      const now2 = pageTables(() => all, { from: range.from, table: changed });
+      const affected = new Set([metaName(before), metaName(changed)].filter((n) => n !== void 0).map((n) => n.toLowerCase()));
+      const others = all.filter((other) => other.range.from !== range.from);
+      for (let found = affected.size > 0; found; ) {
+        found = false;
+        for (let i = others.length - 1; i >= 0; i--) {
+          const { range: otherRange, table } = others[i];
+          if (![...referredTableNames(table)].some((name) => affected.has(name))) continue;
+          others.splice(i, 1);
+          found = true;
+          const own = metaName(table);
+          if (own) affected.add(own.toLowerCase());
+          const recalculated = recalculate(table, now2);
+          if (recalculated !== table) updates.push({ range: otherRange, markdown: serialize(recalculated) });
+        }
+      }
       if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
       if (focus) this.cellEditor.editAfterWrite(info.key, focus);
       this.scrollLefts.set(info.key, widget.scrollLeft);
       this.scrollTops.set(info.key, widget.scrollTop);
-      const edit = minimalEdit(range.text, markdown);
+      let written = text;
+      for (const update of [...updates].sort((a, b) => b.range.from - a.range.from)) {
+        written = written.slice(0, update.range.from) + update.markdown + written.slice(update.range.to);
+      }
+      const edit = minimalEdit(text, written);
+      const spanFrom = Math.min(...updates.map((update) => update.range.from));
+      const spanTo = Math.max(...updates.map((update) => update.range.to));
       const after = [];
       for (const feature of this.features) {
-        const then = await feature.beforeWrite?.(text, range.from, range.to);
+        const then = await feature.beforeWrite?.(text, spanFrom, spanTo);
         if (then) after.push(then);
       }
-      await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
-      for (const then of after) then(range.from + edit.from, markdown.length - range.text.length);
+      await this.bridge.replaceRange(edit.from, edit.to, edit.insert);
+      this.pageText = written;
+      for (const then of after) then(edit.from, written.length - text.length);
       return "written";
     } catch (e) {
       this.cellEditor.dropPending();

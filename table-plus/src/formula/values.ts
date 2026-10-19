@@ -2,9 +2,9 @@
 import { formatLuaNumber } from "../format.ts";
 import { asNumber } from "../view.ts";
 
-export type ErrorCode = "#VALUE!" | "#DIV/0!" | "#REF!" | "#NAME?" | "#NUM!" | "#CYCLE!" | "#ERROR!";
+export type ErrorCode = "#VALUE!" | "#DIV/0!" | "#REF!" | "#NAME?" | "#NUM!" | "#N/A" | "#CYCLE!" | "#ERROR!";
 
-export const ERROR_CODES: readonly ErrorCode[] = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NUM!", "#CYCLE!", "#ERROR!"];
+export const ERROR_CODES: readonly ErrorCode[] = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NUM!", "#N/A", "#CYCLE!", "#ERROR!"];
 
 /** A formula's error: the cell shows the code, the cell's tooltip the detail */
 export class FormulaError {
@@ -205,4 +205,22 @@ export function flatten(args: readonly Value[]): Scalar[] {
 /** A number as a cell shows it: at most 14 significant digits, so 0.1 + 0.2 is 0.3 */
 export function formatNumber(n: number): string {
   return formatLuaNumber(n);
+}
+
+/**
+ * Whether two values are the same for looking one up: numbers (and times) by
+ * value, text ignoring case, an empty cell only as an empty one
+ */
+export function sameValue(a: Scalar, b: Scalar): boolean {
+  if (isError(a) || isError(b)) return false;
+  // Empty text (a formula's "") is empty too, not 0
+  const emptyA = a === null || (typeof a === "string" && a.trim() === "");
+  const emptyB = b === null || (typeof b === "string" && b.trim() === "");
+  if (emptyA || emptyB) return emptyA && emptyB;
+  if (typeof a !== "boolean" && typeof b !== "boolean") {
+    const na = toNumber(a);
+    const nb = toNumber(b);
+    if (!isError(na) && !isError(nb)) return na === nb;
+  }
+  return (toText(a) as string).toLowerCase() === (toText(b) as string).toLowerCase();
 }

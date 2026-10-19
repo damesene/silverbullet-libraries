@@ -11,7 +11,9 @@
 // range, [Qty] the column named Qty (without the cells whose formulas refer to
 // that whole column, such as a total below it), [@Qty] the Qty cell of the
 // formula's own row. Columns are named as columns.ts names them: of several
-// columns named Qty, [Qty:2] is the second.
+// columns named Qty, [Qty:2] is the second. Another table of the page, named
+// in its metadata row (<meta name="prices">), is referred to by its name and
+// "!": prices!B2, prices!A1:B3, prices![Price].
 import { type ColumnId, columnIdOf, columnKey, findColumn, followColumn, sameColumnId } from "../columns.ts";
 import { dateArithmetic, parseDate } from "./dates.ts";
 import { FUNCTIONS } from "./functions/index.ts";
@@ -96,6 +98,9 @@ export function cellName(row: number, column: number): string {
 
 export type Area = { readonly top: number; readonly left: number; readonly bottom: number; readonly right: number };
 
+/** The table a reference is to, when it is not the formula's own: by its name, on a page (none: this one) */
+export type TableRef = { readonly name: string; readonly page?: string };
+
 /** A1 or A1:B3 for an area of body rows and columns */
 export function areaText(area: Area): string {
   const start = cellName(area.top, area.left);
@@ -120,7 +125,8 @@ export function columnRefText(id: ColumnId | undefined, thisRow: boolean): strin
 export function withColumnKeys(formula: string, headers: readonly string[]): string {
   let result = formula;
   for (const ref of references(formula).reverse()) {
-    if (ref.kind !== "column") continue;
+    // Another table's columns are not among these headers
+    if (ref.kind !== "column" || ref.table) continue;
     const column = referencedColumn(headers, ref.name);
     const text = column === undefined ? undefined : columnRefText(columnIdOf(headers, column), ref.thisRow);
     if (text) result = result.slice(0, ref.from) + text + result.slice(ref.to);
@@ -161,6 +167,8 @@ type Token =
   | { readonly kind: "name"; readonly text: string; readonly from: number; readonly to: number }
   | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly from: number; readonly to: number }
   | { readonly kind: "op"; readonly text: string; readonly from: number; readonly to: number }
+  // "prices!" or "[[Page]]prices!": the table the next reference is to
+  | { readonly kind: "table"; readonly name: string; readonly page?: string; readonly from: number; readonly to: number }
   // A reference to cells that were deleted, as written by shiftReferences
   | { readonly kind: "ref-error"; readonly from: number; readonly to: number };
 
@@ -187,6 +195,22 @@ function tokenize(formula: string): { tokens: Token[]; error?: FormulaError } {
     if (number) {
       tokens.push({ kind: "number", value: Number(number[0]), from: i, to: i + number[0].length });
       i += number[0].length;
+      continue;
+    }
+    if (formula.startsWith("[[", i)) {
+      const close = formula.indexOf("]]", i + 2);
+      const table = close < 0 ? null : /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(close + 2));
+      if (close < 0) return fail("a page name is missing its closing ]]");
+      if (!table) return fail("[[Page]] is followed by a table's name and !, as in [[Page]]prices!A1");
+      const page = formula.slice(i + 2, close).trim();
+      tokens.push({ kind: "table", name: table[1]!, page, from: i, to: close + 2 + table[0].length });
+      i = close + 2 + table[0].length;
+      continue;
+    }
+    const table = /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(i));
+    if (table) {
+      tokens.push({ kind: "table", name: table[1]!, from: i, to: i + table[0].length });
+      i += table[0].length;
       continue;
     }
     const name = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(formula.slice(i));
@@ -233,9 +257,11 @@ function tokenize(formula: string): { tokens: Token[]; error?: FormulaError } {
 }
 
 export type Reference = {
-  // Where the reference is written in the formula
+  // Where the reference is written in the formula, after its table's name if it has one
   readonly from: number;
   readonly to: number;
+  // Another table's: prices!B2 (from..to is B2)
+  readonly table?: TableRef;
 } & (
   | { readonly kind: "area"; readonly area: Area }
   | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean }
@@ -247,8 +273,10 @@ export function references(formula: string): Reference[] {
   const result: Reference[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i]!;
+    const previous = tokens[i - 1];
+    const table = previous?.kind === "table" ? { table: tableRefOf(previous) } : {};
     if (token.kind === "column") {
-      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to });
+      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to, ...table });
       continue;
     }
     if (token.kind !== "name") continue;
@@ -267,18 +295,22 @@ export function references(formula: string): Reference[] {
           right: Math.max(start.column, end.column),
         }
       : { top: start.row, left: start.column, bottom: start.row, right: start.column };
-    result.push({ kind: "area", area, from: token.from, to: end ? endToken!.to : token.to });
+    result.push({ kind: "area", area, from: token.from, to: end ? endToken!.to : token.to, ...table });
     if (end) i += 2;
   }
   return result;
+}
+
+function tableRefOf(token: { readonly name: string; readonly page?: string }): TableRef {
+  return token.page === undefined ? { name: token.name } : { name: token.name, page: token.page };
 }
 
 // ---- syntax tree -------------------------------------------------------------
 
 type Node =
   | { readonly kind: "literal"; readonly value: Scalar }
-  | { readonly kind: "area"; readonly area: Area; readonly range: boolean }
-  | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean }
+  | { readonly kind: "area"; readonly area: Area; readonly range: boolean; readonly table?: TableRef }
+  | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly table?: TableRef }
   | { readonly kind: "call"; readonly name: string; readonly args: readonly Node[] }
   | { readonly kind: "unary"; readonly op: string; readonly arg: Node }
   | { readonly kind: "binary"; readonly op: string; readonly left: Node; readonly right: Node };
@@ -347,6 +379,24 @@ class Parser {
         return { kind: "column", name: token.name, thisRow: token.thisRow };
       case "ref-error":
         return { kind: "literal", value: new FormulaError("#REF!", "a reference to deleted cells") };
+      case "table": {
+        // prices!B2, prices!A1:B3, prices![Price]
+        const next = this.tokens[this.at];
+        const prefix = this.text(token);
+        if (next?.kind === "column") {
+          this.at++;
+          if (next.thisRow) {
+            throw new FormulaError("#ERROR!", `[@${next.name}] is a cell of the formula's own row: ${prefix}[${next.name}] is the other table's column`);
+          }
+          return { kind: "column", name: next.name, thisRow: false, table: tableRefOf(token) };
+        }
+        if (next?.kind === "name" && parseCellName(next.text) && !(this.tokens[this.at + 1]?.kind === "op" && this.text(this.tokens[this.at + 1]!) === "(")) {
+          this.at++;
+          const area = this.name(next.text);
+          if (area.kind === "area") return { ...area, table: tableRefOf(token) };
+        }
+        throw new FormulaError("#ERROR!", `${prefix} is followed by a cell, a range or a [column], as in ${prefix}A1`);
+      }
       case "op":
         if (token.text === "(") {
           const inner = this.comparison();
@@ -492,7 +542,8 @@ export function autofixFormula(formula: string): FormulaFix {
 function wholeColumnNames(node: Node, names: Set<string>): Set<string> {
   switch (node.kind) {
     case "column":
-      if (!node.thisRow) names.add(node.name);
+      // Another table's column is not a total of this one's
+      if (!node.thisRow && !node.table) names.add(node.name);
       break;
     case "call":
       for (const arg of node.args) wholeColumnNames(arg, names);
@@ -512,6 +563,34 @@ function wholeColumnNames(node: Node, names: Set<string>): Set<string> {
 
 const DECIMAL_COMMA_RE = /\d,\d/;
 
+/**
+ * Where formulas find the other tables they refer to: the table with a name
+ * (compared ignoring case) on the formula's page, or with `page` on another;
+ * undefined when there is none
+ */
+export type TableSource = (name: string, page?: string) => Table | undefined;
+
+/** The sheets of the tables formulas refer to, each made once: their results are computed once too */
+class Book {
+  private readonly sheets = new Map<string, Sheet>();
+  constructor(private readonly source: TableSource | undefined) {}
+
+  /** The sheet a reference from `from` is to: the other table, or `from` itself when it is named so */
+  sheet(ref: TableRef, from: Sheet): Sheet | FormulaError {
+    const page = ref.page ?? from.page;
+    if (page === from.page && from.name !== undefined && from.name.toLowerCase() === ref.name.toLowerCase()) return from;
+    const key = `${page ?? ""}\u0000${ref.name.toLowerCase()}`;
+    let sheet = this.sheets.get(key);
+    if (!sheet) {
+      const table = this.source?.(ref.name, page);
+      if (!table) return new FormulaError("#REF!", `there is no table named ${ref.name}${page === undefined ? " on this page" : ` on ${page}`}`);
+      sheet = new Sheet(table, this, page);
+      this.sheets.set(key, sheet);
+    }
+    return sheet;
+  }
+}
+
 /** A table's cells as a sheet: values of plain cells, results of formula cells */
 class Sheet {
   private readonly headers: readonly string[];
@@ -520,8 +599,17 @@ class Sheet {
   private readonly evaluating = new Set<string>();
   // Numbers in the table are written with a decimal comma: results are too
   readonly decimalComma: boolean;
+  // The table's name, by which formulas refer to it
+  readonly name: string | undefined;
+  private totals: ReadonlySet<number> | undefined;
 
-  constructor(table: Table) {
+  /** `page`: the page the table is on, when it is not the formulas' own (its unnamed references are to tables there) */
+  constructor(
+    table: Table,
+    private readonly book: Book = new Book(undefined),
+    readonly page?: string,
+  ) {
+    this.name = table.meta?.name?.trim() || undefined;
     this.headers = table.rows[0]?.cells ?? [];
     this.body = table.rows.slice(1).map((r) => r.cells);
     let comma = 0;
@@ -601,31 +689,71 @@ class Sheet {
     return Array.from(wholeColumnNames(tree, new Set())).some((name) => referencedColumn(this.headers, name) === target);
   }
 
+  /** The values of an area: one cell's value, or a range's (`range`) */
+  areaValue(area: Area, range: boolean, prefix = ""): Value {
+    const { top, left, bottom, right } = area;
+    if (bottom >= this.rows || right >= this.columns) {
+      return new FormulaError("#REF!", `${prefix}${areaText(area)} is outside the table`);
+    }
+    const values: Scalar[] = [];
+    for (let r = top; r <= bottom; r++) {
+      for (let c = left; c <= right; c++) values.push(this.value(r, c));
+    }
+    return range ? values : values[0]!;
+  }
+
+  /**
+   * A column's values, without the table's total rows (see totalRows), so the
+   * columns of a table line up: XLOOKUP over one gives the value beside it in another
+   */
+  columnValue(name: string, prefix = ""): Value {
+    const index = referencedColumn(this.headers, name);
+    if (index === undefined) return new FormulaError("#REF!", `there is no column named "${name}"${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
+    const totals = this.totalRows();
+    const values: Scalar[] = [];
+    for (let r = 0; r < this.rows; r++) {
+      if (!totals.has(r)) values.push(this.value(r, index));
+    }
+    return values;
+  }
+
+  /**
+   * The total rows: those with a cell that refers to its own whole column, as
+   * =SUM([qty]) under Qty. A cell that refers to another column ([@qty] /
+   * SUM([qty]) in a Share column) does not make its row one.
+   */
+  private totalRows(): ReadonlySet<number> {
+    if (this.totals) return this.totals;
+    const totals = new Set<number>();
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.columns; c++) if (this.refersToColumn(r, c, c)) totals.add(r);
+    }
+    this.totals = totals;
+    return totals;
+  }
+
+  /** The sheet a reference's table is: this one, or another the book has */
+  private sheetOf(table: TableRef | undefined): Sheet | FormulaError {
+    return table ? this.book.sheet(table, this) : this;
+  }
+
   private evaluate(node: Node, row: number, column: number): Value {
     switch (node.kind) {
       case "literal":
         return node.value;
       case "area": {
-        const { top, left, bottom, right } = node.area;
-        if (bottom >= this.rows || right >= this.columns) {
-          return new FormulaError("#REF!", `${areaText(node.area)} is outside the table`);
-        }
-        const values: Scalar[] = [];
-        for (let r = top; r <= bottom; r++) {
-          for (let c = left; c <= right; c++) values.push(this.value(r, c));
-        }
-        return node.range ? values : values[0]!;
+        const sheet = this.sheetOf(node.table);
+        if (isError(sheet)) return sheet;
+        return sheet.areaValue(node.area, node.range, node.table ? `${node.table.name}!` : "");
       }
       case "column": {
-        const index = referencedColumn(this.headers, node.name);
-        if (index === undefined) return new FormulaError("#REF!", `there is no column named "${node.name}"`);
-        if (node.thisRow) return this.value(row, index);
-        // Cells that refer to this whole column (a total under it) are not part of it
-        const values: Scalar[] = [];
-        for (let r = 0; r < this.rows; r++) {
-          if (!this.refersToColumn(r, index, index)) values.push(this.value(r, index));
+        const sheet = this.sheetOf(node.table);
+        if (isError(sheet)) return sheet;
+        if (node.thisRow) {
+          const index = referencedColumn(this.headers, node.name);
+          return index === undefined ? new FormulaError("#REF!", `there is no column named "${node.name}"`) : this.value(row, index);
         }
-        return values;
+        return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
       }
       case "call": {
         const f = FUNCTIONS[node.name];
@@ -720,9 +848,9 @@ function hasFormulas(table: Table): boolean {
  * same table when all results are up to date. Formulas in the header row are
  * left alone: a header is a column's name.
  */
-export function recalculate(table: Table): Table {
+export function recalculate(table: Table, tables?: TableSource): Table {
   if (!hasFormulas(table)) return table;
-  const sheet = new Sheet(table);
+  const sheet = new Sheet(table, new Book(tables));
   let result = table;
   table.rows.forEach((row, r) => {
     if (r === 0) return;
@@ -801,7 +929,7 @@ export function withoutFormulas(table: Table): Table {
 export function formulasAfterEdit(
   before: Table,
   after: Table,
-  edit: { readonly rowMap?: IndexMap; readonly columnMap?: IndexMap },
+  edit: { readonly rowMap?: IndexMap; readonly columnMap?: IndexMap; readonly tables?: TableSource },
 ): Table {
   let table = after;
   if (edit.rowMap) {
@@ -812,14 +940,30 @@ export function formulasAfterEdit(
     }
     for (let r = 1; r < after.rows.length; r++) if (!kept.has(r)) table = withCalculatedCells(table, r);
   }
-  return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap));
+  return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap), edit.tables);
+}
+
+/** The names (lowercase) of the tables on the page that a table's formulas refer to, so they change when those do */
+export function referredTableNames(table: Table): Set<string> {
+  const names = new Set<string>();
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    for (const cell of row.cells) {
+      const stored = formulaOf(cell);
+      if (!stored) continue;
+      for (const ref of references(stored.formula)) {
+        if (ref.table && ref.table.page === undefined) names.add(ref.table.name.toLowerCase());
+      }
+    }
+  });
+  return names;
 }
 
 /** Why formula cells show errors: "row,column" (rows of the markdown, header 0) → code and detail */
-export function formulaErrors(table: Table): Map<string, string> {
+export function formulaErrors(table: Table, tables?: TableSource): Map<string, string> {
   const errors = new Map<string, string>();
   if (!hasFormulas(table)) return errors;
-  const sheet = new Sheet(table);
+  const sheet = new Sheet(table, new Book(tables));
   table.rows.forEach((row, r) => {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
@@ -885,6 +1029,8 @@ export function shiftReferences(before: Table, after: Table, rowMap?: IndexMap, 
   const rewrite = (formula: string): string => {
     let result = formula;
     for (const ref of references(formula).reverse()) {
+      // References to another table do not follow this table's rows and columns
+      if (ref.table) continue;
       let text: string | undefined;
       if (ref.kind === "area") {
         if (!rowMap && !columnMap) continue;
@@ -932,9 +1078,9 @@ export function shiftReferences(before: Table, after: Table, rowMap?: IndexMap, 
 export type FormulaHelp = { readonly syntax: string; readonly description: string };
 
 export const REFERENCE_HELP: FormulaHelp = {
-  syntax: "A1 · A1:B3 · [Column] · [@Column]",
+  syntax: "A1 · A1:B3 · [Column] · [@Column] · name!A1 · name![Column]",
   description:
-    "A cell (A1 is the first row under the header), a range, a whole column by its name, or that column in this row. Click or drag in the table to insert one, click a header for its column.",
+    "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, or a cell, range or column of another table on the page by its name. Click or drag in the table to insert one, click a header for its column.",
 };
 
 // After these a reference can follow: clicking the table inserts one there

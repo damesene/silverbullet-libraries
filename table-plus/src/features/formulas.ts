@@ -6,6 +6,7 @@
 // them through edits is formula/index.ts; this is the editing around it.)
 import { columnIdOf } from "../columns.ts";
 import type { CellEditor, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import { WIDGET_SELECTOR } from "../dom.ts";
 import {
   type Area,
   areaText,
@@ -24,6 +25,7 @@ import {
   recalculate,
   type Reference,
   referencedColumn,
+  referredTableNames,
   references,
   referenceSlot,
   withColumnKeys,
@@ -145,8 +147,9 @@ export class Formulas implements Feature {
   decorate(_widget: HTMLElement, info: WidgetInfo): void {
     const model = parseTable(info.source);
     if (formulaCount(model) > 0) this.withFormulas.add(info.table);
-    if (recalculate(model) !== model) this.stale.add(info.table);
-    const errors = formulaErrors(model);
+    const tables = this.host.tableSource();
+    if (recalculate(model, tables) !== model) this.stale.add(info.table);
+    const errors = formulaErrors(model, tables);
     for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
       const row = Number(tr.dataset.tpRow);
       model.rows[row]?.cells.forEach((raw, column) => {
@@ -158,6 +161,22 @@ export class Formulas implements Feature {
         cell.classList.toggle("tp-formula-error", !!error);
         cell.title = error ? `${stored.formula}\n${error}` : stored.formula;
       });
+    }
+  }
+
+  /**
+   * A table rendered anew (it changed) may be one that others refer to: their
+   * results are checked again, as SilverBullet keeps their widgets as they were
+   */
+  enhanced(widget: HTMLElement): void {
+    const tables = this.host.tableSource();
+    for (const other of Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = other === widget ? undefined : this.host.infoOf(other);
+      if (!info || !this.withFormulas.has(info.table)) continue;
+      const model = parseTable(info.source);
+      if (referredTableNames(model).size === 0) continue;
+      if (recalculate(model, tables) !== model) this.stale.add(info.table);
+      else this.stale.delete(info.table);
     }
   }
 
@@ -416,6 +435,8 @@ export class Formulas implements Feature {
 
   /** The body rows and columns a reference covers, within the table; undefined if none */
   private referenceArea(info: WidgetInfo, headers: readonly string[], ref: Reference, row: number): Area | undefined {
+    // Another table's cells are not outlined in this one
+    if (ref.table) return undefined;
     const lastRow = info.rows - 2;
     const lastColumn = info.columns - 1;
     if (ref.kind === "column") {

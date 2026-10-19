@@ -13,6 +13,8 @@ import {
   type IndexMap,
   recalculate,
   references,
+  referredTableNames,
+  type TableSource,
   REFERENCE_HELP,
   referenceSlot,
   shiftReferences,
@@ -473,5 +475,81 @@ describe("formulaHelp", () => {
   it("explains references otherwise, and nothing outside formulas", () => {
     expect(formulaHelp("=", 1)).toEqual([REFERENCE_HELP]);
     expect(formulaHelp("text", 2)).toEqual([]);
+  });
+});
+
+describe("other tables", () => {
+  // The tables of a page by their names, as the controller hands them to formulas
+  const tablesOf = (...markdown: string[]): TableSource => {
+    const tables = markdown.map((m) => parseTable(m));
+    return (name, page) => (page === undefined ? tables.find((t) => t.meta?.name?.toLowerCase() === name.toLowerCase()) : undefined);
+  };
+  const PRICES = '| Name | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 2,5 |\n| Total | 14,5 <meta f="=SUM([price])"> |\n| <meta name="prices"> |';
+  // What `formula` shows in the last cell of a one-cell table, with `tables` around it
+  const result = (formula: string, tables: TableSource, own = "| A |\n|---|\n| |") => {
+    const table = parseTable(own);
+    const cells = table.rows.map((r, i) => (i === table.rows.length - 1 ? { cells: [formulaCell("", formula)] } : r));
+    return formulaOf(recalculate({ ...table, rows: cells }, tables).rows[table.rows.length - 1]!.cells[0]!)!.value;
+  };
+
+  it("reads another table's cells, ranges and columns by its name", () => {
+    const tables = tablesOf(PRICES);
+    expect(result("=prices!B1", tables)).toBe("12");
+    expect(result("=SUM(prices!B1:B2)", tables)).toBe("14.5");
+    // A column without its total; the other table's formulas are calculated
+    expect(result("=SUM(prices![price])", tables)).toBe("14.5");
+    expect(result("=prices!B3", tables)).toBe("14.5");
+    expect(result("=PRICES!A2", tables)).toBe("Fig");
+    expect(result('=XLOOKUP("fig", prices![name], prices![price])', tables)).toBe("2.5");
+  });
+
+  it("says what is wrong with a reference to another table", () => {
+    const tables = tablesOf(PRICES);
+    const errors = (formula: string) => {
+      const table = parseTable("| A |\n|---|\n| |");
+      return formulaErrors({ ...table, rows: [table.rows[0]!, { cells: [formulaCell("", formula)] }] }, tables).get("1,0");
+    };
+    expect(errors("=stock!A1")).toBe("#REF! there is no table named stock on this page");
+    expect(errors("=prices!C1")).toBe("#REF! prices!C1 is outside the table");
+    expect(errors("=SUM(prices![qty])")).toBe('#REF! there is no column named "qty" in prices');
+    expect(errors('=XLOOKUP("fig", prices![qty], prices![price], 0)')).toBe('#REF! there is no column named "qty" in prices');
+    expect(errors("=[[Other page]]prices!A1")).toBe("#REF! there is no table named prices on Other page");
+    expect(errors("=prices![@price]")).toContain("is a cell of the formula's own row");
+    expect(errors("=prices!SUM(A1)")).toContain("is followed by a cell, a range or a [column]");
+    expect(errors("=prices!")).toBeDefined();
+  });
+
+  it("refers to its own table by its name, and finds circles across tables", () => {
+    const own = '| A |\n|---|\n| 5 |\n| |\n| <meta name="mine"> |';
+    expect(result("=mine!A1*2", tablesOf(), own)).toBe("10");
+    const ping = '| A |\n|---|\n| 1 <meta f="=pong!A1"> |\n| <meta name="ping"> |';
+    const pong = '| A |\n|---|\n| 1 <meta f="=ping!A1"> |\n| <meta name="pong"> |';
+    expect(formulaOf(recalculate(parseTable(ping), tablesOf(ping, pong)).rows[1]!.cells[0]!)!.value).toBe("#CYCLE!");
+  });
+
+  it("finds the references to other tables, for the controller to recalculate them", () => {
+    expect(references("=prices!B2+[@qty]*prices![price]").map((r) => [r.kind, r.table?.name])).toEqual([
+      ["area", "prices"],
+      ["column", undefined],
+      ["column", "prices"],
+    ]);
+    expect(references("=[[Ceník]]prices!A1")[0]!.table).toEqual({ name: "prices", page: "Ceník" });
+    expect(referredTableNames(parseTable('| A |\n|---|\n| 1 <meta f="=Prices!B1+[[Other]]stock!A1"> |'))).toEqual(new Set(["prices"]));
+    expect(referredTableNames(parseTable('| A |\n|---|\n| 1 <meta f="=B1"> |')).size).toBe(0);
+  });
+
+  it("leaves references to other tables alone when this table's rows and columns move", () => {
+    const own = '| Price | Qty |\n|---|---|\n| 1 | 2 |\n| 3 <meta f="=prices!B1+prices![price]+A1"> | |';
+    const before = parseTable(own);
+    // Columns swapped: A1 follows to B1, prices!B1 and prices![price] stay
+    const after = { ...before, rows: before.rows.map((r) => ({ cells: [r.cells[1]!, r.cells[0]!] })) };
+    const shifted = shiftReferences(before, after, undefined, (c) => 1 - c);
+    expect(formulaOf(shifted.rows[2]!.cells[1]!)!.formula).toBe("=prices!B1+prices![price]+B1");
+  });
+
+  it("does not count another table's column as a total of its own", () => {
+    // [price] of this table without the row that sums prices![price]
+    const own = '| Price |\n|---|\n| 3 |\n| 0 <meta f="=SUM(prices![price])"> |\n| |';
+    expect(result("=SUM([price])", tablesOf(PRICES), own)).toBe("17.5");
   });
 });

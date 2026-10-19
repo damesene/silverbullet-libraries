@@ -135,6 +135,61 @@ describe("Formulas", () => {
     expect(recalc()!.classList.contains("tp-attention")).toBe(false);
   });
 
+  describe("referring to other tables", () => {
+    const PAGE2 = [
+      "| Name | Price |",
+      "|---|---|",
+      "| Pear | 12 |",
+      "| Fig | 3 |",
+      '| <meta name="prices"> |',
+      "",
+      "| Fruit | Cost |",
+      "|---|---|",
+      '| Fig | 3 <meta f="=XLOOKUP([@fruit], prices![name], prices![price])"> |',
+      '| All | 15 <meta f="=SUM(prices![price])"> |',
+      "",
+    ].join("\n");
+    const second = (row: number, column: number) => editor.querySelectorAll("table")[1]!.rows[row]!.cells[column]!;
+
+    it("writes the results of the tables that refer to an edited one, in the same edit", async () => {
+      await setup(PAGE2, { "tablePlus.editor.enterKey": "save" });
+      let edits = 0;
+      const bridge = (controller as unknown as { bridge: { replaceRange: (...a: unknown[]) => unknown } }).bridge;
+      const replace = bridge.replaceRange;
+      bridge.replaceRange = (...args: unknown[]) => {
+        edits++;
+        return replace(...args);
+      };
+      clickOn(cell(2, 1)); // Fig's price
+      await type("4");
+      expect(edits).toBe(1);
+      expect(text).toContain("| Fig | 4 |");
+      expect(text).toContain('| Fig | 4 <meta f="=XLOOKUP([@fruit], prices![name], prices![price])"> |');
+      expect(text).toContain('| All | 16 <meta f="=SUM(prices![price])"> |');
+      expect(second(1, 1).textContent).toBe("4");
+    });
+
+    it("leaves the tables that do not refer to the edited one as they are", async () => {
+      const unrelated = '| X |\n|---|\n| 1 <meta f="=stock!A1"> |\n';
+      await setup(`${PAGE2}\n${unrelated}`, { "tablePlus.editor.enterKey": "save" });
+      clickOn(cell(2, 1));
+      await type("4");
+      expect(text).toContain('| All | 16 <meta f="=SUM(prices![price])"> |');
+      expect(text).toContain(unrelated);
+    });
+
+    it("offers to recalculate a table when the one it refers to was changed in the markdown", async () => {
+      await setup(PAGE2.replace("| Fig | 3 |", "| Fig | 5 |"));
+      second(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      const recalc = document.querySelector<HTMLElement>('.tp-bar button[aria-label="Recalculate"]')!;
+      expect(recalc.classList.contains("tp-attention")).toBe(true);
+      recalc.click();
+      await flush();
+      expect(text).toContain('| Fig | 5 <meta f="=XLOOKUP([@fruit], prices![name], prices![price])"> |');
+      expect(text).toContain('| All | 17 <meta f="=SUM(prices![price])"> |');
+    });
+  });
+
   describe("with the metadata setting off", () => {
     const OFF = { "tablePlus.metadata": false };
 

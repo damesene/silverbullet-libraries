@@ -24,6 +24,7 @@ import date from "./date.ts";
 import time from "./time.ts";
 import int from "./int.ts";
 import text from "./text.ts";
+import xlookup from "./xlookup.ts";
 import dateadd from "./dateadd.ts";
 import datedif from "./datedif.ts";
 import year from "./year.ts";
@@ -68,6 +69,7 @@ const ALL: readonly FormulaFunction[] = [
   weekday,
   int,
   text,
+  xlookup,
 ];
 
 /** The functions by name */

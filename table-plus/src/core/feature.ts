@@ -2,7 +2,7 @@
 // enhances tables, routes events and writes tables; each feature keeps its own
 // state and listeners and works through the host.
 import type { Bridge, SETTINGS, SettingValue } from "../bridge.ts";
-import type { IndexMap } from "../formula/index.ts";
+import type { IndexMap, TableSource } from "../formula/index.ts";
 import type { Table } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
 import type { Pins, ViewState } from "../view.ts";
@@ -110,6 +110,8 @@ export interface TableHost {
     | undefined;
   /** Asks the user (SilverBullet's dialog, else the browser's) */
   ask(question: string): Promise<boolean>;
+  /** The page's tables (as last read) that formulas can refer to by name */
+  tableSource(): TableSource;
   /** Asks for a text (SilverBullet's dialog, else the browser's); undefined: cancelled */
   promptText(message: string, value?: string): Promise<string | undefined>;
   /** Hands the keyboard back to SilverBullet's editor */
