@@ -1,7 +1,24 @@
 // table-plus/src/bridge.ts
 var SETTINGS = {
-  enterKey: { path: "tablePlus.enterKey", values: ["save", "moveDown"], default: "save" },
-  smartFilters: { path: "tablePlus.smartFilters", values: [true, false], default: true }
+  enterKey: {
+    path: "tablePlus.enterKey",
+    default: "save",
+    parse: (v) => v === "save" || v === "moveDown" ? v : void 0
+  },
+  smartFilters: {
+    path: "tablePlus.smartFilters",
+    default: true,
+    parse: (v) => typeof v === "boolean" ? v : void 0
+  },
+  // Pixels; 0: no limit
+  maxHeight: {
+    path: "tablePlus.maxHeight",
+    default: 0,
+    parse: (v) => {
+      const n = typeof v === "string" ? Number(v) : v;
+      return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : void 0;
+    }
+  }
 };
 var REQUIRED = [
   "getText",
@@ -726,8 +743,12 @@ var Controller = class {
   enhancing = /* @__PURE__ */ new WeakSet();
   views = /* @__PURE__ */ new Map();
   filterOptions = DEFAULT_FILTER_OPTIONS;
+  // The maximum table height setting, in pixels; 0: no limit
+  maxHeight = 0;
   // Sideways scroll of each wide table, carried over to its next rendering
   scrollLefts = /* @__PURE__ */ new Map();
+  // The same for tables taller than the maximum height setting, scrolled inside
+  scrollTops = /* @__PURE__ */ new Map();
   // Editor cursor positions set before table edits (see placeHistoryMarker)
   historyMarkers = /* @__PURE__ */ new Set();
   editor;
@@ -742,6 +763,8 @@ var Controller = class {
   scanQueued = false;
   // Set by stop(): work already scheduled then does nothing
   stopped = false;
+  settingsTimer;
+  settingsReadAt = 0;
   stickyQueued = false;
   warnedIncompatible = false;
   observer;
@@ -785,20 +808,34 @@ var Controller = class {
     win.removeEventListener("blur", this.onBlur);
     this.doc.removeEventListener("mousemove", this.onMouseMove);
     this.observer?.disconnect();
+    clearTimeout(this.settingsTimer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
     for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
   }
   onBlur = () => this.setNavigating(false);
+  /** Refreshes the settings at most once a second, the last request always served */
+  queueSettingsRefresh() {
+    if (this.settingsTimer !== void 0) return;
+    const wait = Math.max(0, this.settingsReadAt + 1e3 - Date.now());
+    this.settingsTimer = setTimeout(() => {
+      this.settingsTimer = void 0;
+      this.settingsReadAt = Date.now();
+      if (!this.stopped) void this.refreshSettings();
+    }, wait);
+  }
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   async refreshSettings() {
     const smart = await this.setting("smartFilters") === true;
-    if (this.stopped || smart === this.filterOptions.smart) return;
+    const maxHeight = await this.setting("maxHeight");
+    if (this.stopped || smart === this.filterOptions.smart && maxHeight === this.maxHeight) return;
     this.filterOptions = { smart };
+    this.maxHeight = maxHeight;
     for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
       if (info && renderedTable(widget) === info.table) this.applyView(widget, info);
     }
+    this.queueStickyUpdate();
   }
   rearranged(info) {
     return isRearranged(this.viewOf(info), this.filterOptions);
@@ -810,6 +847,7 @@ var Controller = class {
     const run = () => {
       this.scanQueued = false;
       void this.scan();
+      this.queueSettingsRefresh();
     };
     const win = this.doc.defaultView;
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
@@ -865,6 +903,8 @@ var Controller = class {
       this.applyView(widget, info);
       const scrollLeft = this.scrollLefts.get(info.key);
       if (scrollLeft) widget.scrollLeft = scrollLeft;
+      const scrollTop = this.scrollTops.get(info.key);
+      if (scrollTop) widget.scrollTop = scrollTop;
       this.takePendingFocus(widget, info);
       this.queueStickyUpdate();
       void this.refreshSettings();
@@ -975,6 +1015,7 @@ var Controller = class {
     });
     this.applyFilterRow(widget, info, view);
     widget.classList.toggle("tp-rearranged", isRearranged(view, this.filterOptions));
+    widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
     if (this.hoverWidget === widget) this.showTableControls(widget, info);
   }
   applyFilterRow(widget, info, view) {
@@ -1081,7 +1122,8 @@ var Controller = class {
   onMiddleMouseDown(e) {
     const hit = this.enhancedWidgetOf(e.target);
     const widget = hit?.[0];
-    if (!widget || e.target.closest("a") || widget.scrollWidth <= widget.clientWidth) return;
+    const scrollsSideways = !!widget && widget.scrollWidth > widget.clientWidth;
+    if (!widget || e.target.closest("a") || !scrollsSideways && !this.scrollsInside(widget)) return;
     e.preventDefault();
     e.stopPropagation();
     const win = this.doc.defaultView;
@@ -1105,7 +1147,12 @@ var Controller = class {
       const dy = Math.trunc(carry.y);
       carry = { x: carry.x - dx, y: carry.y - dy };
       if (dx) widget.scrollLeft += dx;
-      if (dy && page) page.scrollTop += dy;
+      if (dy) {
+        const before = widget.scrollTop;
+        widget.scrollTop += dy;
+        const rest = dy - (widget.scrollTop - before);
+        if (rest && page) page.scrollTop += rest;
+      }
       frame = win.requestAnimationFrame(tick);
     };
     const move = (ev) => {
@@ -1205,7 +1252,10 @@ var Controller = class {
   onScroll = (e) => {
     this.queueStickyUpdate();
     const scrolled = e.target instanceof HTMLElement ? this.infos.get(e.target) : void 0;
-    if (scrolled && e.target instanceof HTMLElement) this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
+    if (scrolled && e.target instanceof HTMLElement) {
+      this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
+      this.scrollTops.set(scrolled.key, e.target.scrollTop);
+    }
   };
   /**
    * Keeps the toolbar, grips and an open menu on what they belong to while the
@@ -1235,8 +1285,12 @@ var Controller = class {
     const view = this.scrollParentOf(widget)?.getBoundingClientRect();
     const box = widget.getBoundingClientRect();
     const head = info.table.tHead;
-    const top = Math.max(view?.top ?? 0, head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity);
-    const bottom = view?.bottom ?? this.doc.defaultView.innerHeight;
+    const top = Math.max(
+      view?.top ?? 0,
+      box.top,
+      head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity
+    );
+    const bottom = Math.min(view?.bottom ?? this.doc.defaultView.innerHeight, box.bottom);
     return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
   }
   // ---- sticky header -----------------------------------------------------
@@ -1264,12 +1318,17 @@ var Controller = class {
       const info = this.infos.get(widget);
       const head = info?.table.tHead;
       if (!info || !head || renderedTable(widget) !== info.table) continue;
-      const viewTop = this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0;
+      const pageTop = (this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0) + STICKY_GAP;
+      const boxTop = this.scrollsInside(widget) ? widget.getBoundingClientRect().top : -Infinity;
       const table = info.table.getBoundingClientRect();
-      const offset = Math.max(0, Math.min(viewTop + STICKY_GAP - table.top, table.height - head.offsetHeight));
+      const offset = Math.max(0, Math.min(Math.max(pageTop, boxTop) - table.top, table.height - head.offsetHeight));
       head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
       head.classList.toggle("tp-stuck", offset > 0);
     }
+  }
+  /** Whether a table is taller than its box (the maximum height setting) and scrolls inside it */
+  scrollsInside(widget) {
+    return widget.scrollHeight > widget.clientHeight + 1;
   }
   scrollParentOf(element) {
     const win = this.doc.defaultView;
@@ -1479,13 +1538,15 @@ var Controller = class {
     if ((table.rows[edit.row]?.cells[edit.column] ?? "") !== edit.original) return void 0;
     return setCell(table, edit.row, edit.column, edit.value);
   }
-  /** Tab / Shift+Tab: save and move to the next / previous shown cell */
   /** A setting's value, falling back to its default when unset or not valid */
   async setting(name) {
-    const { path, values, default: fallback } = SETTINGS[name];
+    const { path, parse } = SETTINGS[name];
+    const fallback = SETTINGS[name].default;
     try {
-      const value = await this.bridge.getConfig?.(path, fallback);
-      return values.includes(value) ? value : fallback;
+      const value = parse(
+        await this.bridge.getConfig?.(path, fallback)
+      );
+      return value ?? fallback;
     } catch {
       return fallback;
     }
@@ -1575,6 +1636,7 @@ var Controller = class {
     const ref = this.cellRef(info, target);
     if (ref) await this.finishEditing(true, { widget: active.widget, ...ref });
   }
+  /** Tab / Shift+Tab: save and move to the next / previous shown cell */
   async step(direction) {
     const active = this.editor;
     const info = active && this.infos.get(active.widget);
@@ -1629,12 +1691,18 @@ var Controller = class {
     let rect = cell.getBoundingClientRect();
     if (rect.right > box.right) widget.scrollLeft += rect.right - box.right;
     else if (rect.left < box.left) widget.scrollLeft -= box.left - rect.left;
+    const head = this.infos.get(widget)?.table.tHead;
+    const headHeight = head && !head.contains(cell) ? head.offsetHeight : 0;
+    if (this.scrollsInside(widget)) {
+      rect = cell.getBoundingClientRect();
+      if (rect.top < box.top + headHeight) widget.scrollTop -= box.top + headHeight - rect.top;
+      else if (rect.bottom > box.bottom) widget.scrollTop += rect.bottom - box.bottom;
+    }
     const scroller = this.scrollParentOf(widget);
     if (!scroller) return;
     rect = cell.getBoundingClientRect();
     const view = scroller.getBoundingClientRect();
-    const head = this.infos.get(widget)?.table.tHead;
-    const top = view.top + (head && !head.contains(cell) ? STICKY_GAP + head.offsetHeight : 0);
+    const top = view.top + (headHeight ? STICKY_GAP + headHeight : 0);
     if (rect.top < top) scroller.scrollTop -= top - rect.top;
     else if (rect.bottom > view.bottom) scroller.scrollTop += rect.bottom - view.bottom;
   }
@@ -1662,6 +1730,7 @@ var Controller = class {
       if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
       if (focus) this.pendingFocus = { key: info.key, ...focus, until: Date.now() + 3e3 };
       this.scrollLefts.set(info.key, widget.scrollLeft);
+      this.scrollTops.set(info.key, widget.scrollTop);
       const edit = minimalEdit(range.text, markdown);
       const marker = await this.placeHistoryMarker(text, range.from, range.to);
       await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
@@ -1831,7 +1900,8 @@ var Controller = class {
     const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
     this.place(bar, rect.right - bar.offsetWidth - (fits ? 0 : 6), top);
     this.addRow.classList.add("tp-visible");
-    this.place(this.addRow, this.shownRect(widget, info).left, tableRect.bottom + 4);
+    const inView = this.shownRect(widget, info);
+    this.place(this.addRow, inView.left, inView.bottom + 4);
     this.addColumn.classList.add("tp-visible");
     this.place(
       this.addColumn,
@@ -1866,7 +1936,12 @@ var Controller = class {
   shownRect(widget, info) {
     const box = widget.getBoundingClientRect();
     const table = info.table.getBoundingClientRect();
-    return { left: Math.max(box.left, table.left), right: Math.min(box.right, table.right) };
+    return {
+      left: Math.max(box.left, table.left),
+      right: Math.min(box.right, table.right),
+      top: Math.max(box.top, table.top),
+      bottom: Math.min(box.bottom, table.bottom)
+    };
   }
   // ---- grips: click opens a menu, drag moves -----------------------------
   onGripPointerDown(e, axis) {

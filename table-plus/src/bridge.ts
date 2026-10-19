@@ -15,11 +15,39 @@ export type Bridge = {
   readonly redo?: () => unknown;
 };
 
+type Setting<T> = {
+  readonly path: string;
+  readonly default: T;
+  // The value as configured, or undefined when it is not valid
+  readonly parse: (value: unknown) => T | undefined;
+};
+
 /** Settings, registered with `config.define` on the library page */
 export const SETTINGS = {
-  enterKey: { path: "tablePlus.enterKey", values: ["save", "moveDown"], default: "save" },
-  smartFilters: { path: "tablePlus.smartFilters", values: [true, false], default: true },
-} as const;
+  enterKey: {
+    path: "tablePlus.enterKey",
+    default: "save",
+    parse: (v) => (v === "save" || v === "moveDown" ? v : undefined),
+  } satisfies Setting<"save" | "moveDown">,
+  smartFilters: {
+    path: "tablePlus.smartFilters",
+    default: true,
+    parse: (v) => (typeof v === "boolean" ? v : undefined),
+  } satisfies Setting<boolean>,
+  // Pixels; 0: no limit
+  maxHeight: {
+    path: "tablePlus.maxHeight",
+    default: 0,
+    parse: (v) => {
+      const n = typeof v === "string" ? Number(v) : v;
+      return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined;
+    },
+  } satisfies Setting<number>,
+};
+
+export type SettingValue<K extends keyof typeof SETTINGS> = NonNullable<
+  ReturnType<(typeof SETTINGS)[K]["parse"]>
+>;
 
 const REQUIRED: readonly (keyof Bridge)[] = [
   "getText",

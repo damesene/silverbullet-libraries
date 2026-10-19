@@ -94,6 +94,7 @@ Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column.
 ## Large tables
 
 * **Sticky header**: while you scroll past a long table, its header stays at the top of the view, with the toolbar above it.
+* **Maximum height**: with the *Maximum table height* setting, a taller table scrolls inside its own box; its header stays at the top of that box. See [[#Settings]].
 * **Wide tables** scroll sideways; Table Plus keeps the scroll position after edits, and new rows open their editor in a column you can see.
 * **Autoscroll**: the middle mouse button over a wide table scrolls the table sideways and the page up and down together. Hold and drag, or click and move; the next click ends it.
 
@@ -107,17 +108,21 @@ Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, 
 * **Smart filters** (`tablePlus.smartFilters`), default `true`
   * `true`: filter fields understand `>10`, `/pattern/`, `=text` and `!filter`.
   * `false`: everything typed in a filter field is text to find.
+* **Maximum table height (px)** (`tablePlus.maxHeight`), default `0`
+  * `0`: no limit, a table is as tall as its rows.
+  * A number of pixels, e.g. `400`: a taller table gets its own vertical scrollbar.
 
 ```lua
 config.set("tablePlus.enterKey", "moveDown")
 config.set("tablePlus.smartFilters", false)
+config.set("tablePlus.maxHeight", 400)
 ```
 
 ## How your markdown is kept
 
 * Every change is one ordinary edit: Ctrl+Z undoes it.
 * Rows you did not change are kept byte for byte. Tables with aligned pipes stay aligned; compact tables stay compact.
-* Sorting, filters and scroll positions are views only: they are remembered per table until the page is reloaded, and never written to the page.
+* Sorting, filters and scroll positions (sideways and, with a maximum height, up and down) are views only: they are remembered per table until the page is reloaded, and never written to the page.
 * SilverBullet does not show columns without a name, which shifts the header against the data. For such a table Table Plus shows a notice with a *Name them* button instead of enhancing it.
 
 ## Limits
@@ -151,6 +156,12 @@ config.define("tablePlus", {
       default = true,
       description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell) and !filter (not). Off: everything typed is text to find.",
       ui = { category = "Table Plus", label = "Smart filters", priority = 0 },
+    },
+    maxHeight = {
+      type = "number",
+      default = 0,
+      description = "Maximum table height in pixels; a taller table gets its own vertical scrollbar. 0: no limit.",
+      ui = { category = "Table Plus", label = "Maximum table height (px)", priority = -1 },
     },
   },
 })

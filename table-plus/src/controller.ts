@@ -1,7 +1,7 @@
 // Enhances SilverBullet's rendered markdown tables in place: sorting, filtering,
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
-import { type Bridge, SETTINGS } from "./bridge.ts";
+import { type Bridge, SETTINGS, type SettingValue } from "./bridge.ts";
 import {
   caretTextOffset,
   cellText,
@@ -140,8 +140,12 @@ export class Controller {
   private readonly enhancing = new WeakSet<HTMLElement>();
   private readonly views = new Map<string, ViewState>();
   private filterOptions: FilterOptions = DEFAULT_FILTER_OPTIONS;
+  // The maximum table height setting, in pixels; 0: no limit
+  private maxHeight = 0;
   // Sideways scroll of each wide table, carried over to its next rendering
   private readonly scrollLefts = new Map<string, number>();
+  // The same for tables taller than the maximum height setting, scrolled inside
+  private readonly scrollTops = new Map<string, number>();
   // Editor cursor positions set before table edits (see placeHistoryMarker)
   private readonly historyMarkers = new Set<number>();
   private editor: ActiveEditor | undefined;
@@ -156,6 +160,8 @@ export class Controller {
   private scanQueued = false;
   // Set by stop(): work already scheduled then does nothing
   private stopped = false;
+  private settingsTimer: ReturnType<typeof setTimeout> | undefined;
+  private settingsReadAt = 0;
   private stickyQueued = false;
   private warnedIncompatible = false;
   private observer: MutationObserver | undefined;
@@ -220,6 +226,7 @@ export class Controller {
     win.removeEventListener("blur", this.onBlur);
     this.doc.removeEventListener("mousemove", this.onMouseMove);
     this.observer?.disconnect();
+    clearTimeout(this.settingsTimer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
     for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
@@ -227,15 +234,29 @@ export class Controller {
 
   private onBlur = (): void => this.setNavigating(false);
 
+  /** Refreshes the settings at most once a second, the last request always served */
+  private queueSettingsRefresh(): void {
+    if (this.settingsTimer !== undefined) return;
+    const wait = Math.max(0, this.settingsReadAt + 1000 - Date.now());
+    this.settingsTimer = setTimeout(() => {
+      this.settingsTimer = undefined;
+      this.settingsReadAt = Date.now();
+      if (!this.stopped) void this.refreshSettings();
+    }, wait);
+  }
+
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   private async refreshSettings(): Promise<void> {
     const smart = (await this.setting("smartFilters")) === true;
-    if (this.stopped || smart === this.filterOptions.smart) return;
+    const maxHeight = await this.setting("maxHeight");
+    if (this.stopped || (smart === this.filterOptions.smart && maxHeight === this.maxHeight)) return;
     this.filterOptions = { smart };
+    this.maxHeight = maxHeight;
     for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
       if (info && renderedTable(widget) === info.table) this.applyView(widget, info);
     }
+    this.queueStickyUpdate();
   }
 
   private rearranged(info: WidgetInfo): boolean {
@@ -250,6 +271,8 @@ export class Controller {
     const run = () => {
       this.scanQueued = false;
       void this.scan();
+      // The page changed (e.g. the Configuration Manager opened or closed): settings may have too
+      this.queueSettingsRefresh();
     };
     const win = this.doc.defaultView;
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
@@ -308,6 +331,8 @@ export class Controller {
       this.applyView(widget, info);
       const scrollLeft = this.scrollLefts.get(info.key);
       if (scrollLeft) widget.scrollLeft = scrollLeft;
+      const scrollTop = this.scrollTops.get(info.key);
+      if (scrollTop) widget.scrollTop = scrollTop;
       this.takePendingFocus(widget, info);
       this.queueStickyUpdate();
       void this.refreshSettings();
@@ -433,6 +458,8 @@ export class Controller {
 
     this.applyFilterRow(widget, info, view);
     widget.classList.toggle("tp-rearranged", isRearranged(view, this.filterOptions));
+    // A taller table scrolls inside its own box (the table box already has overflow: auto)
+    widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
     if (this.hoverWidget === widget) this.showTableControls(widget, info);
   }
 
@@ -550,7 +577,8 @@ export class Controller {
     const hit = this.enhancedWidgetOf(e.target);
     const widget = hit?.[0];
     // A middle click on a link opens it in a new tab
-    if (!widget || (e.target as Element).closest("a") || widget.scrollWidth <= widget.clientWidth) return;
+    const scrollsSideways = !!widget && widget.scrollWidth > widget.clientWidth;
+    if (!widget || (e.target as Element).closest("a") || (!scrollsSideways && !this.scrollsInside(widget))) return;
     e.preventDefault();
     e.stopPropagation();
     const win = this.doc.defaultView!;
@@ -576,7 +604,13 @@ export class Controller {
       const dy = Math.trunc(carry.y);
       carry = { x: carry.x - dx, y: carry.y - dy };
       if (dx) widget.scrollLeft += dx;
-      if (dy && page) page.scrollTop += dy;
+      if (dy) {
+        // A table scrolled inside its box takes the vertical movement first
+        const before = widget.scrollTop;
+        widget.scrollTop += dy;
+        const rest = dy - (widget.scrollTop - before);
+        if (rest && page) page.scrollTop += rest;
+      }
       frame = win.requestAnimationFrame(tick);
     };
     const move = (ev: MouseEvent) => {
@@ -686,7 +720,10 @@ export class Controller {
     // Remember a wide table's sideways scroll: the editor re-renders tables
     // after edits and when they scroll far out of view
     const scrolled = e.target instanceof HTMLElement ? this.infos.get(e.target) : undefined;
-    if (scrolled && e.target instanceof HTMLElement) this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
+    if (scrolled && e.target instanceof HTMLElement) {
+      this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
+      this.scrollTops.set(scrolled.key, e.target.scrollTop);
+    }
   };
 
   /**
@@ -719,8 +756,12 @@ export class Controller {
     const box = widget.getBoundingClientRect();
     const head = info.table.tHead;
     // A body cell under the header held at the top is out of view
-    const top = Math.max(view?.top ?? 0, head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity);
-    const bottom = view?.bottom ?? this.doc.defaultView!.innerHeight;
+    const top = Math.max(
+      view?.top ?? 0,
+      box.top,
+      head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity,
+    );
+    const bottom = Math.min(view?.bottom ?? this.doc.defaultView!.innerHeight, box.bottom);
     return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
   }
 
@@ -752,12 +793,20 @@ export class Controller {
       const info = this.infos.get(widget);
       const head = info?.table.tHead;
       if (!info || !head || renderedTable(widget) !== info.table) continue;
-      const viewTop = this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0;
+      // Held below the page top (with room for the toolbar), or, in a table
+      // scrolled inside its own box, at the top of that box
+      const pageTop = (this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0) + STICKY_GAP;
+      const boxTop = this.scrollsInside(widget) ? widget.getBoundingClientRect().top : -Infinity;
       const table = info.table.getBoundingClientRect();
-      const offset = Math.max(0, Math.min(viewTop + STICKY_GAP - table.top, table.height - head.offsetHeight));
+      const offset = Math.max(0, Math.min(Math.max(pageTop, boxTop) - table.top, table.height - head.offsetHeight));
       head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
       head.classList.toggle("tp-stuck", offset > 0);
     }
+  }
+
+  /** Whether a table is taller than its box (the maximum height setting) and scrolls inside it */
+  private scrollsInside(widget: HTMLElement): boolean {
+    return widget.scrollHeight > widget.clientHeight + 1;
   }
 
   private scrollParentOf(element: HTMLElement): HTMLElement | undefined {
@@ -1010,15 +1059,15 @@ export class Controller {
     return setCell(table, edit.row, edit.column, edit.value);
   }
 
-  /** Tab / Shift+Tab: save and move to the next / previous shown cell */
   /** A setting's value, falling back to its default when unset or not valid */
-  private async setting<K extends keyof typeof SETTINGS>(
-    name: K,
-  ): Promise<(typeof SETTINGS)[K]["values"][number]> {
-    const { path, values, default: fallback } = SETTINGS[name];
+  private async setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>> {
+    const { path, parse } = SETTINGS[name];
+    const fallback = SETTINGS[name].default as SettingValue<K>;
     try {
-      const value = await this.bridge.getConfig?.(path, fallback);
-      return (values as readonly unknown[]).includes(value) ? (value as (typeof values)[number]) : fallback;
+      const value = (parse as (v: unknown) => SettingValue<K> | undefined)(
+        await this.bridge.getConfig?.(path, fallback),
+      );
+      return value ?? fallback;
     } catch {
       return fallback;
     }
@@ -1113,6 +1162,7 @@ export class Controller {
     if (ref) await this.finishEditing(true, { widget: active.widget, ...ref });
   }
 
+  /** Tab / Shift+Tab: save and move to the next / previous shown cell */
   private async step(direction: 1 | -1): Promise<void> {
     const active = this.editor;
     const info = active && this.infos.get(active.widget);
@@ -1171,12 +1221,19 @@ export class Controller {
     if (rect.right > box.right) widget.scrollLeft += rect.right - box.right;
     else if (rect.left < box.left) widget.scrollLeft -= box.left - rect.left;
 
+    const head = this.infos.get(widget)?.table.tHead;
+    const headHeight = head && !head.contains(cell) ? head.offsetHeight : 0;
+    if (this.scrollsInside(widget)) {
+      rect = cell.getBoundingClientRect();
+      if (rect.top < box.top + headHeight) widget.scrollTop -= box.top + headHeight - rect.top;
+      else if (rect.bottom > box.bottom) widget.scrollTop += rect.bottom - box.bottom;
+    }
+
     const scroller = this.scrollParentOf(widget);
     if (!scroller) return;
     rect = cell.getBoundingClientRect();
     const view = scroller.getBoundingClientRect();
-    const head = this.infos.get(widget)?.table.tHead;
-    const top = view.top + (head && !head.contains(cell) ? STICKY_GAP + head.offsetHeight : 0);
+    const top = view.top + (headHeight ? STICKY_GAP + headHeight : 0);
     if (rect.top < top) scroller.scrollTop -= top - rect.top;
     else if (rect.bottom > view.bottom) scroller.scrollTop += rect.bottom - view.bottom;
   }
@@ -1212,6 +1269,7 @@ export class Controller {
       if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
       if (focus) this.pendingFocus = { key: info.key, ...focus, until: Date.now() + 3000 };
       this.scrollLefts.set(info.key, widget.scrollLeft);
+      this.scrollTops.set(info.key, widget.scrollTop);
       const edit = minimalEdit(range.text, markdown);
       const marker = await this.placeHistoryMarker(text, range.from, range.to);
       await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
@@ -1409,7 +1467,8 @@ export class Controller {
     this.place(bar, rect.right - bar.offsetWidth - (fits ? 0 : 6), top);
 
     this.addRow.classList.add("tp-visible");
-    this.place(this.addRow, this.shownRect(widget, info).left, tableRect.bottom + 4);
+    const inView = this.shownRect(widget, info);
+    this.place(this.addRow, inView.left, inView.bottom + 4);
     this.addColumn.classList.add("tp-visible");
     this.place(
       this.addColumn,
@@ -1446,10 +1505,18 @@ export class Controller {
   }
 
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
-  private shownRect(widget: HTMLElement, info: WidgetInfo): { left: number; right: number } {
+  private shownRect(
+    widget: HTMLElement,
+    info: WidgetInfo,
+  ): { left: number; right: number; top: number; bottom: number } {
     const box = widget.getBoundingClientRect();
     const table = info.table.getBoundingClientRect();
-    return { left: Math.max(box.left, table.left), right: Math.min(box.right, table.right) };
+    return {
+      left: Math.max(box.left, table.left),
+      right: Math.min(box.right, table.right),
+      top: Math.max(box.top, table.top),
+      bottom: Math.min(box.bottom, table.bottom),
+    };
   }
 
   // ---- grips: click opens a menu, drag moves -----------------------------

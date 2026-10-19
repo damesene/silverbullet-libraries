@@ -333,6 +333,19 @@ describe("Controller", () => {
     expect(await filterRows({ "tablePlus.smartFilters": false })).toEqual([]);
   });
 
+  it("limits the table height with the maxHeight setting", async () => {
+    await setup(PAGE, { "tablePlus.maxHeight": 300 });
+    await flush();
+    await controller.scan();
+    const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
+    expect(widget.style.maxHeight).toBe("300px");
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(PAGE, { "tablePlus.maxHeight": "nonsense" });
+    await flush();
+    expect(editor.querySelector<HTMLElement>(".sb-table-widget")!.style.maxHeight).toBe("");
+  });
+
   it("sorts numbers numerically", async () => {
     await setup(PAGE);
     clickOn(cell(0, 1).querySelector(".tp-sort")!);
