@@ -157,7 +157,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 
 A column can have a fixed name, by which formulas and the stored sorting name it whatever its header says: renaming the header (also in the markdown) breaks nothing, nor references to the column from other pages. Click *Fixed name* in the column's menu and type it (letters, digits and `_`); an empty name removes it.
 
-* It is stored in the header cell as a hidden `<meta n="price">`: `| Unit price <meta n="price"> |`. SilverBullet does not show it, and a query still reads the column as `unit_price`.
+* It is stored in the header cell as a hidden `<meta n="price">`: `| Unit price <meta n="price"> |`. SilverBullet does not show it, and a query still reads the column as `unit_price`. The header has a mark in its corner; hover it for the name.
 * `[price]` is the column with that fixed name before any column whose header is Price, which is then `[price:2]`.
 * Setting or removing it rewrites the references to the column on the page: `[unit_price]` becomes `[price]`.
 * Editing the header changes only its name: the fixed name stays. It needs the *Store table metadata* setting, as formulas do; *Remove metadata* removes it.
@@ -411,6 +411,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | Module | When on |
 |---|---|
 | `formulas` | Formulas can be typed into cells, with their help and references; *Recalculate* in the toolbar. Off: a typed formula is saved as text. Formulas already in a table keep their results and are still recalculated when Table Plus edits the table, so their references stay right. See [[#Formulas]]. |
+| `names` | Tables, columns, rows and cells can be named: *Name* in a table's toolbar, *Fixed name* in the column menu, *Name row* and *Name cell* in the row menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them. See [[#Table names]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
 | `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
@@ -566,7 +567,19 @@ config.define("tablePlus", {
               type = "boolean",
               default = true,
               description = "Formulas in cells (=SUM(B1:B3)): typing them, their help and references, and Recalculate. Off: a typed formula is saved as text; formulas already in a table keep their results and are still recalculated when Table Plus edits the table.",
-              ui = { category = "Table Plus: Modules", label = "Formulas", priority = 8 },
+              ui = { category = "Table Plus: Modules", label = "Formulas", priority = 9 },
+            },
+          },
+        },
+        names = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Naming tables (Name in the toolbar), columns (Fixed name), rows and cells (Name row, Name cell in the row menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
+              ui = { category = "Table Plus: Modules", label = "Names", priority = 8 },
             },
           },
         },

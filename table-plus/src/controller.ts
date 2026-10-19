@@ -336,8 +336,9 @@ export class Controller implements TableHost {
       optional("formulas", () => new Formulas(this)),
       // After formulas: a formula's result is shown in its column's type
       optional("columnTypes", () => new ColumnTypes(this)),
+      // Before metadata: Name before Remove metadata in the toolbar
+      optional("names", () => new Names(this)),
       always(() => this.metadata),
-      always(() => new Names(this)),
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
       always(() => (this.expressions = new Expressions(this))),

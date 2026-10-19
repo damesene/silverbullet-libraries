@@ -36,6 +36,7 @@ type Setting<T> = {
  */
 export const FEATURE_NAMES = [
   "formulas",
+  "names",
   "columnTypes",
   "selection",
   "paste",

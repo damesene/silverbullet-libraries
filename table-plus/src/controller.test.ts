@@ -32,6 +32,27 @@ describe("Controller", () => {
     expect(cell(1, 1).textContent).toBe("✅");
   });
 
+  it("leaves out naming with the names module off, the names still working in formulas", async () => {
+    const NAMED = '| Price <meta n="price"> | Total |\n|---|---|\n| 2 | 0.5 <meta n="vat"> |\n| 3 | 4.5 <meta f="=[@price]*(1+vat)"> |\n| <meta name="prices"> |\n';
+    await setup(NAMED, { "tablePlus.metadata": true, "tablePlus.editor.enterKey": "save", "tablePlus.modules.names.enabled": false });
+    expect(document.querySelector(".tp-named")).toBeNull();
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(Array.from(document.querySelectorAll(".tp-bar button")).some((b) => b.textContent!.startsWith("Name"))).toBe(false);
+    // The named cell keeps its name when edited, and the formula using it follows
+    clickOn(cell(1, 1));
+    editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "1";
+    key(editor.querySelector(".tp-cell-editor")!, "Enter");
+    await flush();
+    expect(text).toContain('| 2 | 1 <meta n="vat"> |\n| 3 | 6 <meta f="=[@price]*(1+vat)"> |');
+    // On: the fixed name's mark in the header, and the named cell's
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(NAMED, { "tablePlus.metadata": true });
+    expect(cell(0, 0).classList.contains("tp-named")).toBe(true);
+    expect(cell(0, 0).title).toBe("Fixed name: price");
+    expect(cell(1, 1).classList.contains("tp-named")).toBe(true);
+  });
+
   it("sorts and restores the order without touching the markdown", async () => {
     await setup(PAGE);
     const sort = cell(0, 0).querySelector(".tp-sort")!;

@@ -1,4 +1,6 @@
-// Names kept in cells (names.ts): a column's fixed name, set in the column's
+// Names: a table's name, in its metadata row and set from its toolbar, by
+// which formulas in other tables refer to it. And names kept in cells
+// (names.ts): a column's fixed name, set in the column's
 // menu. Formulas and the stored sorting name the column by it, so renaming the
 // header (also in the markdown) does not break them, nor references from
 // other pages. Setting or removing it rewrites the references to the column on
@@ -8,10 +10,11 @@
 // also set in its menu: pear[price] is the row's Price cell, wherever the row
 // is moved or sorted.
 import { columnIdOf, columnKey } from "../columns.ts";
-import type { Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { FUNCTIONS } from "../formula/functions/index.ts";
 import { ICONS } from "../icons.ts";
 import { findTables, locateBySource, parseTable } from "../markdown.ts";
+import { metaName, sameTableName, tableNameProblem, withMetaName } from "../meta.ts";
 import type { MenuEntry } from "../menu.ts";
 import { namedRows, nameOf, nameProblem, rowNameIn, withName, withRowName } from "../names.ts";
 import { setCell } from "../ops.ts";
@@ -22,6 +25,14 @@ export class Names implements Feature {
   /** Named cells show a mark in their corner, and their name on hover */
   decorate(_widget: HTMLElement, info: WidgetInfo): void {
     const model = parseTable(info.source);
+    // A column's fixed name: the same mark in its header
+    model.rows[0]?.cells.forEach((raw, column) => {
+      const name = nameOf(raw);
+      const cell = info.table.rows[0]?.cells[column];
+      if (!name || !cell) return;
+      cell.classList.add("tp-named");
+      cell.title = cell.title ? `${cell.title}\nFixed name: ${name}` : `Fixed name: ${name}`;
+    });
     for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
       const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
       cells.forEach((raw, column) => {
@@ -39,6 +50,58 @@ export class Names implements Feature {
         first.title = first.title ? `${first.title}\nRow name: ${row}` : `Row name: ${row}`;
       }
     }
+  }
+
+  /** "Name" in the toolbar: the table's name */
+  toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+    const name = metaName(parseTable(info.source));
+    // A name is metadata: with the setting off, only a table with a metadata row can get one
+    if (!info.metaRow && !this.host.metadataEnabled) return [];
+    return [
+      {
+        label: name ? `Name: ${name}` : "Name",
+        title: name
+          ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`
+          : "Name this table, so formulas in other tables can refer to it (name!A1)",
+        run: () => void this.renameTable(widget, info),
+      },
+    ];
+  }
+
+  /**
+   * Names, renames or (with an empty name) unnames a table, asking for the
+   * name; refused when it is not a valid name or another table on the page has it
+   */
+  private async renameTable(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
+    const shown = parseTable(shownInfo.source);
+    const answer = await this.host.promptText("Table name (letters, digits and _; empty: no name)", metaName(shown) ?? "");
+    if (answer === undefined) return;
+    const name = answer.trim();
+    // Against the name as stored, so an empty answer also clears a name that is not valid
+    if (name === (shown.meta?.name?.trim() ?? "")) return;
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    const info = this.host.infoOf(widget) ?? shownInfo;
+    const problem = name === "" ? undefined : tableNameProblem(name);
+    if (problem) {
+      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
+      return;
+    }
+    if (name !== "") {
+      const text = await this.host.bridge.getText();
+      // This table where it is now: its position may have moved since it was rendered
+      const self = locateBySource(text, info.hint, info.source);
+      const taken = findTables(text).some((range) => {
+        if (range.from === self?.from) return false;
+        const other = metaName(parseTable(range.text));
+        return other !== undefined && sameTableName(other, name);
+      });
+      if (taken) {
+        void this.host.bridge.flash(`Table Plus: another table on this page is named ${name}`, "error");
+        return;
+      }
+    }
+    await this.host.write(widget, (t) => withMetaName(t, name === "" ? undefined : name));
+    this.host.focusEditor(widget);
   }
 
   /** "Name row" and "Name cell" in a row's menu, the cell being the one in `column` */

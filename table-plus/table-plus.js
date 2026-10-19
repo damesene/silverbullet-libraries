@@ -5239,56 +5239,14 @@ var Metadata = class {
   host;
   toolbarButtons(widget, info) {
     const table = parseTable(info.source);
-    const name = metaName(table);
-    const naming = info.metaRow || this.host.metadataEnabled ? [
-      {
-        label: name ? `Name: ${name}` : "Name",
-        title: name ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it` : "Name this table, so formulas in other tables can refer to it (name!A1)",
-        run: () => void this.rename(widget, info)
-      }
-    ] : [];
-    if (!info.metaRow && formulaCount(table) === 0 && !hasNames(table)) return naming;
+    if (!info.metaRow && formulaCount(table) === 0 && !hasNames(table)) return [];
     return [
-      ...naming,
       {
         label: "Remove metadata",
         title: "Remove this table's <meta> tags: its stored settings (sorting, pinning, name), the formulas of its cells, which keep their results, and the names of its columns and cells",
         run: () => void this.removeFromTable(widget, info)
       }
     ];
-  }
-  /**
-   * Names, renames or (with an empty name) unnames a table, asking for the
-   * name; refused when it is not a valid name or another table on the page has it
-   */
-  async rename(shownWidget, shownInfo) {
-    const shown = parseTable(shownInfo.source);
-    const answer = await this.host.promptText("Table name (letters, digits and _; empty: no name)", metaName(shown) ?? "");
-    if (answer === void 0) return;
-    const name = answer.trim();
-    if (name === (shown.meta?.name?.trim() ?? "")) return;
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    const info = this.host.infoOf(widget) ?? shownInfo;
-    const problem = name === "" ? void 0 : tableNameProblem(name);
-    if (problem) {
-      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
-      return;
-    }
-    if (name !== "") {
-      const text = await this.host.bridge.getText();
-      const self = locateBySource(text, info.hint, info.source);
-      const taken = findTables(text).some((range) => {
-        if (range.from === self?.from) return false;
-        const other = metaName(parseTable(range.text));
-        return other !== void 0 && sameTableName(other, name);
-      });
-      if (taken) {
-        void this.host.bridge.flash(`Table Plus: another table on this page is named ${name}`, "error");
-        return;
-      }
-    }
-    await this.host.write(widget, (t) => withMetaName(t, name === "" ? void 0 : name));
-    this.host.focusEditor(widget);
   }
   /**
    * Removes a table's metadata, once confirmed: its metadata row (a sorting
@@ -5350,6 +5308,14 @@ var Names = class {
   /** Named cells show a mark in their corner, and their name on hover */
   decorate(_widget, info) {
     const model = parseTable(info.source);
+    model.rows[0]?.cells.forEach((raw, column) => {
+      const name = nameOf(raw);
+      const cell = info.table.rows[0]?.cells[column];
+      if (!name || !cell) return;
+      cell.classList.add("tp-named");
+      cell.title = cell.title ? `${cell.title}
+Fixed name: ${name}` : `Fixed name: ${name}`;
+    });
     for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
       const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
       cells.forEach((raw, column) => {
@@ -5368,6 +5334,51 @@ Name: ${name}` : `Name: ${name}`;
 Row name: ${row}` : `Row name: ${row}`;
       }
     }
+  }
+  /** "Name" in the toolbar: the table's name */
+  toolbarButtons(widget, info) {
+    const name = metaName(parseTable(info.source));
+    if (!info.metaRow && !this.host.metadataEnabled) return [];
+    return [
+      {
+        label: name ? `Name: ${name}` : "Name",
+        title: name ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it` : "Name this table, so formulas in other tables can refer to it (name!A1)",
+        run: () => void this.renameTable(widget, info)
+      }
+    ];
+  }
+  /**
+   * Names, renames or (with an empty name) unnames a table, asking for the
+   * name; refused when it is not a valid name or another table on the page has it
+   */
+  async renameTable(shownWidget, shownInfo) {
+    const shown = parseTable(shownInfo.source);
+    const answer = await this.host.promptText("Table name (letters, digits and _; empty: no name)", metaName(shown) ?? "");
+    if (answer === void 0) return;
+    const name = answer.trim();
+    if (name === (shown.meta?.name?.trim() ?? "")) return;
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    const info = this.host.infoOf(widget) ?? shownInfo;
+    const problem = name === "" ? void 0 : tableNameProblem(name);
+    if (problem) {
+      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
+      return;
+    }
+    if (name !== "") {
+      const text = await this.host.bridge.getText();
+      const self = locateBySource(text, info.hint, info.source);
+      const taken = findTables(text).some((range) => {
+        if (range.from === self?.from) return false;
+        const other = metaName(parseTable(range.text));
+        return other !== void 0 && sameTableName(other, name);
+      });
+      if (taken) {
+        void this.host.bridge.flash(`Table Plus: another table on this page is named ${name}`, "error");
+        return;
+      }
+    }
+    await this.host.write(widget, (t) => withMetaName(t, name === "" ? void 0 : name));
+    this.host.focusEditor(widget);
   }
   /** "Name row" and "Name cell" in a row's menu, the cell being the one in `column` */
   rowMenuEntries(widget, info, row, column) {
@@ -6047,8 +6058,9 @@ var Controller = class {
       optional("formulas", () => new Formulas(this)),
       // After formulas: a formula's result is shown in its column's type
       optional("columnTypes", () => new ColumnTypes(this)),
+      // Before metadata: Name before Remove metadata in the toolbar
+      optional("names", () => new Names(this)),
       always(() => this.metadata),
-      always(() => new Names(this)),
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
       always(() => this.expressions = new Expressions(this)),
