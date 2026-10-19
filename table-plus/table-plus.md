@@ -11,7 +11,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 
 ## At a glance
 
-* **Edit a cell**: click it, type, press Enter. See [[#Editing cells]].
+* **Edit a cell**: click it and type (or click it again, or double-click it), press Enter. The *Edit mode* button (✎, left of ⋯ in the toolbar) edits on the first click. See [[#Editing cells]].
 * **Move between cells**: Tab / Shift+Tab, or Ctrl+arrows while editing; Ctrl+Alt+arrows move the row or column. See [[#Keyboard]].
 * **See the markdown**: hover the table and click *Edit markdown* in the toolbar's ⋯ menu, or Alt+click a cell. See [[#Showing the markdown]].
 * **Sort**: click ⇅ in a column header. See [[#Sorting]].
@@ -26,7 +26,9 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 
 ## Editing cells
 
-* Click a cell to edit it in place. Enter or clicking elsewhere saves, Esc cancels.
+* A click selects a cell, as in a spreadsheet: then **type** to replace its text, or click it again, double-click it, press **Enter** or **F2** to edit its text. **Backspace** empties it for typing. Arrows move to the cell beside.
+* **Edit mode** (the ✎ button in the table's toolbar, left of ⋯; off by default): a click edits the cell right away. This browser remembers the choice.
+* In the editor, Enter or clicking elsewhere saves; Esc cancels and leaves the cell selected (a second Esc ends that).
 * A click puts the cursor at the end of the cell's text; with the *Click selects the cell's text* setting it selects the whole text, to type over it, and so do Enter, Tab and Ctrl+arrows moving to the next cell. See [[#Settings]].
 * Shift+click selects cells, as in a spreadsheet: see [[#Copying cells]].
 * Links, tasks and buttons in cells work as before: clicking them does not start editing.
@@ -60,15 +62,16 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 
 ## Copying cells
 
-* Press on a cell and drag across others, the header included if you like: the cells in between are selected. A plain click still edits the cell.
+* Press on a cell and drag across others, the header included if you like: the cells in between are selected. A click selects one cell (in *Edit mode* it edits it, see [[#Editing cells]]).
 * **Shift+click** a cell: the cells from the one being edited (it is saved) to this one are selected; with cells selected already, from the first of them; else just this cell.
 * **Shift+arrows** (Ctrl+Shift+arrows too) move the selection's far corner by a cell; in a cell editor, Ctrl+Shift+arrows start a selection there.
-* With cells selected, **Ctrl+arrows** go to the cell beside, **Home / End** to the row's first / last cell, **Ctrl+Home / End** to the table's first / last cell, **PageUp / PageDown** 10 rows up / down (PageUp stops at the first row under the header). The selection is then that cell; with Shift it extends to it.
+* With cells selected, **arrows** (and Ctrl+arrows) go to the cell beside, **Home / End** to the row's first / last cell, **Ctrl+Home / End** to the table's first / last cell, **PageUp / PageDown** 10 rows up / down (PageUp stops at the first row under the header). The selection is then that cell; with Shift it extends to it.
 * **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows).
 * Cells copy what they show: a formula's result, a link's text.
 * The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
 * **Delete** empties the selected cells, formulas included, as one edit (Ctrl+Z brings them back). Header cells keep their names: a column needs one. Names of rows and cells stay with their cells.
 * **Delete whole rows or columns**: select them (click a row's or column's grip; for more, Shift+click a grip or *Select rows* in its menu, see [[#Rows and columns]]), then Delete: the first press empties them, a second deletes the rows (columns) once they are empty. A column is deleted only when it is empty in every row, also the rows a filter hides. *Delete N rows* and *Delete N columns* in the cell menu or the grip menu delete them right away.
+* Typing, Enter or F2 edits the first cell selected (see [[#Editing cells]]).
 * Esc or a click elsewhere ends the selection.
 * **Copy as CSV** in the ⋯ menu of the table's toolbar (the `export` module) copies the whole table as CSV (commas between cells, quotes where a cell needs them): its header and its rows as shown, sorted and filtered, cells as Ctrl+C copies them.
 
@@ -89,7 +92,7 @@ Each comes from a module (`names`, `selection`, `filters`, see [[#Settings]]): a
 
 ## Pasting from a spreadsheet
 
-Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table and paste:
+Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table (selected or edited) and paste:
 
 * **Ctrl+V** pastes them from that cell to the right and down, over the cells there. Where the table ends, rows and columns are added (before the rows and columns pinned to the bottom and right).
 * **Ctrl+Shift+V** overwrites nothing: the pasted rows are added as new rows at the cell's row (under the header when pasted there). Columns are added where the rows are wider than the table.
@@ -377,7 +380,7 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 
 On a phone or a tablet:
 
-* Tap a cell to edit it. The handles of its row and column show next to it: tap one for the row's or column's menu (insert rows and columns there), or drag it to move the row or column. A pen that hovers (such as the S Pen) also gets the **+** on the borders, as a mouse does.
+* Tap a cell to select it, tap it again to edit it (with *Edit mode* on, the first tap edits). The handles of its row and column show next to it: tap one for the row's or column's menu (insert rows and columns there), or drag it to move the row or column. A pen that hovers (such as the S Pen) also gets the **+** on the borders, as a mouse does.
 * The sort buttons in the header are always shown (there is no hover to show them on). The toolbar (the filter icon, the ⋯ menu) shows while a cell of the table is edited.
 * Swiping scrolls a wide table sideways and the page up and down, as usual.
 * Press and hold a cell for its menu (copy, clear, filter by its value, name it).
@@ -445,7 +448,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `pageLinks` | Formulas can refer to tables and named cells on other pages (`[[Prices]]fruit!B2`), which Table Plus reads for them. Off: it reads no other page; formulas that refer to one keep the results they have (the formulas using them too), a new one shows `#REF!`. It needs the `formulas` module. See [[#Tables on other pages]]. |
 | `filters` | Rows can be filtered: the toolbar's filter icon shows a filter field under each header, *Filter* in a column menu opens that column's filter, *Filter: = value* in the cell menu filters by a cell's value; with *Store table metadata* the filters are stored in the table. Its setting `smart` (default `true`): fields understand `>10`, `/pattern/`, `=text`, `a\|b` and `!filter`; `false`: everything typed is text to find. Off: no filtering; filters stored in a table are kept but not used. See [[#Filtering]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
-| `selection` | Dragging across cells, Shift+click and Shift+arrows select them; Ctrl+C copies them, Delete empties them (whole rows or columns already empty: deletes them); *Copy*, *Clear* and *Delete N rows / columns* in the cell menu. Off: Shift+click opens the cell as Shift+Enter does. |
+| `selection` | Dragging across cells, Shift+click and Shift+arrows select them; Ctrl+C copies them, Delete empties them (whole rows or columns already empty: deletes them); *Copy*, *Clear* and *Delete N rows / columns* in the cell menu. A click selects a cell, a second one edits it; the toolbar's *Edit mode* button edits on the first click. Off: a click always edits; Shift+click opens the cell as Shift+Enter does. |
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
@@ -654,7 +657,7 @@ config.define("tablePlus", {
             enabled = {
               type = "boolean",
               default = true,
-              description = "Dragging across cells, Shift+click and Shift+arrows select them; Ctrl+C copies them for a spreadsheet, Delete empties them.",
+              description = "A click selects a cell (a second click edits it; the Edit mode button in the toolbar edits on the first click); dragging, Shift+click and Shift+arrows select more; Ctrl+C copies them for a spreadsheet, Delete empties them. Off: a click edits.",
               ui = { category = "Table Plus: Modules", label = "Cell selection", priority = 7 },
             },
           },

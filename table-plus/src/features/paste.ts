@@ -1,5 +1,6 @@
 // Pasting cells copied from a spreadsheet into a table, from the cell being
-// edited: over the cells there (Ctrl+V) or as new rows (Ctrl+Shift+V). Reading
+// edited (or selected: its editor opens for the paste): over the cells there
+// (Ctrl+V) or as new rows (Ctrl+Shift+V). Reading
 // the clipboard and planning the paste is paste.ts; this is the editor's side.
 import type { CellEditor, Feature, TableHost } from "../core/feature.ts";
 import { parseTable } from "../markdown.ts";
@@ -17,12 +18,14 @@ export class Paste implements Feature {
 
   constructor(private readonly host: TableHost) {}
 
+  // The paste event does not tell Shift; the key may come before the editor opens (Ctrl+V on a selected cell)
+  keyDown(e: KeyboardEvent): boolean {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.inserts = e.shiftKey;
+    return false;
+  }
+
   editorOpened(editor: CellEditor): void {
     const field = editor.field;
-    field.addEventListener("keydown", (e) => {
-      // The paste event does not tell Shift
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.inserts = e.shiftKey;
-    });
     // Cells copied from a spreadsheet go into the table; a single value into the field
     field.addEventListener("paste", (e) => {
       const insert = this.inserts;

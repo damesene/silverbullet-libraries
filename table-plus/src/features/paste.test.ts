@@ -26,6 +26,21 @@ describe("Pasting from a spreadsheet", () => {
     expect(flashes).toEqual(["Table Plus: pasted 2 × 2 cells"]);
   });
 
+  it("pastes from a selected cell (select mode): its editor opens for the paste", async () => {
+    localStorage.removeItem("tablePlus.editMode");
+    await setup(TOTAL);
+    clickOn(cell(1, 0));
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+    const down = new KeyboardEvent("keydown", { key: "v", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
+    editor.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(false);
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: { getData: () => "Fig\t2" } });
+    field().dispatchEvent(event);
+    await flush();
+    expect(text).toBe("| Name | Qty |\n|---|---|\n| Fig | 2 |\n| Pear | 3 |\n| Apple | 10 |\n| Total | |\n");
+  });
+
   it("pastes as new rows with Ctrl+Shift+V", async () => {
     await setup(TOTAL);
     clickOn(cell(2, 0));

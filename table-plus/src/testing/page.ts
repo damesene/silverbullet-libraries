@@ -116,6 +116,8 @@ export function useTablePage(): void {
   beforeEach(() => {
     document.body.replaceChildren();
     delete (globalThis as Record<string, unknown>).__tablePlus;
+    // Most tests edit with a click: edit mode (select mode is the default in a browser that kept nothing)
+    localStorage.setItem("tablePlus.editMode", "on");
   });
   afterEach(() => {
     controller?.stop();

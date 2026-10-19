@@ -367,6 +367,13 @@ export class Controller implements TableHost {
     for (const feature of this.features) feature.selectCells?.(info, anchor, focus);
   }
 
+  editCell(info: WidgetInfo, ref: CellRef, how?: "replace" | "select"): void {
+    const widget = this.widgetForKey(info.key);
+    const current = widget && this.infos.get(widget);
+    const cell = current && this.cellAt(current, ref);
+    if (widget && current && cell) this.cellEditor.open(widget, current, cell, how === "select" ? true : undefined, how === "replace");
+  }
+
   selectsCells(): boolean {
     return this.features.some((f) => f.selectCells);
   }

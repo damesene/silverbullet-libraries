@@ -156,6 +156,12 @@ export interface TableHost {
   otherPages(): OtherPages | undefined;
   /** Selects cells, where a feature selects (Feature.selectCells) */
   selectCells(info: WidgetInfo, anchor: CellRef, focus: CellRef): void;
+  /**
+   * Edits a cell of a table shown (a selected cell, from the keyboard), its
+   * text as the setting says; "replace": the field starts empty, so what is
+   * typed replaces the text; "select": the text selected (a paste replaces it)
+   */
+  editCell(info: WidgetInfo, ref: CellRef, how?: "replace" | "select"): void;
   /** Whether a feature selects cells (Feature.selectCells) */
   selectsCells(): boolean;
   /** The cells selected in a table, if a feature selects (Feature.selected) */

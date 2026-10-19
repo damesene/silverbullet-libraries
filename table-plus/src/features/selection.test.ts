@@ -99,15 +99,82 @@ describe("Selecting cells", () => {
     expect(marked()).toEqual([cell(13, 2)]);
     key(editor, "Home", { ctrlKey: true, shiftKey: true });
     expect(marked().length).toBe(14 * 3);
-    // Plain arrows stay with SilverBullet's editor; Ctrl+arrows move the cell, with Shift extend
+    // Arrows (with Ctrl too) move the cell, with Shift extend
     key(editor, "ArrowDown");
-    expect(marked().length).toBe(14 * 3);
-    key(editor, "ArrowDown", { ctrlKey: true });
     expect(marked()).toEqual([cell(1, 0)]);
-    key(editor, "ArrowRight", { ctrlKey: true });
-    expect(marked()).toEqual([cell(1, 1)]);
+    key(editor, "ArrowDown", { ctrlKey: true });
+    expect(marked()).toEqual([cell(2, 0)]);
+    key(editor, "ArrowRight");
+    expect(marked()).toEqual([cell(2, 1)]);
     key(editor, "ArrowDown", { ctrlKey: true, shiftKey: true });
-    expect(marked()).toEqual([cell(1, 1), cell(2, 1)]);
+    expect(marked()).toEqual([cell(2, 1), cell(3, 1)]);
+  });
+
+  describe("select mode (Edit mode off, the default)", () => {
+    const field = () => editor.querySelector<HTMLInputElement>(".tp-cell-editor");
+    const marked = () => Array.from(editor.querySelectorAll(".tp-selected"));
+
+    it("selects a cell with a click and edits it with a second click", async () => {
+      localStorage.removeItem("tablePlus.editMode");
+      await setup(PAGE);
+      clickOn(cell(1, 1));
+      expect(field()).toBeNull();
+      expect(marked()).toEqual([cell(1, 1)]);
+      // Another cell: selected instead
+      clickOn(cell(2, 1));
+      expect(marked()).toEqual([cell(2, 1)]);
+      // Pressed and dragged on: the cells between
+      press(cell(2, 0), "mousedown");
+      cell(3, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true, buttons: 1 }));
+      press(cell(3, 1), "mouseup");
+      expect(marked().length).toBe(4);
+      // The cell selected alone, clicked again (a double click does that too): edited
+      clickOn(cell(2, 1));
+      clickOn(cell(2, 1));
+      expect(field()!.value).toBe("10");
+      expect(marked()).toEqual([]);
+    });
+
+    it("edits the cell selected when typing, its text replaced; Enter and F2 edit it as it is", async () => {
+      localStorage.removeItem("tablePlus.editMode");
+      await setup(PAGE);
+      clickOn(cell(1, 1));
+      // The key goes on into the field (the browser types it there)
+      const typed = new KeyboardEvent("keydown", { key: "7", bubbles: true, cancelable: true });
+      editor.dispatchEvent(typed);
+      expect(typed.defaultPrevented).toBe(false);
+      expect(field()!.value).toBe("");
+      field()!.value = "7";
+      key(field()!, "Enter");
+      await flush();
+      expect(text).toBe(PAGE.replace("| Pear | 3 |", "| Pear | 7 |"));
+      await controller.scan();
+      key(field()!, "Escape"); // Enter moved on to the cell below: dropped, it stays selected
+      await flush();
+      expect(marked()).toEqual([cell(2, 1)]);
+      key(editor, "F2");
+      expect(field()!.value).toBe("10");
+      key(field()!, "Escape");
+      await flush();
+      key(editor, "Backspace");
+      expect(field()!.value).toBe("");
+      key(field()!, "Escape");
+      await flush();
+      expect(text).toBe(PAGE.replace("| Pear | 3 |", "| Pear | 7 |"));
+    });
+
+    it("switches to edit mode with the toolbar's Edit mode button, kept in this browser", async () => {
+      localStorage.removeItem("tablePlus.editMode");
+      await setup(PAGE);
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      const toggle = () => document.querySelector<HTMLElement>('.tp-bar button[aria-label="Edit mode"]')!;
+      expect(toggle().getAttribute("aria-pressed")).toBe("false");
+      toggle().click();
+      expect(toggle().getAttribute("aria-pressed")).toBe("true");
+      expect(localStorage.getItem("tablePlus.editMode")).toBe("on");
+      clickOn(cell(1, 1));
+      expect(field()!.value).toBe("3");
+    });
   });
 
   it("leaves a click on a cell to the cell editor", async () => {

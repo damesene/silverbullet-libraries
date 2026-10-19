@@ -84,6 +84,8 @@ export class CellEditing {
     cell: HTMLTableCellElement,
     // Opened with the keyboard (or after a write): as the setting says
     select = this.selectOnClick,
+    // Typing on a selected cell: the field starts empty, what is typed replaces the text
+    replace = false,
   ): void {
     const ref = this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
@@ -116,6 +118,7 @@ export class CellEditing {
     cell.classList.add("tp-editing");
     cell.append(field);
     this.editor = { widget, cell, ...ref, original, initial: field.value, field, kept, cellStyle };
+    if (replace) field.value = "";
     this.reveal(widget, cell);
     this.context.endHover();
 

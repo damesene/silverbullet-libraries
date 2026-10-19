@@ -1,10 +1,13 @@
 // Selecting cells by dragging across them, Shift+click (from the cell edited or
 // the selection's first cell) and Shift+arrows (or whole rows and columns with
-// their grips), to copy them for a spreadsheet (Ctrl+C) or
+// their grips); in select mode (the table menu's Edit mode off) a click selects
+// a cell and a second click edits it. Typing on a selected cell edits it, its
+// text replaced; Enter or F2 edit it, arrows move it. Cells selected are copied
+// for a spreadsheet (Ctrl+C) or
 // empty them (Delete); whole rows or columns already empty, Delete deletes
 // them. Copy, Clear and Delete rows / columns in the menu of a cell or of the
 // cells selected.
-import type { CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import type { CellMenuGroup, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { cellValue } from "../dom.ts";
 import { PAGE_ROWS } from "../core/editor.ts";
 import { deleteColumnsAt, deleteRowsAt } from "../core/structure.ts";
@@ -27,7 +30,26 @@ export function clipboardHtml(values: readonly (readonly string[])[]): string {
   return `<table>${rows}</table>`;
 }
 
-// What Shift+arrows move the selection's last cell by: rows (as shown), columns
+const EDIT_MODE_KEY = "tablePlus.editMode";
+
+/** Edit mode as this browser keeps it (off: select mode, the default) */
+function readEditMode(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(EDIT_MODE_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+function writeEditMode(on: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(EDIT_MODE_KEY, on ? "on" : "off");
+  } catch {
+    // Not kept: it stays for this page
+  }
+}
+
+// What arrows move the selection's last cell by: rows (as shown), columns
 const STEPS: Readonly<Record<string, readonly [number, number]>> = {
   ArrowUp: [-1, 0],
   ArrowDown: [1, 0],
@@ -39,8 +61,10 @@ export class Selection implements Feature {
   // The cells selected (rows of the markdown, header 0), in the table with this key
   private selection: { readonly key: string; readonly anchor: CellRef; focus: CellRef } | undefined;
   private stopSelecting: (() => void) | undefined;
-  // The selection a Shift+press goes on from: the press itself ends it first
-  private extending: { readonly key: string; readonly anchor: CellRef } | undefined;
+  // The selection when a press came: the press itself ends it first
+  private pressed: { readonly key: string; readonly anchor: CellRef; readonly focus: CellRef } | undefined;
+  // Edit mode: a click edits a cell; off (select mode, the default) a click selects it. Kept in this browser.
+  private editMode = readEditMode();
 
   constructor(private readonly host: TableHost) {}
 
@@ -56,26 +80,50 @@ export class Selection implements Feature {
   // Any click ends a selection (one on Table Plus' own controls aside)
   beforeMouseDown(e: MouseEvent): void {
     const selection = this.selection;
-    this.extending = e.shiftKey && selection ? { key: selection.key, anchor: selection.anchor } : undefined;
+    this.pressed = selection && { ...selection };
     if (selection && !(e.target instanceof Node && this.host.isFloating(e.target))) this.clear();
   }
 
   /**
    * Shift+click on a cell selects the cells from the selection's first cell,
-   * else from the cell being edited (saved), else just this cell
+   * else from the cell being edited (saved), else just this cell. In select
+   * mode a click selects the cell (dragging on selects more); on the cell
+   * selected alone, it edits it (so does a double click).
    */
   beforeCellPress(_widget: HTMLElement, info: WidgetInfo, ref: CellRef, e: MouseEvent): boolean {
-    const extending = this.extending;
-    this.extending = undefined;
-    if (!e.shiftKey) return false;
+    const pressed = this.pressed?.key === info.key ? this.pressed : undefined;
+    this.pressed = undefined;
+    const same = (a: CellRef, b: CellRef) => a.row === b.row && a.column === b.column;
+    if (!e.shiftKey && (this.editMode || (pressed && same(pressed.anchor, ref) && same(pressed.focus, ref)))) return false;
     const editing = this.host.editing;
     const edited = editing && this.host.infoOf(editing.widget)?.key === info.key ? { row: editing.row, column: editing.column } : undefined;
-    const anchor = extending?.key === info.key ? extending.anchor : (edited ?? ref);
+    const anchor = !e.shiftKey ? ref : (pressed?.anchor ?? edited ?? ref);
     // A cell being edited is saved: the press selects now
     const taken = this.host.takeEditor();
     if (taken) void this.host.write(taken.widget, taken.save);
     this.selectCells(info, anchor, ref);
+    if (!e.shiftKey) this.afterCellPress(info, ref);
     return true;
+  }
+
+  /** Edit mode, a switch in the toolbar (left of its menu): a click edits a cell; off, a click selects it */
+  toolbarButtons(): ToolbarButton[] {
+    return [
+      {
+        label: "Edit mode",
+        title: this.editMode
+          ? "On: a click edits a cell. Click to select cells first, as in a spreadsheet"
+          : "Off: a click selects a cell; a second click, a double click, Enter or typing edits it. Click to edit on the first click",
+        icon: ICONS.editMode,
+        place: "icon",
+        pressed: this.editMode,
+        run: () => {
+          this.editMode = !this.editMode;
+          writeEditMode(this.editMode);
+          this.host.toolbarChanged();
+        },
+      },
+    ];
   }
 
   /**
@@ -125,6 +173,16 @@ export class Selection implements Feature {
     }
     // Delete empties the selected cells; in a field (a cell editor, a filter) it deletes text as usual
     const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    // Ctrl+V (Ctrl+Shift+V): pasted from the first cell selected, by its editor opened for it (the paste goes there)
+    if (!inField && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v") {
+      const at = this.selection.anchor;
+      const widget = this.host.widgetForKey(this.selection.key);
+      const info = widget && this.host.infoOf(widget);
+      this.clear();
+      if (info) this.host.editCell(info, at, "select");
+      return false;
+    }
+    if (!inField && this.editFromKey(e)) return true;
     // Keys that move the selection's last cell: Shift extends to it, else the selection is that cell
     const target = !inField && !e.altKey && !e.metaKey ? this.keyTarget(e) : undefined;
     if (target) {
@@ -162,8 +220,32 @@ export class Selection implements Feature {
   }
 
   /**
-   * Where a key takes the selection's last cell (rows as shown): Ctrl+arrows
-   * and Shift+arrows a cell, Home / End the row's first / last cell, Ctrl+Home
+   * Typing on the cells selected edits the first of them, its text replaced
+   * (the key goes on into the editor, so accents typed with dead keys work);
+   * Backspace empties it so; Enter and F2 edit it as it is
+   */
+  private editFromKey(e: KeyboardEvent): boolean {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!selection || !info || e.metaKey || e.isComposing) return false;
+    // AltGr comes as Ctrl+Alt: it types
+    const typing = (e.key.length === 1 || e.key === "Dead") && e.ctrlKey === e.altKey;
+    const plain = !e.ctrlKey && !e.altKey && !e.shiftKey;
+    const asIs = plain && (e.key === "Enter" || e.key === "F2");
+    const emptied = plain && e.key === "Backspace";
+    if (!typing && !asIs && !emptied) return false;
+    if (!typing) e.preventDefault();
+    e.stopPropagation();
+    const at = selection.anchor;
+    this.clear();
+    this.host.editCell(info, at, asIs ? undefined : "replace");
+    return true;
+  }
+
+  /**
+   * Where a key takes the selection's last cell (rows as shown): arrows (with
+   * Ctrl too) a cell, Home / End the row's first / last cell, Ctrl+Home
    * / End the table's first / last cell, PageUp / PageDown 10 rows (PageUp
    * stops at the first body row, as in the cell editor); undefined: not such a key
    */
@@ -181,8 +263,6 @@ export class Selection implements Feature {
     let column = selection.focus.column;
     const step = STEPS[e.key];
     if (step) {
-      // Plain arrows stay with SilverBullet's editor
-      if (!e.shiftKey && !ctrl) return undefined;
       r += step[0];
       column += step[1];
     } else if (e.key === "Home") {
