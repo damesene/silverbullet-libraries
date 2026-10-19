@@ -19,6 +19,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Add, move or delete rows and columns**: click the ⠿ grip next to a row or above a column. See [[#Rows and columns]].
 * **Copy or empty cells**: drag across cells to select them; Ctrl+C copies them for Excel or Google Sheets, Delete empties them. See [[#Copying cells]].
 * **Paste from a spreadsheet**: copy cells in Excel or Google Sheets, click a cell, Ctrl+V; Ctrl+Shift+V adds them as new rows. See [[#Pasting from a spreadsheet]].
+* **Column types**: `| Price #currency |` shows `12.99` as `€12.99`, `#stars` a rating as stars, `#check` yes / no as ✅ / ❌. See [[#Column types]].
 * **Formulas**: type `=SUM(B1:B3)` or `=SUM([qty])` into a cell; the result is written into the markdown. See [[#Formulas]].
 * **Pin rows and columns** to the edges, where they stay in view (needs *Store table metadata*). See [[#Pinning]].
 * **Change how Enter or filters work**: *Configuration: Open*, category *Table Plus*. See [[#Settings]].
@@ -191,6 +192,40 @@ In ranges, empty cells and text that is not a number are skipped by the number f
 | `#NUM!` | A result that is not a finite number |
 | `#CYCLE!` | The formula depends on its own result |
 | `#ERROR!` | The formula cannot be read (e.g. a missing `)`) |
+
+## Column types
+
+A hashtag in a column's header gives the column a type, which changes how its cells show:
+
+```
+| Item | Price #currency-usd | Rating #stars | Done #check |
+| ---- | ------------------- | ------------- | ----------- |
+| Pear | 12.99               | 4             | yes         |
+```
+
+shows `$12.99`, `★★★★☆` and `✅`.
+
+* The markdown keeps the value as written: the type only changes what the cell shows. The cell editor shows the value. Sorting, filters and copying (Ctrl+C) use the value too, so a rating sorts by its number.
+* The type's hashtag is hidden in the header. SilverBullet leaves hashtags out of a column's key, so a query still reads `Price #currency-usd` as `price`, and the hashtag tags neither the rows nor the page.
+* A parameter goes after a dash: `#currency-usd`, `#number-2`, `#stars-10`. A hashtag that is not a type (or a type with a parameter it does not take) is an ordinary hashtag.
+* A cell whose value is not one of the type shows as written, in red; hover it to see why. Empty cells are left alone.
+* A formula's result is shown in its column's type, e.g. `=SUM([price])` as an amount of money.
+* The hashtags of MdTableRender also work for these types: `#euro`, `#usd`, `#int`, `#float`, `#kg`, `#km`, `#watt`, `#logical`, `#evaluation`, `#gauge`.
+
+| Type | Shows |
+|---|---|
+| `#currency, #currency-usd` | An amount of money: the currency's three-letter code after the dash (default EUR). |
+| `#number, #number-2` | A number with thousands separators: the decimal places after the dash (default: as written). |
+| `#percent, #percent-1` | A fraction as a percentage, 0.15 is 15 % (15 % stays 15 %): the decimal places after the dash (default 0). |
+| `#unit-kg` | A number with a unit: the unit after the dash. |
+| `#stars, #stars-10` | A rating as stars: a whole number from 0 to the most stars after the dash (default 5). |
+| `#check` | Yes or no as a check mark: yes, true, 1, x or ✅ shows ✅; no, false, 0 or ❌ shows ❌. |
+| `#date, #date-long` | A date written as 2025-11-06 (with a time: 2025-11-06 14:30), shown as the locale writes it: short, medium (default) or long after the dash. |
+| `#trend` | A trend as an arrow: + shows 🔼, - shows 🔽, = shows ➡️. |
+| `#progress, #progress-10` | Progress as a bar: a number from 0 to the maximum after the dash (default 100). |
+| `#link` | A web address as a link, shown without its https://. |
+
+Numbers and dates are written as your browser's language writes them.
 
 ## Rows and columns
 
