@@ -129,7 +129,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * Saving a formula fixes mistakes that have only one possible fix, and says what it changed: missing `)` at the end are added (`=SUM(A1:A3` becomes `=SUM(A1:A3)`), a text in quotes or a `[column]` left open at the end is closed, and extra `)` at the very end are dropped. Anything else stays as typed and shows `#ERROR!`.
 * **Calculated columns**: when every row of a column holds the same formula, such as `=[@qty]*[@price]`, a new row (*+ Row*, Ctrl+Enter, Tab on the last cell, *Insert row*) gets it too. Total rows (with a formula over a whole column, such as `=SUM([qty])`) do not count.
 * Click the cell to edit its formula. Typing a plain value removes the formula. To type a text that starts with `=`, start it with `'=`; such a text opens with the `'` again, so it stays text.
-* Results are written whenever Table Plus edits the table, in the same edit (one Ctrl+Z undoes both). Viewing a table never changes it: when the table was changed outside Table Plus (by typing in the markdown), the toolbar shows *Recalculate*.
+* Results are written whenever Table Plus edits the table, in the same edit (one Ctrl+Z undoes both). Viewing a table never changes it. The toolbar of a table with formulas starts with *Recalculate* (the ↻ icon), which writes the current results; it is highlighted when some are out of date, e.g. after the table was changed outside Table Plus (by typing in the markdown).
 * A formula's result has a dotted underline; hover it to see its formula, or why it shows an error.
 * Numbers are read as for sorting (`12,99 €`, `1 000`, `15 %`). Results use a decimal comma when most numbers in the table do. A text that is not read as a number (e.g. `1,234.50`, with a thousands comma) is skipped by `SUM` and the other number functions.
 
@@ -169,7 +169,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * `DATEADD` adds seconds, minutes, hours, days, weeks, months or years: `=DATEADD([@start], 90, "min")`, `=DATEADD(A1, -1, "y")`. Months and years go by the calendar: a month after January 31 is February 28 (29 in a leap year).
 * `DATEDIF` counts whole units between two dates: `=DATEDIF([@born], TODAY(), "y")` is an age in years.
 * Dates and times are taken as written, with no time zone: an hour added across the change to summer time is an hour on the clock.
-* `TODAY()` and `NOW()` give the date (and time) when the table is calculated, and the result is written into the cell. It does not change by itself: when it is out of date, the toolbar shows *Recalculate*.
+* `TODAY()` and `NOW()` give the date (and time) when the table is calculated, and the result is written into the cell. It does not change by itself: when it is out of date, *Recalculate* in the toolbar is highlighted.
 
 ### Functions
 
@@ -707,6 +707,20 @@ body.tp-navigating .sb-table-widget.tp-table * {
 }
 .tp-bar button:hover,
 .tp-bar button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--ui-accent-color) 16%, transparent);
+}
+/* Icon buttons (Recalculate), first in the toolbar; highlighted when they ask to be used */
+.tp-bar button.tp-bar-icon {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 5px;
+}
+.tp-bar-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.tp-bar button.tp-attention {
+  color: var(--ui-accent-color);
   background: color-mix(in srgb, var(--ui-accent-color) 16%, transparent);
 }
 .tp-status {

@@ -7,6 +7,7 @@ import type {
   CellRef,
   Feature,
   TableHost,
+  ToolbarButton,
   WidgetInfo,
   WriteOptions,
   WriteResult,
@@ -1185,6 +1186,28 @@ export class Controller implements TableHost {
     const view = this.viewOf(info);
     const bar = this.bar;
     bar.replaceChildren();
+    // A button with its label, or (with an icon) the icon alone, the label its accessible name
+    const button = (item: ToolbarButton & { readonly pressed?: boolean }) => {
+      const b = this.doc.createElement("button");
+      b.type = "button";
+      b.tabIndex = -1;
+      b.title = item.title;
+      if (item.icon) {
+        b.className = "tp-bar-icon";
+        b.setAttribute("aria-label", item.label);
+        b.innerHTML = item.icon;
+      } else b.textContent = item.label;
+      if (item.attention) b.classList.add("tp-attention");
+      if (item.pressed !== undefined) b.setAttribute("aria-pressed", String(item.pressed));
+      b.addEventListener("click", (e) => {
+        e.preventDefault();
+        item.run();
+      });
+      bar.append(b);
+    };
+    const featureButtons = this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []);
+    // Icon buttons first, always in the same place
+    for (const item of featureButtons.filter((b) => b.icon)) button(item);
     if (view.sort) {
       // "Sorted by Name ↓ ×": the cross goes back to the order as written
       const { column, direction } = view.sort;
@@ -1227,34 +1250,23 @@ export class Controller implements TableHost {
       status.textContent = `${shown} of ${rows.length} rows`;
       bar.append(status);
     }
-    const button = (label: string, title: string, run: () => void, pressed?: boolean) => {
-      const b = this.doc.createElement("button");
-      b.type = "button";
-      b.tabIndex = -1;
-      b.textContent = label;
-      b.title = title;
-      if (pressed !== undefined) b.setAttribute("aria-pressed", String(pressed));
-      b.addEventListener("click", (e) => {
-        e.preventDefault();
-        run();
-      });
-      bar.append(b);
-    };
-    button(
-      "Filter",
-      "Show or hide the filter row",
-      () => {
+    button({
+      label: "Filter",
+      title: "Show or hide the filter row",
+      run: () => {
         // Hidden filters would hide rows without a visible reason, so hiding clears them
         const [w, i] = this.current(widget, info);
         const now = this.viewOf(i);
         this.setView(w, i, now.showFilters ? { ...now, filters: [], showFilters: false } : { ...now, showFilters: true });
       },
-      view.showFilters,
-    );
-    for (const feature of this.features) {
-      for (const item of feature.toolbarButtons?.(widget, info) ?? []) button(item.label, item.title, item.run);
-    }
-    button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(this.current(widget, info)[1]));
+      pressed: view.showFilters,
+    });
+    for (const item of featureButtons.filter((b) => !b.icon)) button(item);
+    button({
+      label: "Edit markdown",
+      title: "Show this table as markdown",
+      run: () => void this.showMarkdown(this.current(widget, info)[1]),
+    });
 
     const rect = widget.getBoundingClientRect();
     const tableRect = info.table.getBoundingClientRect();

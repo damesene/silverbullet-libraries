@@ -1140,6 +1140,8 @@ var ICONS = {
   clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   // Sorted lines with a check: make the sorting the real order
   applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
+  // Two arrows round: calculate again
+  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
   filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
   columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
   alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
@@ -3519,6 +3521,8 @@ var Formulas = class {
   stopPointing;
   // Tables whose formula cells show results from before a change made outside Table Plus
   stale = /* @__PURE__ */ new WeakSet();
+  // Tables (as rendered) with formulas: their toolbar can recalculate them
+  withFormulas = /* @__PURE__ */ new WeakSet();
   stop() {
     this.stopPointing?.();
     this.hideFormulaUi();
@@ -3596,6 +3600,7 @@ var Formulas = class {
   /** Formula cells show that they hold one, and their formula (or error) on hover */
   decorate(_widget, info) {
     const model = parseTable(info.source);
+    if (formulaCount(model) > 0) this.withFormulas.add(info.table);
     if (recalculate(model) !== model) this.stale.add(info.table);
     const errors = formulaErrors(model);
     for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
@@ -3612,12 +3617,16 @@ ${error}` : stored.formula;
       });
     }
   }
+  /** Recalculate, first in the toolbar of a table with formulas; highlighted when results are out of date */
   toolbarButtons(widget, info) {
-    if (!this.stale.has(info.table)) return [];
+    if (!this.withFormulas.has(info.table)) return [];
+    const stale = this.stale.has(info.table);
     return [
       {
         label: "Recalculate",
-        title: "Some formula results are out of date (the table was changed outside Table Plus): write the current results",
+        icon: ICONS.recalculate,
+        attention: stale,
+        title: stale ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, or TODAY() moved on)" : "Recalculate the formulas (their results are up to date)",
         // A write recalculates: an edit that changes nothing else
         run: () => void this.host.write(this.host.widgetForKey(info.key) ?? widget, (t) => t)
       }
@@ -6120,6 +6129,26 @@ var Controller = class {
     const view = this.viewOf(info);
     const bar = this.bar;
     bar.replaceChildren();
+    const button = (item) => {
+      const b = this.doc.createElement("button");
+      b.type = "button";
+      b.tabIndex = -1;
+      b.title = item.title;
+      if (item.icon) {
+        b.className = "tp-bar-icon";
+        b.setAttribute("aria-label", item.label);
+        b.innerHTML = item.icon;
+      } else b.textContent = item.label;
+      if (item.attention) b.classList.add("tp-attention");
+      if (item.pressed !== void 0) b.setAttribute("aria-pressed", String(item.pressed));
+      b.addEventListener("click", (e) => {
+        e.preventDefault();
+        item.run();
+      });
+      bar.append(b);
+    };
+    const featureButtons = this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []);
+    for (const item of featureButtons.filter((b) => b.icon)) button(item);
     if (view.sort) {
       const { column, direction } = view.sort;
       const name = cellText(info.table.rows[0].cells[column]) || `column ${column + 1}`;
@@ -6160,33 +6189,22 @@ var Controller = class {
       status.textContent = `${shown} of ${rows.length} rows`;
       bar.append(status);
     }
-    const button = (label, title, run, pressed) => {
-      const b = this.doc.createElement("button");
-      b.type = "button";
-      b.tabIndex = -1;
-      b.textContent = label;
-      b.title = title;
-      if (pressed !== void 0) b.setAttribute("aria-pressed", String(pressed));
-      b.addEventListener("click", (e) => {
-        e.preventDefault();
-        run();
-      });
-      bar.append(b);
-    };
-    button(
-      "Filter",
-      "Show or hide the filter row",
-      () => {
+    button({
+      label: "Filter",
+      title: "Show or hide the filter row",
+      run: () => {
         const [w, i] = this.current(widget, info);
         const now2 = this.viewOf(i);
         this.setView(w, i, now2.showFilters ? { ...now2, filters: [], showFilters: false } : { ...now2, showFilters: true });
       },
-      view.showFilters
-    );
-    for (const feature of this.features) {
-      for (const item of feature.toolbarButtons?.(widget, info) ?? []) button(item.label, item.title, item.run);
-    }
-    button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(this.current(widget, info)[1]));
+      pressed: view.showFilters
+    });
+    for (const item of featureButtons.filter((b) => !b.icon)) button(item);
+    button({
+      label: "Edit markdown",
+      title: "Show this table as markdown",
+      run: () => void this.showMarkdown(this.current(widget, info)[1])
+    });
     const rect = widget.getBoundingClientRect();
     const tableRect = info.table.getBoundingClientRect();
     const headerRect = info.table.rows[0].getBoundingClientRect();

@@ -120,17 +120,19 @@ describe("Formulas", () => {
     await setup(stale);
     // Viewing does not write
     expect(text).toBe(stale);
-    const buttons = () => Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button")).map((b) => b.textContent);
+    const recalc = () => document.querySelector<HTMLElement>('.tp-bar button[aria-label="Recalculate"]');
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    const recalc = Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button")).find(
-      (b) => b.textContent === "Recalculate",
-    )!;
-    recalc.click();
+    // An icon, first in the toolbar, highlighted while results are out of date
+    expect(document.querySelector(".tp-bar")!.firstElementChild).toBe(recalc());
+    expect(recalc()!.querySelector("svg")).not.toBeNull();
+    expect(recalc()!.classList.contains("tp-attention")).toBe(true);
+    recalc()!.click();
     await flush();
     await controller.scan();
     expect(text).toContain('| Total | 14 <meta f="=SUM([Qty])"> |');
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    expect(buttons()).not.toContain("Recalculate");
+    // Still there, no longer highlighted
+    expect(recalc()!.classList.contains("tp-attention")).toBe(false);
   });
 
   describe("with the metadata setting off", () => {

@@ -13,6 +13,7 @@ import {
   columnRefText,
   completeFunction,
   formulaCell,
+  formulaCount,
   formulaErrors,
   formulaHelp,
   formulaOf,
@@ -27,6 +28,7 @@ import {
   referenceSlot,
   withColumnKeys,
 } from "../formula/index.ts";
+import { ICONS } from "../icons.ts";
 import { escapeCell, parseTable, unescapeCell } from "../markdown.ts";
 
 // New formulas are stored in the table (a <meta f> tag), as other metadata
@@ -45,6 +47,8 @@ export class Formulas implements Feature {
   private stopPointing: (() => void) | undefined;
   // Tables whose formula cells show results from before a change made outside Table Plus
   private readonly stale = new WeakSet<HTMLTableElement>();
+  // Tables (as rendered) with formulas: their toolbar can recalculate them
+  private readonly withFormulas = new WeakSet<HTMLTableElement>();
 
   constructor(private readonly host: TableHost) {
     this.formulaHint = host.floating("div", "tp-formula-hint");
@@ -140,6 +144,7 @@ export class Formulas implements Feature {
   /** Formula cells show that they hold one, and their formula (or error) on hover */
   decorate(_widget: HTMLElement, info: WidgetInfo): void {
     const model = parseTable(info.source);
+    if (formulaCount(model) > 0) this.withFormulas.add(info.table);
     if (recalculate(model) !== model) this.stale.add(info.table);
     const errors = formulaErrors(model);
     for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
@@ -156,12 +161,18 @@ export class Formulas implements Feature {
     }
   }
 
+  /** Recalculate, first in the toolbar of a table with formulas; highlighted when results are out of date */
   toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
-    if (!this.stale.has(info.table)) return [];
+    if (!this.withFormulas.has(info.table)) return [];
+    const stale = this.stale.has(info.table);
     return [
       {
         label: "Recalculate",
-        title: "Some formula results are out of date (the table was changed outside Table Plus): write the current results",
+        icon: ICONS.recalculate,
+        attention: stale,
+        title: stale
+          ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, or TODAY() moved on)"
+          : "Recalculate the formulas (their results are up to date)",
         // A write recalculates: an edit that changes nothing else
         run: () => void this.host.write(this.host.widgetForKey(info.key) ?? widget, (t) => t),
       },

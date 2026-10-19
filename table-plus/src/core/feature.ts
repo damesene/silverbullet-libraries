@@ -45,7 +45,15 @@ export type CellEditor = {
 };
 
 /** A button a feature adds to a table's toolbar */
-export type ToolbarButton = { readonly label: string; readonly title: string; readonly run: () => void };
+export type ToolbarButton = {
+  readonly label: string;
+  readonly title: string;
+  readonly run: () => void;
+  // Shown as this icon alone (the label is its accessible name), first in the toolbar
+  readonly icon?: string;
+  // Asks to be used: highlighted
+  readonly attention?: boolean;
+};
 
 export type WriteOptions = {
   // The cell to edit once the table is rendered again
