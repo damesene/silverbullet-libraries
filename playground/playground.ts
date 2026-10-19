@@ -40,9 +40,15 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 }
 
+// <meta> tags (table metadata, formulas) render as HTML, which browsers do not show
 function inline(text: string): string {
-  const meta = /^<meta\b[^>]*>$/i.exec(text.trim());
-  if (meta) return text.trim();
+  return text
+    .split(/(<meta\b[^>]*>)/i)
+    .map((part, i) => (i % 2 === 1 ? part : markup(part)))
+    .join("");
+}
+
+function markup(text: string): string {
   return escapeHtml(text.replaceAll("\\|", "|"))
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\[\[([^\]]+)\]\]/g, '<a data-ref="$1">$1</a>')

@@ -122,43 +122,425 @@ function trimZeros(s) {
   return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
 }
 
-// table-plus/src/icons.ts
-var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
-var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
-var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
-var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
-var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
-var ICONS = {
-  grip: svg(
-    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
-    true
-  ),
-  plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
-  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
-  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
-  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
-  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
-  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
-  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
-  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
-  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
-  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
-  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
-  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
-  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
-  // Sorted lines with a check: make the sorting the real order
-  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
-  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
-  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
-  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
-  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
-  // A pushpin with its needle pointing to the edge it pins to
-  pinTop: PIN_POINT_UP,
-  pinBottom: PIN_POINT_DOWN,
-  pinLeft: PIN_POINT_LEFT,
-  pinRight: PIN_POINT_RIGHT
+// table-plus/src/view.ts
+var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
+var DEFAULT_VIEW = { filters: [], showFilters: false };
+function pinsOf(view) {
+  return view.pins ?? NO_PINS;
+}
+function hasPins(pins) {
+  return pins.top + pins.bottom + pins.left + pins.right > 0;
+}
+function withPins(view, pins) {
+  if (hasPins(pins)) return { ...view, pins };
+  const { pins: _pins, ...rest } = view;
+  return rest;
+}
+var DEFAULT_FILTER_OPTIONS = { smart: true };
+function isRearranged(view, options = DEFAULT_FILTER_OPTIONS) {
+  return !!view.sort || view.filters.some((f) => filterMatcher(f, options) !== void 0);
+}
+function cycleSort(view, column) {
+  if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
+  if (view.sort.direction === "asc") return { ...view, sort: { column, direction: "desc" } };
+  return withoutSort(view);
+}
+function withSort(view, column, direction) {
+  return { ...view, sort: { column, direction } };
+}
+function withoutSort(view) {
+  const { sort: _sort, ...rest } = view;
+  return rest;
+}
+function withFilter(view, column, value) {
+  const filters = [...view.filters];
+  while (filters.length <= column) filters.push("");
+  filters[column] = value;
+  return { ...view, filters };
+}
+function remapColumns(view, map) {
+  const filters = [];
+  view.filters.forEach((value, column) => {
+    const target = map(column);
+    if (target === void 0 || value === "") return;
+    while (filters.length <= target) filters.push("");
+    filters[target] = value;
+  });
+  const sortColumn = view.sort ? map(view.sort.column) : void 0;
+  const result = view.pins ? { filters, showFilters: view.showFilters, pins: view.pins } : { filters, showFilters: view.showFilters };
+  return view.sort && sortColumn !== void 0 ? { ...result, sort: { column: sortColumn, direction: view.sort.direction } } : result;
+}
+function normalizeForFilter(s) {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+var NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
+function asNumber(s) {
+  const m = NUMBER_RE.exec(s.trim());
+  return m ? Number(m[1].replace(/[ \u00a0]/g, "").replace(",", ".")) : void 0;
+}
+var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
+function compareValues(a, b) {
+  const na = asNumber(a);
+  const nb = asNumber(b);
+  if (na !== void 0 && nb !== void 0) return na - nb;
+  return collator.compare(a.trim(), b.trim());
+}
+var REGEX_RE = /^\/(.*)\/([cimsu]*)$/s;
+var COMPARISON_RE = /^(<=|>=|<|>)\s*(.*)$/s;
+function parseFilter(filter, options = DEFAULT_FILTER_OPTIONS) {
+  const text = filter.trim();
+  if (text === "") return {};
+  if (options.smart) {
+    if (text.startsWith("!")) {
+      const inner = parseFilter(text.slice(1), options);
+      const match = inner.match;
+      return match ? { match: (value) => !match(value) } : inner;
+    }
+    if (text.startsWith("=")) {
+      const whole = normalizeForFilter(text.slice(1).trim());
+      return whole === "" ? {} : { match: (value) => normalizeForFilter(value.trim()) === whole };
+    }
+    const regex = REGEX_RE.exec(text);
+    if (regex) return parseRegex(regex[1], regex[2]);
+    if (text.startsWith("/")) return {};
+    const comparison = COMPARISON_RE.exec(text);
+    if (comparison) {
+      const [, operator, rest] = comparison;
+      if (rest.trim() === "") return {};
+      const limit = asNumber(rest);
+      if (limit !== void 0) {
+        return {
+          match: (value) => {
+            const n = asNumber(value);
+            if (n === void 0) return false;
+            if (operator === ">") return n > limit;
+            if (operator === "<") return n < limit;
+            if (operator === ">=") return n >= limit;
+            return n <= limit;
+          }
+        };
+      }
+    }
+  }
+  const needle = normalizeForFilter(text);
+  return { match: (value) => normalizeForFilter(value).includes(needle) };
+}
+function parseRegex(pattern, flags) {
+  if (pattern === "") return {};
+  const caseSensitive = flags.includes("c");
+  const jsFlags = [...new Set(flags.replace(/[ci]/g, "") + (caseSensitive ? "" : "i"))].join("");
+  try {
+    const re = new RegExp(pattern, jsFlags);
+    return { match: (value) => re.test(value) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+function filterMatcher(filter, options = DEFAULT_FILTER_OPTIONS) {
+  return parseFilter(filter, options).match;
+}
+function visibleRows(values, view, options = DEFAULT_FILTER_OPTIONS) {
+  const { top, bottom } = pinsOf(view);
+  const matchers = view.filters.map((filter) => filterMatcher(filter, options));
+  const indexes = values.map((_, i) => i).filter((i) => i >= top && i < values.length - bottom).filter((i) => matchers.every((match, column) => !match || match(values[i][column] ?? "")));
+  const sort = view.sort;
+  if (!sort) return indexes;
+  const sign = sort.direction === "asc" ? 1 : -1;
+  return indexes.sort((a, b) => {
+    const va = values[a][sort.column] ?? "";
+    const vb = values[b][sort.column] ?? "";
+    const ea = va.trim() === "";
+    const eb = vb.trim() === "";
+    if (ea !== eb) return ea ? 1 : -1;
+    return sign * compareValues(va, vb) || a - b;
+  });
+}
+
+// table-plus/src/formula/values.ts
+var ERROR_CODES = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NUM!", "#CYCLE!", "#ERROR!"];
+var FormulaError = class {
+  constructor(code, detail) {
+    this.code = code;
+    this.detail = detail;
+  }
+  code;
+  detail;
 };
+function isError(value) {
+  return value instanceof FormulaError;
+}
+function isRange(value) {
+  return Array.isArray(value);
+}
+function firstError(values) {
+  for (const value of values) {
+    for (const item of isRange(value) ? value : [value]) {
+      if (isError(item)) return item;
+    }
+  }
+  return void 0;
+}
+function single(value) {
+  if (!isRange(value)) return value;
+  return value.length === 1 ? value[0] : new FormulaError("#VALUE!", "a range where one value is expected");
+}
+function toNumber(value) {
+  const v = single(value);
+  if (isError(v) || typeof v === "number") return v;
+  if (v === null) return 0;
+  if (typeof v === "boolean") return v ? 1 : 0;
+  if (v.trim() === "") return 0;
+  return asNumber(v) ?? new FormulaError("#VALUE!", `"${v}" is not a number`);
+}
+function toText(value) {
+  const v = single(value);
+  if (isError(v)) return v;
+  if (v === null) return "";
+  if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
+  if (typeof v === "number") return formatNumber(v);
+  return v;
+}
+function toBoolean(value) {
+  const v = single(value);
+  if (isError(v) || typeof v === "boolean") return v;
+  if (v === null) return false;
+  if (typeof v === "number") return v !== 0;
+  const upper = v.trim().toUpperCase();
+  if (upper === "TRUE") return true;
+  if (upper === "FALSE") return false;
+  const n = asNumber(v);
+  return n !== void 0 ? n !== 0 : new FormulaError("#VALUE!", `"${v}" is not TRUE or FALSE`);
+}
+function numbers(args) {
+  const result = [];
+  for (const arg of args) {
+    if (isRange(arg)) {
+      for (const item of arg) {
+        if (isError(item)) return item;
+        if (typeof item === "number") result.push(item);
+        else if (typeof item === "string") {
+          const n = asNumber(item);
+          if (n !== void 0) result.push(n);
+        }
+      }
+    } else if (arg !== null) {
+      const n = toNumber(arg);
+      if (isError(n)) return n;
+      result.push(n);
+    }
+  }
+  return result;
+}
+function flatten(args) {
+  return args.flatMap((arg) => isRange(arg) ? [...arg] : [arg]);
+}
+function formatNumber(n) {
+  return formatLuaNumber(n);
+}
+
+// table-plus/src/formula/functions/helpers.ts
+function withNumbers(args, f) {
+  const ns = numbers(args);
+  return isError(ns) ? ns : f(ns);
+}
+function booleans(args) {
+  const result = [];
+  for (const arg of args) {
+    for (const item of isRange(arg) ? arg : [arg]) {
+      if (item === null || isRange(arg) && typeof item === "string") continue;
+      const b = toBoolean(item);
+      if (isError(b)) return b;
+      result.push(b);
+    }
+  }
+  return result;
+}
+
+// table-plus/src/formula/functions/sum.ts
+var sum_default = {
+  name: "SUM",
+  syntax: "SUM(number1, [number2], \u2026)",
+  description: "Adds numbers, cells and ranges.",
+  minArgs: 1,
+  call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a + b, 0))
+};
+
+// table-plus/src/formula/functions/average.ts
+var average_default = {
+  name: "AVERAGE",
+  syntax: "AVERAGE(number1, [number2], \u2026)",
+  description: "The arithmetic mean of the numbers.",
+  minArgs: 1,
+  call: (args) => withNumbers(
+    args,
+    (ns) => ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : new FormulaError("#DIV/0!", "no numbers to average")
+  )
+};
+
+// table-plus/src/formula/functions/min.ts
+var min_default = {
+  name: "MIN",
+  syntax: "MIN(number1, [number2], \u2026)",
+  description: "The smallest of the numbers (0 if there are none).",
+  minArgs: 1,
+  call: (args) => withNumbers(args, (ns) => ns.length ? Math.min(...ns) : 0)
+};
+
+// table-plus/src/formula/functions/max.ts
+var max_default = {
+  name: "MAX",
+  syntax: "MAX(number1, [number2], \u2026)",
+  description: "The largest of the numbers (0 if there are none).",
+  minArgs: 1,
+  call: (args) => withNumbers(args, (ns) => ns.length ? Math.max(...ns) : 0)
+};
+
+// table-plus/src/formula/functions/product.ts
+var product_default = {
+  name: "PRODUCT",
+  syntax: "PRODUCT(number1, [number2], \u2026)",
+  description: "Multiplies the numbers.",
+  minArgs: 1,
+  call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a * b, 1))
+};
+
+// table-plus/src/formula/functions/count.ts
+var count_default = {
+  name: "COUNT",
+  syntax: "COUNT(value1, [value2], \u2026)",
+  description: "How many of the values are numbers.",
+  minArgs: 1,
+  call: (args) => {
+    let count = 0;
+    for (const arg of args) {
+      for (const item of isRange(arg) ? arg : [arg]) {
+        if (item === null || isError(item) || typeof item === "boolean") continue;
+        if (!isError(toNumber(item))) count++;
+      }
+    }
+    return count;
+  }
+};
+
+// table-plus/src/formula/functions/counta.ts
+var counta_default = {
+  name: "COUNTA",
+  syntax: "COUNTA(value1, [value2], \u2026)",
+  description: "How many of the values are not empty.",
+  minArgs: 1,
+  call: (args) => flatten(args).filter((v) => v !== null && v !== "").length
+};
+
+// table-plus/src/formula/functions/round.ts
+var round_default = {
+  name: "ROUND",
+  syntax: "ROUND(number, [digits])",
+  description: "Rounds to the given number of decimal places (default 0), halves away from zero.",
+  minArgs: 1,
+  maxArgs: 2,
+  call: ([number, digits = 0]) => {
+    const n = toNumber(number);
+    const d = toNumber(digits);
+    if (isError(n)) return n;
+    if (isError(d)) return d;
+    const factor = 10 ** Math.trunc(d);
+    return Math.sign(n) * Math.round(Math.abs(n) * factor * (1 + Number.EPSILON)) / factor;
+  }
+};
+
+// table-plus/src/formula/functions/abs.ts
+var abs_default = {
+  name: "ABS",
+  syntax: "ABS(number)",
+  description: "The number without its sign.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([number]) => {
+    const n = toNumber(number);
+    return isError(n) ? n : Math.abs(n);
+  }
+};
+
+// table-plus/src/formula/functions/if.ts
+var if_default = {
+  name: "IF",
+  syntax: "IF(condition, value_if_true, [value_if_false])",
+  description: "One value if the condition is true, another if it is false (default FALSE).",
+  minArgs: 2,
+  maxArgs: 3,
+  call: ([condition, ifTrue, ifFalse = false]) => {
+    const c = toBoolean(condition);
+    if (isError(c)) return c;
+    return single(c ? ifTrue : ifFalse);
+  }
+};
+
+// table-plus/src/formula/functions/iferror.ts
+var iferror_default = {
+  name: "IFERROR",
+  syntax: "IFERROR(value, value_if_error)",
+  description: "The value, or the second value if the first is an error.",
+  minArgs: 2,
+  maxArgs: 2,
+  call: ([value, ifError]) => {
+    const v = single(value);
+    return isError(v) ? single(ifError) : v;
+  }
+};
+
+// table-plus/src/formula/functions/and.ts
+var and_default = {
+  name: "AND",
+  syntax: "AND(logical1, [logical2], \u2026)",
+  description: "TRUE if all of the values are true.",
+  minArgs: 1,
+  call: (args) => {
+    const bs = booleans(args);
+    return isError(bs) ? bs : bs.every(Boolean);
+  }
+};
+
+// table-plus/src/formula/functions/or.ts
+var or_default = {
+  name: "OR",
+  syntax: "OR(logical1, [logical2], \u2026)",
+  description: "TRUE if any of the values is true.",
+  minArgs: 1,
+  call: (args) => {
+    const bs = booleans(args);
+    return isError(bs) ? bs : bs.some(Boolean);
+  }
+};
+
+// table-plus/src/formula/functions/not.ts
+var not_default = {
+  name: "NOT",
+  syntax: "NOT(logical)",
+  description: "TRUE if the value is false, FALSE if it is true.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([value]) => {
+    const b = toBoolean(value);
+    return isError(b) ? b : !b;
+  }
+};
+
+// table-plus/src/formula/functions/concat.ts
+var concat_default = {
+  name: "CONCAT",
+  syntax: "CONCAT(text1, [text2], \u2026)",
+  description: "Joins the values into one text.",
+  minArgs: 1,
+  call: (args) => {
+    const error = firstError(args);
+    if (error) return error;
+    return flatten(args).map((v) => toText(v)).join("");
+  }
+};
+
+// table-plus/src/formula/functions/index.ts
+var ALL = [sum_default, average_default, min_default, max_default, product_default, count_default, counta_default, round_default, abs_default, if_default, iferror_default, and_default, or_default, not_default, concat_default];
+var FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
 
 // table-plus/src/markdown.ts
 var DELIMITER_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
@@ -311,13 +693,14 @@ function parseMetaRow(line) {
   for (const match of tag[1].matchAll(META_ATTRIBUTE_RE)) {
     meta[match[1]] = unescapeMetaValue(match[2] ?? match[3] ?? "");
   }
+  if ("f" in meta) return void 0;
   return meta;
 }
 function unescapeMetaValue(value) {
-  return value.replace(/\\\|/g, "|").replace(/&quot;/g, '"').replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  return value.replace(/\\\|/g, "|").replace(/&quot;/g, '"').replace(/&gt;/g, ">").replace(/&#92;/g, "\\").replace(/&amp;/g, "&");
 }
 function escapeMetaValue(value) {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/>/g, "&gt;").replace(/\|/g, "\\|");
+  return value.replace(/&/g, "&amp;").replace(/\\/g, "&#92;").replace(/"/g, "&quot;").replace(/>/g, "&gt;").replace(/\|/g, "\\|");
 }
 function metaRow(indent, meta) {
   const attributes = Object.entries(meta).map(([name, value]) => ` ${name}="${escapeMetaValue(value)}"`).join("");
@@ -443,6 +826,767 @@ function minimalEdit(before, after) {
   };
 }
 
+// table-plus/src/ops.ts
+function withRows(table, rows) {
+  return { ...table, rows };
+}
+function emptyRow(columns) {
+  return { cells: Array.from({ length: columns }, () => "") };
+}
+function withCells(row, cells) {
+  return { ...row, cells };
+}
+function padded(cells, length) {
+  const result = [...cells];
+  while (result.length < length) result.push("");
+  return result;
+}
+function moved(items, from, to) {
+  const result = [...items];
+  const [item] = result.splice(from, 1);
+  result.splice(to, 0, item);
+  return result;
+}
+function setCell(table, row, column, value) {
+  return withRows(
+    table,
+    table.rows.map((r, i) => {
+      if (i !== row) return r;
+      const cells = padded(r.cells, column + 1);
+      cells[column] = value;
+      return withCells(r, cells);
+    })
+  );
+}
+function insertRow(table, at, cells) {
+  const rows = [...table.rows];
+  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, cells ? { cells: [...cells] } : emptyRow(table.align.length));
+  return withRows(table, rows);
+}
+function deleteRow(table, row) {
+  if (row < 1 || row >= table.rows.length) return table;
+  return withRows(
+    table,
+    table.rows.filter((_, i) => i !== row)
+  );
+}
+function reorderRows(table, order) {
+  const body = order.map((i) => table.rows[i]).filter((r) => !!r);
+  if (body.length !== table.rows.length - 1) return table;
+  return withRows(table, [table.rows[0], ...body]);
+}
+function moveRow(table, from, to) {
+  const last = table.rows.length - 1;
+  if (from < 1 || from > last || to < 1 || to > last || from === to) return table;
+  return withRows(table, moved(table.rows, from, to));
+}
+function newColumnName(table) {
+  const names = new Set(table.rows[0]?.cells ?? []);
+  let n = table.align.length + 1;
+  while (names.has(`Column ${n}`)) n++;
+  return `Column ${n}`;
+}
+function nameEmptyHeaders(table) {
+  const header = table.rows[0];
+  if (!header) return table;
+  const names = new Set(header.cells);
+  const cells = header.cells.map((cell, i) => {
+    if (cell !== "") return cell;
+    let n = i + 1;
+    while (names.has(`Column ${n}`)) n++;
+    const name = `Column ${n}`;
+    names.add(name);
+    return name;
+  });
+  return { ...table, rows: [{ ...header, cells }, ...table.rows.slice(1)] };
+}
+function insertColumn(table, at) {
+  const column = Math.max(0, Math.min(at, table.align.length));
+  const header = newColumnName(table);
+  const align = [...table.align];
+  align.splice(column, 0, "");
+  return {
+    ...table,
+    align,
+    rows: table.rows.map((r, i) => {
+      const cells = padded(r.cells, column);
+      cells.splice(column, 0, i === 0 ? header : "");
+      return withCells(r, cells);
+    })
+  };
+}
+function deleteColumn(table, column) {
+  if (table.align.length <= 1 || column < 0 || column >= table.align.length) return table;
+  return {
+    ...table,
+    align: table.align.filter((_, i) => i !== column),
+    rows: table.rows.map(
+      (r) => withCells(
+        r,
+        r.cells.filter((_, i) => i !== column)
+      )
+    )
+  };
+}
+function moveColumn(table, from, to) {
+  const columns = table.align.length;
+  if (from < 0 || from >= columns || to < 0 || to >= columns || from === to) return table;
+  return {
+    ...table,
+    align: moved(table.align, from, to),
+    rows: table.rows.map((r) => withCells(r, moved(padded(r.cells, columns), from, to)))
+  };
+}
+function setAlign(table, column, align) {
+  return {
+    ...table,
+    align: table.align.map((a, i) => i === column ? align : a)
+  };
+}
+function columnAfterMove(c, from, to) {
+  if (c === from) return to;
+  if (from < to && c > from && c <= to) return c - 1;
+  if (from > to && c >= to && c < from) return c + 1;
+  return c;
+}
+
+// table-plus/src/formula/index.ts
+var FORMULA_TAG_RE = /<meta\s+f\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
+function formulaOf(cell) {
+  const match = Array.from(cell.matchAll(FORMULA_TAG_RE)).pop();
+  if (!match) return void 0;
+  const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
+  const value = (cell.slice(0, match.index) + cell.slice(match.index + match[0].length)).trim();
+  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value };
+}
+function formulaCell(value, formula) {
+  const tag = `<meta f="${escapeMetaValue(formula)}">`;
+  const shown = escapeCell(value);
+  return shown === "" ? tag : `${shown} ${tag}`;
+}
+function isFormulaInput(text) {
+  const trimmed = text.trim();
+  return trimmed.startsWith("=") && trimmed.length > 1;
+}
+function isErrorText(text) {
+  return ERROR_CODES.includes(text.trim());
+}
+function columnLetters(column) {
+  let s = "";
+  for (let n = column + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+    s = String.fromCharCode(65 + (n - 1) % 26) + s;
+  }
+  return s;
+}
+function columnIndex(letters) {
+  let n = 0;
+  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+function cellName(row, column) {
+  return `${columnLetters(column)}${row + 1}`;
+}
+function areaText(area) {
+  const start = cellName(area.top, area.left);
+  return area.top === area.bottom && area.left === area.right ? start : `${start}:${cellName(area.bottom, area.right)}`;
+}
+function columnRefText(name, thisRow) {
+  return name === "" || /[[\]]/.test(name) ? void 0 : `[${thisRow ? "@" : ""}${name}]`;
+}
+var CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
+function parseCellName(text) {
+  const m = CELL_RE.exec(text);
+  return m ? { row: Number(m[2]) - 1, column: columnIndex(m[1]) } : void 0;
+}
+var REF_ERROR = "#REF!";
+var OPERATORS = ["<=", ">=", "<>", "+", "-", "*", "/", "^", "&", "=", "<", ">", "(", ")", ",", ";", ":", "%"];
+function tokenize(formula) {
+  const tokens = [];
+  let i = formula.startsWith("=") ? 1 : 0;
+  const fail = (detail) => ({ tokens, error: new FormulaError("#ERROR!", detail) });
+  while (i < formula.length) {
+    const ch = formula[i];
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    const number = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/.exec(formula.slice(i));
+    if (number) {
+      tokens.push({ kind: "number", value: Number(number[0]), from: i, to: i + number[0].length });
+      i += number[0].length;
+      continue;
+    }
+    const name = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(formula.slice(i));
+    if (name) {
+      tokens.push({ kind: "name", text: name[0], from: i, to: i + name[0].length });
+      i += name[0].length;
+      continue;
+    }
+    if (ch === '"') {
+      let value = "";
+      let j = i + 1;
+      for (; ; ) {
+        if (j >= formula.length) return fail("a text is missing its closing quote");
+        if (formula[j] === '"') {
+          if (formula[j + 1] !== '"') break;
+          value += '"';
+          j += 2;
+        } else value += formula[j++];
+      }
+      tokens.push({ kind: "string", value, from: i, to: j + 1 });
+      i = j + 1;
+      continue;
+    }
+    if (formula.startsWith(REF_ERROR, i)) {
+      tokens.push({ kind: "ref-error", from: i, to: i + REF_ERROR.length });
+      i += REF_ERROR.length;
+      continue;
+    }
+    if (ch === "[") {
+      const end = formula.indexOf("]", i);
+      if (end < 0) return fail("a column name is missing its closing ]");
+      const inner = formula.slice(i + 1, end);
+      const thisRow = inner.startsWith("@");
+      tokens.push({ kind: "column", name: (thisRow ? inner.slice(1) : inner).trim(), thisRow, from: i, to: end + 1 });
+      i = end + 1;
+      continue;
+    }
+    const op = OPERATORS.find((o) => formula.startsWith(o, i));
+    if (!op) return fail(`unexpected "${ch}"`);
+    tokens.push({ kind: "op", text: op, from: i, to: i + op.length });
+    i += op.length;
+  }
+  return { tokens };
+}
+function references(formula) {
+  const { tokens } = tokenize(formula);
+  const result = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.kind === "column") {
+      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to });
+      continue;
+    }
+    if (token.kind !== "name") continue;
+    const next = tokens[i + 1];
+    if (next?.kind === "op" && next.text === "(") continue;
+    const start = parseCellName(token.text);
+    if (!start) continue;
+    const colon = tokens[i + 1];
+    const endToken = tokens[i + 2];
+    const end = colon?.kind === "op" && colon.text === ":" && endToken?.kind === "name" ? parseCellName(endToken.text) : void 0;
+    const area = end ? {
+      top: Math.min(start.row, end.row),
+      left: Math.min(start.column, end.column),
+      bottom: Math.max(start.row, end.row),
+      right: Math.max(start.column, end.column)
+    } : { top: start.row, left: start.column, bottom: start.row, right: start.column };
+    result.push({ kind: "area", area, from: token.from, to: end ? endToken.to : token.to });
+    if (end) i += 2;
+  }
+  return result;
+}
+var Parser = class {
+  constructor(formula, tokens) {
+    this.formula = formula;
+    this.tokens = tokens;
+  }
+  formula;
+  tokens;
+  at = 0;
+  parse() {
+    const node = this.comparison();
+    const rest = this.tokens[this.at];
+    if (rest) throw new FormulaError("#ERROR!", `unexpected "${this.text(rest)}"`);
+    return node;
+  }
+  text(token) {
+    return this.formula.slice(token.from, token.to);
+  }
+  peekOp(...ops) {
+    const token = this.tokens[this.at];
+    return token?.kind === "op" && ops.includes(token.text) ? token.text : void 0;
+  }
+  binary(next, ...ops) {
+    let left = next();
+    for (let op = this.peekOp(...ops); op; op = this.peekOp(...ops)) {
+      this.at++;
+      left = { kind: "binary", op, left, right: next() };
+    }
+    return left;
+  }
+  comparison = () => this.binary(this.concat, "=", "<>", "<", ">", "<=", ">=");
+  concat = () => this.binary(this.additive, "&");
+  additive = () => this.binary(this.multiplicative, "+", "-");
+  multiplicative = () => this.binary(this.power, "*", "/");
+  power = () => this.binary(this.unary, "^");
+  unary = () => {
+    const op = this.peekOp("-", "+");
+    if (op) {
+      this.at++;
+      return { kind: "unary", op, arg: this.unary() };
+    }
+    let node = this.primary();
+    while (this.peekOp("%")) {
+      this.at++;
+      node = { kind: "unary", op: "%", arg: node };
+    }
+    return node;
+  };
+  primary() {
+    const token = this.tokens[this.at++];
+    if (!token) throw new FormulaError("#ERROR!", "the formula ends too early");
+    switch (token.kind) {
+      case "number":
+        return { kind: "literal", value: token.value };
+      case "string":
+        return { kind: "literal", value: token.value };
+      case "column":
+        return { kind: "column", name: token.name, thisRow: token.thisRow };
+      case "ref-error":
+        return { kind: "literal", value: new FormulaError("#REF!", "a reference to deleted cells") };
+      case "op":
+        if (token.text === "(") {
+          const inner = this.comparison();
+          if (!this.peekOp(")")) throw new FormulaError("#ERROR!", "a ( is missing its )");
+          this.at++;
+          return inner;
+        }
+        throw new FormulaError("#ERROR!", `unexpected "${this.text(token)}"`);
+      case "name":
+        return this.name(token.text);
+    }
+  }
+  name(text) {
+    if (this.peekOp("(")) {
+      this.at++;
+      const args = [];
+      if (this.peekOp(")")) this.at++;
+      else {
+        for (; ; ) {
+          args.push(this.comparison());
+          if (this.peekOp(",", ";")) {
+            this.at++;
+            continue;
+          }
+          if (!this.peekOp(")")) throw new FormulaError("#ERROR!", `${text}( is missing its )`);
+          this.at++;
+          break;
+        }
+      }
+      return { kind: "call", name: text.toUpperCase(), args };
+    }
+    const upper = text.toUpperCase();
+    if (upper === "TRUE" || upper === "FALSE") return { kind: "literal", value: upper === "TRUE" };
+    const start = parseCellName(text);
+    if (!start) throw new FormulaError("#NAME?", `unknown name "${text}"`);
+    if (!this.peekOp(":")) {
+      return { kind: "area", area: { top: start.row, left: start.column, bottom: start.row, right: start.column }, range: false };
+    }
+    this.at++;
+    const endToken = this.tokens[this.at++];
+    const end = endToken?.kind === "name" ? parseCellName(endToken.text) : void 0;
+    if (!end) throw new FormulaError("#ERROR!", `${text}: must be followed by a cell, as in ${text}:B3`);
+    return {
+      kind: "area",
+      area: {
+        top: Math.min(start.row, end.row),
+        left: Math.min(start.column, end.column),
+        bottom: Math.max(start.row, end.row),
+        right: Math.max(start.column, end.column)
+      },
+      range: true
+    };
+  }
+};
+var parsed = /* @__PURE__ */ new Map();
+function parse(formula) {
+  let result = parsed.get(formula);
+  if (result) return result;
+  const { tokens, error } = tokenize(formula);
+  if (error) result = error;
+  else if (tokens.length === 0) result = new FormulaError("#ERROR!", "the formula is empty");
+  else {
+    try {
+      result = new Parser(formula, tokens).parse();
+    } catch (e) {
+      if (!(e instanceof FormulaError)) throw e;
+      result = e;
+    }
+  }
+  if (parsed.size > 500) parsed.clear();
+  parsed.set(formula, result);
+  return result;
+}
+function wholeColumnNames(node, names) {
+  switch (node.kind) {
+    case "column":
+      if (!node.thisRow) names.add(normalizeName(node.name));
+      break;
+    case "call":
+      for (const arg of node.args) wholeColumnNames(arg, names);
+      break;
+    case "unary":
+      wholeColumnNames(node.arg, names);
+      break;
+    case "binary":
+      wholeColumnNames(node.left, names);
+      wholeColumnNames(node.right, names);
+      break;
+  }
+  return names;
+}
+function normalizeName(name) {
+  return unescapeCell(name).replace(/[*_`]/g, "").trim().toLowerCase();
+}
+function columnByName(headers, name) {
+  const wanted = normalizeName(name);
+  const index = headers.findIndex((h) => normalizeName(h) === wanted);
+  return index < 0 ? void 0 : index;
+}
+function columnName(header) {
+  return unescapeCell(header).replace(/[*_`]/g, "").trim();
+}
+var DECIMAL_COMMA_RE = /\d,\d/;
+var Sheet = class {
+  headers;
+  body;
+  results = /* @__PURE__ */ new Map();
+  evaluating = /* @__PURE__ */ new Set();
+  // Numbers in the table are written with a decimal comma: results are too
+  decimalComma;
+  constructor(table) {
+    this.headers = table.rows[0]?.cells ?? [];
+    this.body = table.rows.slice(1).map((r) => r.cells);
+    let comma = 0;
+    let point = 0;
+    for (const cells of this.body) {
+      for (const cell of cells) {
+        if (formulaOf(cell)) continue;
+        const text = unescapeCell(cell).trim();
+        if (asNumber(text) === void 0) continue;
+        if (DECIMAL_COMMA_RE.test(text)) comma++;
+        else if (/\d\.\d/.test(text)) point++;
+      }
+    }
+    this.decimalComma = comma > point;
+  }
+  get rows() {
+    return this.body.length;
+  }
+  get columns() {
+    return this.headers.length;
+  }
+  /** A cell's value: a plain cell's text (a number if it reads as one), a formula cell's result */
+  value(row, column) {
+    const cell = this.body[row]?.[column];
+    if (cell === void 0 || column >= this.columns) {
+      return new FormulaError("#REF!", `${cellName(row, column)} is outside the table`);
+    }
+    const stored = formulaOf(cell);
+    if (!stored) {
+      const text = unescapeCell(cell).trim();
+      if (text === "") return null;
+      return asNumber(text) ?? text;
+    }
+    return this.result(row, column, stored.formula);
+  }
+  /** The result of the formula in a cell */
+  result(row, column, formula) {
+    const key = `${row},${column}`;
+    const known = this.results.get(key);
+    if (known !== void 0) return known;
+    if (this.evaluating.has(key)) {
+      return new FormulaError("#CYCLE!", `${cellName(row, column)} depends on its own result`);
+    }
+    this.evaluating.add(key);
+    let result;
+    try {
+      const tree = parse(formula);
+      result = isError(tree) ? tree : single(this.evaluate(tree, row, column));
+      if (typeof result === "number" && !Number.isFinite(result)) {
+        result = new FormulaError("#NUM!", "the result is not a finite number");
+      }
+    } finally {
+      this.evaluating.delete(key);
+    }
+    this.results.set(key, result);
+    return result;
+  }
+  /** The text a formula cell shows for its result */
+  text(row, column, formula) {
+    const result = this.result(row, column, formula);
+    if (isError(result)) return result.code;
+    const text = toText(result);
+    return typeof result === "number" && this.decimalComma ? text.replace(".", ",") : text;
+  }
+  /** Whether the cell holds a formula that refers to a whole column */
+  refersToColumn(row, column, name) {
+    const stored = formulaOf(this.body[row]?.[column] ?? "");
+    const tree = stored && parse(stored.formula);
+    return !!tree && !isError(tree) && wholeColumnNames(tree, /* @__PURE__ */ new Set()).has(name);
+  }
+  evaluate(node, row, column) {
+    switch (node.kind) {
+      case "literal":
+        return node.value;
+      case "area": {
+        const { top, left, bottom, right } = node.area;
+        if (bottom >= this.rows || right >= this.columns) {
+          return new FormulaError("#REF!", `${areaText(node.area)} is outside the table`);
+        }
+        const values = [];
+        for (let r = top; r <= bottom; r++) {
+          for (let c = left; c <= right; c++) values.push(this.value(r, c));
+        }
+        return node.range ? values : values[0];
+      }
+      case "column": {
+        const index = columnByName(this.headers, node.name);
+        if (index === void 0) return new FormulaError("#REF!", `there is no column named "${node.name}"`);
+        if (node.thisRow) return this.value(row, index);
+        const name = normalizeName(node.name);
+        const values = [];
+        for (let r = 0; r < this.rows; r++) {
+          if (!this.refersToColumn(r, index, name)) values.push(this.value(r, index));
+        }
+        return values;
+      }
+      case "call": {
+        const f = FUNCTIONS[node.name];
+        if (!f) return new FormulaError("#NAME?", `there is no function ${node.name}`);
+        if (node.args.length < f.minArgs || f.maxArgs !== void 0 && node.args.length > f.maxArgs) {
+          return new FormulaError("#VALUE!", `wrong number of arguments: ${f.syntax}`);
+        }
+        return f.call(
+          node.args.map((arg) => {
+            const value = this.evaluate(arg, row, column);
+            const reference = arg.kind === "area" || arg.kind === "column" && arg.thisRow;
+            return reference && !isRange(value) && !isError(value) ? [value] : value;
+          })
+        );
+      }
+      case "unary": {
+        const n = toNumber(this.evaluate(node.arg, row, column));
+        if (isError(n)) return n;
+        return node.op === "-" ? -n : node.op === "%" ? n / 100 : n;
+      }
+      case "binary":
+        return this.binary(node.op, this.evaluate(node.left, row, column), this.evaluate(node.right, row, column));
+    }
+  }
+  binary(op, leftValue, rightValue) {
+    const left = single(leftValue);
+    const right = single(rightValue);
+    if (isError(left)) return left;
+    if (isError(right)) return right;
+    if (op === "&") return toText(left) + toText(right);
+    const comparison = COMPARISONS[op];
+    if (comparison) return comparison(compare(left, right));
+    const a = toNumber(left);
+    const b = toNumber(right);
+    if (isError(a)) return a;
+    if (isError(b)) return b;
+    switch (op) {
+      case "+":
+        return a + b;
+      case "-":
+        return a - b;
+      case "*":
+        return a * b;
+      case "/":
+        return b === 0 ? new FormulaError("#DIV/0!", "division by zero") : a / b;
+      default:
+        return a ** b;
+    }
+  }
+};
+var COMPARISONS = {
+  "=": (o) => o === 0,
+  "<>": (o) => o !== 0,
+  "<": (o) => o < 0,
+  ">": (o) => o > 0,
+  "<=": (o) => o <= 0,
+  ">=": (o) => o >= 0
+};
+function compare(a, b) {
+  const na = a === null ? 0 : toNumber(a);
+  const nb = b === null ? 0 : toNumber(b);
+  if (!isError(na) && !isError(nb) && typeof a !== "boolean" && typeof b !== "boolean") return na - nb;
+  const ta = toText(a).toLowerCase();
+  const tb = toText(b).toLowerCase();
+  return ta < tb ? -1 : ta > tb ? 1 : 0;
+}
+function hasFormulas(table) {
+  return table.rows.some((row, r) => r > 0 && row.cells.some((cell) => formulaOf(cell) !== void 0));
+}
+function recalculate(table) {
+  if (!hasFormulas(table)) return table;
+  const sheet = new Sheet(table);
+  let result = table;
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.cells.forEach((cell, c) => {
+      const stored = formulaOf(cell);
+      if (!stored) return;
+      const updated = formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula);
+      if (updated !== cell) result = setCell(result, r, c, updated);
+    });
+  });
+  return result;
+}
+function formulaErrors(table) {
+  const errors = /* @__PURE__ */ new Map();
+  if (!hasFormulas(table)) return errors;
+  const sheet = new Sheet(table);
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.cells.forEach((cell, c) => {
+      const stored = formulaOf(cell);
+      const result = stored && sheet.result(r - 1, c, stored.formula);
+      if (isError(result)) errors.set(`${r},${c}`, `${result.code} ${result.detail}`);
+    });
+  });
+  return errors;
+}
+function mapSpan(a, b, map) {
+  const mapped = [];
+  for (let i = a; i <= b; i++) {
+    const m = map(i);
+    if (m !== void 0) mapped.push(m);
+  }
+  if (mapped.length === 0) return void 0;
+  const lo = Math.min(...mapped);
+  const hi = Math.max(...mapped);
+  const ordered = mapped.every((m, i) => i === 0 || m > mapped[i - 1]);
+  if (ordered || hi - lo + 1 === mapped.length) return [lo, hi];
+  const sorted = [...mapped].sort((x, y) => x - y);
+  let best = [sorted[0], sorted[0]];
+  let start = sorted[0];
+  for (let i = 1; i <= sorted.length; i++) {
+    if (i < sorted.length && sorted[i] === sorted[i - 1] + 1) continue;
+    const end = sorted[i - 1];
+    if (end - start > best[1] - best[0]) best = [start, end];
+    if (i < sorted.length) start = sorted[i];
+  }
+  return best;
+}
+function shiftReferences(before, after, rowMap, columnMap) {
+  if (!hasFormulas(after)) return after;
+  const bodyMap = (b) => {
+    const r = rowMap ? rowMap(b + 1) : b + 1;
+    return r === void 0 || r < 1 ? void 0 : r - 1;
+  };
+  const columns = columnMap ?? ((c) => c);
+  const headersBefore = before.rows[0]?.cells ?? [];
+  const headersAfter = after.rows[0]?.cells ?? [];
+  const rewrite = (formula) => {
+    let result2 = formula;
+    for (const ref of references(formula).reverse()) {
+      let text;
+      if (ref.kind === "area") {
+        if (!rowMap && !columnMap) continue;
+        const rows = mapSpan(ref.area.top, ref.area.bottom, bodyMap);
+        const cols = mapSpan(ref.area.left, ref.area.right, columns);
+        const written = formula.slice(ref.from, ref.to);
+        const range = written.includes(":");
+        text = rows && cols ? range ? `${cellName(rows[0], cols[0])}:${cellName(rows[1], cols[1])}` : cellName(rows[0], cols[0]) : REF_ERROR;
+        if (text === written.toUpperCase()) continue;
+      } else {
+        const index = columnByName(headersBefore, ref.name);
+        if (index === void 0) continue;
+        const moved2 = columns(index);
+        if (moved2 === void 0) text = REF_ERROR;
+        else {
+          const name = columnName(headersAfter[moved2] ?? "");
+          if (normalizeName(name) === normalizeName(ref.name)) continue;
+          text = columnRefText(name, ref.thisRow);
+          if (!text) continue;
+        }
+      }
+      result2 = result2.slice(0, ref.from) + text + result2.slice(ref.to);
+    }
+    return result2;
+  };
+  let result = after;
+  after.rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.cells.forEach((cell, c) => {
+      const stored = formulaOf(cell);
+      if (!stored) return;
+      const formula = rewrite(stored.formula);
+      if (formula !== stored.formula) result = setCell(result, r, c, formulaCell(stored.value, formula));
+    });
+  });
+  return result;
+}
+var REFERENCE_HELP = {
+  syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column]",
+  description: "A cell (A1 is the first row under the header), a range, a whole column by its name, or that column in this row."
+};
+function formulaHelp(text, caret) {
+  if (!text.trimStart().startsWith("=")) return [];
+  const before = text.slice(0, caret);
+  const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
+  if (typing && !/[0-9]/.test(typing) && text[caret] !== "(") {
+    const prefix = typing.toUpperCase();
+    const matches = Object.entries(FUNCTIONS).filter(([name]) => name.startsWith(prefix));
+    if (matches.length) return matches.map(([, f]) => ({ syntax: f.syntax, description: f.description }));
+  }
+  const { tokens } = tokenize(before);
+  const open = [];
+  tokens.forEach((token, i) => {
+    if (token.kind !== "op") return;
+    if (token.text === "(") {
+      const previous = tokens[i - 1];
+      open.push(previous?.kind === "name" ? previous.text.toUpperCase() : void 0);
+    } else if (token.text === ")") open.pop();
+  });
+  for (let i = open.length - 1; i >= 0; i--) {
+    const f = open[i] && FUNCTIONS[open[i]];
+    if (f) return [{ syntax: f.syntax, description: f.description }];
+  }
+  return [REFERENCE_HELP];
+}
+
+// table-plus/src/icons.ts
+var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
+var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
+var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
+var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
+var ICONS = {
+  grip: svg(
+    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
+    true
+  ),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
+  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
+  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
+  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
+  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
+  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
+  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Sorted lines with a check: make the sorting the real order
+  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
+  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
+  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
+  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
+  // A pushpin with its needle pointing to the edge it pins to
+  pinTop: PIN_POINT_UP,
+  pinBottom: PIN_POINT_DOWN,
+  pinLeft: PIN_POINT_LEFT,
+  pinRight: PIN_POINT_RIGHT
+};
+
 // table-plus/src/menu.ts
 function renderMenu(doc, title, entries) {
   const menu = doc.createElement("div");
@@ -532,140 +1676,6 @@ function renderMenu(doc, title, entries) {
 function focusMenu(menu) {
   menu.tabIndex = -1;
   menu.focus({ preventScroll: true });
-}
-
-// table-plus/src/view.ts
-var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
-var DEFAULT_VIEW = { filters: [], showFilters: false };
-function pinsOf(view) {
-  return view.pins ?? NO_PINS;
-}
-function hasPins(pins) {
-  return pins.top + pins.bottom + pins.left + pins.right > 0;
-}
-function withPins(view, pins) {
-  if (hasPins(pins)) return { ...view, pins };
-  const { pins: _pins, ...rest } = view;
-  return rest;
-}
-var DEFAULT_FILTER_OPTIONS = { smart: true };
-function isRearranged(view, options = DEFAULT_FILTER_OPTIONS) {
-  return !!view.sort || view.filters.some((f) => filterMatcher(f, options) !== void 0);
-}
-function cycleSort(view, column) {
-  if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
-  if (view.sort.direction === "asc") return { ...view, sort: { column, direction: "desc" } };
-  return withoutSort(view);
-}
-function withSort(view, column, direction) {
-  return { ...view, sort: { column, direction } };
-}
-function withoutSort(view) {
-  const { sort: _sort, ...rest } = view;
-  return rest;
-}
-function withFilter(view, column, value) {
-  const filters = [...view.filters];
-  while (filters.length <= column) filters.push("");
-  filters[column] = value;
-  return { ...view, filters };
-}
-function remapColumns(view, map) {
-  const filters = [];
-  view.filters.forEach((value, column) => {
-    const target = map(column);
-    if (target === void 0 || value === "") return;
-    while (filters.length <= target) filters.push("");
-    filters[target] = value;
-  });
-  const sortColumn = view.sort ? map(view.sort.column) : void 0;
-  const result = view.pins ? { filters, showFilters: view.showFilters, pins: view.pins } : { filters, showFilters: view.showFilters };
-  return view.sort && sortColumn !== void 0 ? { ...result, sort: { column: sortColumn, direction: view.sort.direction } } : result;
-}
-function normalizeForFilter(s) {
-  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-}
-var NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
-function asNumber(s) {
-  const m = NUMBER_RE.exec(s.trim());
-  return m ? Number(m[1].replace(/[ \u00a0]/g, "").replace(",", ".")) : void 0;
-}
-var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
-function compareValues(a, b) {
-  const na = asNumber(a);
-  const nb = asNumber(b);
-  if (na !== void 0 && nb !== void 0) return na - nb;
-  return collator.compare(a.trim(), b.trim());
-}
-var REGEX_RE = /^\/(.*)\/([cimsu]*)$/s;
-var COMPARISON_RE = /^(<=|>=|<|>)\s*(.*)$/s;
-function parseFilter(filter, options = DEFAULT_FILTER_OPTIONS) {
-  const text = filter.trim();
-  if (text === "") return {};
-  if (options.smart) {
-    if (text.startsWith("!")) {
-      const inner = parseFilter(text.slice(1), options);
-      const match = inner.match;
-      return match ? { match: (value) => !match(value) } : inner;
-    }
-    if (text.startsWith("=")) {
-      const whole = normalizeForFilter(text.slice(1).trim());
-      return whole === "" ? {} : { match: (value) => normalizeForFilter(value.trim()) === whole };
-    }
-    const regex = REGEX_RE.exec(text);
-    if (regex) return parseRegex(regex[1], regex[2]);
-    if (text.startsWith("/")) return {};
-    const comparison = COMPARISON_RE.exec(text);
-    if (comparison) {
-      const [, operator, rest] = comparison;
-      if (rest.trim() === "") return {};
-      const limit = asNumber(rest);
-      if (limit !== void 0) {
-        return {
-          match: (value) => {
-            const n = asNumber(value);
-            if (n === void 0) return false;
-            if (operator === ">") return n > limit;
-            if (operator === "<") return n < limit;
-            if (operator === ">=") return n >= limit;
-            return n <= limit;
-          }
-        };
-      }
-    }
-  }
-  const needle = normalizeForFilter(text);
-  return { match: (value) => normalizeForFilter(value).includes(needle) };
-}
-function parseRegex(pattern, flags) {
-  if (pattern === "") return {};
-  const caseSensitive = flags.includes("c");
-  const jsFlags = [...new Set(flags.replace(/[ci]/g, "") + (caseSensitive ? "" : "i"))].join("");
-  try {
-    const re = new RegExp(pattern, jsFlags);
-    return { match: (value) => re.test(value) };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
-  }
-}
-function filterMatcher(filter, options = DEFAULT_FILTER_OPTIONS) {
-  return parseFilter(filter, options).match;
-}
-function visibleRows(values, view, options = DEFAULT_FILTER_OPTIONS) {
-  const { top, bottom } = pinsOf(view);
-  const matchers = view.filters.map((filter) => filterMatcher(filter, options));
-  const indexes = values.map((_, i) => i).filter((i) => i >= top && i < values.length - bottom).filter((i) => matchers.every((match, column) => !match || match(values[i][column] ?? "")));
-  const sort = view.sort;
-  if (!sort) return indexes;
-  const sign = sort.direction === "asc" ? 1 : -1;
-  return indexes.sort((a, b) => {
-    const va = values[a][sort.column] ?? "";
-    const vb = values[b][sort.column] ?? "";
-    const ea = va.trim() === "";
-    const eb = vb.trim() === "";
-    if (ea !== eb) return ea ? 1 : -1;
-    return sign * compareValues(va, vb) || a - b;
-  });
 }
 
 // table-plus/src/meta.ts
@@ -824,131 +1834,11 @@ function pinColumn(pins, columns, column, pin) {
   return { to, pins: p };
 }
 
-// table-plus/src/ops.ts
-function withRows(table, rows) {
-  return { ...table, rows };
-}
-function emptyRow(columns) {
-  return { cells: Array.from({ length: columns }, () => "") };
-}
-function withCells(row, cells) {
-  return { ...row, cells };
-}
-function padded(cells, length) {
-  const result = [...cells];
-  while (result.length < length) result.push("");
-  return result;
-}
-function moved(items, from, to) {
-  const result = [...items];
-  const [item] = result.splice(from, 1);
-  result.splice(to, 0, item);
-  return result;
-}
-function setCell(table, row, column, value) {
-  return withRows(
-    table,
-    table.rows.map((r, i) => {
-      if (i !== row) return r;
-      const cells = padded(r.cells, column + 1);
-      cells[column] = value;
-      return withCells(r, cells);
-    })
-  );
-}
-function insertRow(table, at, cells) {
-  const rows = [...table.rows];
-  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, cells ? { cells: [...cells] } : emptyRow(table.align.length));
-  return withRows(table, rows);
-}
-function deleteRow(table, row) {
-  if (row < 1 || row >= table.rows.length) return table;
-  return withRows(
-    table,
-    table.rows.filter((_, i) => i !== row)
-  );
-}
-function reorderRows(table, order) {
-  const body = order.map((i) => table.rows[i]).filter((r) => !!r);
-  if (body.length !== table.rows.length - 1) return table;
-  return withRows(table, [table.rows[0], ...body]);
-}
-function moveRow(table, from, to) {
-  const last = table.rows.length - 1;
-  if (from < 1 || from > last || to < 1 || to > last || from === to) return table;
-  return withRows(table, moved(table.rows, from, to));
-}
-function newColumnName(table) {
-  const names = new Set(table.rows[0]?.cells ?? []);
-  let n = table.align.length + 1;
-  while (names.has(`Column ${n}`)) n++;
-  return `Column ${n}`;
-}
-function nameEmptyHeaders(table) {
-  const header = table.rows[0];
-  if (!header) return table;
-  const names = new Set(header.cells);
-  const cells = header.cells.map((cell, i) => {
-    if (cell !== "") return cell;
-    let n = i + 1;
-    while (names.has(`Column ${n}`)) n++;
-    const name = `Column ${n}`;
-    names.add(name);
-    return name;
-  });
-  return { ...table, rows: [{ ...header, cells }, ...table.rows.slice(1)] };
-}
-function insertColumn(table, at) {
-  const column = Math.max(0, Math.min(at, table.align.length));
-  const header = newColumnName(table);
-  const align = [...table.align];
-  align.splice(column, 0, "");
-  return {
-    ...table,
-    align,
-    rows: table.rows.map((r, i) => {
-      const cells = padded(r.cells, column);
-      cells.splice(column, 0, i === 0 ? header : "");
-      return withCells(r, cells);
-    })
-  };
-}
-function deleteColumn(table, column) {
-  if (table.align.length <= 1 || column < 0 || column >= table.align.length) return table;
-  return {
-    ...table,
-    align: table.align.filter((_, i) => i !== column),
-    rows: table.rows.map(
-      (r) => withCells(
-        r,
-        r.cells.filter((_, i) => i !== column)
-      )
-    )
-  };
-}
-function moveColumn(table, from, to) {
-  const columns = table.align.length;
-  if (from < 0 || from >= columns || to < 0 || to >= columns || from === to) return table;
-  return {
-    ...table,
-    align: moved(table.align, from, to),
-    rows: table.rows.map((r) => withCells(r, moved(padded(r.cells, columns), from, to)))
-  };
-}
-function setAlign(table, column, align) {
-  return {
-    ...table,
-    align: table.align.map((a, i) => i === column ? align : a)
-  };
-}
-function columnAfterMove(c, from, to) {
-  if (c === from) return to;
-  if (from < to && c > from && c <= to) return c - 1;
-  if (from > to && c >= to && c < from) return c + 1;
-  return c;
-}
-
 // table-plus/src/controller.ts
+function rowAfterInsert(at) {
+  return (r) => r >= at ? r + 1 : r;
+}
+var REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
 var STOPPED_EVENTS = [
   "keydown",
   "keyup",
@@ -1007,6 +1897,7 @@ var Controller = class {
     this.addRow = this.floatingButton("tp-add tp-add-row", "Add a row at the end", ICONS.plus);
     this.addRow.insertAdjacentText("beforeend", "Row");
     this.addColumn = this.floatingButton("tp-add tp-add-column", "Add a column at the end", ICONS.plus);
+    this.formulaHint = this.floating("div", "tp-formula-hint");
   }
   doc;
   bridge;
@@ -1052,6 +1943,9 @@ var Controller = class {
   columnGrip;
   addRow;
   addColumn;
+  formulaHint;
+  referenceMarks = [];
+  stopReferenceDrag;
   setBridge(bridge) {
     this.bridge = bridge;
   }
@@ -1092,7 +1986,8 @@ var Controller = class {
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
-    for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
+    this.hideFormulaUi();
+    for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn, this.formulaHint]) el.remove();
   }
   onBlur = () => this.setNavigating(false);
   /** Refreshes the settings at most once a second, the last request always served */
@@ -1142,7 +2037,15 @@ var Controller = class {
       ...rows.slice(rows.length - bottom).map((_, i) => rows.length - bottom + i + 1)
     ];
     this.views.set(info.key, withoutSort(view));
-    await this.write(widget, (t) => withMetaSort(reorderRows(t, order), void 0));
+    const position = new Map(order.map((row, i) => [row, i + 1]));
+    await this.write(
+      widget,
+      (t) => withMetaSort(reorderRows(t, order), void 0),
+      void 0,
+      void 0,
+      void 0,
+      (r) => r === 0 ? 0 : position.get(r)
+    );
     this.focusEditor(widget);
   }
   /** Removes a table's metadata row, once confirmed; its sorting stays as a view until reload */
@@ -1264,7 +2167,8 @@ var Controller = class {
         columns: shape.columns,
         metaRow: model.meta !== void 0,
         rows: model.rows.length,
-        pins: metaPins(model)
+        pins: metaPins(model),
+        stale: recalculate(model) !== model
       };
       const stored = metaSort(model);
       if (stored && !this.views.has(info.key)) this.views.set(info.key, withSort(DEFAULT_VIEW, stored.column, stored.direction));
@@ -1343,9 +2247,12 @@ var Controller = class {
       return span;
     };
     const { top, bottom, left, right } = info.pins;
+    const model = parseTable(info.source);
+    const errors = formulaErrors(model);
     rows.slice(1).forEach((tr, i) => {
       const row = i + 1;
       tr.dataset.tpRow = String(row);
+      this.markFormulas(model, errors, row, tr);
       if (row <= top) tr.cells[0]?.append(mark(ICONS.pinTop, "Pinned to the top"));
       else if (row > rows.length - 1 - bottom) tr.cells[0]?.append(mark(ICONS.pinBottom, "Pinned to the bottom"));
     });
@@ -1359,6 +2266,19 @@ var Controller = class {
       button.dataset.tpAction = "sort";
       button.dataset.tpColumn = String(column);
       cell.append(button);
+    });
+  }
+  /** Formula cells show that they hold one, and their formula (or error) on hover */
+  markFormulas(model, errors, row, tr) {
+    model.rows[row]?.cells.forEach((raw, column) => {
+      const stored = formulaOf(raw);
+      const cell = tr.cells[column];
+      if (!stored || !cell) return;
+      const error = isErrorText(stored.value) ? errors.get(`${row},${column}`) : void 0;
+      cell.classList.add("tp-formula");
+      cell.classList.toggle("tp-formula-error", !!error);
+      cell.title = error ? `${stored.formula}
+${error}` : stored.formula;
     });
   }
   // ---- view: sort and filter --------------------------------------------
@@ -1778,6 +2698,7 @@ var Controller = class {
       if (this.stopped) return;
       this.updateStickyHeaders();
       this.followScroll();
+      if (this.editor && !this.stopReferenceDrag) this.updateFormulaUi();
     };
     const win = this.doc.defaultView;
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
@@ -1992,6 +2913,7 @@ var Controller = class {
     const ref = this.cellRef(info, cell);
     if (!ref || this.editor) return;
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
+    const stored = ref.row > 0 ? formulaOf(original) : void 0;
     const cellStyle = cell.getAttribute("style");
     const rect = cell.getBoundingClientRect();
     if (rect.width > 0) {
@@ -2006,15 +2928,21 @@ var Controller = class {
     field.className = `${UI_CLASS} tp-cell-editor`;
     field.size = 1;
     field.spellcheck = true;
-    field.value = unescapeCell(original);
+    const text = unescapeCell(original);
+    field.value = stored ? stored.formula : ref.row > 0 && text.startsWith("=") ? `'${text}` : text;
     const kept = this.doc.createDocumentFragment();
     while (cell.firstChild) kept.append(cell.firstChild);
     cell.classList.add("tp-editing");
     cell.append(field);
-    this.editor = { widget, cell, ...ref, original, field, kept, cellStyle };
+    this.editor = { widget, cell, ...ref, original, initial: field.value, field, kept, cellStyle };
     this.reveal(widget, cell);
     this.hideHandles();
     this.isolate(field);
+    for (const type of ["input", "keyup", "click", "focus"]) {
+      field.addEventListener(type, () => {
+        if (this.editor?.field === field && !this.stopReferenceDrag) this.updateFormulaUi();
+      });
+    }
     field.addEventListener("blur", () => {
       if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, void 0, false);
     });
@@ -2045,13 +2973,15 @@ var Controller = class {
     field.focus({ preventScroll: true });
     if (select) field.select();
     else field.setSelectionRange(field.value.length, field.value.length);
+    this.updateFormulaUi();
   }
   /** Puts the rendered cell back; returns what was being edited */
   closeEditor() {
     const active = this.editor;
     if (!active) return void 0;
     this.editor = void 0;
-    let value = escapeCell(active.field.value);
+    this.hideFormulaUi();
+    let value = this.cellValue(active);
     if (active.row === 0 && value === "" && active.original !== "") {
       value = active.original;
       void this.bridge.flash("Table Plus: a column needs a name; the old name was kept", "info");
@@ -2062,6 +2992,17 @@ var Controller = class {
     else active.cell.setAttribute("style", active.cellStyle);
     active.cell.append(active.kept);
     return { ...active, value };
+  }
+  /**
+   * The markdown for what the editor holds: the cell as it was when nothing was
+   * changed, a formula cell for a formula (its result is written with the table),
+   * else the text; a text that starts with "=" is typed as '=...
+   */
+  cellValue(active) {
+    const typed = active.field.value;
+    if (typed === active.initial) return active.original;
+    if (active.row > 0 && isFormulaInput(typed)) return formulaCell("", typed.trim());
+    return escapeCell(active.row > 0 && typed.startsWith("'=") ? typed.slice(1) : typed);
   }
   /**
    * Ends editing, saving the cell if asked and changed, then opens `next`
@@ -2090,10 +3031,10 @@ var Controller = class {
   }
   /** A setting's value, falling back to its default when unset or not valid */
   async setting(name) {
-    const { path, parse } = SETTINGS[name];
+    const { path, parse: parse2 } = SETTINGS[name];
     const fallback = SETTINGS[name].default;
     try {
-      const value = parse(
+      const value = parse2(
         await this.bridge.getConfig?.(path, fallback)
       );
       return value ?? fallback;
@@ -2189,7 +3130,9 @@ var Controller = class {
         return vertical ? moveRow(edited, from, to) : moveColumn(edited, from, to);
       },
       vertical ? { row: to, column: closed.column } : { row: closed.row, column: to },
-      vertical ? void 0 : (c) => columnAfterMove(c, from, to)
+      vertical ? void 0 : (c) => columnAfterMove(c, from, to),
+      void 0,
+      vertical ? (r) => columnAfterMove(r, from, to) : void 0
     );
   }
   /**
@@ -2282,19 +3225,265 @@ var Controller = class {
   focusEditor(widget) {
     widget.closest(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
+  // ---- formula editing: help and references -------------------------------
+  /**
+   * While a formula is edited: the help for what is typed under the cell, and
+   * each reference outlined in the table in its own color, as in a spreadsheet.
+   * An outline's edge moves the reference, its corner resizes a range.
+   */
+  updateFormulaUi() {
+    const active = this.editor;
+    const info = active && this.infos.get(active.widget);
+    const formula = active?.field.value ?? "";
+    if (!active || !info || active.row === 0 || !formula.trimStart().startsWith("=")) {
+      this.hideFormulaUi();
+      return;
+    }
+    const refs = references(formula);
+    this.showFormulaHint(active, formula, refs);
+    for (const mark of this.referenceMarks) mark.remove();
+    this.referenceMarks = [];
+    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    refs.forEach((ref, index) => {
+      const area = this.referenceArea(info, headers, ref, active.row - 1);
+      if (!area) return;
+      const color = REFERENCE_COLORS[index % REFERENCE_COLORS.length];
+      const boxes = this.areaBoxes(active.widget, info, area);
+      boxes.forEach((box, b) => {
+        const mark = this.floating("div", "tp-ref-mark");
+        mark.style.setProperty("--tp-ref-color", color);
+        Object.assign(mark.style, {
+          left: `${box.left}px`,
+          top: `${box.top}px`,
+          width: `${box.right - box.left}px`,
+          height: `${box.bottom - box.top}px`
+        });
+        for (const side of ["top", "right", "bottom", "left"]) {
+          const edge = this.doc.createElement("div");
+          edge.className = `tp-ref-edge tp-ref-${side}`;
+          edge.title = "Drag to move the reference";
+          edge.addEventListener("pointerdown", (e) => this.dragReference(e, index, "move"));
+          mark.append(edge);
+        }
+        if (ref.kind === "area" && b === boxes.length - 1) {
+          const corner = this.doc.createElement("div");
+          corner.className = "tp-ref-corner";
+          corner.title = "Drag to resize the range";
+          corner.addEventListener("pointerdown", (e) => this.dragReference(e, index, "resize"));
+          mark.append(corner);
+        }
+        mark.classList.add("tp-visible");
+        this.referenceMarks.push(mark);
+      });
+    });
+  }
+  /** The formula with its references in their colors, and help for what is typed */
+  showFormulaHint(active, formula, refs) {
+    const hint = this.formulaHint;
+    hint.replaceChildren();
+    if (refs.length) {
+      const line = this.doc.createElement("div");
+      line.className = "tp-formula-preview";
+      let at = 0;
+      refs.forEach((ref, index) => {
+        line.append(formula.slice(at, ref.from));
+        const span = this.doc.createElement("span");
+        span.style.color = REFERENCE_COLORS[index % REFERENCE_COLORS.length];
+        span.textContent = formula.slice(ref.from, ref.to);
+        line.append(span);
+        at = ref.to;
+      });
+      line.append(formula.slice(at));
+      hint.append(line);
+    }
+    for (const help of formulaHelp(formula, active.field.selectionStart ?? formula.length).slice(0, 6)) {
+      const item = this.doc.createElement("div");
+      item.className = "tp-formula-help";
+      const syntax = this.doc.createElement("code");
+      syntax.textContent = help.syntax;
+      const description = this.doc.createElement("span");
+      description.textContent = help.description;
+      item.append(syntax, description);
+      hint.append(item);
+    }
+    const rect = active.cell.getBoundingClientRect();
+    this.place(hint, rect.left, rect.bottom + 4);
+    const viewHeight = this.doc.defaultView.innerHeight;
+    if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {
+      this.place(hint, rect.left, rect.top - 4 - hint.offsetHeight);
+    }
+  }
+  hideFormulaUi() {
+    this.stopReferenceDrag?.();
+    this.formulaHint.classList.remove("tp-visible");
+    for (const mark of this.referenceMarks) mark.remove();
+    this.referenceMarks = [];
+  }
+  /** The body rows and columns a reference covers, within the table; undefined if none */
+  referenceArea(info, headers, ref, row) {
+    const lastRow = info.rows - 2;
+    const lastColumn = info.columns - 1;
+    if (ref.kind === "column") {
+      const column = columnByName(headers, ref.name);
+      if (column === void 0 || lastRow < 0) return void 0;
+      return ref.thisRow ? { top: row, left: column, bottom: row, right: column } : { top: 0, left: column, bottom: lastRow, right: column };
+    }
+    const { top, left, bottom, right } = ref.area;
+    if (top > lastRow || left > lastColumn) return void 0;
+    return { top, left, bottom: Math.min(bottom, lastRow), right: Math.min(right, lastColumn) };
+  }
+  /** The body rows as shown (header and filter row excluded), with their row in the markdown minus one */
+  shownBodyRows(info) {
+    return Array.from(info.table.rows).filter((tr) => tr.dataset.tpRow !== void 0 && !tr.classList.contains("tp-hidden")).map((tr) => ({ tr, row: Number(tr.dataset.tpRow) - 1 }));
+  }
+  /**
+   * Screen boxes outlining an area: one per run of its rows that are shown
+   * next to each other (sorting and filters can split an area), clipped to
+   * the table's visible box
+   */
+  areaBoxes(widget, info, area) {
+    const clip = this.innerBox(widget);
+    const boxes = [];
+    let run = [];
+    const flush = () => {
+      const first = run[0]?.cells[area.left];
+      const last = run[run.length - 1]?.cells[area.right];
+      run = [];
+      if (!first || !last) return;
+      const a = first.getBoundingClientRect();
+      const b = last.getBoundingClientRect();
+      const box = {
+        left: Math.max(Math.min(a.left, b.left), clip.left),
+        top: Math.max(Math.min(a.top, b.top), clip.top),
+        right: Math.min(Math.max(a.right, b.right), clip.right),
+        bottom: Math.min(Math.max(a.bottom, b.bottom), clip.bottom)
+      };
+      if (box.right > box.left && box.bottom > box.top) boxes.push(box);
+    };
+    for (const { tr, row } of this.shownBodyRows(info)) {
+      if (row >= area.top && row <= area.bottom) run.push(tr);
+      else flush();
+    }
+    flush();
+    return boxes;
+  }
+  /** The body cell (row in the markdown minus one, column) under a point, if any */
+  bodyCellAt(info, x, y) {
+    for (const { tr, row } of this.shownBodyRows(info)) {
+      const rect = tr.getBoundingClientRect();
+      if (y < rect.top || y > rect.bottom) continue;
+      const column = Array.from(tr.cells).findIndex((cell) => {
+        const r = cell.getBoundingClientRect();
+        return x >= r.left && x <= r.right;
+      });
+      return column < 0 ? void 0 : { row, column };
+    }
+    return void 0;
+  }
+  /**
+   * Dragging an outline's edge moves the reference to the cells under the
+   * pointer (a column reference to another column); dragging a range's corner
+   * resizes it. The formula in the editor changes as the pointer moves; Esc
+   * puts it back.
+   */
+  dragReference(e, index, mode) {
+    const active = this.editor;
+    const info = active && this.infos.get(active.widget);
+    if (e.button !== 0 || !active || !info) return;
+    e.stopPropagation();
+    const handle = e.currentTarget;
+    const field = active.field;
+    const originalFormula = field.value;
+    const ref = references(originalFormula)[index];
+    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    const start = this.bodyCellAt(info, e.clientX, e.clientY);
+    const startArea = ref && this.referenceArea(info, headers, ref, active.row - 1);
+    if (!ref || !start || !startArea) return;
+    const lastRow = info.rows - 2;
+    const lastColumn = info.columns - 1;
+    const clamp = (n, max) => Math.max(0, Math.min(n, max));
+    this.stopReferenceDrag?.();
+    this.doc.body.classList.add("tp-ref-dragging");
+    const textFor = (cell) => {
+      const dRow = cell.row - start.row;
+      const dColumn = cell.column - start.column;
+      if (ref.kind === "column") {
+        const column = clamp(startArea.left + dColumn, lastColumn);
+        return columnRefText(columnName(headers[column] ?? ""), ref.thisRow);
+      }
+      if (mode === "resize") {
+        return areaText({
+          top: Math.min(startArea.top, cell.row),
+          left: Math.min(startArea.left, cell.column),
+          bottom: Math.max(startArea.top, cell.row),
+          right: Math.max(startArea.left, cell.column)
+        });
+      }
+      const height = startArea.bottom - startArea.top;
+      const width = startArea.right - startArea.left;
+      const top = clamp(startArea.top + dRow, lastRow - height);
+      const left = clamp(startArea.left + dColumn, lastColumn - width);
+      return areaText({ top, left, bottom: top + height, right: left + width });
+    };
+    const win = this.doc.defaultView;
+    const move = (ev) => {
+      const cell = this.bodyCellAt(info, ev.clientX, ev.clientY);
+      const current = references(field.value)[index];
+      const text = cell && current && textFor(cell);
+      if (!text || !current || field.value.slice(current.from, current.to) === text) return;
+      field.value = field.value.slice(0, current.from) + text + field.value.slice(current.to);
+      const caret = current.from + text.length;
+      field.setSelectionRange(caret, caret);
+      this.updateFormulaUi();
+    };
+    const escape = (ev) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      field.value = originalFormula;
+      finish();
+    };
+    const finish = () => {
+      this.stopReferenceDrag?.();
+      if (this.editor?.field === field) {
+        field.focus({ preventScroll: true });
+        this.updateFormulaUi();
+      }
+    };
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+    }
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", finish);
+    win.addEventListener("pointercancel", finish);
+    handle.addEventListener("lostpointercapture", finish);
+    win.addEventListener("keydown", escape, true);
+    this.stopReferenceDrag = () => {
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", finish);
+      win.removeEventListener("pointercancel", finish);
+      handle.removeEventListener("lostpointercapture", finish);
+      win.removeEventListener("keydown", escape, true);
+      this.doc.body.classList.remove("tp-ref-dragging");
+      this.stopReferenceDrag = void 0;
+    };
+  }
   // ---- writing markdown --------------------------------------------------
   /**
    * Re-reads the table from the page, applies `change` and writes the result
    * back as one edit. `change` returns undefined to abort.
    */
-  async write(widget, change, focus, columnMap, pins) {
+  async write(widget, change, focus, columnMap, pins, rowMap) {
     const info = this.infos.get(widget);
     if (!info) return "failed";
     try {
       const text = await this.bridge.getText();
       const range = locateBySource(text, info.hint, info.source);
       const before = range && parseTable(range.text);
-      const edited = before && change(before);
+      const changedTable = before && change(before);
+      const shifted = changedTable && shiftReferences(before, changedTable, rowMap, columnMap);
+      const edited = shifted && recalculate(shifted);
       if (!range || !before || !edited) {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
@@ -2365,7 +3554,8 @@ var Controller = class {
       },
       { row: insert.at, column },
       void 0,
-      insert.pins
+      insert.pins,
+      rowAfterInsert(insert.at)
     );
   }
   duplicateRowAt(widget, info, row) {
@@ -2378,17 +3568,25 @@ var Controller = class {
       },
       void 0,
       void 0,
-      insert.pins
+      insert.pins,
+      rowAfterInsert(insert.at)
     );
   }
   deleteRowAt(widget, info, row) {
-    return this.write(widget, (t) => deleteRow(t, row), void 0, void 0, deleteRowPins(info.pins, info.rows, row));
+    return this.write(
+      widget,
+      (t) => deleteRow(t, row),
+      void 0,
+      void 0,
+      deleteRowPins(info.pins, info.rows, row),
+      (r) => r === row ? void 0 : r > row ? r - 1 : r
+    );
   }
   /** Moves a row, within its zone when pinned, outside the zones when not */
   moveRowTo(widget, info, from, asked) {
     const to = clampRowMove(info.pins, info.rows, from, asked);
     if (to === from) return Promise.resolve("unchanged");
-    return this.write(widget, (t) => moveRow(t, from, to));
+    return this.write(widget, (t) => moveRow(t, from, to), void 0, void 0, void 0, (r) => columnAfterMove(r, from, to));
   }
   insertColumnWith(widget, info, at) {
     const insert = insertColumnAt(info.pins, info.columns, at);
@@ -2418,7 +3616,7 @@ var Controller = class {
   async pinRowAt(widget, info, row, pin) {
     if (pin && !await this.setting("metadata")) return;
     const { to, pins } = pinRow(info.pins, info.rows, row, pin);
-    await this.write(widget, (t) => moveRow(t, row, to), void 0, void 0, pins);
+    await this.write(widget, (t) => moveRow(t, row, to), void 0, void 0, pins, (r) => columnAfterMove(r, row, to));
   }
   async pinColumnAt(widget, info, column, pin) {
     if (pin && !await this.setting("metadata")) return;
@@ -2543,6 +3741,13 @@ var Controller = class {
       },
       view.showFilters
     );
+    if (info.stale) {
+      button(
+        "Recalculate",
+        "Some formula results are out of date (the table was changed outside Table Plus): write the current results",
+        () => void this.write(this.current(widget, info)[0], (t) => t)
+      );
+    }
     if (info.metaRow) {
       button(
         "Remove metadata",

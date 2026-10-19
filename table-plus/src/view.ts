@@ -103,7 +103,7 @@ export function normalizeForFilter(s: string): string {
 // "12,99 €", "$5", "15 %", "3 kg", "1 000"
 const NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
 
-function asNumber(s: string): number | undefined {
+export function asNumber(s: string): number | undefined {
   const m = NUMBER_RE.exec(s.trim());
   return m ? Number(m[1]!.replace(/[ \u00a0]/g, "").replace(",", ".")) : undefined;
 }

@@ -217,20 +217,26 @@ export function parseMetaRow(line: string): TableMeta | undefined {
   for (const match of tag[1]!.matchAll(META_ATTRIBUTE_RE)) {
     meta[match[1]!] = unescapeMetaValue(match[2] ?? match[3] ?? "");
   }
+  // A formula cell with an empty result (formula/), not the table's metadata
+  if ("f" in meta) return undefined;
   return meta;
 }
 
-function unescapeMetaValue(value: string): string {
+export function unescapeMetaValue(value: string): string {
   return value
     .replace(/\\\|/g, "|")
     .replace(/&quot;/g, '"')
     .replace(/&gt;/g, ">")
+    .replace(/&#92;/g, "\\")
     .replace(/&amp;/g, "&");
 }
 
-function escapeMetaValue(value: string): string {
+// A backslash is written as &#92;, so the only one left escapes a pipe:
+// "\|" in a value would else be "\\|", a pipe that ends the cell
+export function escapeMetaValue(value: string): string {
   return value
     .replace(/&/g, "&amp;")
+    .replace(/\\/g, "&#92;")
     .replace(/"/g, "&quot;")
     .replace(/>/g, "&gt;")
     .replace(/\|/g, "\\|");

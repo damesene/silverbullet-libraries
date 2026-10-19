@@ -13,6 +13,18 @@ Edit the markdown on the left, or the tables below. Alt+click a cell or *Edit ma
 | Kiwi | 7 | 6 € | New Zealand |
 | Šípek | 1 | 99 € | Česko |
 
+## Formulas
+
+Click a result to edit its formula: each reference is outlined in its own color; drag an outline's edge to move it, a range's corner to resize it. Type `=` in any body cell to start a formula.
+
+| Item | Qty | Unit price | Amount |
+|---|--:|--:|--:|
+| Pear | 3 | 12,50 | 37,5 <meta f="=[@Qty]*[@Unit price]"> |
+| Apple | 10 | 4,50 | 45 <meta f="=[@Qty]*[@Unit price]"> |
+| Fig | 2 | 25 | 50 <meta f="=[@Qty]*[@Unit price]"> |
+| Total | 15 <meta f="=SUM([Qty])"> | | 132,5 <meta f="=SUM([Amount])"> |
+| Average | 5 <meta f="=AVERAGE(B1:B3)"> | 14 <meta f="=ROUND(AVERAGE(C1:C3), 2)"> | |
+
 ## Tasks
 
 | Task | Owner | Due | Status | Notes |

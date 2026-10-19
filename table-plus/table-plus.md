@@ -17,6 +17,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Sort**: click ⇅ in a column header. See [[#Sorting]].
 * **Filter**: hover the table and click *Filter*; `>10`, `/regex/`, `=text` and `!text` work too. See [[#Filtering]].
 * **Add, move or delete rows and columns**: click the ⠿ grip next to a row or above a column. See [[#Rows and columns]].
+* **Formulas**: type `=SUM(B1:B3)` or `=SUM([Qty])` into a cell; the result is written into the markdown. See [[#Formulas]].
 * **Pin rows and columns** to the edges, where they stay in view (needs *Store table metadata*). See [[#Pinning]].
 * **Change how Enter or filters work**: *Configuration: Open*, category *Table Plus*. See [[#Settings]].
 
@@ -86,6 +87,80 @@ Plain text is found anywhere in a cell, ignoring case and diacritics (`cesky` fi
 * `!` works in front of any filter: `!done`, `!>10`, `!/^$/` (cells that are not empty).
 * A filter that is still being typed (only `>`, or a regular expression without its closing `/`) does not filter yet.
 * An invalid regular expression filters nothing; its field turns red and its tooltip says why.
+
+## Formulas
+
+Type a formula into a body cell, starting with `=`: `=B1*2`, `=SUM(B1:B3)`, `=SUM([Qty])`. Table Plus writes the result into the cell, followed by the formula in a hidden `<meta>` tag:
+
+```
+| Name  | Qty |
+| ----- | --: |
+| Pear  |   3 |
+| Apple |  10 |
+| Total |  13 <meta f="=SUM([Qty])"> |
+```
+
+* SilverBullet and browsers show only the result, other renderers (GitHub, Obsidian) drop the tag. Queries over the table (`index.tag "table"`) see the cell's text with the tag, e.g. `13 <meta f="=SUM([Qty])">`.
+* Click the cell to edit its formula. Typing a plain value removes the formula. To type a text that starts with `=`, start it with `'=`; such a text opens with the `'` again, so it stays text.
+* Results are written whenever Table Plus edits the table, in the same edit (one Ctrl+Z undoes both). Viewing a table never changes it: when the table was changed outside Table Plus (by typing in the markdown), the toolbar shows *Recalculate*.
+* A formula's result has a dotted underline; hover it to see its formula, or why it shows an error.
+* Numbers are read as for sorting (`12,99 €`, `1 000`, `15 %`). Results use a decimal comma when most numbers in the table do. A text that is not read as a number (e.g. `1,234.50`, with a thousands comma) is skipped by `SUM` and the other number functions.
+
+### References
+
+| Reference | Means |
+|---|---|
+| `B1` | Column B, the first row under the header |
+| `A1:B3` | The range from A1 to B3 |
+| `[Qty]` | The whole column named Qty (any case), without the cells whose formulas refer to the whole column (a total or an average under it) |
+| `[@Qty]` | The Qty cell in the formula's own row, e.g. `=[@Price]*[@Qty]` |
+
+* Edits made with Table Plus keep references on their cells, as in a spreadsheet: inserting, deleting, moving and sorting rows (*Sort the rows in the markdown*), and inserting, deleting and moving columns. A row inserted inside a range widens it, a deleted one narrows it, and a reference to deleted cells becomes `#REF!`. Renaming a column renames its `[Name]` references.
+* Edits made in the markdown do not change references. `[Qty]` and `[@Qty]` are not affected by added or moved rows at all, so they are the safest choice for totals.
+* `A1` counts rows in the markdown, not as a sorting or filter shows them.
+* Not supported: absolute references (`$A$1`) and references to other tables.
+* While you edit a formula, each reference is outlined in the table in its own color. Drag an outline's edge to move the reference, a range's corner to resize it; Esc while dragging puts it back.
+* Under the cell, the formula shows with its references in the same colors, with help for the function being typed.
+
+### Operators and values
+
+* `+ - * / ^` (power), `%` after a number (`50%` is 0.5), `&` joins text, `= <> < > <= >=` compare (numbers as numbers, text ignoring case).
+* Numbers with a decimal point (`1.5`), text in double quotes (`"a ""quoted"" word"`), `TRUE`, `FALSE`.
+* Function arguments are separated by `,` or `;`. Function names may be in any case.
+
+### Functions
+
+| Function | Description |
+|---|---|
+| `SUM(number1, [number2], …)` | Adds numbers, cells and ranges. |
+| `AVERAGE(number1, [number2], …)` | The arithmetic mean of the numbers. |
+| `MIN(number1, [number2], …)` | The smallest of the numbers (0 if there are none). |
+| `MAX(number1, [number2], …)` | The largest of the numbers (0 if there are none). |
+| `PRODUCT(number1, [number2], …)` | Multiplies the numbers. |
+| `COUNT(value1, [value2], …)` | How many of the values are numbers. |
+| `COUNTA(value1, [value2], …)` | How many of the values are not empty. |
+| `ROUND(number, [digits])` | Rounds to the given number of decimal places (default 0), halves away from zero. |
+| `ABS(number)` | The number without its sign. |
+| `IF(condition, value_if_true, [value_if_false])` | One value if the condition is true, another if it is false (default FALSE). |
+| `IFERROR(value, value_if_error)` | The value, or the second value if the first is an error. |
+| `AND(logical1, [logical2], …)` | TRUE if all of the values are true. |
+| `OR(logical1, [logical2], …)` | TRUE if any of the values is true. |
+| `NOT(logical)` | TRUE if the value is false, FALSE if it is true. |
+| `CONCAT(text1, [text2], …)` | Joins the values into one text. |
+
+In ranges, empty cells and text that is not a number are skipped by the number functions.
+
+### Errors
+
+| Shows | Because |
+|---|---|
+| `#REF!` | A reference outside the table, or a column name that does not exist |
+| `#NAME?` | An unknown function or name |
+| `#VALUE!` | A value of the wrong kind (text where a number is needed), or a wrong number of arguments |
+| `#DIV/0!` | Division by zero, or an average of no numbers |
+| `#NUM!` | A result that is not a finite number |
+| `#CYCLE!` | The formula depends on its own result |
+| `#ERROR!` | The formula cannot be read (e.g. a missing `)`) |
 
 ## Rows and columns
 
@@ -739,6 +814,99 @@ body.tp-navigating .sb-table-widget.tp-table * {
 body.tp-autoscrolling,
 body.tp-autoscrolling * {
   cursor: all-scroll !important;
+}
+
+/* Formulas */
+/* A formula's result: a dotted underline (not while the cell is edited) */
+.sb-table-widget.tp-table td.tp-formula:not(.tp-editing) {
+  text-decoration: underline dotted color-mix(in srgb, var(--ui-accent-color) 75%, transparent);
+  text-decoration-thickness: 2px;
+  /* Clear of the digits, which have no descenders to leave room */
+  text-underline-offset: 0.3em;
+}
+.sb-table-widget.tp-table td.tp-formula-error {
+  color: var(--danger-color);
+}
+.tp-formula-hint {
+  z-index: 56;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 460px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--root-color);
+  background: var(--root-background-color);
+  border: 1px solid var(--button-border-color);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+  pointer-events: none;
+}
+.tp-formula-preview {
+  font-family: var(--editor-font, monospace);
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.tp-formula-help code {
+  margin-right: 6px;
+  font-weight: 600;
+}
+.tp-floating.tp-ref-mark {
+  z-index: 49;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 2px solid var(--tp-ref-color);
+  background: color-mix(in srgb, var(--tp-ref-color) 10%, transparent);
+}
+.tp-floating.tp-ref-mark.tp-visible {
+  display: block;
+}
+.tp-ref-edge {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: move;
+}
+.tp-ref-top,
+.tp-ref-bottom {
+  left: -4px;
+  right: -4px;
+  height: 7px;
+}
+.tp-ref-top {
+  top: -5px;
+}
+.tp-ref-bottom {
+  bottom: -5px;
+}
+.tp-ref-left,
+.tp-ref-right {
+  top: -4px;
+  bottom: -4px;
+  width: 7px;
+}
+.tp-ref-left {
+  left: -5px;
+}
+.tp-ref-right {
+  right: -5px;
+}
+.tp-ref-corner {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: nwse-resize;
+  background: var(--tp-ref-color);
+  border: 1px solid var(--root-background-color);
+}
+body.tp-ref-dragging,
+body.tp-ref-dragging * {
+  cursor: move !important;
+  user-select: none;
 }
 
 /* Dragging */

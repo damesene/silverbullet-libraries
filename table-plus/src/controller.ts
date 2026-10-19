@@ -14,6 +14,24 @@ import {
   WIDGET_SELECTOR,
 } from "./dom.ts";
 import { formatLuaNumber } from "./format.ts";
+import {
+  type Area,
+  areaText,
+  columnByName,
+  columnName,
+  columnRefText,
+  formulaCell,
+  formulaErrors,
+  formulaHelp,
+  formulaOf,
+  type IndexMap,
+  isErrorText,
+  isFormulaInput,
+  recalculate,
+  type Reference,
+  references,
+  shiftReferences,
+} from "./formula/index.ts";
 import { ICONS } from "./icons.ts";
 import {
   type Align,
@@ -93,6 +111,8 @@ type WidgetInfo = {
   readonly rows: number;
   // Pinned rows and columns, as stored in the metadata row
   readonly pins: Pins;
+  // Some formula cells show results from before the table was changed outside Table Plus
+  readonly stale: boolean;
 };
 
 type ActiveEditor = {
@@ -101,6 +121,8 @@ type ActiveEditor = {
   readonly row: number;
   readonly column: number;
   readonly original: string;
+  // What the field showed when it opened: the cell's text, or its formula
+  readonly initial: string;
   readonly field: HTMLInputElement;
   readonly kept: DocumentFragment;
   readonly cellStyle: string | null;
@@ -122,6 +144,14 @@ type HandleTarget = {
 };
 
 type WriteResult = "written" | "unchanged" | "failed";
+
+/** Where the rows of the markdown go when a row is inserted at `at` */
+function rowAfterInsert(at: number): IndexMap {
+  return (r) => (r >= at ? r + 1 : r);
+}
+
+// Colors of the references of the formula being edited, in the order they are written
+const REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
 
 const STOPPED_EVENTS = [
   "keydown",
@@ -240,6 +270,9 @@ export class Controller {
   private readonly columnGrip: HTMLButtonElement;
   private readonly addRow: HTMLButtonElement;
   private readonly addColumn: HTMLButtonElement;
+  private readonly formulaHint: HTMLElement;
+  private referenceMarks: HTMLElement[] = [];
+  private stopReferenceDrag: (() => void) | undefined;
 
   constructor(
     private readonly doc: Document,
@@ -255,6 +288,7 @@ export class Controller {
     this.addRow = this.floatingButton("tp-add tp-add-row", "Add a row at the end", ICONS.plus);
     this.addRow.insertAdjacentText("beforeend", "Row");
     this.addColumn = this.floatingButton("tp-add tp-add-column", "Add a column at the end", ICONS.plus);
+    this.formulaHint = this.floating("div", "tp-formula-hint");
   }
 
   setBridge(bridge: Bridge): void {
@@ -301,7 +335,8 @@ export class Controller {
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
-    for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
+    this.hideFormulaUi();
+    for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn, this.formulaHint]) el.remove();
   }
 
   private onBlur = (): void => this.setNavigating(false);
@@ -359,7 +394,15 @@ export class Controller {
       ...rows.slice(rows.length - bottom).map((_, i) => rows.length - bottom + i + 1),
     ];
     this.views.set(info.key, withoutSort(view));
-    await this.write(widget, (t) => withMetaSort(reorderRows(t, order), undefined));
+    const position = new Map(order.map((row, i) => [row, i + 1]));
+    await this.write(
+      widget,
+      (t) => withMetaSort(reorderRows(t, order), undefined),
+      undefined,
+      undefined,
+      undefined,
+      (r) => (r === 0 ? 0 : position.get(r)),
+    );
     this.focusEditor(widget);
   }
 
@@ -501,6 +544,7 @@ export class Controller {
         metaRow: model.meta !== undefined,
         rows: model.rows.length,
         pins: metaPins(model),
+        stale: recalculate(model) !== model,
       };
       // The sorting stored in the table is the view the first time the table shows
       const stored = metaSort(model);
@@ -589,9 +633,12 @@ export class Controller {
       return span;
     };
     const { top, bottom, left, right } = info.pins;
+    const model = parseTable(info.source);
+    const errors = formulaErrors(model);
     rows.slice(1).forEach((tr, i) => {
       const row = i + 1;
       tr.dataset.tpRow = String(row);
+      this.markFormulas(model, errors, row, tr);
       if (row <= top) tr.cells[0]?.append(mark(ICONS.pinTop, "Pinned to the top"));
       else if (row > rows.length - 1 - bottom) tr.cells[0]?.append(mark(ICONS.pinBottom, "Pinned to the bottom"));
     });
@@ -605,6 +652,19 @@ export class Controller {
       button.dataset.tpAction = "sort";
       button.dataset.tpColumn = String(column);
       cell.append(button);
+    });
+  }
+
+  /** Formula cells show that they hold one, and their formula (or error) on hover */
+  private markFormulas(model: Table, errors: Map<string, string>, row: number, tr: HTMLTableRowElement): void {
+    model.rows[row]?.cells.forEach((raw, column) => {
+      const stored = formulaOf(raw);
+      const cell = tr.cells[column];
+      if (!stored || !cell) return;
+      const error = isErrorText(stored.value) ? errors.get(`${row},${column}`) : undefined;
+      cell.classList.add("tp-formula");
+      cell.classList.toggle("tp-formula-error", !!error);
+      cell.title = error ? `${stored.formula}\n${error}` : stored.formula;
     });
   }
 
@@ -1073,6 +1133,7 @@ export class Controller {
       this.updateStickyHeaders();
       // After the header has moved: controls that point at it follow
       this.followScroll();
+      if (this.editor && !this.stopReferenceDrag) this.updateFormulaUi();
     };
     const win = this.doc.defaultView;
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
@@ -1331,6 +1392,8 @@ export class Controller {
     const ref = this.cellRef(info, cell);
     if (!ref || this.editor) return;
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
+    // A formula cell is edited as its formula (not in the header: a header is a name)
+    const stored = ref.row > 0 ? formulaOf(original) : undefined;
 
     // The cell keeps its size while its content is swapped for the field
     const cellStyle = cell.getAttribute("style");
@@ -1349,16 +1412,23 @@ export class Controller {
     // A small intrinsic width, so the field never widens the column
     field.size = 1;
     field.spellcheck = true;
-    field.value = unescapeCell(original);
+    const text = unescapeCell(original);
+    field.value = stored ? stored.formula : ref.row > 0 && text.startsWith("=") ? `'${text}` : text;
     const kept = this.doc.createDocumentFragment();
     while (cell.firstChild) kept.append(cell.firstChild);
     cell.classList.add("tp-editing");
     cell.append(field);
-    this.editor = { widget, cell, ...ref, original, field, kept, cellStyle };
+    this.editor = { widget, cell, ...ref, original, initial: field.value, field, kept, cellStyle };
     this.reveal(widget, cell);
     this.hideHandles();
 
     this.isolate(field);
+    // The formula's references are shown in the table, its function explained under the cell
+    for (const type of ["input", "keyup", "click", "focus"]) {
+      field.addEventListener(type, () => {
+        if (this.editor?.field === field && !this.stopReferenceDrag) this.updateFormulaUi();
+      });
+    }
     field.addEventListener("blur", () => {
       // Focus went elsewhere on purpose: save, but leave the focus there
       if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, undefined, false);
@@ -1390,6 +1460,7 @@ export class Controller {
     field.focus({ preventScroll: true });
     if (select) field.select();
     else field.setSelectionRange(field.value.length, field.value.length);
+    this.updateFormulaUi();
   }
 
   /** Puts the rendered cell back; returns what was being edited */
@@ -1397,7 +1468,8 @@ export class Controller {
     const active = this.editor;
     if (!active) return undefined;
     this.editor = undefined;
-    let value = escapeCell(active.field.value);
+    this.hideFormulaUi();
+    let value = this.cellValue(active);
     if (active.row === 0 && value === "" && active.original !== "") {
       // SilverBullet would not show a column without a name
       value = active.original;
@@ -1409,6 +1481,18 @@ export class Controller {
     else active.cell.setAttribute("style", active.cellStyle);
     active.cell.append(active.kept);
     return { ...active, value };
+  }
+
+  /**
+   * The markdown for what the editor holds: the cell as it was when nothing was
+   * changed, a formula cell for a formula (its result is written with the table),
+   * else the text; a text that starts with "=" is typed as '=...
+   */
+  private cellValue(active: ActiveEditor): string {
+    const typed = active.field.value;
+    if (typed === active.initial) return active.original;
+    if (active.row > 0 && isFormulaInput(typed)) return formulaCell("", typed.trim());
+    return escapeCell(active.row > 0 && typed.startsWith("'=") ? typed.slice(1) : typed);
   }
 
   /**
@@ -1566,6 +1650,8 @@ export class Controller {
       },
       vertical ? { row: to, column: closed.column } : { row: closed.row, column: to },
       vertical ? undefined : (c) => columnAfterMove(c, from, to),
+      undefined,
+      vertical ? (r) => columnAfterMove(r, from, to) : undefined,
     );
   }
 
@@ -1668,6 +1754,270 @@ export class Controller {
     widget.closest<HTMLElement>(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
 
+  // ---- formula editing: help and references -------------------------------
+
+  /**
+   * While a formula is edited: the help for what is typed under the cell, and
+   * each reference outlined in the table in its own color, as in a spreadsheet.
+   * An outline's edge moves the reference, its corner resizes a range.
+   */
+  private updateFormulaUi(): void {
+    const active = this.editor;
+    const info = active && this.infos.get(active.widget);
+    const formula = active?.field.value ?? "";
+    if (!active || !info || active.row === 0 || !formula.trimStart().startsWith("=")) {
+      this.hideFormulaUi();
+      return;
+    }
+    const refs = references(formula);
+    this.showFormulaHint(active, formula, refs);
+    for (const mark of this.referenceMarks) mark.remove();
+    this.referenceMarks = [];
+    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    refs.forEach((ref, index) => {
+      const area = this.referenceArea(info, headers, ref, active.row - 1);
+      if (!area) return;
+      const color = REFERENCE_COLORS[index % REFERENCE_COLORS.length]!;
+      const boxes = this.areaBoxes(active.widget, info, area);
+      boxes.forEach((box, b) => {
+        const mark = this.floating("div", "tp-ref-mark");
+        mark.style.setProperty("--tp-ref-color", color);
+        Object.assign(mark.style, {
+          left: `${box.left}px`,
+          top: `${box.top}px`,
+          width: `${box.right - box.left}px`,
+          height: `${box.bottom - box.top}px`,
+        });
+        for (const side of ["top", "right", "bottom", "left"]) {
+          const edge = this.doc.createElement("div");
+          edge.className = `tp-ref-edge tp-ref-${side}`;
+          edge.title = "Drag to move the reference";
+          edge.addEventListener("pointerdown", (e) => this.dragReference(e, index, "move"));
+          mark.append(edge);
+        }
+        // The corner is the area's last cell: on the last box when sorting splits the area
+        if (ref.kind === "area" && b === boxes.length - 1) {
+          const corner = this.doc.createElement("div");
+          corner.className = "tp-ref-corner";
+          corner.title = "Drag to resize the range";
+          corner.addEventListener("pointerdown", (e) => this.dragReference(e, index, "resize"));
+          mark.append(corner);
+        }
+        mark.classList.add("tp-visible");
+        this.referenceMarks.push(mark);
+      });
+    });
+  }
+
+  /** The formula with its references in their colors, and help for what is typed */
+  private showFormulaHint(active: ActiveEditor, formula: string, refs: readonly Reference[]): void {
+    const hint = this.formulaHint;
+    hint.replaceChildren();
+    if (refs.length) {
+      const line = this.doc.createElement("div");
+      line.className = "tp-formula-preview";
+      let at = 0;
+      refs.forEach((ref, index) => {
+        line.append(formula.slice(at, ref.from));
+        const span = this.doc.createElement("span");
+        span.style.color = REFERENCE_COLORS[index % REFERENCE_COLORS.length]!;
+        span.textContent = formula.slice(ref.from, ref.to);
+        line.append(span);
+        at = ref.to;
+      });
+      line.append(formula.slice(at));
+      hint.append(line);
+    }
+    for (const help of formulaHelp(formula, active.field.selectionStart ?? formula.length).slice(0, 6)) {
+      const item = this.doc.createElement("div");
+      item.className = "tp-formula-help";
+      const syntax = this.doc.createElement("code");
+      syntax.textContent = help.syntax;
+      const description = this.doc.createElement("span");
+      description.textContent = help.description;
+      item.append(syntax, description);
+      hint.append(item);
+    }
+    const rect = active.cell.getBoundingClientRect();
+    this.place(hint, rect.left, rect.bottom + 4);
+    const viewHeight = this.doc.defaultView!.innerHeight;
+    if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {
+      this.place(hint, rect.left, rect.top - 4 - hint.offsetHeight);
+    }
+  }
+
+  private hideFormulaUi(): void {
+    this.stopReferenceDrag?.();
+    this.formulaHint.classList.remove("tp-visible");
+    for (const mark of this.referenceMarks) mark.remove();
+    this.referenceMarks = [];
+  }
+
+  /** The body rows and columns a reference covers, within the table; undefined if none */
+  private referenceArea(info: WidgetInfo, headers: readonly string[], ref: Reference, row: number): Area | undefined {
+    const lastRow = info.rows - 2;
+    const lastColumn = info.columns - 1;
+    if (ref.kind === "column") {
+      const column = columnByName(headers, ref.name);
+      if (column === undefined || lastRow < 0) return undefined;
+      return ref.thisRow
+        ? { top: row, left: column, bottom: row, right: column }
+        : { top: 0, left: column, bottom: lastRow, right: column };
+    }
+    const { top, left, bottom, right } = ref.area;
+    if (top > lastRow || left > lastColumn) return undefined;
+    return { top, left, bottom: Math.min(bottom, lastRow), right: Math.min(right, lastColumn) };
+  }
+
+  /** The body rows as shown (header and filter row excluded), with their row in the markdown minus one */
+  private shownBodyRows(info: WidgetInfo): { tr: HTMLTableRowElement; row: number }[] {
+    return Array.from(info.table.rows)
+      .filter((tr) => tr.dataset.tpRow !== undefined && !tr.classList.contains("tp-hidden"))
+      .map((tr) => ({ tr, row: Number(tr.dataset.tpRow) - 1 }));
+  }
+
+  /**
+   * Screen boxes outlining an area: one per run of its rows that are shown
+   * next to each other (sorting and filters can split an area), clipped to
+   * the table's visible box
+   */
+  private areaBoxes(widget: HTMLElement, info: WidgetInfo, area: Area): { left: number; top: number; right: number; bottom: number }[] {
+    const clip = this.innerBox(widget);
+    const boxes: { left: number; top: number; right: number; bottom: number }[] = [];
+    let run: HTMLTableRowElement[] = [];
+    const flush = () => {
+      const first = run[0]?.cells[area.left];
+      const last = run[run.length - 1]?.cells[area.right];
+      run = [];
+      if (!first || !last) return;
+      const a = first.getBoundingClientRect();
+      const b = last.getBoundingClientRect();
+      const box = {
+        left: Math.max(Math.min(a.left, b.left), clip.left),
+        top: Math.max(Math.min(a.top, b.top), clip.top),
+        right: Math.min(Math.max(a.right, b.right), clip.right),
+        bottom: Math.min(Math.max(a.bottom, b.bottom), clip.bottom),
+      };
+      if (box.right > box.left && box.bottom > box.top) boxes.push(box);
+    };
+    for (const { tr, row } of this.shownBodyRows(info)) {
+      if (row >= area.top && row <= area.bottom) run.push(tr);
+      else flush();
+    }
+    flush();
+    return boxes;
+  }
+
+  /** The body cell (row in the markdown minus one, column) under a point, if any */
+  private bodyCellAt(info: WidgetInfo, x: number, y: number): { row: number; column: number } | undefined {
+    for (const { tr, row } of this.shownBodyRows(info)) {
+      const rect = tr.getBoundingClientRect();
+      if (y < rect.top || y > rect.bottom) continue;
+      const column = Array.from(tr.cells).findIndex((cell) => {
+        const r = cell.getBoundingClientRect();
+        return x >= r.left && x <= r.right;
+      });
+      return column < 0 ? undefined : { row, column };
+    }
+    return undefined;
+  }
+
+  /**
+   * Dragging an outline's edge moves the reference to the cells under the
+   * pointer (a column reference to another column); dragging a range's corner
+   * resizes it. The formula in the editor changes as the pointer moves; Esc
+   * puts it back.
+   */
+  private dragReference(e: PointerEvent, index: number, mode: "move" | "resize"): void {
+    const active = this.editor;
+    const info = active && this.infos.get(active.widget);
+    if (e.button !== 0 || !active || !info) return;
+    // Not prevented: the mousedown that follows is (tp-floating), which keeps the focus in the field
+    e.stopPropagation();
+    const handle = e.currentTarget as HTMLElement;
+    const field = active.field;
+    const originalFormula = field.value;
+    const ref = references(originalFormula)[index];
+    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    const start = this.bodyCellAt(info, e.clientX, e.clientY);
+    const startArea = ref && this.referenceArea(info, headers, ref, active.row - 1);
+    if (!ref || !start || !startArea) return;
+    const lastRow = info.rows - 2;
+    const lastColumn = info.columns - 1;
+    const clamp = (n: number, max: number) => Math.max(0, Math.min(n, max));
+    this.stopReferenceDrag?.();
+    this.doc.body.classList.add("tp-ref-dragging");
+
+    const textFor = (cell: { row: number; column: number }): string | undefined => {
+      const dRow = cell.row - start.row;
+      const dColumn = cell.column - start.column;
+      if (ref.kind === "column") {
+        const column = clamp(startArea.left + dColumn, lastColumn);
+        return columnRefText(columnName(headers[column] ?? ""), ref.thisRow);
+      }
+      if (mode === "resize") {
+        return areaText({
+          top: Math.min(startArea.top, cell.row),
+          left: Math.min(startArea.left, cell.column),
+          bottom: Math.max(startArea.top, cell.row),
+          right: Math.max(startArea.left, cell.column),
+        });
+      }
+      const height = startArea.bottom - startArea.top;
+      const width = startArea.right - startArea.left;
+      const top = clamp(startArea.top + dRow, lastRow - height);
+      const left = clamp(startArea.left + dColumn, lastColumn - width);
+      return areaText({ top, left, bottom: top + height, right: left + width });
+    };
+
+    const win = this.doc.defaultView!;
+    const move = (ev: PointerEvent) => {
+      const cell = this.bodyCellAt(info, ev.clientX, ev.clientY);
+      const current = references(field.value)[index];
+      const text = cell && current && textFor(cell);
+      if (!text || !current || field.value.slice(current.from, current.to) === text) return;
+      field.value = field.value.slice(0, current.from) + text + field.value.slice(current.to);
+      const caret = current.from + text.length;
+      field.setSelectionRange(caret, caret);
+      this.updateFormulaUi();
+    };
+    const escape = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      field.value = originalFormula;
+      finish();
+    };
+    const finish = () => {
+      this.stopReferenceDrag?.();
+      if (this.editor?.field === field) {
+        field.focus({ preventScroll: true });
+        this.updateFormulaUi();
+      }
+    };
+    // Captured, so the drag ends even when the pointer is released outside the window;
+    // a cancelled pointer (touch scroll, context menu) ends it too
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+      // No active pointer to capture (e.g. a synthetic event): the window listeners suffice
+    }
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", finish);
+    win.addEventListener("pointercancel", finish);
+    handle.addEventListener("lostpointercapture", finish);
+    win.addEventListener("keydown", escape, true);
+    this.stopReferenceDrag = () => {
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", finish);
+      win.removeEventListener("pointercancel", finish);
+      handle.removeEventListener("lostpointercapture", finish);
+      win.removeEventListener("keydown", escape, true);
+      this.doc.body.classList.remove("tp-ref-dragging");
+      this.stopReferenceDrag = undefined;
+    };
+  }
+
   // ---- writing markdown --------------------------------------------------
 
   /**
@@ -1681,6 +2031,8 @@ export class Controller {
     columnMap?: (column: number) => number | undefined,
     // The pins after the edit, for edits that change them
     pins?: Pins,
+    // Where each row of the markdown (header 0) goes, for edits that move rows
+    rowMap?: IndexMap,
   ): Promise<WriteResult> {
     const info = this.infos.get(widget);
     if (!info) return "failed";
@@ -1688,7 +2040,10 @@ export class Controller {
       const text = await this.bridge.getText();
       const range = locateBySource(text, info.hint, info.source);
       const before = range && parseTable(range.text);
-      const edited = before && change(before);
+      const changedTable = before && change(before);
+      // Formula references follow moved rows and columns, then the results are written
+      const shifted = changedTable && shiftReferences(before, changedTable, rowMap, columnMap);
+      const edited = shifted && recalculate(shifted);
       if (!range || !before || !edited) {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
@@ -1775,6 +2130,7 @@ export class Controller {
       { row: insert.at, column },
       undefined,
       insert.pins,
+      rowAfterInsert(insert.at),
     );
   }
 
@@ -1790,18 +2146,26 @@ export class Controller {
       undefined,
       undefined,
       insert.pins,
+      rowAfterInsert(insert.at),
     );
   }
 
   private deleteRowAt(widget: HTMLElement, info: WidgetInfo, row: number): Promise<WriteResult> {
-    return this.write(widget, (t) => deleteRow(t, row), undefined, undefined, deleteRowPins(info.pins, info.rows, row));
+    return this.write(
+      widget,
+      (t) => deleteRow(t, row),
+      undefined,
+      undefined,
+      deleteRowPins(info.pins, info.rows, row),
+      (r) => (r === row ? undefined : r > row ? r - 1 : r),
+    );
   }
 
   /** Moves a row, within its zone when pinned, outside the zones when not */
   private moveRowTo(widget: HTMLElement, info: WidgetInfo, from: number, asked: number): Promise<WriteResult> {
     const to = clampRowMove(info.pins, info.rows, from, asked);
     if (to === from) return Promise.resolve("unchanged");
-    return this.write(widget, (t) => moveRow(t, from, to));
+    return this.write(widget, (t) => moveRow(t, from, to), undefined, undefined, undefined, (r) => columnAfterMove(r, from, to));
   }
 
   private insertColumnWith(widget: HTMLElement, info: WidgetInfo, at: number): Promise<WriteResult> {
@@ -1835,7 +2199,7 @@ export class Controller {
   private async pinRowAt(widget: HTMLElement, info: WidgetInfo, row: number, pin: RowZone | undefined): Promise<void> {
     if (pin && !(await this.setting("metadata"))) return;
     const { to, pins } = pinRow(info.pins, info.rows, row, pin);
-    await this.write(widget, (t) => moveRow(t, row, to), undefined, undefined, pins);
+    await this.write(widget, (t) => moveRow(t, row, to), undefined, undefined, pins, (r) => columnAfterMove(r, row, to));
   }
 
   private async pinColumnAt(
@@ -1986,6 +2350,13 @@ export class Controller {
       },
       view.showFilters,
     );
+    if (info.stale) {
+      button(
+        "Recalculate",
+        "Some formula results are out of date (the table was changed outside Table Plus): write the current results",
+        () => void this.write(this.current(widget, info)[0], (t) => t),
+      );
+    }
     if (info.metaRow) {
       button("Remove metadata", "Remove this table's stored settings (sorting, pinning): its <meta> row", () =>
         void this.removeMetadata(widget, info),
