@@ -5,6 +5,33 @@ import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashe
 describe("Controller", () => {
   useTablePage();
 
+  it("leaves out the modules turned off with tablePlus.modules.<name>.enabled", async () => {
+    const TYPED = "| Item | Done #check |\n|---|---|\n| Pear | yes |\n";
+    await setup(TYPED, {
+      "tablePlus.metadata": true,
+      "tablePlus.modules.columnTypes.enabled": false,
+      "tablePlus.modules.handles.enabled": false,
+      "tablePlus.modules.formulas.enabled": false,
+    });
+    // No column type: the cell as written, the hashtag shown
+    expect(cell(1, 1).textContent).toBe("yes");
+    expect(document.querySelector("style[data-table-plus='types']")).toBeNull();
+    // No handles
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(document.querySelector(".tp-grip")).toBeNull();
+    // No formulas: a typed formula is text
+    clickOn(cell(1, 0));
+    editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "=1+1";
+    key(editor.querySelector(".tp-cell-editor")!, "Enter");
+    await flush();
+    expect(text).toBe("| Item | Done #check |\n|---|---|\n| =1+1 | yes |\n");
+    // The others are on
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(TYPED);
+    expect(cell(1, 1).textContent).toBe("✅");
+  });
+
   it("sorts and restores the order without touching the markdown", async () => {
     await setup(PAGE);
     const sort = cell(0, 0).querySelector(".tp-sort")!;
@@ -48,7 +75,7 @@ describe("Controller", () => {
       return bodyTexts();
     };
     expect(await filterRows({})).toEqual(["Pear", "apple"]);
-    expect(await filterRows({ "tablePlus.smartFilters": false })).toEqual([]);
+    expect(await filterRows({ "tablePlus.filter.smart": false })).toEqual([]);
   });
 
   it("limits the table height with the maxHeight setting", async () => {
@@ -95,7 +122,7 @@ describe("Controller", () => {
   });
 
   it("keeps the sort when the table is re-rendered after an edit", async () => {
-    await setup(PAGE);
+    await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
     clickOn(cell(0, 0).querySelector(".tp-sort")!);
     clickOn(cell(1, 0)); // shown first: apple
     const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;

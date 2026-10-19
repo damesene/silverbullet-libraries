@@ -1,7 +1,7 @@
 // Enhances SilverBullet's rendered markdown tables in place: sorting, filtering,
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
-import { type Bridge, SETTINGS, type SettingValue } from "./bridge.ts";
+import { type Bridge, type FeatureName, SETTINGS, type SettingValue } from "./bridge.ts";
 import type {
   CellEditor,
   CellRef,
@@ -147,10 +147,12 @@ export class Controller implements TableHost {
   private readonly bar: HTMLElement;
   private readonly addRow: HTMLButtonElement;
   private readonly addColumn: HTMLButtonElement;
-  // Features that keep their own state and work through this controller (core/feature.ts)
-  private readonly features: readonly Feature[];
+  // Features that keep their own state and work through this controller
+  // (core/feature.ts): those turned on, filled in when Table Plus starts
+  private readonly features: Feature[] = [];
+  private featuresStarted: Promise<void> | undefined;
   private readonly metadata: Metadata;
-  private readonly expressions: Expressions;
+  private expressions: Expressions | undefined;
   // Steps every write goes through after the edit, in this order
   private readonly writeSteps: readonly WriteStep[] = [formulasAfterEdit, metadataAfterEdit];
 
@@ -159,22 +161,6 @@ export class Controller implements TableHost {
     public bridge: Bridge,
   ) {
     this.metadata = new Metadata(this);
-    this.expressions = new Expressions(this);
-    // In the order they get events
-    this.features = [
-      // First: the header moves before what follows it
-      new Sticky(this),
-      new Autoscroll(this),
-      new Grips(this),
-      new Formulas(this),
-      // After formulas: a formula's result is shown in its column's type
-      new ColumnTypes(this),
-      this.metadata,
-      new Paste(this),
-      new Selection(this),
-      this.expressions,
-      new History(this),
-    ];
     this.cellEditor = new CellEditing(this, {
       features: this.features,
       isolate: (element) => this.isolate(element),
@@ -207,9 +193,48 @@ export class Controller implements TableHost {
 
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
-    for (const feature of this.features) feature.start?.();
+    this.featuresStarted = this.startFeatures();
     void this.scan();
     void this.refreshSettings();
+  }
+
+  /**
+   * Creates and starts the features, but the modules turned off
+   * (`tablePlus.modules.<name>.enabled`). Read once: a change applies when the
+   * page is loaded again.
+   */
+  private async startFeatures(): Promise<void> {
+    const optional = (name: FeatureName, create: () => Feature) => ({ name, create });
+    const always = (create: () => Feature) => ({ name: undefined, create });
+    // In the order they get events
+    const all = [
+      // First: the header moves before what follows it
+      optional("sticky", () => new Sticky(this)),
+      optional("autoscroll", () => new Autoscroll(this)),
+      optional("handles", () => new Grips(this)),
+      optional("formulas", () => new Formulas(this)),
+      // After formulas: a formula's result is shown in its column's type
+      optional("columnTypes", () => new ColumnTypes(this)),
+      always(() => this.metadata),
+      optional("paste", () => new Paste(this)),
+      optional("selection", () => new Selection(this)),
+      always(() => (this.expressions = new Expressions(this))),
+      always(() => new History(this)),
+    ];
+    const enabled = await Promise.all(all.map(({ name }) => (name ? this.featureEnabled(name) : true)));
+    if (this.stopped) return;
+    const features = all.filter((_, i) => enabled[i]).map(({ create }) => create());
+    this.features.push(...features);
+    for (const feature of features) feature.start?.();
+  }
+
+  private async featureEnabled(name: FeatureName): Promise<boolean> {
+    try {
+      const value = await this.bridge.getConfig?.(`tablePlus.modules.${name}.enabled`, true);
+      return typeof value === "boolean" ? value : true;
+    } catch {
+      return true;
+    }
   }
 
   /** Detaches from the page: listeners, observer and floating controls */
@@ -353,8 +378,11 @@ export class Controller implements TableHost {
   }
 
   /** Enhances every rendered table that is not enhanced yet */
-  scan(): Promise<void> {
-    if (this.stopped) return Promise.resolve();
+  async scan(): Promise<void> {
+    if (this.stopped) return;
+    // Tables are enhanced by the features that are on
+    await this.featuresStarted;
+    if (this.stopped) return;
     const pending: Promise<void>[] = [];
     for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(WIDGET_SELECTOR))) {
       const table = renderedTable(widget);
@@ -362,7 +390,7 @@ export class Controller implements TableHost {
       if (this.infos.get(widget)?.table === table || widget.dataset.tpUnsupported) continue;
       pending.push(this.enhance(widget, table));
     }
-    return Promise.all(pending).then(() => undefined);
+    await Promise.all(pending);
   }
 
   private async enhance(widget: HTMLElement, table: HTMLTableElement): Promise<void> {
@@ -583,7 +611,7 @@ export class Controller implements TableHost {
 
   /** SilverBullet's `page:index` event */
   pageIndexed(name: string): Promise<void> {
-    return this.expressions.pageIndexed(name);
+    return this.expressions?.pageIndexed(name) ?? Promise.resolve();
   }
 
   cancelEditing(): void {

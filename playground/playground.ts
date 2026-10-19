@@ -1,7 +1,7 @@
 // A page without SilverBullet: markdown in a textarea, tables rendered the way
 // SilverBullet renders them, and Table Plus on top through a mock Bridge.
-import type { Bridge } from "../table-plus/src/bridge.ts";
-import { SETTINGS } from "../table-plus/src/bridge.ts";
+import type { Bridge, FeatureName } from "../table-plus/src/bridge.ts";
+import { FEATURE_NAMES, SETTINGS } from "../table-plus/src/bridge.ts";
 import { init } from "../table-plus/src/index.ts";
 import { findTables, parseTable } from "../table-plus/src/markdown.ts";
 import libraryPage from "../table-plus/table-plus.md";
@@ -217,6 +217,17 @@ const LABELS: Record<Key, string> = {
   selectOnClick: "Click selects text",
   ctrlEnterAddsRow: "Ctrl+Enter adds a row",
   smartFilters: "Smart filters",
+  expressionsDelay: "Refresh ${…} cells after (ms)",
+};
+
+const MODULE_LABELS: Record<FeatureName, string> = {
+  formulas: "Formulas",
+  columnTypes: "Column types",
+  selection: "Cell selection",
+  paste: "Paste",
+  handles: "Handles",
+  sticky: "Sticky header",
+  autoscroll: "Middle-button scrolling",
 };
 
 function settingsChanged(): void {
@@ -257,6 +268,24 @@ for (const key of Object.keys(SETTINGS) as Key[]) {
   }
   settingsBox.append(label);
 }
+
+// Modules are read when Table Plus starts: a change reloads the playground
+const modulesBox = document.createElement("span");
+modulesBox.className = "modules";
+modulesBox.append("Modules:");
+for (const name of FEATURE_NAMES) {
+  const path = `tablePlus.modules.${name}.enabled`;
+  const label = document.createElement("label");
+  const input = Object.assign(document.createElement("input"), { type: "checkbox", checked: settings[path] !== false });
+  input.addEventListener("change", () => {
+    settings[path] = input.checked;
+    save(SETTINGS_KEY, JSON.stringify(settings));
+    location.reload();
+  });
+  label.append(input, MODULE_LABELS[name]);
+  modulesBox.append(label);
+}
+settingsBox.append(modulesBox);
 
 // --- Chrome -------------------------------------------------------------------
 

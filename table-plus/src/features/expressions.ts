@@ -12,9 +12,6 @@ import { cellText, renderedTable, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
 import { formatLuaNumber } from "../format.ts";
 import { parseTable } from "../markdown.ts";
 
-// Time the indexers get to write the index after `page:index`
-const INDEX_SETTLE_MS = 500;
-
 export class Expressions implements Feature {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
@@ -31,8 +28,10 @@ export class Expressions implements Feature {
     const { bridge } = this.host;
     if (this.stopped || !bridge.evalExpression) return;
     if (name !== (await bridge.getCurrentPage())) return;
+    // The time the indexers get to write the index
+    const delay = await this.host.setting("expressionsDelay");
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.refresh(), INDEX_SETTLE_MS);
+    this.timer = setTimeout(() => void this.refresh(), delay);
   }
 
   private async refresh(): Promise<void> {

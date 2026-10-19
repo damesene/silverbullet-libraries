@@ -289,7 +289,18 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 
 ## Settings
 
-Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, or set them in your [[CONFIG]]:
+Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* and *Table Plus: Modules* categories, or set them in your [[CONFIG]]. Settings of whole tables are `tablePlus.<setting>`, those of a part of Table Plus `tablePlus.<part>.<setting>`, and those of a module (a part that can be turned off) `tablePlus.modules.<module>.<setting>`. A part is set in one go, with only what you change (the rest keeps its default):
+
+```lua
+config.set("tablePlus.metadata", true)
+config.set("tablePlus.editor", { enterKey = "moveDown", selectOnClick = true })
+config.set("tablePlus.modules.formulas", { enabled = false })
+config.set("tablePlus.expressions", { refreshDelay = 1000 })
+```
+
+Setting a part replaces what an earlier `config.set` of the same part set: set each part once, or one setting at a time (`config.set("tablePlus.editor.enterKey", "moveDown")`).
+
+### Tables
 
 * **Store table metadata** (`tablePlus.metadata`), default `false`
   * `true`: table settings (the sorting and pinned rows and columns) can be stored in any table, see [[#Table metadata]], rows and columns can be pinned, see [[#Pinning]], and formulas can be added, see [[#Formulas]].
@@ -297,32 +308,46 @@ Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, 
 * **Maximum table height (px)** (`tablePlus.maxHeight`), default `0`
   * `0`: no limit, a table is as tall as its rows.
   * A number of pixels, e.g. `400`: a taller table gets its own vertical scrollbar.
-
 * **Format tables** (`tablePlus.autoFormat`), default `true`
   * `true`: a table edited with Table Plus is written with aligned pipes, padded to the widest cell of each column and aligned as its delimiter row says.
   * `false`: each table keeps its own style: aligned tables stay aligned, compact tables stay compact, untouched rows are kept byte for byte.
-* **Enter in a cell editor** (`tablePlus.enterKey`), default `save`
+
+### Cell editor (`tablePlus.editor`)
+
+* **Enter in a cell editor** (`enterKey`), default `save`
   * `save`: Enter saves the cell.
   * `moveDown`: Enter saves and edits the cell below; Shift+Enter too, opening it as Shift+click does.
-* **Click selects the cell's text** (`tablePlus.selectOnClick`), default `false`
+* **Click selects the cell's text** (`selectOnClick`), default `false`
   * `false`: a click puts the cursor at the end of the cell's text, Shift+click selects the whole text.
   * `true`: the reverse. With Shift, Enter and the Ctrl keys follow Shift+click; without Shift they put the cursor at the end either way.
-* **Ctrl+Enter adds a row** (`tablePlus.ctrlEnterAddsRow`), default `true`
+* **Ctrl+Enter adds a row** (`ctrlEnterAddsRow`), default `true`
   * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
   * `false`: Ctrl+Enter works like Enter.
-* **Smart filters** (`tablePlus.smartFilters`), default `true`
+
+### Filters (`tablePlus.filter`)
+
+* **Smart filters** (`smart`), default `true`
   * `true`: filter fields understand `>10`, `/pattern/`, `=text` and `!filter`.
   * `false`: everything typed in a filter field is text to find.
 
-```lua
-config.set("tablePlus.metadata", true)
-config.set("tablePlus.maxHeight", 400)
-config.set("tablePlus.autoFormat", false)
-config.set("tablePlus.enterKey", "moveDown")
-config.set("tablePlus.selectOnClick", true)
-config.set("tablePlus.ctrlEnterAddsRow", false)
-config.set("tablePlus.smartFilters", false)
-```
+### `${…}` cells (`tablePlus.expressions`)
+
+* **Refresh ${…} cells after (ms)** (`refreshDelay`), default `500`
+  * After you edit a table, a cell that holds a `${…}` expression reading the page index (a query, or a formula of a spreadsheet library such as MdTableSheet) shows its new result once SilverBullet has indexed the page again. This is how many milliseconds it waits for the index: raise it if such cells still show old results (a slow device, a large space).
+
+### Modules (`tablePlus.modules`)
+
+Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlus.modules.paste", { enabled = false })`; all are on by default. A change applies when the page is loaded again. Editing cells, sorting, filtering and the toolbar are always on.
+
+| Module | When on |
+|---|---|
+| `formulas` | Formulas can be typed into cells, with their help and references; *Recalculate* in the toolbar. Off: a typed formula is saved as text. Formulas already in a table keep their results and are still recalculated when Table Plus edits the table, so their references stay right. See [[#Formulas]]. |
+| `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
+| `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them. |
+| `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
+| `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and *+ Row* and *+* still add them. |
+| `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
+| `autoscroll` | The middle mouse button over a table scrolls it. |
 
 ## Table metadata
 
@@ -370,6 +395,16 @@ config.defineCategory {
   priority = 5,
 }
 
+config.defineCategory {
+  name = "Table Plus: Modules",
+  description = "Parts of Table Plus that can be turned off. A change applies when the page is loaded again.",
+  priority = 4.9,
+}
+
+-- Settings of whole tables are tablePlus.<setting>; those of a part of Table
+-- Plus are tablePlus.<part>.<setting>, and those of a module (a part that can
+-- be turned off) tablePlus.modules.<module>.<setting>. A part is set in one go
+-- with config.set("tablePlus.<part>", { … }): settings left out keep their defaults
 config.define("tablePlus", {
   description = "Table Plus settings",
   type = "object",
@@ -392,30 +427,144 @@ config.define("tablePlus", {
       description = "Write tables edited with Table Plus with aligned pipes. Off: each table keeps its own style (aligned or compact).",
       ui = { category = "Table Plus", label = "Format tables", priority = 4 },
     },
-    enterKey = {
-      type = "string",
-      enum = { "save", "moveDown" },
-      default = "save",
-      description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: opened as on a Shift+click).",
-      ui = { category = "Table Plus", label = "Enter in a cell editor", priority = 3 },
+    editor = {
+      type = "object",
+      additionalProperties = false,
+      properties = {
+        enterKey = {
+          type = "string",
+          enum = { "save", "moveDown" },
+          default = "save",
+          description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: opened as on a Shift+click).",
+          ui = { category = "Table Plus", label = "Enter in a cell editor", priority = 3 },
+        },
+        selectOnClick = {
+          type = "boolean",
+          default = false,
+          description = "A click on a cell opens its editor with all its text selected, Shift+click with the cursor at the end. Off: the reverse (Shift+click selects the text). Shift+Enter and Ctrl+Shift+arrows follow Shift+click.",
+          ui = { category = "Table Plus", label = "Click selects the cell's text", priority = 2.5 },
+        },
+        ctrlEnterAddsRow = {
+          type = "boolean",
+          default = true,
+          description = "Ctrl+Enter in a cell editor saves the cell, adds an empty row below and edits it. Off: Ctrl+Enter works like Enter.",
+          ui = { category = "Table Plus", label = "Ctrl+Enter adds a row", priority = 2 },
+        },
+      },
     },
-    selectOnClick = {
-      type = "boolean",
-      default = false,
-      description = "A click on a cell opens its editor with all its text selected, Shift+click with the cursor at the end. Off: the reverse (Shift+click selects the text). Shift+Enter and Ctrl+Shift+arrows follow Shift+click.",
-      ui = { category = "Table Plus", label = "Click selects the cell's text", priority = 2.5 },
+    expressions = {
+      type = "object",
+      additionalProperties = false,
+      properties = {
+        refreshDelay = {
+          type = "number",
+          default = 500,
+          description = "After you edit a table, a cell that holds a ${…} expression reading the page index (a query, or a formula of a spreadsheet library) shows its new result once SilverBullet has indexed the page again: this is how many milliseconds it waits for that. Raise it if such cells still show old results (a slow device, a large space).",
+          ui = { category = "Table Plus", label = "Refresh ${…} cells after (ms)", priority = 0.5 },
+        },
+      },
     },
-    ctrlEnterAddsRow = {
-      type = "boolean",
-      default = true,
-      description = "Ctrl+Enter in a cell editor saves the cell, adds an empty row below and edits it. Off: Ctrl+Enter works like Enter.",
-      ui = { category = "Table Plus", label = "Ctrl+Enter adds a row", priority = 2 },
+    filter = {
+      type = "object",
+      additionalProperties = false,
+      properties = {
+        smart = {
+          type = "boolean",
+          default = true,
+          description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell) and !filter (not). Off: everything typed is text to find.",
+          ui = { category = "Table Plus", label = "Smart filters", priority = 1 },
+        },
+      },
     },
-    smartFilters = {
-      type = "boolean",
-      default = true,
-      description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell) and !filter (not). Off: everything typed is text to find.",
-      ui = { category = "Table Plus", label = "Smart filters", priority = 1 },
+    modules = {
+      type = "object",
+      additionalProperties = false,
+      properties = {
+        formulas = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Formulas in cells (=SUM(B1:B3)): typing them, their help and references, and Recalculate. Off: a typed formula is saved as text; formulas already in a table keep their results and are still recalculated when Table Plus edits the table.",
+              ui = { category = "Table Plus: Modules", label = "Formulas", priority = 8 },
+            },
+          },
+        },
+        columnTypes = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Column types from a header's hashtag (#currency, #stars, #date…): cells shown as the type, the type's values in the cell editor, Type in the column menu. Off: cells show as written.",
+              ui = { category = "Table Plus: Modules", label = "Column types", priority = 7 },
+            },
+          },
+        },
+        selection = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Dragging across cells selects them; Ctrl+C copies them for a spreadsheet, Delete empties them.",
+              ui = { category = "Table Plus: Modules", label = "Cell selection", priority = 6 },
+            },
+          },
+        },
+        paste = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text.",
+              ui = { category = "Table Plus: Modules", label = "Paste from spreadsheets", priority = 5 },
+            },
+          },
+        },
+        handles = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus (insert, duplicate, pin, sort, type, delete…).",
+              ui = { category = "Table Plus: Modules", label = "Row and column handles", priority = 4 },
+            },
+          },
+        },
+        sticky = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "A table's header (and rows pinned to the top) stays in view while the page scrolls past the table, rows pinned to the bottom stay at the bottom of the view.",
+              ui = { category = "Table Plus: Modules", label = "Sticky header", priority = 3 },
+            },
+          },
+        },
+        autoscroll = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Pressing the middle mouse button over a table scrolls it in the direction the pointer moves.",
+              ui = { category = "Table Plus: Modules", label = "Middle-button scrolling", priority = 2 },
+            },
+          },
+        },
+      },
     },
   },
 })

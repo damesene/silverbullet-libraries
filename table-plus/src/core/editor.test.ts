@@ -20,7 +20,7 @@ describe("Cell editor", () => {
   });
 
   it("moves down on Enter with the 'moveDown' setting", async () => {
-    await setup(PAGE, { "tablePlus.enterKey": "moveDown" });
+    await setup(PAGE, { "tablePlus.editor.enterKey": "moveDown" });
     const editing = () => editor.querySelector<HTMLInputElement>(".tp-cell-editor");
     const at = () => {
       const td = editing()?.closest("td");
@@ -50,7 +50,7 @@ describe("Cell editor", () => {
   });
 
   it("only saves on Enter by default and with an unknown setting", async () => {
-    await setup(PAGE, { "tablePlus.enterKey": "nonsense" });
+    await setup(PAGE, { "tablePlus.editor.enterKey": "nonsense" });
     clickOn(cell(1, 1));
     key(editor.querySelector(".tp-cell-editor")!, "Enter");
     await flush();
@@ -82,7 +82,8 @@ describe("Cell editor", () => {
 
     controller.stop();
     document.body.replaceChildren();
-    await setup(PAGE, { "tablePlus.ctrlEnterAddsRow": false });
+    // Off: Ctrl+Enter is a plain Enter (here: only saving)
+    await setup(PAGE, { "tablePlus.editor.ctrlEnterAddsRow": false, "tablePlus.editor.enterKey": "save" });
     clickOn(cell(1, 1));
     key(editor.querySelector(".tp-cell-editor")!, "Enter", { ctrlKey: true });
     await flush();
@@ -108,7 +109,7 @@ describe("Cell editor", () => {
 
     controller.stop();
     document.body.replaceChildren();
-    await setup(PAGE, { "tablePlus.selectOnClick": true });
+    await setup(PAGE, { "tablePlus.editor.selectOnClick": true });
     await flush();
     click(cell(1, 0), false);
     expect(selected()).toBe(true);
@@ -268,7 +269,7 @@ describe("Cell editor", () => {
       await flush();
       await controller.scan();
     };
-    await setup(PAGE, { "tablePlus.enterKey": "moveDown" });
+    await setup(PAGE, { "tablePlus.editor.enterKey": "moveDown" });
     clickOn(cell(1, 0));
     await go("ArrowRight", { ctrlKey: true, shiftKey: true });
     expect(at()).toEqual([1, 1]);
@@ -283,7 +284,7 @@ describe("Cell editor", () => {
     // swapped by selectOnClick: Shift opens with the cursor at the end
     controller.stop();
     document.body.replaceChildren();
-    await setup(PAGE, { "tablePlus.selectOnClick": true });
+    await setup(PAGE, { "tablePlus.editor.selectOnClick": true });
     await flush();
     press(cell(1, 0), "mousedown");
     press(cell(1, 0), "click");

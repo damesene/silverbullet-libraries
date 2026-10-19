@@ -1,12 +1,12 @@
 // table-plus/src/bridge.ts
 var SETTINGS = {
   enterKey: {
-    path: "tablePlus.enterKey",
+    path: "tablePlus.editor.enterKey",
     default: "save",
     parse: (v) => v === "save" || v === "moveDown" ? v : void 0
   },
   smartFilters: {
-    path: "tablePlus.smartFilters",
+    path: "tablePlus.filter.smart",
     default: true,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
@@ -18,13 +18,13 @@ var SETTINGS = {
   },
   // A click on a cell selects its text (Shift+click does not); off: the reverse
   selectOnClick: {
-    path: "tablePlus.selectOnClick",
+    path: "tablePlus.editor.selectOnClick",
     default: false,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
   // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
   ctrlEnterAddsRow: {
-    path: "tablePlus.ctrlEnterAddsRow",
+    path: "tablePlus.editor.ctrlEnterAddsRow",
     default: true,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
@@ -33,6 +33,12 @@ var SETTINGS = {
     path: "tablePlus.autoFormat",
     default: true,
     parse: (v) => typeof v === "boolean" ? v : void 0
+  },
+  // Milliseconds `${…}` cells wait after `page:index` for the indexers to write the index
+  expressionsDelay: {
+    path: "tablePlus.expressions.refreshDelay",
+    default: 500,
+    parse: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0
   },
   // Pixels; 0: no limit
   maxHeight: {
@@ -3450,7 +3456,6 @@ ${error}` : error;
 };
 
 // table-plus/src/features/expressions.ts
-var INDEX_SETTLE_MS = 500;
 var Expressions = class {
   constructor(host) {
     this.host = host;
@@ -3467,8 +3472,9 @@ var Expressions = class {
     const { bridge } = this.host;
     if (this.stopped || !bridge.evalExpression) return;
     if (name !== await bridge.getCurrentPage()) return;
+    const delay = await this.host.setting("expressionsDelay");
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.refresh(), INDEX_SETTLE_MS);
+    this.timer = setTimeout(() => void this.refresh(), delay);
   }
   async refresh() {
     const { bridge, doc } = this.host;
@@ -5196,21 +5202,6 @@ var Controller = class {
     this.doc = doc;
     this.bridge = bridge;
     this.metadata = new Metadata(this);
-    this.expressions = new Expressions(this);
-    this.features = [
-      // First: the header moves before what follows it
-      new Sticky(this),
-      new Autoscroll(this),
-      new Grips(this),
-      new Formulas(this),
-      // After formulas: a formula's result is shown in its column's type
-      new ColumnTypes(this),
-      this.metadata,
-      new Paste(this),
-      new Selection(this),
-      this.expressions,
-      new History(this)
-    ];
     this.cellEditor = new CellEditing(this, {
       features: this.features,
       isolate: (element) => this.isolate(element),
@@ -5254,8 +5245,10 @@ var Controller = class {
   bar;
   addRow;
   addColumn;
-  // Features that keep their own state and work through this controller (core/feature.ts)
-  features;
+  // Features that keep their own state and work through this controller
+  // (core/feature.ts): those turned on, filled in when Table Plus starts
+  features = [];
+  featuresStarted;
   metadata;
   expressions;
   // Steps every write goes through after the edit, in this order
@@ -5277,9 +5270,45 @@ var Controller = class {
     this.addColumn.addEventListener("click", () => this.appendColumn());
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
-    for (const feature of this.features) feature.start?.();
+    this.featuresStarted = this.startFeatures();
     void this.scan();
     void this.refreshSettings();
+  }
+  /**
+   * Creates and starts the features, but the modules turned off
+   * (`tablePlus.modules.<name>.enabled`). Read once: a change applies when the
+   * page is loaded again.
+   */
+  async startFeatures() {
+    const optional = (name, create) => ({ name, create });
+    const always = (create) => ({ name: void 0, create });
+    const all = [
+      // First: the header moves before what follows it
+      optional("sticky", () => new Sticky(this)),
+      optional("autoscroll", () => new Autoscroll(this)),
+      optional("handles", () => new Grips(this)),
+      optional("formulas", () => new Formulas(this)),
+      // After formulas: a formula's result is shown in its column's type
+      optional("columnTypes", () => new ColumnTypes(this)),
+      always(() => this.metadata),
+      optional("paste", () => new Paste(this)),
+      optional("selection", () => new Selection(this)),
+      always(() => this.expressions = new Expressions(this)),
+      always(() => new History(this))
+    ];
+    const enabled = await Promise.all(all.map(({ name }) => name ? this.featureEnabled(name) : true));
+    if (this.stopped) return;
+    const features = all.filter((_, i) => enabled[i]).map(({ create }) => create());
+    this.features.push(...features);
+    for (const feature of features) feature.start?.();
+  }
+  async featureEnabled(name) {
+    try {
+      const value = await this.bridge.getConfig?.(`tablePlus.modules.${name}.enabled`, true);
+      return typeof value === "boolean" ? value : true;
+    } catch {
+      return true;
+    }
   }
   /** Detaches from the page: listeners, observer and floating controls */
   stop() {
@@ -5406,8 +5435,10 @@ var Controller = class {
     else setTimeout(run, 0);
   }
   /** Enhances every rendered table that is not enhanced yet */
-  scan() {
-    if (this.stopped) return Promise.resolve();
+  async scan() {
+    if (this.stopped) return;
+    await this.featuresStarted;
+    if (this.stopped) return;
     const pending = [];
     for (const widget of Array.from(this.doc.querySelectorAll(WIDGET_SELECTOR))) {
       const table = renderedTable(widget);
@@ -5415,7 +5446,7 @@ var Controller = class {
       if (this.infos.get(widget)?.table === table || widget.dataset.tpUnsupported) continue;
       pending.push(this.enhance(widget, table));
     }
-    return Promise.all(pending).then(() => void 0);
+    await Promise.all(pending);
   }
   async enhance(widget, table) {
     if (this.enhancing.has(widget)) return;
@@ -5605,7 +5636,7 @@ var Controller = class {
   }
   /** SilverBullet's `page:index` event */
   pageIndexed(name) {
-    return this.expressions.pageIndexed(name);
+    return this.expressions?.pageIndexed(name) ?? Promise.resolve();
   }
   cancelEditing() {
     this.cellEditor.dropPending();

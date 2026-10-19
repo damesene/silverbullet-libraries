@@ -77,6 +77,13 @@ button {
   align-items: center;
   gap: 5px;
 }
+#settings .modules {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  flex-basis: 100%;
+}
 main {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
