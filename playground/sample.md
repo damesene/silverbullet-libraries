@@ -106,7 +106,7 @@ Dates are written as 2026-10-19, times as 14:30. Times add up past a day: `[h]:m
 
 ## Named tables
 
-The next table is named `prices` (*Name* in its toolbar, stored in its metadata row). The rows Pear and Fig are named (*Name row* in the row's menu, a bar at the row's left edge), and the VAT rate cell is named `vat` (*Name cell*, a mark in its corner). The Price column is named `price` (*Name column* in the column's menu): rename its header and the formulas below still find it.
+The next table is named `prices` (*Name* in its toolbar, stored in its metadata row). The rows Pear and Fig are named (*Name row* in the row's menu, a mark in the top left corner), and the VAT rate cell is named `vat` (*Name cell*, a mark in the top right corner). The Price column is named `price` (*Name column* in the column's menu): rename its header and the formulas below still find it.
 
 | Fruit | Price <meta n="price"> |
 |---|--:|
