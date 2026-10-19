@@ -765,7 +765,30 @@ function insertColumnWith(host, widget, info, at) {
     pins: insert.pins
   });
 }
-function deleteColumnAt(host, widget, info, column) {
+function listed(names) {
+  const shown = names.slice(0, 5);
+  const more = names.length - shown.length;
+  if (more > 0) return `${shown.join(", ")} and ${more} more`;
+  return shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}` : shown.join("");
+}
+async function deleteColumnAt(host, widget, info, column) {
+  const body = parseTable(info.source).rows.slice(1);
+  const rows = body.flatMap((r) => {
+    const named2 = rowNameIn(r.cells);
+    return named2 && named2.column === column ? [named2.name] : [];
+  });
+  const cells = body.flatMap((r) => {
+    const name = nameOf(r.cells[column] ?? "");
+    return name ? [name] : [];
+  });
+  if (rows.length || cells.length) {
+    const lost = [
+      ...rows.length ? [`the name${rows.length === 1 ? "" : "s"} of ${rows.length === 1 ? "the row" : `${rows.length} rows`} ${listed(rows)}`] : [],
+      ...cells.length ? [`the name${cells.length === 1 ? "" : "s"} of ${cells.length === 1 ? "the cell" : `${cells.length} cells`} ${listed(cells)}`] : []
+    ];
+    const question = `Deleting this column also removes ${lost.join(" and ")}: formulas that use ${rows.length + cells.length === 1 ? "it" : "them"} show #REF! or #NAME?. Delete the column? Ctrl+Z brings it back.`;
+    if (!await host.ask(question)) return "unchanged";
+  }
   return host.write(widget, (t) => deleteColumn(t, column), {
     columnMap: (c) => c === column ? void 0 : c > column ? c - 1 : c,
     pins: deleteColumnPins(info.pins, info.columns, column)

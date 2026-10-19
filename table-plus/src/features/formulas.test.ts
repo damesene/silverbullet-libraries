@@ -397,6 +397,42 @@ describe("Formulas", () => {
       expect(text).toContain('| Figs <meta r="fig"> | 3 |');
     });
 
+    it("asks before deleting a column that holds names of rows or cells", async () => {
+      const NAMED = '| Name | Price | Note |\n|---|---|---|\n| Pear <meta r="pear"> | 12 | a |\n| Fig <meta r="fig"> | 3 <meta n="fig_price"> | b |\n';
+      await setup(NAMED);
+      const confirm = vi.spyOn(window, "confirm");
+      const deleteColumn = async (column: number) => {
+        if (document.querySelector(".tp-menu")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+        // Over another cell first: the grips come back once the pointer moves to a cell
+        cell(0, column === 0 ? 1 : 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        cell(1, column).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+        item(/^Delete column$/).click();
+        await flush();
+      };
+      confirm.mockReturnValue(false);
+      await deleteColumn(0);
+      expect(confirm).toHaveBeenLastCalledWith(
+        "Deleting this column also removes the names of 2 rows pear and fig: formulas that use them show #REF! or #NAME?. Delete the column? Ctrl+Z brings it back.",
+      );
+      expect(text).toBe(NAMED);
+      await deleteColumn(1);
+      expect(confirm).toHaveBeenLastCalledWith(
+        "Deleting this column also removes the name of the cell fig_price: formulas that use it show #REF! or #NAME?. Delete the column? Ctrl+Z brings it back.",
+      );
+      expect(text).toBe(NAMED);
+      // Without names: no question
+      confirm.mockClear();
+      await deleteColumn(2);
+      expect(confirm).not.toHaveBeenCalled();
+      expect(text).toBe('| Name | Price |\n|---|---|\n| Pear <meta r="pear"> | 12 |\n| Fig <meta r="fig"> | 3 <meta n="fig_price"> |\n');
+      await controller.scan();
+      confirm.mockReturnValue(true);
+      await deleteColumn(0);
+      expect(text).toBe('| Price |\n|---|\n| 12 |\n| 3 <meta n="fig_price"> |\n');
+    });
+
     it("refuses a name another cell on the page has, or a function's", async () => {
       await setup('| A | B |\n|---|---|\n| 1 <meta n="one"> | 2 |\n');
       const prompt = vi.spyOn(window, "prompt");

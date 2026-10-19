@@ -178,6 +178,7 @@ A row can have a name, by which formulas use its cells: `pear[price]` is the Pri
 * It is stored in the row's first cell as a hidden `<meta r="pear">`: `| Pear <meta r="pear"> | 12 |`. A named row has a bar at the left edge of its first cell; hover it for the name.
 * A row's name is its table's: two rows of a table cannot have the same one. The column after it is written as any column reference (`[price]`, a fixed name, `[price:2]`) and follows the column when it is renamed or moved.
 * `XLOOKUP("Pear", prices![name], prices![price])` does the same by a key column's value; a row's name works without one, and is not changed by editing the row's cells.
+* Deleting the column that holds rows' or cells' names removes the names with it: Table Plus says which and asks first, as the formulas that use them then show `#REF!` or `#NAME?`.
 
 ### Other tables
 
