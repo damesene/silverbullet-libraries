@@ -182,6 +182,20 @@ const NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was sa
 const MOVE_BLOCKED = "Clear sorting and filters to move rows";
 const PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 
+/**
+ * Puts the rows at the end of `parent`, in this order, moving only those out
+ * of place: rows already in order keep their DOM node where it is (moving the
+ * row of a focused cell editor would take its focus).
+ */
+function placeAtEnd(parent: Element, rows: readonly HTMLTableRowElement[]): void {
+  let next: Node | null = null;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const tr = rows[i]!;
+    if (tr.parentElement !== parent || tr.nextSibling !== next) parent.insertBefore(tr, next);
+    next = tr;
+  }
+}
+
 export class Controller {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
   private readonly enhancing = new WeakSet<HTMLElement>();
@@ -209,6 +223,8 @@ export class Controller {
   private scanQueued = false;
   // Set by stop(): work already scheduled then does nothing
   private stopped = false;
+  // Rows are being rearranged: a cell editor losing its focus to that is not left
+  private movingRows = false;
   private settingsTimer: ReturnType<typeof setTimeout> | undefined;
   private settingsReadAt = 0;
   private expressionTimer: ReturnType<typeof setTimeout> | undefined;
@@ -648,29 +664,35 @@ export class Controller {
     const order = visibleRows(values, withPins(view, info.pins), this.filterOptions);
     const shown = new Set(order);
     const body = info.table.tBodies[0] ?? info.table;
-    // Rows pinned to the top go with the header, rows pinned to the bottom into
-    // the footer: both stay in view (updateStickyHeaders)
-    const head = info.table.tHead;
-    rows.slice(0, top).forEach((tr) => {
-      tr.classList.remove("tp-hidden");
-      head?.append(tr);
-    });
-    for (const i of order) body.append(rows[i]!);
     rows.forEach((tr, i) => {
-      if (i < top || i >= rows.length - bottom) return;
-      tr.classList.toggle("tp-hidden", !shown.has(i));
-      if (!shown.has(i)) body.append(tr);
+      const pinned = i < top || i >= rows.length - bottom;
+      tr.classList.toggle("tp-hidden", !pinned && !shown.has(i));
     });
-    // The (hidden) metadata row stays last, as in the markdown
-    const metaRow = info.table.querySelector("tr.tp-meta-row");
-    if (metaRow) body.append(metaRow);
-    const pinnedBottom = rows.slice(rows.length - bottom);
-    if (bottom > 0) {
-      const foot = info.table.tFoot ?? info.table.createTFoot();
-      for (const tr of pinnedBottom) {
-        tr.classList.remove("tp-hidden");
-        foot.append(tr);
-      }
+    // Rows pinned to the top go with the header, rows pinned to the bottom into
+    // the footer: both stay in view (updateStickyHeaders). Then the shown rows,
+    // the hidden ones and the (hidden) metadata row, last as in the markdown.
+    const metaRow = info.table.querySelector<HTMLTableRowElement>("tr.tp-meta-row");
+    const middle = rows.filter((_, i) => i >= top && i < rows.length - bottom);
+    const bodyRows = [
+      ...order.map((i) => rows[i]!),
+      ...middle.filter((tr) => tr.classList.contains("tp-hidden")),
+      ...(metaRow ? [metaRow] : []),
+    ];
+    // Moving the row of an open cell editor would take its focus: restored below
+    const editing = this.editor?.widget === widget ? this.editor : undefined;
+    const selection = editing && [editing.field.selectionStart, editing.field.selectionEnd];
+    this.movingRows = true;
+    try {
+      const head = info.table.tHead;
+      if (head) placeAtEnd(head, rows.slice(0, top));
+      placeAtEnd(body, bodyRows);
+      if (bottom > 0) placeAtEnd(info.table.tFoot ?? info.table.createTFoot(), rows.slice(rows.length - bottom));
+    } finally {
+      this.movingRows = false;
+    }
+    if (editing && this.editor === editing && this.doc.activeElement !== editing.field) {
+      editing.field.focus({ preventScroll: true });
+      if (selection) editing.field.setSelectionRange(selection[0] ?? null, selection[1] ?? null);
     }
 
     const header = info.table.rows[0]!;
@@ -1331,7 +1353,7 @@ export class Controller {
     this.isolate(field);
     field.addEventListener("blur", () => {
       // Focus went elsewhere on purpose: save, but leave the focus there
-      if (this.editor?.field === field) void this.finishEditing(true, undefined, false);
+      if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, undefined, false);
     });
     field.addEventListener("keydown", (e) => {
       if (e.isComposing) return;

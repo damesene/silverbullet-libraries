@@ -660,6 +660,23 @@ describe("Controller", () => {
     expect(document.querySelector(".tp-bar .tp-chip")).toBeNull(); // no sorting view any more
   });
 
+  it("keeps an open cell editor focused when ${…} cells are re-evaluated", async () => {
+    await setup("| N | Sum |\n|---|---|\n| a | 1 |\n| b | 2 |\n| total | ${S()} |\n");
+    (controller as unknown as { bridge: Record<string, unknown> }).bridge.evalExpression = () => 3;
+    clickOn(cell(2, 1)); // b's Sum
+    const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+    field.value = "25";
+    field.setSelectionRange(1, 1);
+    vi.useFakeTimers();
+    await controller.pageIndexed("Test");
+    await vi.advanceTimersByTimeAsync(600);
+    vi.useRealTimers();
+    expect(cell(3, 1).textContent).toBe("3");
+    expect(editor.querySelector(".tp-cell-editor")).toBe(field);
+    expect(document.activeElement).toBe(field);
+    expect(field.selectionStart).toBe(1);
+  });
+
   it("sorts numbers numerically", async () => {
     await setup(PAGE);
     clickOn(cell(0, 1).querySelector(".tp-sort")!);

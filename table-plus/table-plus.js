@@ -962,6 +962,14 @@ var FILTER_HINT = "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (r
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
 var PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
+function placeAtEnd(parent, rows) {
+  let next = null;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const tr = rows[i];
+    if (tr.parentElement !== parent || tr.nextSibling !== next) parent.insertBefore(tr, next);
+    next = tr;
+  }
+}
 var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
@@ -1005,6 +1013,8 @@ var Controller = class {
   scanQueued = false;
   // Set by stop(): work already scheduled then does nothing
   stopped = false;
+  // Rows are being rearranged: a cell editor losing its focus to that is not left
+  movingRows = false;
   settingsTimer;
   settingsReadAt = 0;
   expressionTimer;
@@ -1377,26 +1387,31 @@ var Controller = class {
     const order = visibleRows(values, withPins(view, info.pins), this.filterOptions);
     const shown = new Set(order);
     const body = info.table.tBodies[0] ?? info.table;
-    const head = info.table.tHead;
-    rows.slice(0, top).forEach((tr) => {
-      tr.classList.remove("tp-hidden");
-      head?.append(tr);
-    });
-    for (const i of order) body.append(rows[i]);
     rows.forEach((tr, i) => {
-      if (i < top || i >= rows.length - bottom) return;
-      tr.classList.toggle("tp-hidden", !shown.has(i));
-      if (!shown.has(i)) body.append(tr);
+      const pinned = i < top || i >= rows.length - bottom;
+      tr.classList.toggle("tp-hidden", !pinned && !shown.has(i));
     });
     const metaRow2 = info.table.querySelector("tr.tp-meta-row");
-    if (metaRow2) body.append(metaRow2);
-    const pinnedBottom = rows.slice(rows.length - bottom);
-    if (bottom > 0) {
-      const foot = info.table.tFoot ?? info.table.createTFoot();
-      for (const tr of pinnedBottom) {
-        tr.classList.remove("tp-hidden");
-        foot.append(tr);
-      }
+    const middle = rows.filter((_, i) => i >= top && i < rows.length - bottom);
+    const bodyRows = [
+      ...order.map((i) => rows[i]),
+      ...middle.filter((tr) => tr.classList.contains("tp-hidden")),
+      ...metaRow2 ? [metaRow2] : []
+    ];
+    const editing = this.editor?.widget === widget ? this.editor : void 0;
+    const selection = editing && [editing.field.selectionStart, editing.field.selectionEnd];
+    this.movingRows = true;
+    try {
+      const head = info.table.tHead;
+      if (head) placeAtEnd(head, rows.slice(0, top));
+      placeAtEnd(body, bodyRows);
+      if (bottom > 0) placeAtEnd(info.table.tFoot ?? info.table.createTFoot(), rows.slice(rows.length - bottom));
+    } finally {
+      this.movingRows = false;
+    }
+    if (editing && this.editor === editing && this.doc.activeElement !== editing.field) {
+      editing.field.focus({ preventScroll: true });
+      if (selection) editing.field.setSelectionRange(selection[0] ?? null, selection[1] ?? null);
     }
     const header = info.table.rows[0];
     Array.from(header.cells).forEach((cell, column) => {
@@ -1974,7 +1989,7 @@ var Controller = class {
     this.hideHandles();
     this.isolate(field);
     field.addEventListener("blur", () => {
-      if (this.editor?.field === field) void this.finishEditing(true, void 0, false);
+      if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, void 0, false);
     });
     field.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
