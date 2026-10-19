@@ -12,7 +12,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 ## At a glance
 
 * **Edit a cell**: click it, type, press Enter. See [[#Editing cells]].
-* **Move between cells**: Tab / Shift+Tab, or Ctrl+arrows while editing; Ctrl+Shift+arrows move the row or column. See [[#Keyboard]].
+* **Move between cells**: Tab / Shift+Tab, or Ctrl+arrows while editing; Ctrl+Alt+arrows move the row or column. See [[#Keyboard]].
 * **See the markdown**: hover the table and click *Edit markdown*, or Alt+click a cell. See [[#Showing the markdown]].
 * **Sort**: click ⇅ in a column header. See [[#Sorting]].
 * **Filter**: hover the table and click *Filter*; `>10`, `/regex/`, `=text` and `!text` work too. See [[#Filtering]].
@@ -39,16 +39,17 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Ctrl+arrows | Save, edit the cell beside |
 | Ctrl+Home | Save, edit the row's first cell |
 | Ctrl+End | Save, edit the row's last cell |
-| Ctrl(+Alt)+PageUp / PageDown | Save, edit the cell 10 rows up / down |
-| Ctrl+Shift+↑ / ↓ | Move the row up / down |
-| Ctrl+Shift+← / → | Move the column left / right |
-| Ctrl+Shift+Home / End | Move the column to the start / end |
-| Ctrl(+Alt)+Shift+PageUp / PageDown | Move the row 10 places up / down |
+| Ctrl+PageUp / PageDown | Save, edit the cell 10 rows up / down |
+| Ctrl+Alt+↑ / ↓ | Move the row up / down |
+| Ctrl+Alt+← / → | Move the column left / right |
+| Ctrl+Alt+Home / End | Move the column to the start / end |
+| Ctrl+Alt+PageUp / PageDown | Move the row 10 places up / down |
 
 * Tab on the last cell adds a row.
-* Ctrl+Shift+arrows save the cell and move it with its row or column, and keep editing it. Rows cannot move while sorted or filtered, nor the header row.
-* With the `moveDown` setting, Enter also moves to the cell below and Shift+Enter to the cell above. See [[#Settings]].
-* Browsers use Ctrl+PageUp / PageDown to switch tabs and do not pass them to the page: use Ctrl+Alt+PageUp / PageDown (with Shift to move the row) instead. Without Alt they work where SilverBullet runs without tabs (installed as an app).
+* With Shift, Enter and the Ctrl keys open the next cell as Shift+click does: with its whole text selected, or with the cursor at the end when the *Click selects the cell's text* setting is on. See [[#Settings]].
+* Ctrl+Alt+arrows save the cell and move it with its row or column, and keep editing it. Rows cannot move while sorted or filtered, nor the header row.
+* With the `moveDown` setting, Enter (and Shift+Enter) also moves to the cell below. See [[#Settings]].
+* Browsers use Ctrl+PageUp / PageDown to switch tabs and do not pass them to the page. They work where SilverBullet runs without tabs (installed as an app).
 * While Ctrl is held, the pointer shows a move cursor. Without Ctrl, arrows, Home and End move within the cell's text as usual.
 
 ## Showing the markdown
@@ -104,7 +105,7 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 * Pinning moves the row (column) in the markdown, to the edge of the table, next to the rows (columns) already pinned there. The table stores how many are pinned at each edge, see [[#Table metadata]].
 * Pinned rows and columns stay in view: rows pinned to the top move with the header, rows pinned to the bottom stay at the bottom of the view, columns stay at the left or right edge while a wide table scrolls sideways.
 * They are kept at the edges through every edit: rows added at the end go above the rows pinned to the bottom, columns added at the end left of the columns pinned to the right, and nothing is inserted above the first row pinned to the top or below the last one pinned to the bottom. A row inserted between pinned rows is pinned too.
-* Moving (drag, menu, Ctrl+Shift+arrows) keeps a pinned row (column) among the pinned ones and the others outside them.
+* Moving (drag, menu, Ctrl+Alt+arrows) keeps a pinned row (column) among the pinned ones and the others outside them.
 * Pinned rows are not sorted or filtered: they always show.
 * Unpinning moves the row (column) out of its edge, next to the unpinned ones; it does not go back to where it was before pinning (Ctrl+Z does).
 * "Pinned" means a number of rows (columns) at an edge: a row typed by hand above the first pinned row becomes the pinned one.
@@ -133,10 +134,10 @@ Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, 
   * `false`: each table keeps its own style: aligned tables stay aligned, compact tables stay compact, untouched rows are kept byte for byte.
 * **Enter in a cell editor** (`tablePlus.enterKey`), default `save`
   * `save`: Enter saves the cell.
-  * `moveDown`: Enter saves and edits the cell below, Shift+Enter the cell above.
+  * `moveDown`: Enter saves and edits the cell below; Shift+Enter too, opening it as Shift+click does.
 * **Click selects the cell's text** (`tablePlus.selectOnClick`), default `false`
   * `false`: a click puts the cursor at the end of the cell's text, Shift+click selects the whole text.
-  * `true`: the reverse. Moving between cells with the keyboard is the same either way.
+  * `true`: the reverse. With Shift, Enter and the Ctrl keys follow Shift+click; without Shift they put the cursor at the end either way.
 * **Ctrl+Enter adds a row** (`tablePlus.ctrlEnterAddsRow`), default `true`
   * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
   * `false`: Ctrl+Enter works like Enter.
@@ -226,13 +227,13 @@ config.define("tablePlus", {
       type = "string",
       enum = { "save", "moveDown" },
       default = "save",
-      description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: the cell above).",
+      description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: opened as on a Shift+click).",
       ui = { category = "Table Plus", label = "Enter in a cell editor", priority = 3 },
     },
     selectOnClick = {
       type = "boolean",
       default = false,
-      description = "A click on a cell opens its editor with all its text selected, Shift+click with the cursor at the end. Off: the reverse (Shift+click selects the text). Keyboard navigation is not affected.",
+      description = "A click on a cell opens its editor with all its text selected, Shift+click with the cursor at the end. Off: the reverse (Shift+click selects the text). Shift+Enter and Ctrl+Shift+arrows follow Shift+click.",
       ui = { category = "Table Plus", label = "Click selects the cell's text", priority = 2.5 },
     },
     ctrlEnterAddsRow = {

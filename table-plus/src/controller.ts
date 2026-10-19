@@ -157,10 +157,10 @@ const INDEX_SETTLE_MS = 500;
 // Middle-button autoscroll: no movement within this distance of the start point
 const AUTOSCROLL_DEAD_ZONE = 12;
 
-// Ctrl+Shift + these keys move the edited cell's row or column
+// Ctrl+Alt + these keys move the edited cell's row or column
 const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 
-// Ctrl + these keys move the cell editor to another cell
+// Ctrl(+Shift) + these keys move the cell editor to another cell
 const NAVIGATION_KEYS = new Set([
   "ArrowLeft",
   "ArrowRight",
@@ -172,7 +172,7 @@ const NAVIGATION_KEYS = new Set([
   "PageDown",
 ]);
 
-// Rows a PageUp / PageDown jumps (Ctrl) or moves a row (Ctrl+Shift)
+// Rows a PageUp / PageDown jumps (Ctrl) or moves a row (Ctrl+Alt)
 const PAGE_ROWS = 10;
 
 const FILTER_HINT =
@@ -1363,15 +1363,13 @@ export class Controller {
     field.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
       if (e.key === "Control") this.setNavigating(true);
-      // Browsers take Ctrl+PageUp / PageDown for switching tabs: Ctrl+Alt works too
-      const page = e.key === "PageUp" || e.key === "PageDown";
-      const ctrl = e.ctrlKey && !e.metaKey && (!e.altKey || page);
-      if (ctrl && e.shiftKey && MOVE_KEYS.has(e.key)) {
+      const ctrl = e.ctrlKey && !e.metaKey;
+      if (ctrl && e.altKey && !e.shiftKey && MOVE_KEYS.has(e.key)) {
         e.preventDefault();
         void this.moveWithKeyboard(e.key);
-      } else if (ctrl && !e.shiftKey && NAVIGATION_KEYS.has(e.key)) {
+      } else if (ctrl && !e.altKey && NAVIGATION_KEYS.has(e.key)) {
         e.preventDefault();
-        void this.navigate(e.key);
+        void this.navigate(e.key, e.shiftKey);
       } else if (e.key === "Escape") {
         e.preventDefault();
         void this.finishEditing(false);
@@ -1486,7 +1484,17 @@ export class Controller {
     return closed.value !== closed.original ? this.withCellEdit(table, closed) : table;
   }
 
-  private async enter(up: boolean): Promise<void> {
+  /**
+   * Whether a cell reached with the keyboard opens with its text selected:
+   * with Shift as on a Shift+click (the selectOnClick setting swaps that),
+   * without it with the cursor at the end
+   */
+  private selectsWith(shift: boolean): boolean {
+    return shift && !this.selectOnClick;
+  }
+
+  /** Enter: save; with the moveDown setting also edit the cell below (Shift: as on a Shift+click) */
+  private async enter(shift: boolean): Promise<void> {
     const active = this.editor;
     const info = active && this.infos.get(active.widget);
     if (!active || !info) return;
@@ -1495,10 +1503,10 @@ export class Controller {
       return;
     }
     const shown = this.shownRows(info);
-    const target = shown[shown.indexOf(active.cell.parentElement as HTMLTableRowElement) + (up ? -1 : 1)];
+    const target = shown[shown.indexOf(active.cell.parentElement as HTMLTableRowElement) + 1];
     const cell = target?.cells[active.column];
     const ref = cell && this.cellRef(info, cell);
-    await this.finishEditing(true, ref ? { widget: active.widget, ...ref } : undefined);
+    await this.finishEditing(true, ref ? { widget: active.widget, ...ref, select: this.selectsWith(shift) } : undefined);
   }
 
   /** The header row and the shown body rows, in display order */
@@ -1510,9 +1518,9 @@ export class Controller {
   }
 
   /**
-   * Ctrl+Shift+arrows: move the edited cell's row up / down, or its column
-   * left / right; Ctrl+Shift+Home / End: its column to the first / last place;
-   * Ctrl+Shift+PageUp / PageDown: its row 10 places up / down.
+   * Ctrl+Alt+arrows: move the edited cell's row up / down, or its column
+   * left / right; Ctrl+Alt+Home / End: its column to the first / last place;
+   * Ctrl+Alt+PageUp / PageDown: its row 10 places up / down.
    * The cell is saved in the same edit and the editor stays on it. Rows cannot
    * move while sorted or filtered, nor the header row.
    */
@@ -1561,8 +1569,9 @@ export class Controller {
   /**
    * Ctrl+arrows: save and edit the neighbouring shown cell; Ctrl+Home / End:
    * the first / last cell of the row. Nothing happens at the table's edge.
+   * With Shift the cell opens as on a Shift+click.
    */
-  private async navigate(key: string): Promise<void> {
+  private async navigate(key: string, shift: boolean): Promise<void> {
     const active = this.editor;
     const info = active && this.infos.get(active.widget);
     if (!active || !info) return;
@@ -1581,7 +1590,7 @@ export class Controller {
     const target = shown[r]?.cells[column];
     if (!target || target === active.cell) return;
     const ref = this.cellRef(info, target);
-    if (ref) await this.finishEditing(true, { widget: active.widget, ...ref });
+    if (ref) await this.finishEditing(true, { widget: active.widget, ...ref, select: this.selectsWith(shift) });
   }
 
   /** Tab / Shift+Tab: save and move to the next / previous shown cell */

@@ -147,9 +147,9 @@ describe("Controller", () => {
     await waitFor(() => at()?.[0] === 2);
     expect(text).toContain("| Pear | 4 |");
     expect(at()).toEqual([2, 1]);
-    key(editing()!, "Enter", { shiftKey: true });
-    await waitFor(() => at()?.[0] === 1);
-    expect(at()).toEqual([1, 1]);
+    key(editing()!, "Enter", { shiftKey: true }); // also down
+    await waitFor(() => at()?.[0] === 3);
+    expect(at()).toEqual([3, 1]);
     // the last row: Enter just saves
     clickOn(cell(3, 0));
     await waitFor(() => at()?.[0] === 3);
@@ -285,7 +285,7 @@ describe("Controller", () => {
     expect(document.body.classList.contains("tp-navigating")).toBe(false);
   });
 
-  it("moves rows and columns with Ctrl+Shift+arrows, the editor following", async () => {
+  it("moves rows and columns with Ctrl+Alt+arrows, the editor following", async () => {
     await setup(PAGE);
     const editing = () => {
       const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
@@ -293,7 +293,7 @@ describe("Controller", () => {
       return { field, at: [(td.parentElement as HTMLTableRowElement).rowIndex, td.cellIndex] };
     };
     const press = async (k: string) => {
-      key(editing().field, k, { ctrlKey: true, shiftKey: true });
+      key(editing().field, k, { ctrlKey: true, altKey: true });
       await flush();
       await controller.scan();
     };
@@ -312,11 +312,11 @@ describe("Controller", () => {
     expect(editing().field.value).toBe("Pears");
   });
 
-  it("moves a column to the start or the end with Ctrl+Shift+Home and End", async () => {
+  it("moves a column to the start or the end with Ctrl+Alt+Home and End", async () => {
     await setup("| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n");
     const at = () => editor.querySelector(".tp-cell-editor")!.closest("td")!.cellIndex;
     const press = async (k: string) => {
-      key(editor.querySelector(".tp-cell-editor")!, k, { ctrlKey: true, shiftKey: true });
+      key(editor.querySelector(".tp-cell-editor")!, k, { ctrlKey: true, altKey: true });
       await flush();
       await controller.scan();
     };
@@ -331,12 +331,12 @@ describe("Controller", () => {
     expect(at()).toBe(0);
   });
 
-  it("jumps and moves rows by 10 with Ctrl(+Shift)+PageUp and PageDown", async () => {
+  it("jumps and moves rows by 10 with Ctrl(+Alt)+PageUp and PageDown", async () => {
     const rows = Array.from({ length: 15 }, (_, i) => `| r${i + 1} |`).join("\n");
     await setup(`| N |\n|---|\n${rows}\n`);
     const at = () => (editor.querySelector(".tp-cell-editor")!.closest("tr") as HTMLTableRowElement).rowIndex;
-    const press = async (k: string, shiftKey = false) => {
-      key(editor.querySelector(".tp-cell-editor")!, k, { ctrlKey: true, shiftKey });
+    const press = async (k: string, altKey = false) => {
+      key(editor.querySelector(".tp-cell-editor")!, k, { ctrlKey: true, altKey });
       await flush();
       await controller.scan();
     };
@@ -360,29 +360,58 @@ describe("Controller", () => {
     expect(at()).toBe(15);
     await press("PageUp", true);
     expect(at()).toBe(5);
+    expect(text.split("\n")[6]).toBe("| r1 |");
+  });
 
-    // the same with Ctrl+Alt, which browsers leave to the page
-    key(editor.querySelector(".tp-cell-editor")!, "PageDown", { ctrlKey: true, altKey: true });
+  it("opens the next cell as on a Shift+click with Shift+Enter and Ctrl+Shift+arrows", async () => {
+    const selected = () => {
+      const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+      return field.selectionStart === 0 && field.selectionEnd === field.value.length;
+    };
+    const at = () => {
+      const td = editor.querySelector(".tp-cell-editor")?.closest("td");
+      return td && [(td.parentElement as HTMLTableRowElement).rowIndex, td.cellIndex];
+    };
+    const go = async (k: string, init: KeyboardEventInit) => {
+      key(editor.querySelector(".tp-cell-editor")!, k, init);
+      await flush();
+      await controller.scan();
+    };
+    await setup(PAGE, { "tablePlus.enterKey": "moveDown" });
+    clickOn(cell(1, 0));
+    await go("ArrowRight", { ctrlKey: true, shiftKey: true });
+    expect(at()).toEqual([1, 1]);
+    expect(selected()).toBe(true);
+    await go("ArrowDown", { ctrlKey: true });
+    expect(selected()).toBe(false);
+    await go("Enter", { shiftKey: true });
+    expect(at()).toEqual([3, 1]);
+    expect(selected()).toBe(true);
+    expect(text).toBe(PAGE); // moving does not touch the rows
+
+    // swapped by selectOnClick: Shift opens with the cursor at the end
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(PAGE, { "tablePlus.selectOnClick": true });
     await flush();
-    expect(at()).toBe(15);
-    key(editor.querySelector(".tp-cell-editor")!, "PageUp", { ctrlKey: true, altKey: true, shiftKey: true });
-    await flush();
-    await controller.scan();
-    expect(at()).toBe(5);
-    expect(text.split("\n")[6]).toBe("| r15 |");
+    press(cell(1, 0), "mousedown");
+    press(cell(1, 0), "click");
+    await go("ArrowRight", { ctrlKey: true, shiftKey: true });
+    expect(at()).toEqual([1, 1]);
+    expect(selected()).toBe(false);
   });
 
   it("does not move the header row, nor rows while sorted", async () => {
     await setup(PAGE);
     clickOn(cell(0, 0));
-    key(editor.querySelector(".tp-cell-editor")!, "ArrowDown", { ctrlKey: true, shiftKey: true });
+    key(editor.querySelector(".tp-cell-editor")!, "ArrowDown", { ctrlKey: true, altKey: true });
     await flush();
     expect(text).toBe(PAGE);
     key(editor.querySelector(".tp-cell-editor")!, "Escape");
     await flush();
     clickOn(cell(0, 0).querySelector(".tp-sort")!);
     clickOn(cell(1, 0));
-    key(editor.querySelector(".tp-cell-editor")!, "ArrowDown", { ctrlKey: true, shiftKey: true });
+    key(editor.querySelector(".tp-cell-editor")!, "ArrowDown", { ctrlKey: true, altKey: true });
     await flush();
     expect(text).toBe(PAGE);
     expect(flashes.length).toBe(1);
