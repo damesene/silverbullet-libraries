@@ -63,6 +63,17 @@ export function duplicateRow(table: Table, row: number): Table {
   return withRows(table, rows);
 }
 
+/**
+ * Puts the body rows in the given order: `order` lists every body row index
+ * (1 and up) once, in the new order. Rows keep their source, so unchanged rows
+ * are written as they were.
+ */
+export function reorderRows(table: Table, order: readonly number[]): Table {
+  const body = order.map((i) => table.rows[i]).filter((r): r is Row => !!r);
+  if (body.length !== table.rows.length - 1) return table;
+  return withRows(table, [table.rows[0]!, ...body]);
+}
+
 /** Moves body row `from` so that it ends up at index `to` */
 export function moveRow(table: Table, from: number, to: number): Table {
   const last = table.rows.length - 1;

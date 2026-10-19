@@ -32,6 +32,8 @@ export const ICONS = {
   sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
   sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
   clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Sorted lines with a check: make the sorting the real order
+  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
   filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
   alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
   alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),

@@ -15,6 +15,8 @@ export type Bridge = {
   readonly redo?: () => unknown;
   // Optional: re-evaluates `${…}` cells once the page index is up to date
   readonly evalExpression?: (expression: string) => unknown;
+  // Optional: asks before removing metadata (else the browser's confirm)
+  readonly confirm?: (message: string, options?: { destructive?: boolean }) => boolean | Promise<boolean>;
 };
 
 type Setting<T> = {

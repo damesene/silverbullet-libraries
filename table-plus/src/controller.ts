@@ -18,6 +18,7 @@ import {
   type Align,
   cellSourceOffset,
   escapeCell,
+  findTables,
   locateBySource,
   locateByShape,
   locateWithEmptyHeaders,
@@ -55,6 +56,7 @@ import {
   moveColumn,
   moveRow,
   nameEmptyHeaders,
+  reorderRows,
   setAlign,
   setCell,
 } from "./ops.ts";
@@ -178,7 +180,7 @@ const FILTER_HINT =
 
 const NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 const MOVE_BLOCKED = "Clear sorting and filters to move rows";
-const PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting";
+const PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 
 export class Controller {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
@@ -296,6 +298,104 @@ export class Controller {
     }, wait);
   }
 
+  /**
+   * Whether settings may be stored in this table: the metadata setting is on,
+   * or the table already has a metadata row (which keeps being used and
+   * updated with the setting off, until it is empty or removed).
+   */
+  private async metadataAllowed(info: WidgetInfo): Promise<boolean> {
+    return info.metaRow || (await this.setting("metadata"));
+  }
+
+  /** Asks before a destructive change, with SilverBullet's dialog (else the browser's) */
+  private async ask(question: string): Promise<boolean> {
+    return this.bridge.confirm
+      ? await this.bridge.confirm(question, { destructive: true })
+      : this.doc.defaultView!.confirm(question);
+  }
+
+  /**
+   * Sorts the rows in the markdown as the view sorts them (the shown values;
+   * rows a filter hides too, pinned rows staying where they are), once
+   * confirmed, then ends the sorting view: the table now is in that order.
+   */
+  private async applySort(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
+    const view = this.viewOf(shownInfo);
+    if (!view.sort) return;
+    const name = cellText(shownInfo.table.rows[0]!.cells[view.sort.column]!) || `column ${view.sort.column + 1}`;
+    const arrow = view.sort.direction === "asc" ? "\u2191" : "\u2193";
+    const question = `Sort the rows in the markdown by ${name} ${arrow}? This changes the order of the rows in the file. Ctrl+Z brings it back.`;
+    if (!(await this.ask(question))) return;
+    // A sorting still to be stored would undo this
+    clearTimeout(this.sortTimers.get(shownInfo.key));
+    this.sortTimers.delete(shownInfo.key);
+    const [widget, info] = this.current(shownWidget, shownInfo);
+    const rows = this.bodyRows(info);
+    const values = rows.map((tr) => Array.from(tr.cells).map(cellText));
+    const { top, bottom } = info.pins;
+    const middle = visibleRows(values, withPins({ ...view, filters: [] }, info.pins), this.filterOptions);
+    const order = [
+      ...rows.slice(0, top).map((_, i) => i + 1),
+      ...middle.map((i) => i + 1),
+      ...rows.slice(rows.length - bottom).map((_, i) => rows.length - bottom + i + 1),
+    ];
+    this.views.set(info.key, withoutSort(view));
+    await this.write(widget, (t) => withMetaSort(reorderRows(t, order), undefined));
+    this.focusEditor(widget);
+  }
+
+  /** Removes a table's metadata row, once confirmed; its sorting stays as a view until reload */
+  private async removeMetadata(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
+    if (!(await this.ask("Remove this table's metadata? Ctrl+Z brings it back."))) return;
+    const [widget] = this.current(shownWidget, shownInfo);
+    await this.write(widget, (t) => {
+      const { meta: _meta, metaSource: _source, ...rest } = t;
+      return rest;
+    });
+    // The dialog took the focus: back to the editor, so Ctrl+Z works right away
+    this.focusEditor(widget);
+  }
+
+  /**
+   * The table as rendered now: a write (e.g. of a stored sorting) re-renders
+   * it, so controls made for the earlier rendering look it up when used
+   */
+  private current(widget: HTMLElement, info: WidgetInfo): [HTMLElement, WidgetInfo] {
+    const now = this.widgetForKey(info.key);
+    const nowInfo = now && this.infos.get(now);
+    return now && nowInfo ? [now, nowInfo] : [widget, info];
+  }
+
+  /** Removes the metadata rows of all tables on the current page, once confirmed */
+  async removeAllMetadata(): Promise<void> {
+    const text = await this.bridge.getText();
+    // From the last table up, so the earlier ones keep their positions
+    const tables = findTables(text)
+      .filter((range) => parseTable(range.text).meta !== undefined)
+      .reverse();
+    if (tables.length === 0) {
+      void this.bridge.flash("Table Plus: no table on this page has metadata", "info");
+      return;
+    }
+    const question =
+      `Remove the metadata of all ${tables.length} ` +
+      `table${tables.length === 1 ? "" : "s"} on this page? Ctrl+Z brings it back.`;
+    if (!(await this.ask(question))) return;
+    // One edit over the span of all those tables, so one Ctrl+Z undoes it
+    const from = tables[tables.length - 1]!.from;
+    const to = tables[0]!.to;
+    let span = text.slice(from, to);
+    for (const range of tables) {
+      const { meta: _meta, metaSource: _source, ...rest } = parseTable(range.text);
+      span = span.slice(0, range.from - from) + serializeTable(rest) + span.slice(range.to - from);
+    }
+    const edit = minimalEdit(text.slice(from, to), span);
+    await this.bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
+    // The dialog took the focus: back to the editor, so Ctrl+Z works right away
+    this.doc.querySelector<HTMLElement>(EDITOR_SELECTOR)?.focus({ preventScroll: true });
+    void this.bridge.flash(`Table Plus: removed the metadata of ${tables.length} table(s)`, "info");
+  }
+
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   private async refreshSettings(): Promise<void> {
     const smart = (await this.setting("smartFilters")) === true;
@@ -385,7 +485,10 @@ export class Controller {
       // The sorting stored in the table is the view the first time the table shows
       const stored = metaSort(model);
       if (stored && !this.views.has(info.key)) this.views.set(info.key, withSort(DEFAULT_VIEW, stored.column, stored.direction));
+      // The table under the pointer was rendered anew (after a write): its toolbar moves over
+      const replaced = this.hoverWidget && !this.hoverWidget.isConnected && this.infos.get(this.hoverWidget)?.key === info.key;
       this.infos.set(widget, info);
+      if (replaced) this.hoverWidget = widget;
       this.decorate(widget, info);
       this.applyView(widget, info);
       const scrollLeft = this.scrollLefts.get(info.key);
@@ -514,9 +617,9 @@ export class Controller {
   }
 
   private async storeSort(key: string): Promise<void> {
-    if (this.stopped || !(await this.setting("metadata"))) return;
     const widget = this.widgetForKey(key);
-    if (!widget) return;
+    const info = widget && this.infos.get(widget);
+    if (this.stopped || !widget || !info || !(await this.metadataAllowed(info))) return;
     const view = this.views.get(key) ?? DEFAULT_VIEW;
     const sort = view.sort ? { column: view.sort.column, direction: view.sort.direction } : undefined;
     await this.write(widget, (t) => withMetaSort(t, sort));
@@ -1689,9 +1792,9 @@ export class Controller {
     return this.write(widget, (t) => moveColumn(t, from, to), undefined, (c) => columnAfterMove(c, from, to));
   }
 
-  /** Pins a row to the top or bottom (moving it there), or unpins it */
+  /** Pins a row to the top or bottom (moving it there), or unpins it; pinning needs the metadata setting */
   private async pinRowAt(widget: HTMLElement, info: WidgetInfo, row: number, pin: RowZone | undefined): Promise<void> {
-    if (!(await this.setting("metadata"))) return;
+    if (pin && !(await this.setting("metadata"))) return;
     const { to, pins } = pinRow(info.pins, info.rows, row, pin);
     await this.write(widget, (t) => moveRow(t, row, to), undefined, undefined, pins);
   }
@@ -1702,7 +1805,7 @@ export class Controller {
     column: number,
     pin: ColumnZone | undefined,
   ): Promise<void> {
-    if (!(await this.setting("metadata"))) return;
+    if (pin && !(await this.setting("metadata"))) return;
     const { to, pins } = pinColumn(info.pins, info.columns, column, pin);
     await this.write(widget, (t) => moveColumn(t, column, to), undefined, (c) => columnAfterMove(c, column, to), pins);
   }
@@ -1794,9 +1897,22 @@ export class Controller {
       clear.innerHTML = ICONS.clear;
       clear.addEventListener("click", (e) => {
         e.preventDefault();
-        this.setSort(widget, info, withoutSort(this.viewOf(info)));
+        const [w, i] = this.current(widget, info);
+        this.setSort(w, i, withoutSort(this.viewOf(i)));
       });
-      chip.append(clear);
+      // Apply: the rows are sorted in the markdown, and the sorting view ends
+      const apply = this.doc.createElement("button");
+      apply.type = "button";
+      apply.tabIndex = -1;
+      apply.className = "tp-chip-apply";
+      apply.title = "Sort the rows in the markdown this way";
+      apply.setAttribute("aria-label", apply.title);
+      apply.innerHTML = ICONS.applySort;
+      apply.addEventListener("click", (e) => {
+        e.preventDefault();
+        void this.applySort(widget, info);
+      });
+      chip.append(apply, clear);
       bar.append(chip);
     }
     const rows = this.bodyRows(info);
@@ -1825,16 +1941,18 @@ export class Controller {
       "Show or hide the filter row",
       () => {
         // Hidden filters would hide rows without a visible reason, so hiding clears them
-        const current = this.viewOf(info);
-        this.setView(
-          widget,
-          info,
-          current.showFilters ? { ...current, filters: [], showFilters: false } : { ...current, showFilters: true },
-        );
+        const [w, i] = this.current(widget, info);
+        const now = this.viewOf(i);
+        this.setView(w, i, now.showFilters ? { ...now, filters: [], showFilters: false } : { ...now, showFilters: true });
       },
       view.showFilters,
     );
-    button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(info));
+    if (info.metaRow) {
+      button("Remove metadata", "Remove this table's stored settings (sorting, pinning): its <meta> row", () =>
+        void this.removeMetadata(widget, info),
+      );
+    }
+    button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(this.current(widget, info)[1]));
 
     const rect = widget.getBoundingClientRect();
     const tableRect = info.table.getBoundingClientRect();
@@ -2086,7 +2204,8 @@ export class Controller {
             ? "Pinned rows stay with the other pinned rows"
             : "Already at the edge"
           : undefined;
-    const pinBlocked = this.metadataOn ? undefined : PIN_NEEDS_METADATA;
+    // Pinning more needs the metadata setting; unpinning (a checked item) always works
+    const pinBlocked = (to: string) => (this.metadataOn || zone === to ? undefined : PIN_NEEDS_METADATA);
     // Nothing goes above the first row pinned to the top, nor below the last one pinned to the bottom
     const insertBlocked = (at: number) =>
       insertRowAt(info.pins, info.rows, at).at === at
@@ -2132,7 +2251,7 @@ export class Controller {
         icon: ICONS.pinTop,
         checked: zone === "top",
         run: act(() => this.pinRowAt(widget, info, row, zone === "top" ? undefined : "top")),
-        disabled: pinBlocked,
+        disabled: pinBlocked("top"),
       },
       {
         kind: "item",
@@ -2140,7 +2259,7 @@ export class Controller {
         icon: ICONS.pinBottom,
         checked: zone === "bottom",
         run: act(() => this.pinRowAt(widget, info, row, zone === "bottom" ? undefined : "bottom")),
-        disabled: pinBlocked,
+        disabled: pinBlocked("bottom"),
       },
       { kind: "separator" },
       { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => this.deleteRowAt(widget, info, row)) },
@@ -2166,7 +2285,8 @@ export class Controller {
           ? "Pinned columns stay with the other pinned columns"
           : "Already at the edge"
         : undefined;
-    const pinBlocked = this.metadataOn ? undefined : PIN_NEEDS_METADATA;
+    // Pinning more needs the metadata setting; unpinning (a checked item) always works
+    const pinBlocked = (to: string) => (this.metadataOn || zone === to ? undefined : PIN_NEEDS_METADATA);
     const insertBlocked = (at: number) =>
       insertColumnAt(info.pins, info.columns, at).at === at
         ? undefined
@@ -2248,7 +2368,7 @@ export class Controller {
         icon: ICONS.pinLeft,
         checked: zone === "left",
         run: act(() => this.pinColumnAt(widget, info, column, zone === "left" ? undefined : "left")),
-        disabled: pinBlocked,
+        disabled: pinBlocked("left"),
       },
       {
         kind: "item",
@@ -2256,7 +2376,7 @@ export class Controller {
         icon: ICONS.pinRight,
         checked: zone === "right",
         run: act(() => this.pinColumnAt(widget, info, column, zone === "right" ? undefined : "right")),
-        disabled: pinBlocked,
+        disabled: pinBlocked("right"),
       },
       { kind: "separator" },
       {

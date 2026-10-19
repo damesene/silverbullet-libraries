@@ -123,6 +123,8 @@ var ICONS = {
   sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
   sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
   clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Sorted lines with a check: make the sorting the real order
+  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
   filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
   alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
   alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
@@ -843,6 +845,11 @@ function deleteRow(table, row) {
     table.rows.filter((_, i) => i !== row)
   );
 }
+function reorderRows(table, order) {
+  const body = order.map((i) => table.rows[i]).filter((r) => !!r);
+  if (body.length !== table.rows.length - 1) return table;
+  return withRows(table, [table.rows[0], ...body]);
+}
 function moveRow(table, from, to) {
   const last = table.rows.length - 1;
   if (from < 1 || from > last || to < 1 || to > last || from === to) return table;
@@ -954,7 +961,7 @@ var PAGE_ROWS = 10;
 var FILTER_HINT = "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
-var PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting";
+var PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
@@ -1063,6 +1070,87 @@ var Controller = class {
       if (!this.stopped) void this.refreshSettings();
     }, wait);
   }
+  /**
+   * Whether settings may be stored in this table: the metadata setting is on,
+   * or the table already has a metadata row (which keeps being used and
+   * updated with the setting off, until it is empty or removed).
+   */
+  async metadataAllowed(info) {
+    return info.metaRow || await this.setting("metadata");
+  }
+  /** Asks before a destructive change, with SilverBullet's dialog (else the browser's) */
+  async ask(question) {
+    return this.bridge.confirm ? await this.bridge.confirm(question, { destructive: true }) : this.doc.defaultView.confirm(question);
+  }
+  /**
+   * Sorts the rows in the markdown as the view sorts them (the shown values;
+   * rows a filter hides too, pinned rows staying where they are), once
+   * confirmed, then ends the sorting view: the table now is in that order.
+   */
+  async applySort(shownWidget, shownInfo) {
+    const view = this.viewOf(shownInfo);
+    if (!view.sort) return;
+    const name = cellText(shownInfo.table.rows[0].cells[view.sort.column]) || `column ${view.sort.column + 1}`;
+    const arrow = view.sort.direction === "asc" ? "\u2191" : "\u2193";
+    const question = `Sort the rows in the markdown by ${name} ${arrow}? This changes the order of the rows in the file. Ctrl+Z brings it back.`;
+    if (!await this.ask(question)) return;
+    clearTimeout(this.sortTimers.get(shownInfo.key));
+    this.sortTimers.delete(shownInfo.key);
+    const [widget, info] = this.current(shownWidget, shownInfo);
+    const rows = this.bodyRows(info);
+    const values = rows.map((tr) => Array.from(tr.cells).map(cellText));
+    const { top, bottom } = info.pins;
+    const middle = visibleRows(values, withPins({ ...view, filters: [] }, info.pins), this.filterOptions);
+    const order = [
+      ...rows.slice(0, top).map((_, i) => i + 1),
+      ...middle.map((i) => i + 1),
+      ...rows.slice(rows.length - bottom).map((_, i) => rows.length - bottom + i + 1)
+    ];
+    this.views.set(info.key, withoutSort(view));
+    await this.write(widget, (t) => withMetaSort(reorderRows(t, order), void 0));
+    this.focusEditor(widget);
+  }
+  /** Removes a table's metadata row, once confirmed; its sorting stays as a view until reload */
+  async removeMetadata(shownWidget, shownInfo) {
+    if (!await this.ask("Remove this table's metadata? Ctrl+Z brings it back.")) return;
+    const [widget] = this.current(shownWidget, shownInfo);
+    await this.write(widget, (t) => {
+      const { meta: _meta, metaSource: _source, ...rest } = t;
+      return rest;
+    });
+    this.focusEditor(widget);
+  }
+  /**
+   * The table as rendered now: a write (e.g. of a stored sorting) re-renders
+   * it, so controls made for the earlier rendering look it up when used
+   */
+  current(widget, info) {
+    const now = this.widgetForKey(info.key);
+    const nowInfo = now && this.infos.get(now);
+    return now && nowInfo ? [now, nowInfo] : [widget, info];
+  }
+  /** Removes the metadata rows of all tables on the current page, once confirmed */
+  async removeAllMetadata() {
+    const text = await this.bridge.getText();
+    const tables = findTables(text).filter((range) => parseTable(range.text).meta !== void 0).reverse();
+    if (tables.length === 0) {
+      void this.bridge.flash("Table Plus: no table on this page has metadata", "info");
+      return;
+    }
+    const question = `Remove the metadata of all ${tables.length} table${tables.length === 1 ? "" : "s"} on this page? Ctrl+Z brings it back.`;
+    if (!await this.ask(question)) return;
+    const from = tables[tables.length - 1].from;
+    const to = tables[0].to;
+    let span = text.slice(from, to);
+    for (const range of tables) {
+      const { meta: _meta, metaSource: _source, ...rest } = parseTable(range.text);
+      span = span.slice(0, range.from - from) + serializeTable(rest) + span.slice(range.to - from);
+    }
+    const edit = minimalEdit(text.slice(from, to), span);
+    await this.bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
+    this.doc.querySelector(EDITOR_SELECTOR)?.focus({ preventScroll: true });
+    void this.bridge.flash(`Table Plus: removed the metadata of ${tables.length} table(s)`, "info");
+  }
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   async refreshSettings() {
     const smart = await this.setting("smartFilters") === true;
@@ -1144,7 +1232,9 @@ var Controller = class {
       };
       const stored = metaSort(model);
       if (stored && !this.views.has(info.key)) this.views.set(info.key, withSort(DEFAULT_VIEW, stored.column, stored.direction));
+      const replaced = this.hoverWidget && !this.hoverWidget.isConnected && this.infos.get(this.hoverWidget)?.key === info.key;
       this.infos.set(widget, info);
+      if (replaced) this.hoverWidget = widget;
       this.decorate(widget, info);
       this.applyView(widget, info);
       const scrollLeft = this.scrollLefts.get(info.key);
@@ -1259,9 +1349,9 @@ var Controller = class {
     );
   }
   async storeSort(key) {
-    if (this.stopped || !await this.setting("metadata")) return;
     const widget = this.widgetForKey(key);
-    if (!widget) return;
+    const info = widget && this.infos.get(widget);
+    if (this.stopped || !widget || !info || !await this.metadataAllowed(info)) return;
     const view = this.views.get(key) ?? DEFAULT_VIEW;
     const sort = view.sort ? { column: view.sort.column, direction: view.sort.direction } : void 0;
     await this.write(widget, (t) => withMetaSort(t, sort));
@@ -2273,14 +2363,14 @@ var Controller = class {
     if (to === from) return Promise.resolve("unchanged");
     return this.write(widget, (t) => moveColumn(t, from, to), void 0, (c) => columnAfterMove(c, from, to));
   }
-  /** Pins a row to the top or bottom (moving it there), or unpins it */
+  /** Pins a row to the top or bottom (moving it there), or unpins it; pinning needs the metadata setting */
   async pinRowAt(widget, info, row, pin) {
-    if (!await this.setting("metadata")) return;
+    if (pin && !await this.setting("metadata")) return;
     const { to, pins } = pinRow(info.pins, info.rows, row, pin);
     await this.write(widget, (t) => moveRow(t, row, to), void 0, void 0, pins);
   }
   async pinColumnAt(widget, info, column, pin) {
-    if (!await this.setting("metadata")) return;
+    if (pin && !await this.setting("metadata")) return;
     const { to, pins } = pinColumn(info.pins, info.columns, column, pin);
     await this.write(widget, (t) => moveColumn(t, column, to), void 0, (c) => columnAfterMove(c, column, to), pins);
   }
@@ -2354,9 +2444,21 @@ var Controller = class {
       clear.innerHTML = ICONS.clear;
       clear.addEventListener("click", (e) => {
         e.preventDefault();
-        this.setSort(widget, info, withoutSort(this.viewOf(info)));
+        const [w, i] = this.current(widget, info);
+        this.setSort(w, i, withoutSort(this.viewOf(i)));
       });
-      chip.append(clear);
+      const apply = this.doc.createElement("button");
+      apply.type = "button";
+      apply.tabIndex = -1;
+      apply.className = "tp-chip-apply";
+      apply.title = "Sort the rows in the markdown this way";
+      apply.setAttribute("aria-label", apply.title);
+      apply.innerHTML = ICONS.applySort;
+      apply.addEventListener("click", (e) => {
+        e.preventDefault();
+        void this.applySort(widget, info);
+      });
+      chip.append(apply, clear);
       bar.append(chip);
     }
     const rows = this.bodyRows(info);
@@ -2384,16 +2486,20 @@ var Controller = class {
       "Filter",
       "Show or hide the filter row",
       () => {
-        const current = this.viewOf(info);
-        this.setView(
-          widget,
-          info,
-          current.showFilters ? { ...current, filters: [], showFilters: false } : { ...current, showFilters: true }
-        );
+        const [w, i] = this.current(widget, info);
+        const now = this.viewOf(i);
+        this.setView(w, i, now.showFilters ? { ...now, filters: [], showFilters: false } : { ...now, showFilters: true });
       },
       view.showFilters
     );
-    button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(info));
+    if (info.metaRow) {
+      button(
+        "Remove metadata",
+        "Remove this table's stored settings (sorting, pinning): its <meta> row",
+        () => void this.removeMetadata(widget, info)
+      );
+    }
+    button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(this.current(widget, info)[1]));
     const rect = widget.getBoundingClientRect();
     const tableRect = info.table.getBoundingClientRect();
     const headerRect = info.table.rows[0].getBoundingClientRect();
@@ -2608,7 +2714,7 @@ var Controller = class {
     const zone = rowZone(info.pins, info.rows, row);
     const act = (run) => this.runAndClose(() => void run());
     const moveBlocked = (to) => rearranged ? MOVE_BLOCKED : clampRowMove(info.pins, info.rows, row, to) === row ? zone ? "Pinned rows stay with the other pinned rows" : "Already at the edge" : void 0;
-    const pinBlocked = this.metadataOn ? void 0 : PIN_NEEDS_METADATA;
+    const pinBlocked = (to) => this.metadataOn || zone === to ? void 0 : PIN_NEEDS_METADATA;
     const insertBlocked = (at) => insertRowAt(info.pins, info.rows, at).at === at ? void 0 : zone === "top" ? "Rows pinned to the top stay at the top" : "Rows pinned to the bottom stay at the bottom";
     return [
       {
@@ -2648,7 +2754,7 @@ var Controller = class {
         icon: ICONS.pinTop,
         checked: zone === "top",
         run: act(() => this.pinRowAt(widget, info, row, zone === "top" ? void 0 : "top")),
-        disabled: pinBlocked
+        disabled: pinBlocked("top")
       },
       {
         kind: "item",
@@ -2656,7 +2762,7 @@ var Controller = class {
         icon: ICONS.pinBottom,
         checked: zone === "bottom",
         run: act(() => this.pinRowAt(widget, info, row, zone === "bottom" ? void 0 : "bottom")),
-        disabled: pinBlocked
+        disabled: pinBlocked("bottom")
       },
       { kind: "separator" },
       { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => this.deleteRowAt(widget, info, row)) }
@@ -2672,7 +2778,7 @@ var Controller = class {
     const act = (run) => this.runAndClose(() => void run());
     const zone = columnZone(info.pins, info.columns, column);
     const columnMoveBlocked = (to) => clampColumnMove(info.pins, info.columns, column, to) === column ? zone ? "Pinned columns stay with the other pinned columns" : "Already at the edge" : void 0;
-    const pinBlocked = this.metadataOn ? void 0 : PIN_NEEDS_METADATA;
+    const pinBlocked = (to) => this.metadataOn || zone === to ? void 0 : PIN_NEEDS_METADATA;
     const insertBlocked = (at) => insertColumnAt(info.pins, info.columns, at).at === at ? void 0 : zone === "left" ? "Columns pinned to the left stay at the left" : "Columns pinned to the right stay at the right";
     const entries = [
       {
@@ -2749,7 +2855,7 @@ var Controller = class {
         icon: ICONS.pinLeft,
         checked: zone === "left",
         run: act(() => this.pinColumnAt(widget, info, column, zone === "left" ? void 0 : "left")),
-        disabled: pinBlocked
+        disabled: pinBlocked("left")
       },
       {
         kind: "item",
@@ -2757,7 +2863,7 @@ var Controller = class {
         icon: ICONS.pinRight,
         checked: zone === "right",
         run: act(() => this.pinColumnAt(widget, info, column, zone === "right" ? void 0 : "right")),
-        disabled: pinBlocked
+        disabled: pinBlocked("right")
       },
       { kind: "separator" },
       {
@@ -2780,6 +2886,10 @@ function pageIndexed(name) {
   const controller = globalThis[GLOBAL_KEY];
   void controller?.pageIndexed(name);
 }
+function removeAllMetadata() {
+  const controller = globalThis[GLOBAL_KEY];
+  void controller?.removeAllMetadata();
+}
 function init(bridge) {
   const missing = missingBridgeFunctions(bridge);
   if (missing.length) {
@@ -2799,5 +2909,6 @@ function init(bridge) {
 export {
   init,
   pageIndexed,
+  removeAllMetadata,
   version
 };

@@ -60,7 +60,7 @@ A plain click edits a cell and no longer switches the table to its markdown. To 
 
 * Click the ⇅ control that appears in a column header on hover: ascending, descending, then back to the order as written. The column menu (see [[#Rows and columns]]) has the same options.
 * Sorting only changes what you see, never the markdown, unless the *Store table metadata* setting is on: then the sorting is also stored in the table, see [[#Table metadata]].
-* While sorted, the toolbar shows *Sorted by …*; its × shows the rows as written again.
+* While sorted, the toolbar shows *Sorted by …*; its × shows the rows as written again, and its ✓ sorts the rows in the markdown that way (after asking) and ends the sorting view. Rows a filter hides are sorted too, pinned rows stay where they are, and one Ctrl+Z undoes it.
 * Numbers sort as numbers (`1 000`, `2,5`, `-3`, `15 %` included); empty cells always come last.
 
 ## Filtering
@@ -121,8 +121,8 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, or set them in your [[CONFIG]]:
 
 * **Store table metadata** (`tablePlus.metadata`), default `false`
-  * `true`: table settings (the sorting and pinned rows and columns) are stored in the table itself, see [[#Table metadata]], and rows and columns can be pinned, see [[#Pinning]].
-  * `false`: sorting is a view only and never changes a table, and pinning is not offered.
+  * `true`: table settings (the sorting and pinned rows and columns) can be stored in any table, see [[#Table metadata]], and rows and columns can be pinned, see [[#Pinning]].
+  * `false`: tables without metadata get none: sorting is a view only. Tables that already have metadata keep using it: their sorting is still stored and rows and columns can be unpinned, but nothing new can be pinned.
 * **Maximum table height (px)** (`tablePlus.maxHeight`), default `0`
   * `0`: no limit, a table is as tall as its rows.
   * A number of pixels, e.g. `400`: a taller table gets its own vertical scrollbar.
@@ -168,7 +168,8 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 * It is always the last row: new rows go above it, and it is not sorted, filtered or moved.
 * The sorting is stored by column name: `Qty:desc`. With several columns of the same name, the occurrence is added: `Qty:desc:2` is the second column named Qty. It follows its column when the column is renamed or moved, and is removed with it.
 * When the sorting is cleared and nothing is pinned, the row is removed.
-* With the setting off, Table Plus does not write metadata, but a `<meta>` row already in a table is still hidden, its sorting is the table's first view, its pinned rows and columns stay pinned (and are kept at the edges), and the row is kept when you edit the table.
+* With the setting off, a table without a `<meta>` row gets none. A table with one keeps using it: its sorting is still stored, and its rows and columns can be unpinned, but nothing new can be pinned. When the row is left empty, it is removed.
+* To remove metadata: *Remove metadata* in a table's toolbar removes that table's row; the *Table Plus: Remove table metadata* command removes the rows of all tables on the page (it says how many). Both ask first, and one Ctrl+Z brings the rows back.
 * SilverBullet indexes the row like any other: a query over the table's rows (`index.tag "table"`) also returns it, with the `<meta …>` text in its first column.
 
 ## How your markdown is kept
@@ -201,7 +202,7 @@ config.define("tablePlus", {
     metadata = {
       type = "boolean",
       default = false,
-      description = "Store table settings (sorting, pinned rows and columns) in a hidden last row <meta …> of the table, and offer pinning. Off: sorting is a view only and tables are not changed by it; a <meta> row already in a table is still hidden, used and kept.",
+      description = "Allow storing table settings (sorting, pinned rows and columns) in a hidden last row <meta …> of tables, and pinning. Off: tables without a <meta> row get none (sorting is a view only); tables with one keep using it, their sorting is still stored and pinned rows and columns can be unpinned, but nothing new can be pinned.",
       ui = { category = "Table Plus", label = "Store table metadata", priority = 6 },
     },
     maxHeight = {
@@ -253,12 +254,19 @@ if js and js.window then
     undo = editor.undo,
     redo = editor.redo,
     evalExpression = lua.evalExpression,
+    confirm = editor.confirm,
   })
   -- Once the page is re-indexed, `${…}` cells show results from the new index
   event.listen {
     name = "page:index",
     run = function(e)
       tablePlus.pageIndexed(e.data.name)
+    end,
+  }
+  command.define {
+    name = "Table Plus: Remove table metadata",
+    run = function()
+      tablePlus.removeAllMetadata()
     end,
   }
 end
@@ -531,16 +539,19 @@ body.tp-navigating .sb-table-widget.tp-table * {
   border-radius: 4px;
   background: color-mix(in srgb, var(--ui-accent-color) 12%, transparent);
 }
-.tp-bar .tp-chip-clear {
+.tp-bar .tp-chip-clear,
+.tp-bar .tp-chip-apply {
   display: inline-flex;
   padding: 2px;
   border-radius: 3px;
 }
-.tp-bar .tp-chip-clear:hover {
+.tp-bar .tp-chip-clear:hover,
+.tp-bar .tp-chip-apply:hover {
   color: var(--ui-accent-color);
   background: color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
 }
-.tp-chip-clear svg {
+.tp-chip-clear svg,
+.tp-chip-apply svg {
   width: 12px;
   height: 12px;
 }

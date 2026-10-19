@@ -484,6 +484,54 @@ describe("Controller", () => {
       expect(rows[rows.length - 1]!.classList.contains("tp-meta-row")).toBe(true);
     });
 
+    it("keeps updating a table's metadata with the setting off", async () => {
+      await setup(META_PAGE); // the setting is off; the table stores Qty descending
+      clickOn(cell(0, 1).querySelector(".tp-sort")!); // Qty: descending → the order as written
+      await wait(450);
+      // the stored sorting is cleared, and the row, now empty, goes
+      expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n");
+    });
+
+    it("removes a table's metadata from its toolbar, and of all tables with the command", async () => {
+      await setup(META_PAGE);
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      const remove = Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button")).find(
+        (b) => b.textContent === "Remove metadata",
+      )!;
+      let agree = false;
+      const questions: string[] = [];
+      (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+        questions.push(message);
+        return agree;
+      };
+      remove.click(); // declined: nothing changes
+      await flush();
+      expect(text).toBe(META_PAGE);
+      expect(questions[0]).toContain("this table's metadata");
+      agree = true;
+      remove.click();
+      await flush();
+      expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n");
+
+      controller.stop();
+      document.body.replaceChildren();
+      await setup(`${META_PAGE}\n${META_PAGE.replace("Qty:desc", "Name:asc")}`);
+      const asked: string[] = [];
+      let answer = false;
+      const bridge = (controller as unknown as { bridge: Record<string, unknown> }).bridge;
+      bridge.confirm = (message: string) => {
+        asked.push(message);
+        return answer;
+      };
+      await controller.removeAllMetadata(); // declined: nothing changes
+      expect(text).toContain("<meta");
+      expect(asked[0]).toContain("all 2 tables on this page");
+      answer = true;
+      await controller.removeAllMetadata();
+      expect(text).not.toContain("<meta");
+      expect(flashes).toEqual(["Table Plus: removed the metadata of 2 table(s)"]);
+    });
+
     it("keeps the metadata row last and follows a renamed column", async () => {
       await setup(META_PAGE);
       clickOn(cell(0, 1)); // the Qty header
@@ -523,6 +571,18 @@ describe("Controller", () => {
       pin.click();
       await flush();
       expect(text).toBe(PAGE);
+
+      // a table with metadata: nothing new can be pinned, but unpinning works
+      controller.stop();
+      document.body.replaceChildren();
+      await setup('| A |\n|---|\n| 1 |\n| 2 |\n| <meta pin-top="1"> |\n');
+      await flush();
+      expect(item(openMenu(2, "row"), "Pin to bottom").getAttribute("aria-disabled")).toBe("true");
+      const unpin = item(openMenu(1, "row"), "Pin to top"); // checked: unpins
+      expect(unpin.getAttribute("aria-disabled")).toBeNull();
+      unpin.click();
+      await flush();
+      expect(text).toBe("| A |\n|---|\n| 1 |\n| 2 |\n");
     });
 
     it("moves a pinned row to the edge and keeps it there", async () => {
@@ -574,6 +634,30 @@ describe("Controller", () => {
       expect(text).toBe('Intro\n\n| Qty | Name |\n|---|---|\n| 3 | Pear |\n| 10 | apple |\n| 2 | Fig |\n| <meta pin-left="1"> |\n');
       expect(cell(1, 0).classList.contains("tp-pin-left")).toBe(true);
     });
+  });
+
+  it("applies the sorting to the markdown, once confirmed, and ends the sorting view", async () => {
+    await setup(PAGE);
+    let agree = false;
+    (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = () => agree;
+    const sortQty = () => clickOn(cell(0, 1).querySelector(".tp-sort")!);
+    sortQty();
+    sortQty(); // Qty descending
+    const applyButton = () => {
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      return document.querySelector<HTMLElement>(".tp-bar .tp-chip-apply")!;
+    };
+    applyButton().click(); // declined
+    await flush();
+    expect(text).toBe(PAGE);
+    agree = true;
+    applyButton().click();
+    await flush();
+    await controller.scan();
+    expect(text).toBe("Intro\n\n| Name | Qty |\n|---|---|\n| apple | 10 |\n| Pear | 3 |\n| Fig | 2 |\n");
+    expect(bodyTexts()).toEqual(["apple", "Pear", "Fig"]);
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(document.querySelector(".tp-bar .tp-chip")).toBeNull(); // no sorting view any more
   });
 
   it("sorts numbers numerically", async () => {
