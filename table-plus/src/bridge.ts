@@ -38,6 +38,7 @@ export const FEATURE_NAMES = [
   "formulas",
   "names",
   "pageLinks",
+  "filters",
   "columnTypes",
   "selection",
   "paste",
@@ -61,11 +62,11 @@ export const SETTINGS = {
     parse: (v) => (v === "save" || v === "moveDown" ? v : undefined),
   } satisfies Setting<"save" | "moveDown">,
   smartFilters: {
-    path: "tablePlus.filter.smart",
+    path: "tablePlus.modules.filters.smart",
     default: true,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
-  // Store table settings (for now: sorting) in the table's metadata row
+  // Store table settings (sorting, filters, pins, names) in the table's metadata row
   metadata: {
     path: "tablePlus.metadata",
     default: false,

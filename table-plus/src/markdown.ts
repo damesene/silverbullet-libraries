@@ -206,7 +206,8 @@ export function parseTable(text: string): Table {
 }
 
 const META_TAG_RE = /^<meta\b([^>]*?)\/?>$/i;
-const META_ATTRIBUTE_RE = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+// An attribute's name may name a column: sort.qty, filter.qty:2 (meta.ts)
+const META_ATTRIBUTE_RE = /([\w.:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 
 /** The attributes of a metadata row (one cell holding only `<meta …>`), or undefined */
 export function parseMetaRow(line: string): TableMeta | undefined {

@@ -226,6 +226,7 @@ const MODULE_LABELS: Record<FeatureName, string> = {
   formulas: "Formulas",
   names: "Names",
   pageLinks: "Links to other pages",
+  filters: "Filters",
   columnTypes: "Column types",
   selection: "Cell selection",
   paste: "Paste",

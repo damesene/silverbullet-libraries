@@ -51,11 +51,17 @@ export type ToolbarButton = {
   readonly run: () => void;
   // Where it shows: "icon" its icon alone at the toolbar's right (the label is
   // its accessible name), "label" its label at the toolbar's left (what the
-  // table is), "menu" (the default) an item of the toolbar's ⋯ menu
-  readonly place?: "icon" | "label" | "menu";
+  // table is), "chip" at the left too, how the table is shown (its label, its
+  // icon before it, a × that runs it: ends that, its title saying so),
+  // "menu" (the default) an item of the toolbar's ⋯ menu
+  readonly place?: "icon" | "label" | "chip" | "menu";
   readonly icon?: string;
   // Asks to be used: highlighted
   readonly attention?: boolean;
+  // An icon button that is on (the filter row shown)
+  readonly pressed?: boolean;
+  // A chip's other buttons, before its ×
+  readonly actions?: readonly { readonly icon: string; readonly title: string; readonly run: () => void }[];
   // In the menu: what it is set to, after its label and a colon (Name table: prices)
   readonly value?: string;
   // In the menu: destructive, last and red
@@ -135,10 +141,22 @@ export interface TableHost {
   promptText(message: string, value?: string): Promise<string | undefined>;
   /** Hands the keyboard back to SilverBullet's editor */
   focusEditor(widget: HTMLElement): void;
-  /** Whether a table is shown sorted or filtered, so rows are not where the markdown has them */
+  /** Whether a table is shown sorted or with rows hidden (filtered), so rows are not where the markdown has them */
   rearranged(info: WidgetInfo): boolean;
-  /** Ends the sorting a table's metadata stored, so the table shows its rows as written */
-  forgetStoredSort(key: string): void;
+  /**
+   * Ends the view a table's metadata stored (its sorting, the features' state
+   * read from it: filters), so the table shows its rows as written
+   */
+  forgetStoredView(key: string): void;
+  /**
+   * A feature changed what a table shows (its filters): the view applied
+   * anew, the row being edited placed with the others and held there
+   */
+  viewChanged(widget: HTMLElement, info: WidgetInfo): void;
+  /** Keyboard and input events from a field of a feature must not reach SilverBullet's editor */
+  isolate(element: HTMLElement): void;
+  /** A cell's value as sorting and filtering see it: a type's value, the edited cell's typed text */
+  cellValue(cell: HTMLTableCellElement): string;
   /** A cell of a table as rendered, by its row in the markdown; hidden rows only with includeHidden */
   cellAt(info: WidgetInfo, cell: CellRef, includeHidden?: boolean): HTMLTableCellElement | undefined;
   /** Shows a table's rows again as sorted and filtered, e.g. after cells changed their text */
@@ -161,8 +179,6 @@ export interface TableHost {
     column: number,
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[];
-  /** A column's filter on its own, in a bubble under its header */
-  openFilter(widget: HTMLElement, info: WidgetInfo, column: number): void;
   /** The entries features add at the top of a column's menu (see Feature.columnMenuTopEntries) */
   columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
   /** The entries features add to a row's menu, for the cell in `column` (see Feature.rowMenuEntries) */
@@ -220,6 +236,24 @@ export interface Feature {
   rowMenuEntries?(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[];
   /** Buttons for the table's toolbar, shown while the pointer is over the table */
   toolbarButtons?(widget: HTMLElement, info: WidgetInfo): ToolbarButton[];
+  /**
+   * Body rows the feature hides (filters), as indexes into `values` (one array
+   * of cell values per body row, values[0] being row 1); pinned rows are not hidden
+   */
+  hiddenRows?(info: WidgetInfo, values: readonly (readonly string[])[]): ReadonlySet<number> | undefined;
+  /** Whether the feature hides rows of the table now (moving rows and pasting wait for that to end) */
+  hidesRows?(info: WidgetInfo): boolean;
+  /** The table's view was applied: rows sorted and hidden, the header marked */
+  viewApplied?(widget: HTMLElement, info: WidgetInfo): void;
+  /** The view a table's metadata stored ends (Remove metadata): state read from it goes */
+  viewForgotten?(key: string): void;
+  /** Columns of the table with `key` moved or were deleted (`map`: their new indexes, undefined: deleted) */
+  columnsMoved?(key: string, map: (column: number) => number | undefined): void;
+  /**
+   * A click on an element the feature marked with data-tp-action in a table
+   * (clicks there reach Table Plus only); true: it was the feature's
+   */
+  action?(name: string, element: HTMLElement, widget: HTMLElement, info: WidgetInfo): boolean;
   /**
    * Before a write replaces a table (from..to of the page's text); may return
    * what to do after it, given where the change started and how much longer

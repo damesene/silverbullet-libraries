@@ -98,6 +98,7 @@ A plain click edits a cell and no longer switches the table to its markdown. To 
 * While filtered, the toolbar shows *3 of 10 rows*; its × clears all filters. A field's × clears that one.
 * Under the field you type in, a bubble shows what it understands (click one to put it in the field) and, for a column with up to 12 different values, those values with how many rows have each: tick them to show only those rows (`=open|blocked`).
 * A row you are editing (or have just added) stays shown until you leave it, even when the filters do not match it.
+* With *Store table metadata* on, the filters are stored in the table once you leave their field, so it shows filtered next time too (see [[#Table metadata]]). Filtering is a module: see [[#Settings]] to turn it off.
 
 Plain text is found anywhere in a cell, ignoring case and diacritics (`cesky` finds `Český`). With *Smart filters* (on by default, see [[#Settings]]) a field also understands:
 
@@ -401,12 +402,6 @@ Setting a part replaces what an earlier `config.set` of the same part set: set e
   * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
   * `false`: Ctrl+Enter works like Enter.
 
-### Filters (`tablePlus.filter`)
-
-* **Smart filters** (`smart`), default `true`
-  * `true`: filter fields understand `>10`, `/pattern/`, `=text` and `!filter`.
-  * `false`: everything typed in a filter field is text to find.
-
 ### `${…}` cells (`tablePlus.expressions`)
 
 * **Refresh ${…} cells after (ms)** (`refreshDelay`), default `500`
@@ -414,13 +409,14 @@ Setting a part replaces what an earlier `config.set` of the same part set: set e
 
 ### Modules (`tablePlus.modules`)
 
-Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlus.modules.paste", { enabled = false })`; all are on by default. A change applies when the page is loaded again. Editing cells, sorting, filtering and the toolbar are always on.
+Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlus.modules.paste", { enabled = false })`; all are on by default. A change applies when the page is loaded again. A module turned off is not loaded at all: what it stored in tables stays as it is, and is not used. Editing cells, sorting and the toolbar are always on.
 
 | Module | When on |
 |---|---|
 | `formulas` | Formulas can be typed into cells, with their help and references; *Recalculate* in the toolbar. Off: a typed formula is saved as text. Formulas already in a table keep their results and are still recalculated when Table Plus edits the table, so their references stay right. See [[#Formulas]]. |
 | `names` | Tables, columns, rows and cells can be named: *Name table* in a table's ⋯ menu, *Name column* in the column menu, *Name row* and *Name cell* in the row menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them. See [[#Table names]]. |
 | `pageLinks` | Formulas can refer to tables and named cells on other pages (`[[Prices]]fruit!B2`), which Table Plus reads for them. Off: it reads no other page; formulas that refer to one keep the results they have (the formulas using them too), a new one shows `#REF!`. See [[#Tables on other pages]]. |
+| `filters` | Rows can be filtered: the toolbar's filter icon shows a filter field under each header, *Filter* in a column menu opens that column's filter; with *Store table metadata* the filters are stored in the table. Its setting `smart` (default `true`): fields understand `>10`, `/pattern/`, `=text`, `a\|b` and `!filter`; `false`: everything typed is text to find. Off: no filtering; filters stored in a table are kept but not used. See [[#Filtering]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
 | `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
@@ -439,7 +435,7 @@ A table can have a name, so formulas in other tables can refer to it. Click *Nam
 
 ## Table metadata
 
-With the *Store table metadata* setting on, Table Plus stores a table's settings in a last row that holds only a `<meta …>` tag: the sorting and the pinned rows and columns.
+With the *Store table metadata* setting on, Table Plus stores a table's settings in a last row that holds only a `<meta …>` tag: the sorting, the filters and the pinned rows and columns.
 
 ```
 | Name  | Qty |
@@ -447,17 +443,18 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 | Pear  |   3 |
 | Apple |  10 |
 | Total |  13 |
-| <meta sort="qty:desc" pin-bottom="1"> |
+| <meta sort.qty="desc" pin-bottom="1"> |
 ```
 
-* `sort` is the sorting, `pin-top`, `pin-bottom`, `pin-left` and `pin-right` how many rows (columns) at each edge are pinned, `name` the table's name (see [[#Table names]]).
+* `sort.qty` is the sorting (by the column Qty, `asc` or `desc`), `filter.qty` a column's filter (as typed), `pin-top`, `pin-bottom`, `pin-left` and `pin-right` how many rows (columns) at each edge are pinned, `name` the table's name (see [[#Table names]]).
 
 * The row is hidden in SilverBullet. Browsers never show `<meta>`, and other markdown renderers (GitHub, Obsidian) drop it, leaving at most an empty row.
 * It is always the last row: new rows go above it, and it is not sorted, filtered or moved.
-* The sorting is stored by column name: `qty:desc`. Names are keys, as for formula references (see [[#References]]): the column `Unit price` is stored as `unit_price`, and any spelling with that key names it. With several columns of the same name, the occurrence is added: `qty:desc:2` is the second column named Qty. It follows its column when the column is renamed or moved, and is removed with it.
-* When the sorting is cleared and nothing is pinned, the row is removed.
-* With the setting off, a table without a `<meta>` row gets none. A table with one keeps using it: its sorting is still stored, and its rows and columns can be unpinned, but nothing new can be pinned. When the row is left empty, it is removed.
-* To remove metadata: *Remove metadata* in the ⋯ menu of a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row (a sorting stored there ends: the rows show as written; the table's name goes too) and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
+* Attributes of a column name it after a dot: `sort.qty`, `filter.status`. Names are keys, as for formula references (see [[#References]]): the column `Unit price` is `sort.unit_price`, and any spelling with that key names it; a column with a name of its own goes by it. With several columns of the same name, the occurrence is added: `filter.qty:2` is the second column named Qty. They follow their column when it is renamed or moved, and are removed with it.
+* A filter is stored as typed, once you leave its field; a `|` in it is written `\|`, as everywhere in a table: `filter.status="=open\|blocked"`.
+* When nothing is left in it (no sorting, no filter, nothing pinned, no name), the row is removed.
+* With the setting off, a table without a `<meta>` row gets none. A table with one keeps using it: its sorting and filters are still stored, and its rows and columns can be unpinned, but nothing new can be pinned. When the row is left empty, it is removed.
+* To remove metadata: *Remove metadata* in the ⋯ menu of a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row (a sorting and filters stored there end: the rows show as written; the table's name goes too) and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
 * SilverBullet indexes the row like any other: a query over the table's rows (`index.tag "table"`) also returns it, with the `<meta …>` text in its first column.
 
 ## How your markdown is kept
@@ -500,7 +497,7 @@ config.define("tablePlus", {
     metadata = {
       type = "boolean",
       default = false,
-      description = "Allow storing table settings (sorting, pinned rows and columns) in a hidden last row <meta …> of tables, and pinning. Off: tables without a <meta> row get none (sorting is a view only); tables with one keep using it, their sorting is still stored and pinned rows and columns can be unpinned, but nothing new can be pinned. Formulas are stored in cells (<meta f>) and need it too: off, a typed formula is saved as text; existing formulas keep working.",
+      description = "Allow storing table settings (sorting, filters, pinned rows and columns, names) in a hidden last row <meta …> of tables, and pinning. Off: tables without a <meta> row get none (sorting and filters are a view only); tables with one keep using it, their sorting and filters are still stored and pinned rows and columns can be unpinned, but nothing new can be pinned. Formulas are stored in cells (<meta f>) and need it too: off, a typed formula is saved as text; existing formulas keep working.",
       ui = { category = "Table Plus", label = "Store table metadata", priority = 6 },
     },
     maxHeight = {
@@ -552,18 +549,6 @@ config.define("tablePlus", {
         },
       },
     },
-    filter = {
-      type = "object",
-      additionalProperties = false,
-      properties = {
-        smart = {
-          type = "boolean",
-          default = true,
-          description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell), a|b (either) and !filter (not). Off: everything typed is text to find.",
-          ui = { category = "Table Plus", label = "Smart filters", priority = 1 },
-        },
-      },
-    },
     modules = {
       type = "object",
       additionalProperties = false,
@@ -601,6 +586,24 @@ config.define("tablePlus", {
               default = true,
               description = "Formulas referring to tables and named cells on other pages ([[Prices]]fruit!B2), which Table Plus reads for them. Off: no other page is read; formulas referring to one keep the results they have, a new one shows #REF!.",
               ui = { category = "Table Plus: Modules", label = "Links to other pages", priority = 8 },
+            },
+          },
+        },
+        filters = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Filtering rows: the filter row (the toolbar's filter icon), a column's filter (Filter in its menu), filters stored in the table with the metadata setting. Off: no filtering; filters stored in a table are kept but not used.",
+              ui = { category = "Table Plus: Modules", label = "Filters", priority = 7 },
+            },
+            smart = {
+              type = "boolean",
+              default = true,
+              description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell), a|b (either) and !filter (not). Off: everything typed is text to find.",
+              ui = { category = "Table Plus: Modules", label = "Smart filters", priority = 6 },
             },
           },
         },
@@ -1105,8 +1108,8 @@ body.tp-navigating .sb-table-widget.tp-table * {
   opacity: 0.55;
   font-variant-numeric: tabular-nums;
 }
-/* The toolbar's filter chip: its icon before the count */
-.tp-filter-chip > svg {
+/* A toolbar chip's icon before its text (the filters') */
+.tp-chip > svg {
   width: 12px;
   height: 12px;
   margin-right: 4px;

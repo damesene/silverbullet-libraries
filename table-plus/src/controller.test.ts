@@ -196,7 +196,7 @@ describe("Controller", () => {
       return bodyTexts();
     };
     expect(await filterRows({})).toEqual(["Pear", "apple"]);
-    expect(await filterRows({ "tablePlus.filter.smart": false })).toEqual([]);
+    expect(await filterRows({ "tablePlus.modules.filters.smart": false })).toEqual([]);
   });
 
   it("limits the table height with the maxHeight setting", async () => {

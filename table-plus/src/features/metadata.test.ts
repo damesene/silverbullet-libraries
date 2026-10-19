@@ -6,7 +6,7 @@ describe("Table metadata", () => {
   useTablePage();
 
   const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  const META_PAGE = '| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort="Qty:desc"> |\n';
+  const META_PAGE = '| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort.qty="desc"> |\n';
 
   it("names a table from its toolbar, refusing a name that is taken or not valid", async () => {
     const TWO = '| A |\n|---|\n| 1 |\n\n| B |\n|---|\n| 2 |\n| <meta name="prices"> |\n';
@@ -64,7 +64,7 @@ describe("Table metadata", () => {
     clickOn(cell(0, 1).querySelector(".tp-sort")!); // Qty descending
     await wait(700);
     await controller.scan();
-    expect(text).toBe(PAGE.replace("| Fig | 2 |\n", '| Fig | 2 |\n| <meta sort="qty:desc"> |\n'));
+    expect(text).toBe(PAGE.replace("| Fig | 2 |\n", '| Fig | 2 |\n| <meta sort.qty="desc"> |\n'));
     expect(bodyTexts()).toEqual(["apple", "Pear", "Fig"]);
     clickOn(cell(0, 1).querySelector(".tp-sort")!); // back to the order as written
     await wait(700);
@@ -145,7 +145,7 @@ describe("Table metadata", () => {
   });
 
   it("removes formulas with the metadata, keeping their results, and says so", async () => {
-    const page = '| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta f="=SUM([Qty])"> |\n| <meta sort="Qty:desc"> |\n';
+    const page = '| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta f="=SUM([Qty])"> |\n| <meta sort.qty="desc"> |\n';
     await setup(page);
     const questions: string[] = [];
     (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
@@ -179,13 +179,13 @@ describe("Table metadata", () => {
     key(editor.querySelector(".tp-cell-editor")!, "Enter");
     await flush();
     await controller.scan();
-    expect(text).toBe('| Name | Count |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort="count:desc"> |\n');
+    expect(text).toBe('| Name | Count |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort.count="desc"> |\n');
     // a row added at the end goes above the metadata row
     clickOn(editor.querySelector('tr[data-tp-row="1"]')!.querySelector("td")!); // Pear (shown last)
     key(editor.querySelector(".tp-cell-editor")!, "Tab");
     key(editor.querySelector(".tp-cell-editor")!, "Tab");
     await flush();
     await controller.scan();
-    expect(text.split("\n").slice(-3)).toEqual(["| | |", '| <meta sort="count:desc"> |', ""]);
+    expect(text.split("\n").slice(-3)).toEqual(["| | |", '| <meta sort.count="desc"> |', ""]);
   });
 });

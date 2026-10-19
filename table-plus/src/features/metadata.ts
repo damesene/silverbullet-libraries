@@ -7,7 +7,6 @@ import { EDITOR_SELECTOR } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import { formulaCount, withoutFormulas } from "../formula/index.ts";
 import { findTables, minimalEdit, parseTable, serializeTable, type Table } from "../markdown.ts";
-import { metaSort } from "../meta.ts";
 import { hasNames, withoutNames } from "../names.ts";
 
 /** A table without its metadata row and without formulas (their cells keep their results) */
@@ -54,7 +53,7 @@ export class Metadata implements Feature {
     // The table as rendered now: the dialog may have outlived the rendering it was asked from
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     const info = this.host.infoOf(widget) ?? shownInfo;
-    if (metaSort(parseTable(info.source))) this.host.forgetStoredSort(info.key);
+    if (parseTable(info.source).meta) this.host.forgetStoredView(info.key);
     await this.host.write(widget, withoutMetadata);
     // The dialog took the focus: back to the editor, so Ctrl+Z works right away
     this.host.focusEditor(widget);
@@ -88,7 +87,7 @@ export class Metadata implements Feature {
     const page = await bridge.getCurrentPage();
     for (const range of tables) {
       const table = parseTable(range.text);
-      if (metaSort(table)) this.host.forgetStoredSort(`${page}#${range.ordinal}`);
+      if (table.meta) this.host.forgetStoredView(`${page}#${range.ordinal}`);
       span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(table)) + span.slice(range.to - from);
     }
     const edit = minimalEdit(text.slice(from, to), span);

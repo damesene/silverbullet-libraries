@@ -423,6 +423,26 @@ export class Grips implements Feature {
     ];
   }
 
+  /**
+   * The entries features add to a column's menu: run, they close the menu,
+   * but one that showed other entries in its place (a list to pick from)
+   */
+  private featureColumnEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
+    const entries = this.host.columnMenuEntries(widget, info, column, (title, list) => this.replaceMenu(title, list));
+    return entries.map((entry): MenuEntry =>
+      entry.kind === "item"
+        ? {
+            ...entry,
+            run: () => {
+              const shown = this.menu?.element;
+              entry.run();
+              if (this.menu && this.menu.element === shown) this.closeMenu(false);
+            },
+          }
+        : entry,
+    );
+  }
+
   private columnMenu(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
     const host = this.host;
     const view = host.viewOf(info);
@@ -468,13 +488,7 @@ export class Grips implements Feature {
       entries.push({ kind: "item", label: "Clear sorting", icon: ICONS.clear, run: sortBy(withoutSort(view)) });
     }
     entries.push(
-      {
-        kind: "item",
-        label: "Filter",
-        icon: ICONS.filter,
-        run: this.runAndClose(() => host.openFilter(widget, info, column)),
-      },
-      ...host.columnMenuEntries(widget, info, column, (title, entries) => this.replaceMenu(title, entries)),
+      ...this.featureColumnEntries(widget, info, column),
       { kind: "separator" },
       {
         kind: "segmented",

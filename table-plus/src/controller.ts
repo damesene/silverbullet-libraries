@@ -15,11 +15,11 @@ import type {
   WriteStep,
 } from "./core/feature.ts";
 import { CellEditing } from "./core/editor.ts";
-import { FilterRow } from "./core/filters.ts";
 import { insertColumnWith, insertRowWith } from "./core/structure.ts";
 import { Autoscroll } from "./features/autoscroll.ts";
 import { ColumnTypes } from "./features/types.ts";
 import { Expressions } from "./features/expressions.ts";
+import { Filters } from "./features/filters.ts";
 import { Formulas } from "./features/formulas.ts";
 import { Grips } from "./features/grips.ts";
 import { History } from "./features/history.ts";
@@ -72,12 +72,8 @@ import { appendColumnAt, appendRowAt } from "./pins.ts";
 import { nameEmptyHeaders, reorderRows } from "./ops.ts";
 import {
   cycleSort,
-  DEFAULT_FILTER_OPTIONS,
   DEFAULT_VIEW,
-  type FilterOptions,
   withPins,
-  isRearranged,
-  parseFilter,
   remapColumns,
   type ViewState,
   visibleRows,
@@ -248,7 +244,6 @@ export class Controller implements TableHost {
   // Tables being enhanced: a scan meanwhile waits for it instead of starting again
   private readonly enhancing = new WeakMap<HTMLElement, Promise<void>>();
   private readonly views = new Map<string, ViewState>();
-  private filterOptions: FilterOptions = DEFAULT_FILTER_OPTIONS;
   // The maximum table height setting, in pixels; 0: no limit
   private maxHeight = 0;
   // The metadata setting, for menus that offer pinning
@@ -279,7 +274,6 @@ export class Controller implements TableHost {
   private warnedIncompatible = false;
   private observer: MutationObserver | undefined;
   private readonly bar: HTMLElement;
-  private readonly filterRow: FilterRow;
   private readonly addRow: HTMLButtonElement;
   private readonly addColumn: HTMLButtonElement;
   // Features that keep their own state and work through this controller
@@ -300,17 +294,6 @@ export class Controller implements TableHost {
     public bridge: Bridge,
   ) {
     this.metadata = new Metadata(this);
-    this.filterRow = new FilterRow({
-      doc,
-      viewOf: (info) => this.viewOf(info),
-      setView: (widget, info, view) => this.setView(widget, info, view),
-      infoOf: (widget) => this.infoOf(widget),
-      isolate: (element) => this.isolate(element),
-      filterOptions: () => this.filterOptions,
-      filterTyped: () => void this.refreshSettings(),
-      bodyRows: (info) => this.bodyRows(info),
-      cellValue: (cell) => this.viewValue(cell),
-    });
     this.cellEditor = new CellEditing(this, {
       features: this.features,
       isolate: (element) => this.isolate(element),
@@ -365,7 +348,10 @@ export class Controller implements TableHost {
       optional("sticky", () => new Sticky(this)),
       optional("autoscroll", () => new Autoscroll(this)),
       optional("handles", () => new Grips(this)),
+      // Recalculate first in the toolbar
       optional("formulas", () => new Formulas(this)),
+      // Before types: Filter right after the sorting in the column menu
+      optional("filters", () => new Filters(this)),
       // After formulas: a formula's result is shown in its column's type
       optional("columnTypes", () => new ColumnTypes(this)),
       // Before metadata: Name before Remove metadata in the toolbar
@@ -413,7 +399,6 @@ export class Controller implements TableHost {
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.closeTableMenu(false);
-    this.filterRow.stop();
     for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
   }
 
@@ -540,7 +525,7 @@ export class Controller implements TableHost {
     const rows = this.bodyRows(info);
     const values = rows.map((tr) => Array.from(tr.cells).map(cellValue));
     const { top, bottom } = info.pins;
-    const middle = visibleRows(values, withPins({ ...view, filters: [] }, info.pins), this.filterOptions);
+    const middle = visibleRows(values, withPins(view, info.pins));
     const order = [
       ...rows.slice(0, top).map((_, i) => i + 1),
       ...middle.map((i) => i + 1),
@@ -555,16 +540,15 @@ export class Controller implements TableHost {
   }
 
   /**
-   * The sorting a table's metadata stored ends with the metadata, so the rows
-   * show as written. Without filters the view is forgotten, so Ctrl+Z (the
-   * metadata back) shows the stored sorting again.
+   * The view a table's metadata stored ends with the metadata, so the rows
+   * show as written: forgotten, so Ctrl+Z (the metadata back) shows it again
    */
-  forgetStoredSort(key: string): void {
+  forgetStoredView(key: string): void {
     clearTimeout(this.sortTimers.get(key));
     this.sortTimers.delete(key);
-    const view = this.views.get(key);
-    if (view && view.filters.some((f) => f !== "")) this.views.set(key, withoutSort(view));
-    else this.views.delete(key);
+    this.sortsWaiting.delete(key);
+    this.views.delete(key);
+    for (const feature of this.features) feature.viewForgotten?.(key);
   }
 
   /**
@@ -579,12 +563,10 @@ export class Controller implements TableHost {
 
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   private async refreshSettings(): Promise<void> {
-    const smart = (await this.setting("smartFilters")) === true;
     const maxHeight = await this.setting("maxHeight");
     this.metadataOn = await this.setting("metadata");
     this.cellEditor.selectOnClick = await this.setting("selectOnClick");
-    if (this.stopped || (smart === this.filterOptions.smart && maxHeight === this.maxHeight)) return;
-    this.filterOptions = { smart };
+    if (this.stopped || maxHeight === this.maxHeight) return;
     this.maxHeight = maxHeight;
     for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
@@ -594,7 +576,7 @@ export class Controller implements TableHost {
   }
 
   rearranged(info: WidgetInfo): boolean {
-    return isRearranged(this.viewOf(info), this.filterOptions);
+    return !!this.viewOf(info).sort || this.features.some((f) => f.hidesRows?.(info));
   }
 
   // ---- discovering rendered tables --------------------------------------
@@ -773,13 +755,6 @@ export class Controller implements TableHost {
     Array.from(rows[0]!.cells).forEach((cell, column) => {
       if (column < left) cell.append(mark(ICONS.pinLeft, "Pinned to the left"));
       else if (column >= info.columns - right) cell.append(mark(ICONS.pinRight, "Pinned to the right"));
-      const filtered = this.doc.createElement("span");
-      filtered.className = `${UI_CLASS} tp-filter-mark`;
-      filtered.title = "Filtered: click to change the filter";
-      filtered.dataset.tpAction = "filter";
-      filtered.dataset.tpColumn = String(column);
-      filtered.innerHTML = ICONS.filter;
-      cell.append(filtered);
       const button = this.doc.createElement("button");
       button.type = "button";
       button.tabIndex = -1;
@@ -797,6 +772,10 @@ export class Controller implements TableHost {
 
   viewOf(info: WidgetInfo): ViewState {
     return this.views.get(info.key) ?? DEFAULT_VIEW;
+  }
+
+  viewChanged(widget: HTMLElement, info: WidgetInfo): void {
+    this.setView(widget, info, this.viewOf(info));
   }
 
   setView(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
@@ -869,10 +848,6 @@ export class Controller implements TableHost {
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[] {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
-  }
-
-  openFilter(widget: HTMLElement, info: WidgetInfo, column: number): void {
-    this.filterRow.openFilter(widget, info, column);
   }
 
   columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
@@ -1001,7 +976,7 @@ export class Controller implements TableHost {
    * A cell's value for sorting and filtering: the edited cell shows the
    * editor, not its text, so its value is what is typed (a type's value stays)
    */
-  private viewValue(cell: HTMLTableCellElement): string {
+  cellValue(cell: HTMLTableCellElement): string {
     const active = this.cellEditor.active;
     return active?.cell === cell && cell.dataset.tpValue === undefined ? active.field.value : cellValue(cell);
   }
@@ -1010,8 +985,11 @@ export class Controller implements TableHost {
     const view = this.viewOf(info);
     const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.viewValue(cell)));
-    const order = this.withHeldRow(info, visibleRows(values, withPins(view, info.pins), this.filterOptions), rows.length);
+    const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.cellValue(cell)));
+    // The rows features hide (filters)
+    const hidden = new Set<number>();
+    for (const feature of this.features) for (const i of feature.hiddenRows?.(info, values) ?? []) hidden.add(i);
+    const order = this.withHeldRow(info, visibleRows(values, withPins(view, info.pins), hidden), rows.length);
     const shown = new Set(order);
     const body = info.table.tBodies[0] ?? info.table;
     rows.forEach((tr, i) => {
@@ -1057,13 +1035,11 @@ export class Controller implements TableHost {
       }
       if (direction) cell.setAttribute("aria-sort", direction === "asc" ? "ascending" : "descending");
       else cell.removeAttribute("aria-sort");
-      // Filtered, shown also while the filter row is hidden
-      cell.classList.toggle("tp-filtered", !!parseFilter(view.filters[column] ?? "", this.filterOptions).match);
     });
 
-    this.filterRow.apply(widget, info, view);
+    for (const feature of this.features) feature.viewApplied?.(widget, info);
     this.pinColumns(info);
-    widget.classList.toggle("tp-rearranged", isRearranged(view, this.filterOptions));
+    widget.classList.toggle("tp-rearranged", this.rearranged(info));
     // A taller table scrolls inside its own box (the table box already has overflow: auto)
     widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
     if (this.hoverWidget === widget) this.showTableControls(widget, info);
@@ -1108,7 +1084,7 @@ export class Controller implements TableHost {
   // ---- event routing -----------------------------------------------------
 
   // Keyboard and input events from Table Plus' own fields must not reach the editor
-  private isolate(element: HTMLElement): void {
+  isolate(element: HTMLElement): void {
     for (const type of STOPPED_EVENTS) element.addEventListener(type, (e) => e.stopPropagation());
   }
 
@@ -1124,7 +1100,8 @@ export class Controller implements TableHost {
     const cell = target.closest<HTMLTableCellElement>("td, th");
     if (!cell || cell.closest("table") !== info.table) return undefined;
     const row = cell.parentElement?.classList;
-    return row?.contains("tp-filter-row") || row?.contains("tp-meta-row") ? undefined : cell;
+    // Rows Table Plus adds (a feature's: the filter row) and the metadata row are no table cells
+    return row?.contains(UI_CLASS) || row?.contains("tp-meta-row") ? undefined : cell;
   }
 
   private onMouseDown = (e: MouseEvent): void => {
@@ -1150,7 +1127,7 @@ export class Controller implements TableHost {
       e.preventDefault();
       return;
     }
-    if (element.closest(".tp-cell-editor, .tp-filter-row") || element.closest(INTERACTIVE_SELECTOR)) {
+    if (element.closest(`.tp-cell-editor, tr.${UI_CLASS}`) || element.closest(INTERACTIVE_SELECTOR)) {
       return;
     }
     e.preventDefault();
@@ -1207,12 +1184,9 @@ export class Controller implements TableHost {
     if (action?.dataset.tpAction === "sort") {
       e.preventDefault();
       this.setSort(widget, info, cycleSort(this.viewOf(info), Number(action.dataset.tpColumn)));
-    } else if (action?.dataset.tpAction === "filter") {
-      e.preventDefault();
-      this.openFilter(widget, info, Number(action.dataset.tpColumn));
-    } else if (action?.dataset.tpAction === "clear-filter") {
-      e.preventDefault();
-      this.filterRow.clear(widget, info, Number(action.dataset.tpColumn));
+    } else if (action?.dataset.tpAction) {
+      const name = action.dataset.tpAction;
+      if (this.features.some((f) => f.action?.(name, action, widget, info))) e.preventDefault();
     }
   };
 
@@ -1474,7 +1448,10 @@ export class Controller implements TableHost {
           if (recalculated !== table) updates.push({ range: otherRange, markdown: serialize(recalculated) });
         }
       }
-      if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
+      if (columnMap) {
+        this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
+        for (const feature of this.features) feature.columnsMoved?.(info.key, columnMap);
+      }
       if (focus) this.cellEditor.editAfterWrite(info.key, focus);
       this.holdAfterWrite(info.key, options);
       this.scrollLefts.set(info.key, widget.scrollLeft);
@@ -1569,7 +1546,6 @@ export class Controller implements TableHost {
     return (
       [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) ||
       !!this.tableMenu?.element.contains(node) ||
-      this.filterRow.owns(node) ||
       this.features.some((f) => f.owns?.(node))
     );
   }
@@ -1614,7 +1590,7 @@ export class Controller implements TableHost {
     const bar = this.bar;
     bar.replaceChildren();
     // A button with its label, or (with an icon) the icon alone, the label its accessible name
-    const button = (item: ToolbarButton & { readonly pressed?: boolean }, className?: string): HTMLButtonElement => {
+    const button = (item: ToolbarButton, className?: string): HTMLButtonElement => {
       const b = this.doc.createElement("button");
       b.type = "button";
       b.tabIndex = -1;
@@ -1637,77 +1613,48 @@ export class Controller implements TableHost {
     const featureButtons = this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []);
     // At the left, what the table is and how it is shown: its name, its sorting, its rows filtered
     for (const item of featureButtons.filter((b) => b.place === "label")) button(item, "tp-bar-label");
+    // How the table is shown, each a chip whose × ends it: the sorting, the features' (filters)
+    const chips: ToolbarButton[] = [];
     if (view.sort) {
-      // "Sorted by Name ↓ ×": the cross goes back to the order as written
       const { column, direction } = view.sort;
       const name = cellText(info.table.rows[0]!.cells[column]!) || `column ${column + 1}`;
+      chips.push({
+        label: `Sorted by ${name} ${direction === "asc" ? "↑" : "↓"}`,
+        title: "Clear sorting: show the rows as written",
+        place: "chip",
+        run: () => {
+          const [w, i] = this.current(widget, info);
+          this.setSort(w, i, withoutSort(this.viewOf(i)));
+        },
+        // Apply: the rows are sorted in the markdown, and the sorting view ends
+        actions: [{ icon: ICONS.applySort, title: "Sort the rows in the markdown this way", run: () => void this.applySort(widget, info) }],
+      });
+    }
+    for (const item of [...chips, ...featureButtons.filter((b) => b.place === "chip")]) {
       const chip = this.doc.createElement("span");
       chip.className = "tp-status tp-chip";
-      chip.textContent = `Sorted by ${name} ${direction === "asc" ? "↑" : "↓"}`;
-      const clear = this.doc.createElement("button");
-      clear.type = "button";
-      clear.tabIndex = -1;
-      clear.className = "tp-chip-clear";
-      clear.title = "Clear sorting: show the rows as written";
-      clear.setAttribute("aria-label", clear.title);
-      clear.innerHTML = ICONS.clear;
-      clear.addEventListener("click", (e) => {
-        e.preventDefault();
-        const [w, i] = this.current(widget, info);
-        this.setSort(w, i, withoutSort(this.viewOf(i)));
-      });
-      // Apply: the rows are sorted in the markdown, and the sorting view ends
-      const apply = this.doc.createElement("button");
-      apply.type = "button";
-      apply.tabIndex = -1;
-      apply.className = "tp-chip-apply";
-      apply.title = "Sort the rows in the markdown this way";
-      apply.setAttribute("aria-label", apply.title);
-      apply.innerHTML = ICONS.applySort;
-      apply.addEventListener("click", (e) => {
-        e.preventDefault();
-        void this.applySort(widget, info);
-      });
-      chip.append(apply, clear);
+      if (item.icon) chip.innerHTML = item.icon;
+      chip.append(item.label);
+      const small = (className: string, title: string, icon: string, run: () => void) => {
+        const b = this.doc.createElement("button");
+        b.type = "button";
+        b.tabIndex = -1;
+        b.className = className;
+        b.title = title;
+        b.setAttribute("aria-label", title);
+        b.innerHTML = icon;
+        b.addEventListener("click", (e) => {
+          e.preventDefault();
+          run();
+        });
+        return b;
+      };
+      for (const action of item.actions ?? []) chip.append(small("tp-chip-apply", action.title, action.icon, action.run));
+      chip.append(small("tp-chip-clear", item.title, ICONS.clear, item.run));
       bar.append(chip);
     }
-    if (view.filters.some((filter) => parseFilter(filter, this.filterOptions).match)) {
-      // "⧩ 3 of 10 rows ×": the cross clears the filters
-      const rows = this.bodyRows(info);
-      const shown = rows.filter((tr) => !tr.classList.contains("tp-hidden")).length;
-      const chip = this.doc.createElement("span");
-      chip.className = "tp-status tp-chip tp-filter-chip";
-      chip.innerHTML = ICONS.filter;
-      chip.append(`${shown} of ${rows.length} rows`);
-      const clear = this.doc.createElement("button");
-      clear.type = "button";
-      clear.tabIndex = -1;
-      clear.className = "tp-chip-clear";
-      clear.title = "Clear the filters";
-      clear.setAttribute("aria-label", clear.title);
-      clear.innerHTML = ICONS.clear;
-      clear.addEventListener("click", (e) => {
-        e.preventDefault();
-        const [w, i] = this.current(widget, info);
-        this.setView(w, i, { ...this.viewOf(i), filters: [] });
-      });
-      chip.append(clear);
-      bar.append(chip);
-    }
-    // At the right, icons always in the same places: the features' (Recalculate), Filter, and the menu
+    // At the right, icons always in the same places: the features' (Recalculate, Filter), and the menu
     for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
-    button({
-      label: "Filter",
-      title: "Show or hide the filter row (hidden, the filters still apply: the toolbar and the headers show them)",
-      place: "icon",
-      icon: ICONS.filter,
-      run: () => {
-        const [w, i] = this.current(widget, info);
-        const now = this.viewOf(i);
-        this.setView(w, i, { ...now, showFilters: !now.showFilters });
-      },
-      pressed: view.showFilters,
-    });
     const menuItems = [
       ...featureButtons.filter((b) => (b.place ?? "menu") === "menu"),
       {

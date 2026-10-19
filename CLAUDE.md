@@ -32,14 +32,14 @@ table-plus/
   src/
     index.ts           entry: init(bridge), pageIndexed(name), removeAllMetadata()
     bridge.ts          the SilverBullet API Table Plus uses (editor.*, config.get), handed over by the library page's Lua; SETTINGS
-    controller.ts      the core: finds and enhances rendered tables, routes events, view (sort/filter/pins layout), toolbar, write pipeline
+    controller.ts      the core: finds and enhances rendered tables, routes events, view (sort, rows features hide, pins layout), toolbar, write pipeline
     core/
       feature.ts       TableHost (what the controller offers) and Feature (hooks); shared types (WidgetInfo, CellRef, WriteOptions…)
       editor.ts        the cell editor (CellEditing): open/close/save, Enter, Tab, Ctrl+arrows, Ctrl+Alt moves, pending focus after writes
       structure.ts     structural edits as functions over TableHost (insert/duplicate/delete/move/pin rows and columns)
-      filters.ts       how filters are typed: the filter row, a column's filter in a bubble under its header, hints and values to tick
       layout.ts        STICKY_GAP (kept in step with the CSS)
     features/          one feature per file, each a class implementing Feature, with its UI test next to it
+      filters.ts       the filters module: filter row, a column's filter in a bubble, hints and values to tick, hides rows (hiddenRows), stored as filter.<column>
       formulas.ts      formula editing UI: hint, colored reference outlines and dragging, pointing, Tab completion, autofix, Recalculate
       types.ts         column types in the table: formatting, hidden type hashtags, invalid marks, editor choices, Type menu
       selection.ts     drag-select cells, Ctrl+C (text + HTML table), Delete
@@ -56,7 +56,7 @@ table-plus/
     types/             column types: one per file, registry index.ts (hashtag parsing, aliases, CSS patterns)
     markdown.ts        table model: parse/serialize GFM tables, minimal edits, metadata row
     columns.ts         column identity: SilverBullet column keys, occurrence for duplicates, following renames/moves
-    ops.ts pins.ts meta.ts view.ts paste.ts   pure table operations, pin rules, metadata row, view state, clipboard parsing
+    ops.ts pins.ts meta.ts view.ts filter.ts paste.ts   pure table operations, pin rules, metadata row (attributes of columns), view state (sorting), filter syntax, clipboard parsing
     testing/page.ts    jsdom harness: renders tables as SilverBullet does; setup(), cell(), clickOn(), key()…; state as live exports
 playground/            a page that mocks SilverBullet (playground.ts renders tables like SilverBullet); sample.md mock data
 scripts/               build.mjs, deploy.mjs, playground.mjs (esbuild serve on 127.0.0.1)
@@ -65,10 +65,11 @@ scripts/               build.mjs, deploy.mjs, playground.mjs (esbuild serve on 1
 ## Architecture
 
 - **The controller is the host.** Features never touch its internals; they get a `TableHost` (`core/feature.ts`) and implement optional hooks: `start/stop`, `mouseDown` (any button, first), `beforeMouseDown`, `beforeCellPress` (true: taken, e.g. pointing), `afterCellPress`, `keyDown`, `enhanced`, `decorate`, `toolbarButtons`, `columnMenuEntries`, `cellHovered/hoverEnded`, `pointerBusy`, `owns`, `layoutChanged`, `beforeWrite`, and the editor hooks `editorText`, `editorOpened`, `editorKeyDown`, `editorValue`, `editorClosed`. Features get events in the order of the list in the controller's constructor (Sticky first, so the header moves before what points at it; ColumnTypes after Formulas, so formula results get formatted).
-- **Every write is one `editor.replaceRange`** (one undo step): `write(widget, change, { focus, rowMap, columnMap, pins })` re-reads the table, applies `change`, then the **write steps** (`formulasAfterEdit`: calculated cells for new rows, references follow moved rows/columns, recalculation; `metadataAfterEdit`: stored sort follows its column, pins), formats (autoFormat setting) and writes. `rowMap`/`columnMap` say where each row (markdown index, header 0) or column went; undefined means deleted. A row no old row maps to is new.
-- **Viewing never writes.** Sorting and filtering are views unless the metadata setting stores the sort. Stale formula results are offered as *Recalculate*, not rewritten on view.
+- **Every write is one `editor.replaceRange`** (one undo step): `write(widget, change, { focus, rowMap, columnMap, pins })` re-reads the table, applies `change`, then the **write steps** (`formulasAfterEdit`: calculated cells for new rows, references follow moved rows/columns, recalculation; `metadataAfterEdit`: every attribute of a column follows its column, pins), formats (autoFormat setting) and writes. `rowMap`/`columnMap` say where each row (markdown index, header 0) or column went; undefined means deleted. A row no old row maps to is new.
+- **Viewing never writes.** Sorting and filtering are views unless the metadata setting stores them. Stale formula results are offered as *Recalculate*, not rewritten on view.
 - **Sorting, filtering and copying use `cellValue(cell)`**: `data-tp-value` (set by column types) or the shown text.
-- **Settings** (`bridge.ts` SETTINGS, `config.define` on the library page): whole-table settings are `tablePlus.<setting>`, a core part's `tablePlus.<part>.<setting>` (`editor`, `filter`), a module's `tablePlus.modules.<module>.<setting>`, so a part is set with one `config.set("tablePlus.editor", { … })` and SilverBullet fills in the defaults left out. The modules (`FEATURE_NAMES`) can be turned off with `tablePlus.modules.<name>.enabled`; the controller reads these once when it starts and creates only the features that are on (a change applies on reload). Write steps (formula recalculation) run regardless, so formulas in a table stay right with the formulas feature off.
+- **Settings** (`bridge.ts` SETTINGS, `config.define` on the library page): whole-table settings are `tablePlus.<setting>`, a core part's `tablePlus.<part>.<setting>` (`editor`, `expressions`), a module's `tablePlus.modules.<module>.<setting>`, so a part is set with one `config.set("tablePlus.editor", { … })` and SilverBullet fills in the defaults left out. The modules (`FEATURE_NAMES`) can be turned off with `tablePlus.modules.<name>.enabled`; the controller reads these once when it starts and creates only the features that are on (a change applies on reload).
+- **A module turned off is not loaded at all**: what it stored in tables stays and is not used (filters stored do not hide rows; with formulas off, results stay as written). The core knows no module: it offers generic mechanisms. Rows a feature hides (`hiddenRows`, `hidesRows` for "rearranged"); `columnsMoved` for state by column; `action` for clicks on a feature's `data-tp-action` elements in a table (clicks there reach the controller only); toolbar chips (`place: "chip"`). Attributes of columns in the metadata row, `<what>.<column>` (`sort.qty="desc"`, `filter.status="=open\|blocked"`, `qty:2` the second column of that name): `metadataAfterEdit` keeps every such attribute on its column through renames, moves and deletes whatever it is for (`followColumnMeta`), so data of a module turned off stays right. (Being moved there in steps: formula recalculation still runs in the core's write.)
 - **Rendered tables are SilverBullet's.** Table Plus decorates the DOM SilverBullet rendered and matches it to the markdown by position (`data-pos`) and shape. Everything assumed about SilverBullet's DOM lives in `dom.ts`.
 
 ## What was verified in SilverBullet (by probe pages)
@@ -113,6 +114,5 @@ A new `space-lua` block on a page is not active until Space Lua is reloaded; an 
 
 - **User-defined functions and column types from Space Lua** (`tablePlus.defineFunction` / a type equivalent). Calling Lua from JS is probably asynchronous; the formula evaluator is synchronous. Needs a probe first.
 - A parameter picker for column types in the menu (today only the base form is offered; parameters are typed in the markdown).
-- Extracting the sort UI (toolbar chip) from the controller as the filters were (`core/filters.ts`); the row layout itself stays in the core.
 - A check that `table-plus.js` matches `src/` (`npm run check-build` or a pre-commit hook).
 - Nothing has been verified in a real browser by an agent: tests run in jsdom (layout is mocked where needed); the user checks UI in SilverBullet and the playground.

@@ -65,7 +65,7 @@ Sorted by Qty, descending, with the last row pinned (stored in the `<meta>` row)
 | Apple | 10 |
 | Plum | 6 |
 | Total | 19 |
-| <meta sort="Qty:desc" pin-bottom="1"> |
+| <meta sort.qty="desc" pin-bottom="1"> |
 
 ## Unnamed column
 

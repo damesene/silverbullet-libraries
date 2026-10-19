@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findTables, locateByShape, parseMetaRow, parseTable, serializeTable } from "./markdown.ts";
-import { followMetaSort, metaName, metaSort, sameTableName, tableNameProblem, withMeta, withMetaName, withMetaSort } from "./meta.ts";
+import { columnMeta, followColumnMeta, metaName, metaSort, sameTableName, tableNameProblem, withColumnMeta, withMeta, withMetaName, withMetaSort } from "./meta.ts";
 import { columnAfterMove, deleteColumn, insertRow, moveColumn, setCell } from "./ops.ts";
 
 const md = (t: ReturnType<typeof parseTable>) => serializeTable(t);
@@ -61,39 +61,69 @@ describe("metadata row", () => {
 describe("stored sorting", () => {
   const base = parseTable("| Name | Qty | Qty |\n|---|---|---|\n| a | 1 | 2 |");
 
-  it("is stored by column name", () => {
+  it("is stored as an attribute of its column", () => {
     const sorted = withMetaSort(base, { column: 0, direction: "desc" });
-    expect(sorted.meta).toEqual({ sort: "name:desc" });
+    expect(sorted.meta).toEqual({ "sort.name": "desc" });
     expect(metaSort(sorted)).toEqual({ column: 0, direction: "desc" });
+    // Another column: the attribute of the first goes
+    expect(withMetaSort(sorted, { column: 1, direction: "asc" }).meta).toEqual({ "sort.qty:1": "asc" });
+    expect(withMetaSort(sorted, undefined).meta).toEqual({});
   });
 
   it("adds the occurrence for duplicate column names", () => {
     const second = withMetaSort(base, { column: 2, direction: "asc" });
-    expect(second.meta).toEqual({ sort: "qty:asc:2" });
+    expect(second.meta).toEqual({ "sort.qty:2": "asc" });
     expect(metaSort(second)).toEqual({ column: 2, direction: "asc" });
-    expect(withMetaSort(base, { column: 1, direction: "asc" }).meta).toEqual({ sort: "qty:asc:1" });
   });
 
-  it("is ignored when its column is gone", () => {
-    expect(metaSort(withMeta(base, "sort", "Missing:asc"))).toBeUndefined();
-    expect(metaSort(withMeta(base, "sort", "Qty:asc:3"))).toBeUndefined();
+  it("names a column with only hashtags in its header by its empty key", () => {
+    const typed = parseTable("| Name | #stars |\n|---|---|\n| a | 3 |");
+    const sorted = withMetaSort(typed, { column: 1, direction: "desc" });
+    expect(sorted.meta).toEqual({ "sort.": "desc" });
+    expect(metaSort(sorted)).toEqual({ column: 1, direction: "desc" });
+    expect(withMetaSort(sorted, undefined).meta).toEqual({});
   });
 
-  it("follows its column through rename, move and delete", () => {
-    const sorted = withMetaSort(base, { column: 2, direction: "desc" }); // the second Qty
-    const renamed = followMetaSort(sorted, setCell(sorted, 0, 2, "Price"), (c) => c);
-    expect(renamed.meta).toEqual({ sort: "price:desc" });
-    const moved = followMetaSort(sorted, moveColumn(sorted, 2, 0), (c) => columnAfterMove(c, 2, 0));
-    expect(moved.meta).toEqual({ sort: "qty:desc:1" });
+  it("is ignored when its column is gone or its direction is not one", () => {
+    expect(metaSort(withMeta(base, "sort.missing", "asc"))).toBeUndefined();
+    expect(metaSort(withMeta(base, "sort.qty:3", "asc"))).toBeUndefined();
+    expect(metaSort(withMeta(base, "sort.name", "up"))).toBeUndefined();
+  });
+});
+
+describe("attributes of columns", () => {
+  const base = parseTable("| Name | Qty | Qty |\n|---|---|---|\n| a | 1 | 2 |");
+  const filtered = withColumnMeta(base, "filter", new Map([[0, "=a|b"], [2, ">1"]]));
+
+  it("are read and written by column, others left as they are", () => {
+    expect(filtered.meta).toEqual({ "filter.name": "=a|b", "filter.qty:2": ">1" });
+    expect(columnMeta(filtered, "filter")).toEqual(new Map([[0, "=a|b"], [2, ">1"]]));
+    const named = withMeta(filtered, "name", "fruit");
+    expect(withColumnMeta(named, "filter", new Map([[1, "x"]])).meta).toEqual({ name: "fruit", "filter.qty:1": "x" });
+    // Unchanged: the same table
+    expect(withColumnMeta(filtered, "filter", new Map([[0, "=a|b"], [2, ">1"]]))).toBe(filtered);
+    // Written in the metadata row, the | escaped, and read back
+    const text = md(filtered);
+    expect(text).toContain('<meta filter.name="=a\\|b" filter.qty:2="&gt;1">');
+    expect(columnMeta(parseTable(text), "filter")).toEqual(new Map([[0, "=a|b"], [2, ">1"]]));
+  });
+
+  it("follow their columns through rename, move and delete, whatever they are for", () => {
+    const both = withMetaSort(filtered, { column: 2, direction: "desc" });
+    const renamed = followColumnMeta(both, setCell(both, 0, 2, "Price"), (c) => c);
+    expect(renamed.meta).toEqual({ "filter.name": "=a|b", "filter.price": ">1", "sort.price": "desc" });
+    const moved = followColumnMeta(both, moveColumn(both, 2, 0), (c) => columnAfterMove(c, 2, 0));
+    expect(moved.meta).toEqual({ "filter.name": "=a|b", "filter.qty:1": ">1", "sort.qty:1": "desc" });
     expect(metaSort(moved)).toEqual({ column: 0, direction: "desc" });
-    const deleted = followMetaSort(sorted, deleteColumn(sorted, 2), (c) => (c === 2 ? undefined : c));
-    expect(deleted.meta).toEqual({});
-    expect(md(deleted)).toBe("| Name | Qty |\n|---|---|\n| a | 1 |");
+    const deleted = followColumnMeta(both, deleteColumn(both, 2), (c) => (c === 2 ? undefined : c));
+    expect(deleted.meta).toEqual({ "filter.name": "=a|b" });
   });
 
-  it("leaves tables without a stored sorting alone", () => {
+  it("leave tables alone that have none, and those the edit set", () => {
     const edited = setCell(base, 1, 0, "b");
-    expect(followMetaSort(base, edited, (c) => c)).toBe(edited);
+    expect(followColumnMeta(base, edited, (c) => c)).toBe(edited);
+    const set = withMetaSort(base, { column: 1, direction: "asc" });
+    expect(followColumnMeta(base, set, () => undefined)).toBe(set);
   });
 });
 

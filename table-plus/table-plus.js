@@ -6,11 +6,11 @@ var SETTINGS = {
     parse: (v) => v === "save" || v === "moveDown" ? v : void 0
   },
   smartFilters: {
-    path: "tablePlus.filter.smart",
+    path: "tablePlus.modules.filters.smart",
     default: true,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
-  // Store table settings (for now: sorting) in the table's metadata row
+  // Store table settings (sorting, filters, pins, names) in the table's metadata row
   metadata: {
     path: "tablePlus.metadata",
     default: false,
@@ -203,7 +203,7 @@ function parseTable(text) {
   };
 }
 var META_TAG_RE = /^<meta\b([^>]*?)\/?>$/i;
-var META_ATTRIBUTE_RE = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+var META_ATTRIBUTE_RE = /([\w.:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 function parseMetaRow(line) {
   const [first, ...rest] = splitRow(line);
   const tag = META_TAG_RE.exec(first ?? "");
@@ -1144,484 +1144,6 @@ var CellEditing = class {
   }
 };
 
-// table-plus/src/icons.ts
-var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
-var lineIcon = (body) => svg(body);
-var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
-var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
-var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
-var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
-var ICONS = {
-  grip: svg(
-    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
-    true
-  ),
-  plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
-  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
-  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
-  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
-  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
-  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
-  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
-  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
-  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
-  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
-  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
-  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
-  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
-  // Sorted lines with a check: make the sorting the real order
-  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
-  // Two arrows round: calculate again
-  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
-  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
-  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
-  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
-  // A padlock: a name that stays
-  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
-  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
-  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
-  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
-  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
-  // A pushpin with its needle pointing to the edge it pins to
-  pinTop: PIN_POINT_UP,
-  pinBottom: PIN_POINT_DOWN,
-  pinLeft: PIN_POINT_LEFT,
-  pinRight: PIN_POINT_RIGHT
-};
-
-// table-plus/src/view.ts
-var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
-var DEFAULT_VIEW = { filters: [], showFilters: false };
-function pinsOf(view) {
-  return view.pins ?? NO_PINS;
-}
-function hasPins(pins) {
-  return pins.top + pins.bottom + pins.left + pins.right > 0;
-}
-function withPins(view, pins) {
-  if (hasPins(pins)) return { ...view, pins };
-  const { pins: _pins, ...rest } = view;
-  return rest;
-}
-var DEFAULT_FILTER_OPTIONS = { smart: true };
-function isRearranged(view, options = DEFAULT_FILTER_OPTIONS) {
-  return !!view.sort || view.filters.some((f) => filterMatcher(f, options) !== void 0);
-}
-function cycleSort(view, column) {
-  if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
-  if (view.sort.direction === "asc") return { ...view, sort: { column, direction: "desc" } };
-  return withoutSort(view);
-}
-function withSort(view, column, direction) {
-  return { ...view, sort: { column, direction } };
-}
-function withoutSort(view) {
-  const { sort: _sort, ...rest } = view;
-  return rest;
-}
-function withFilter(view, column, value) {
-  const filters = [...view.filters];
-  while (filters.length <= column) filters.push("");
-  filters[column] = value;
-  return { ...view, filters };
-}
-function remapColumns(view, map) {
-  const filters = [];
-  view.filters.forEach((value, column) => {
-    const target = map(column);
-    if (target === void 0 || value === "") return;
-    while (filters.length <= target) filters.push("");
-    filters[target] = value;
-  });
-  const sortColumn = view.sort ? map(view.sort.column) : void 0;
-  const result = view.pins ? { filters, showFilters: view.showFilters, pins: view.pins } : { filters, showFilters: view.showFilters };
-  return view.sort && sortColumn !== void 0 ? { ...result, sort: { column: sortColumn, direction: view.sort.direction } } : result;
-}
-function normalizeForFilter(s) {
-  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-}
-var NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
-function asNumber(s) {
-  const m = NUMBER_RE.exec(s.trim());
-  return m ? Number(m[1].replace(/[ \u00a0]/g, "").replace(",", ".")) : void 0;
-}
-var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
-function compareValues(a, b) {
-  const na = asNumber(a);
-  const nb = asNumber(b);
-  if (na !== void 0 && nb !== void 0) return na - nb;
-  return collator.compare(a.trim(), b.trim());
-}
-var REGEX_RE = /^\/(.*)\/([cimsu]*)$/s;
-var COMPARISON_RE = /^(<=|>=|<|>)\s*(.*)$/s;
-function parseFilter(filter, options = DEFAULT_FILTER_OPTIONS) {
-  const text = filter.trim();
-  if (text === "") return {};
-  if (options.smart) {
-    if (text.startsWith("!")) {
-      const inner = parseFilter(text.slice(1), options);
-      const match = inner.match;
-      return match ? { match: (value) => !match(value) } : inner;
-    }
-    if (text.startsWith("=")) {
-      const rest = text.slice(1);
-      if (rest.trim() === "") return {};
-      const wholes = new Set(rest.split("|").map((part) => normalizeForFilter(part.trim())));
-      return { match: (value) => wholes.has(normalizeForFilter(value.trim())) };
-    }
-    const regex = REGEX_RE.exec(text);
-    if (regex) return parseRegex(regex[1], regex[2]);
-    if (text.startsWith("/")) return {};
-    if (text.includes("|")) return anyOf(text.split("|").map((part) => parseFilter(part, options)));
-    const comparison = COMPARISON_RE.exec(text);
-    if (comparison) {
-      const [, operator, rest] = comparison;
-      if (rest.trim() === "") return {};
-      const limit = asNumber(rest);
-      if (limit !== void 0) {
-        return {
-          match: (value) => {
-            const n = asNumber(value);
-            if (n === void 0) return false;
-            if (operator === ">") return n > limit;
-            if (operator === "<") return n < limit;
-            if (operator === ">=") return n >= limit;
-            return n <= limit;
-          }
-        };
-      }
-    }
-  }
-  const needle = normalizeForFilter(text);
-  return { match: (value) => normalizeForFilter(value).includes(needle) };
-}
-function anyOf(parts) {
-  const error = parts.find((part) => part.error)?.error;
-  if (error) return { error };
-  const matches = parts.flatMap((part) => part.match ? [part.match] : []);
-  return matches.length === 0 ? {} : { match: (value) => matches.some((match) => match(value)) };
-}
-function parseRegex(pattern, flags) {
-  if (pattern === "") return {};
-  const caseSensitive = flags.includes("c");
-  const jsFlags = [...new Set(flags.replace(/[ci]/g, "") + (caseSensitive ? "" : "i"))].join("");
-  try {
-    const re = new RegExp(pattern, jsFlags);
-    return { match: (value) => re.test(value) };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
-  }
-}
-function filterMatcher(filter, options = DEFAULT_FILTER_OPTIONS) {
-  return parseFilter(filter, options).match;
-}
-function visibleRows(values, view, options = DEFAULT_FILTER_OPTIONS) {
-  const { top, bottom } = pinsOf(view);
-  const matchers = view.filters.map((filter) => filterMatcher(filter, options));
-  const indexes = values.map((_, i) => i).filter((i) => i >= top && i < values.length - bottom).filter((i) => matchers.every((match, column) => !match || match(values[i][column] ?? "")));
-  const sort = view.sort;
-  if (!sort) return indexes;
-  const sign = sort.direction === "asc" ? 1 : -1;
-  return indexes.sort((a, b) => {
-    const va = values[a][sort.column] ?? "";
-    const vb = values[b][sort.column] ?? "";
-    const ea = va.trim() === "";
-    const eb = vb.trim() === "";
-    if (ea !== eb) return ea ? 1 : -1;
-    return sign * compareValues(va, vb) || a - b;
-  });
-}
-
-// table-plus/src/core/filters.ts
-var MAX_VALUES = 12;
-var OPERATOR_RE = /^(!|=|>=|<=|>|<)\s*/;
-var bare = (value) => value.replace(OPERATOR_RE, "");
-var NUMBER_HINTS = [
-  { code: ">10", text: "above", apply: (v) => `>${bare(v)}` },
-  { code: "<10", text: "below", apply: (v) => `<${bare(v)}` },
-  { code: ">=10", text: "at least", apply: (v) => `>=${bare(v)}` }
-];
-var TEXT_HINTS = [
-  { code: "=text", text: "exactly", apply: (v) => `=${bare(v)}` },
-  { code: "!text", text: "not", apply: (v) => v.startsWith("!") ? v : `!${v}` },
-  { code: "a|b", text: "either", apply: (v) => v === "" || v.endsWith("|") ? v : `${v}|` },
-  { code: "/^a.*z$/", text: "regular expression", apply: (v) => v.startsWith("/") ? v : `/${bare(v)}/` }
-];
-var FilterRow = class {
-  constructor(host) {
-    this.host = host;
-  }
-  host;
-  // The bubble under the field being typed in, or (popover) a column's filter on its own
-  bubble;
-  /** Whether a node is the bubble's */
-  owns(node) {
-    return !!this.bubble?.element.contains(node);
-  }
-  stop() {
-    this.hideBubble();
-  }
-  /** The filter row as the view has it: shown with the view's filters, or gone */
-  apply(widget, info, view) {
-    let row = info.table.querySelector("tr.tp-filter-row");
-    if (this.bubble?.popover && this.bubble.widget === widget) this.placeBubble();
-    if (!view.showFilters) {
-      if (row && this.bubble && row.contains(this.bubble.input)) this.hideBubble();
-      row?.remove();
-      return;
-    }
-    if (!row) {
-      row = this.host.doc.createElement("tr");
-      row.className = `${UI_CLASS} tp-filter-row`;
-      for (let column = 0; column < info.columns; column++) row.append(this.field(widget, column));
-      info.table.rows[0].after(row);
-    }
-    const options = this.host.filterOptions();
-    for (const input of Array.from(row.querySelectorAll("input.tp-filter"))) {
-      const value = view.filters[Number(input.dataset.tpColumn)] ?? "";
-      if (input.value !== value && this.host.doc.activeElement !== input) input.value = value;
-      const { match, error } = parseFilter(input.value, options);
-      input.classList.toggle("tp-invalid", !!error);
-      input.title = error ?? "";
-      const cell = input.closest("td");
-      cell.classList.toggle("tp-filter-active", !!match);
-      cell.classList.toggle("tp-filter-typed", input.value !== "");
-    }
-  }
-  /** A column's field in the filter row: the filter icon, the field, its clear button */
-  field(widget, column) {
-    const cell = this.host.doc.createElement("td");
-    const { box, input } = this.filterBox(widget, column);
-    input.addEventListener("focus", () => {
-      if (this.bubble?.input !== input) this.showBubble(widget, column, input, () => input);
-    });
-    input.addEventListener("blur", (e) => this.left(input, e));
-    cell.append(box);
-    return cell;
-  }
-  /** A filter field with the filter icon before it and its clear button after it */
-  filterBox(widget, column) {
-    const { doc } = this.host;
-    const box = doc.createElement("div");
-    box.className = "tp-filter-box";
-    const icon = doc.createElement("span");
-    icon.className = "tp-filter-icon";
-    icon.innerHTML = ICONS.filter;
-    const input = doc.createElement("input");
-    input.type = "text";
-    input.className = "tp-filter";
-    input.size = 1;
-    input.placeholder = "Filter";
-    input.spellcheck = false;
-    input.dataset.tpColumn = String(column);
-    this.host.isolate(input);
-    input.addEventListener("input", () => {
-      this.setFilter(widget, column, input.value);
-      this.host.filterTyped();
-    });
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" || e.key === "Enter") {
-        e.preventDefault();
-        input.blur();
-      }
-    });
-    const clear = doc.createElement("button");
-    clear.type = "button";
-    clear.tabIndex = -1;
-    clear.className = "tp-filter-clear";
-    clear.title = "Clear this filter";
-    clear.setAttribute("aria-label", clear.title);
-    clear.innerHTML = ICONS.clear;
-    clear.dataset.tpAction = "clear-filter";
-    clear.dataset.tpColumn = String(column);
-    clear.addEventListener("mousedown", (e) => e.preventDefault());
-    clear.addEventListener("click", (e) => {
-      e.preventDefault();
-      this.type(widget, input, column, "");
-    });
-    box.append(icon, input, clear);
-    return { box, input };
-  }
-  /** A field's clear button in the filter row */
-  clear(widget, info, column) {
-    const input = info.table.querySelector(`.tp-filter-row input.tp-filter[data-tp-column="${column}"]`);
-    if (input) this.type(widget, input, column, "");
-  }
-  setFilter(widget, column, value) {
-    const info = this.host.infoOf(widget);
-    if (info) this.host.setView(widget, info, withFilter(this.host.viewOf(info), column, value));
-    const bubble = this.bubble;
-    if (bubble && bubble.widget === widget && bubble.column === column) {
-      bubble.element.classList.toggle("tp-filter-typed", value !== "");
-      this.renderBubble();
-    }
-  }
-  /** Puts `value` in the field as if typed */
-  type(widget, input, column, value) {
-    input.value = value;
-    input.closest("td")?.classList.toggle("tp-filter-typed", value !== "");
-    this.setFilter(widget, column, value);
-  }
-  // ---- the bubble -------------------------------------------------------------
-  /**
-   * A column's filter alone, floating under its header (its filter mark, the
-   * column menu's Filter): nothing in the table moves. Asked again for the same
-   * column, it closes.
-   */
-  openFilter(widget, info, column) {
-    if (this.bubble?.popover && this.bubble.widget === widget && this.bubble.column === column) {
-      this.hideBubble();
-      return;
-    }
-    const { box, input } = this.filterBox(widget, column);
-    input.value = this.host.viewOf(info).filters[column] ?? "";
-    input.addEventListener("blur", (e) => this.left(input, e));
-    const anchor = () => {
-      const current = this.host.infoOf(widget);
-      return current?.table.rows[0]?.cells[column] ?? info.table.rows[0].cells[column];
-    };
-    this.showBubble(widget, column, input, anchor, box);
-    this.bubble?.element.classList.toggle("tp-filter-typed", input.value !== "");
-    input.focus({ preventScroll: true });
-    input.setSelectionRange(input.value.length, input.value.length);
-  }
-  showBubble(widget, column, input, anchor, head) {
-    this.hideBubble();
-    const { doc } = this.host;
-    const element = doc.createElement("div");
-    element.className = `${UI_CLASS} tp-floating tp-filter-bubble`;
-    if (head) element.classList.add("tp-filter-popover");
-    element.addEventListener("mousedown", (e) => {
-      if (e.target !== input) e.preventDefault();
-    });
-    const body = doc.createElement("div");
-    body.className = "tp-filter-bubble-body";
-    if (head) element.append(head);
-    element.append(body);
-    doc.body.append(element);
-    this.bubble = { element, body, input, widget, column, anchor, popover: !!head };
-    this.renderBubble();
-  }
-  /** The field lost the focus: its bubble goes, unless the focus went into it (a value ticked) */
-  left(input, e) {
-    const bubble = this.bubble;
-    if (bubble?.input !== input) return;
-    if (e.relatedTarget instanceof Node && bubble.element.contains(e.relatedTarget)) return;
-    this.hideBubble();
-  }
-  hideBubble() {
-    this.bubble?.element.remove();
-    this.bubble = void 0;
-  }
-  /** The bubble's content for the field's text now, under what it belongs to */
-  renderBubble() {
-    const bubble = this.bubble;
-    const info = bubble && this.host.infoOf(bubble.widget);
-    if (!bubble || !info) return;
-    const { widget, column, input } = bubble;
-    const { doc } = this.host;
-    const smart = this.host.filterOptions().smart;
-    const values = this.columnValues(info, column);
-    const parts = [];
-    if (smart) {
-      const filled = values.filter((v) => v.value !== "");
-      const numeric = filled.length > 0 && filled.filter((v) => asNumber(v.value) !== void 0).length * 2 >= filled.length;
-      const hints = numeric ? [...NUMBER_HINTS, ...TEXT_HINTS.slice(0, 3)] : TEXT_HINTS;
-      const list = doc.createElement("div");
-      list.className = "tp-filter-hints";
-      for (const hint of hints) {
-        const b = doc.createElement("button");
-        b.type = "button";
-        b.tabIndex = -1;
-        b.className = "tp-filter-hint";
-        const code = doc.createElement("code");
-        code.textContent = hint.code;
-        b.append(code, ` ${hint.text}`);
-        b.addEventListener("click", (e) => {
-          e.preventDefault();
-          this.type(widget, input, column, hint.apply(input.value.trim()));
-          input.focus({ preventScroll: true });
-          input.setSelectionRange(input.value.length, input.value.length);
-        });
-        list.append(b);
-      }
-      parts.push(list);
-      const pickable = values.filter((v) => !v.value.includes("|"));
-      if (pickable.length > 0 && pickable.length <= MAX_VALUES && values.length <= MAX_VALUES) {
-        parts.push(this.valueList(widget, input, column, pickable));
-      }
-    }
-    bubble.body.replaceChildren(...parts);
-    bubble.element.classList.toggle("tp-visible", parts.length > 0 || bubble.popover);
-    this.placeBubble();
-  }
-  /** Under what the bubble belongs to (the field, the header), inside the window */
-  placeBubble() {
-    const bubble = this.bubble;
-    if (!bubble) return;
-    const win = this.host.doc.defaultView;
-    const r = bubble.anchor().getBoundingClientRect();
-    const m = bubble.element.getBoundingClientRect();
-    const left = Math.max(4, Math.min(r.left - (bubble.popover ? 0 : 6), win.innerWidth - m.width - 4));
-    const top = r.bottom + 6 + m.height > win.innerHeight - 4 ? Math.max(4, r.top - m.height - 6) : r.bottom + 6;
-    bubble.element.style.left = `${Math.round(left)}px`;
-    bubble.element.style.top = `${Math.round(top)}px`;
-  }
-  /** The column's values to tick: ticked are those the field's =a|b names */
-  valueList(widget, input, column, values) {
-    const { doc } = this.host;
-    const text = input.value.trim();
-    const ticked = new Set(text.startsWith("=") ? text.slice(1).split("|").map((v) => normalizeForFilter(v.trim())) : []);
-    const list = doc.createElement("div");
-    list.className = "tp-filter-values";
-    for (const value of values) {
-      const key = normalizeForFilter(value.value);
-      const item = doc.createElement("label");
-      item.className = "tp-filter-value";
-      const box = doc.createElement("input");
-      box.type = "checkbox";
-      box.tabIndex = -1;
-      box.checked = ticked.has(key);
-      const label = doc.createElement("span");
-      label.className = "tp-filter-value-label";
-      label.textContent = value.label || "(empty)";
-      const count = doc.createElement("span");
-      count.className = "tp-filter-value-count";
-      count.textContent = String(value.count);
-      item.append(box, label, count);
-      box.addEventListener("change", () => {
-        const chosen = values.filter((v) => {
-          const k = normalizeForFilter(v.value);
-          return k === key ? box.checked : ticked.has(k);
-        });
-        const filter = chosen.length === 0 ? "" : chosen.length === 1 && chosen[0].value === "" ? "=|" : `=${chosen.map((v) => v.value).join("|")}`;
-        this.type(widget, input, column, filter);
-        input.focus({ preventScroll: true });
-      });
-      list.append(item);
-    }
-    return list;
-  }
-  /** A column's different values in its body rows (not the pinned ones), in the order they first come */
-  columnValues(info, column) {
-    const { top, bottom } = info.pins;
-    const rows = this.host.bodyRows(info);
-    const found = /* @__PURE__ */ new Map();
-    rows.forEach((tr, i) => {
-      if (i < top || i >= rows.length - bottom) return;
-      const cell = tr.cells[column];
-      if (!cell) return;
-      const value = this.host.cellValue(cell).trim();
-      const key = normalizeForFilter(value);
-      const known = found.get(key);
-      if (known) known.count++;
-      else found.set(key, { value, label: cellText(cell).trim() || value, count: 1 });
-    });
-    return Array.from(found.values());
-  }
-};
-
 // table-plus/src/features/autoscroll.ts
 var DEAD_ZONE = 12;
 var Autoscroll = class {
@@ -1730,6 +1252,52 @@ var Autoscroll = class {
   }
 };
 
+// table-plus/src/icons.ts
+var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var lineIcon = (body) => svg(body);
+var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
+var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
+var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
+var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
+var ICONS = {
+  grip: svg(
+    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
+    true
+  ),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
+  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
+  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
+  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
+  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
+  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
+  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Sorted lines with a check: make the sorting the real order
+  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
+  // Two arrows round: calculate again
+  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
+  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
+  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
+  // A padlock: a name that stays
+  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
+  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
+  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
+  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
+  // A pushpin with its needle pointing to the edge it pins to
+  pinTop: PIN_POINT_UP,
+  pinBottom: PIN_POINT_DOWN,
+  pinLeft: PIN_POINT_LEFT,
+  pinRight: PIN_POINT_RIGHT
+};
+
 // table-plus/src/columns.ts
 var HASHTAG_RE = /(^|\s)#[^\s#]+/g;
 function columnName(header) {
@@ -1790,6 +1358,65 @@ function formatLuaNumber(n) {
 }
 function trimZeros(s) {
   return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
+}
+
+// table-plus/src/view.ts
+var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
+var DEFAULT_VIEW = {};
+function pinsOf(view) {
+  return view.pins ?? NO_PINS;
+}
+function hasPins(pins) {
+  return pins.top + pins.bottom + pins.left + pins.right > 0;
+}
+function withPins(view, pins) {
+  if (hasPins(pins)) return { ...view, pins };
+  const { pins: _pins, ...rest } = view;
+  return rest;
+}
+function cycleSort(view, column) {
+  if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
+  if (view.sort.direction === "asc") return { ...view, sort: { column, direction: "desc" } };
+  return withoutSort(view);
+}
+function withSort(view, column, direction) {
+  return { ...view, sort: { column, direction } };
+}
+function withoutSort(view) {
+  const { sort: _sort, ...rest } = view;
+  return rest;
+}
+function remapColumns(view, map) {
+  const column = view.sort ? map(view.sort.column) : void 0;
+  const result = withoutSort(view);
+  return view.sort && column !== void 0 ? { ...result, sort: { column, direction: view.sort.direction } } : result;
+}
+var NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
+function asNumber(s) {
+  const m = NUMBER_RE.exec(s.trim());
+  return m ? Number(m[1].replace(/[ \u00a0]/g, "").replace(",", ".")) : void 0;
+}
+var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
+function compareValues(a, b) {
+  const na = asNumber(a);
+  const nb = asNumber(b);
+  if (na !== void 0 && nb !== void 0) return na - nb;
+  return collator.compare(a.trim(), b.trim());
+}
+function visibleRows(values, view, hidden = /* @__PURE__ */ new Set()) {
+  const { top, bottom } = pinsOf(view);
+  const indexes = values.map((_, i) => i).filter((i) => i >= top && i < values.length - bottom && !hidden.has(i));
+  const sort = view.sort;
+  if (!sort) return indexes;
+  const sign = sort.direction === "asc" ? 1 : -1;
+  return indexes.sort((a, b) => {
+    const va = values[a][sort.column] ?? "";
+    const vb = values[b][sort.column] ?? "";
+    const ea = va.trim() === "";
+    const eb = vb.trim() === "";
+    if (ea !== eb) return ea ? 1 : -1;
+    return sign * compareValues(va, vb) || a - b;
+  });
 }
 
 // table-plus/src/formula/values.ts
@@ -4275,6 +3902,705 @@ var Expressions = class {
   }
 };
 
+// table-plus/src/filter.ts
+var DEFAULT_FILTER_OPTIONS = { smart: true };
+function normalizeForFilter(s) {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+var REGEX_RE = /^\/(.*)\/([cimsu]*)$/s;
+var COMPARISON_RE = /^(<=|>=|<|>)\s*(.*)$/s;
+function parseFilter(filter, options = DEFAULT_FILTER_OPTIONS) {
+  const text = filter.trim();
+  if (text === "") return {};
+  if (options.smart) {
+    if (text.startsWith("!")) {
+      const inner = parseFilter(text.slice(1), options);
+      const match = inner.match;
+      return match ? { match: (value) => !match(value) } : inner;
+    }
+    if (text.startsWith("=")) {
+      const rest = text.slice(1);
+      if (rest.trim() === "") return {};
+      const wholes = new Set(rest.split("|").map((part) => normalizeForFilter(part.trim())));
+      return { match: (value) => wholes.has(normalizeForFilter(value.trim())) };
+    }
+    const regex = REGEX_RE.exec(text);
+    if (regex) return parseRegex(regex[1], regex[2]);
+    if (text.startsWith("/")) return {};
+    if (text.includes("|")) return anyOf(text.split("|").map((part) => parseFilter(part, options)));
+    const comparison = COMPARISON_RE.exec(text);
+    if (comparison) {
+      const [, operator, rest] = comparison;
+      if (rest.trim() === "") return {};
+      const limit = asNumber(rest);
+      if (limit !== void 0) {
+        return {
+          match: (value) => {
+            const n = asNumber(value);
+            if (n === void 0) return false;
+            if (operator === ">") return n > limit;
+            if (operator === "<") return n < limit;
+            if (operator === ">=") return n >= limit;
+            return n <= limit;
+          }
+        };
+      }
+    }
+  }
+  const needle = normalizeForFilter(text);
+  return { match: (value) => normalizeForFilter(value).includes(needle) };
+}
+function anyOf(parts) {
+  const error = parts.find((part) => part.error)?.error;
+  if (error) return { error };
+  const matches = parts.flatMap((part) => part.match ? [part.match] : []);
+  return matches.length === 0 ? {} : { match: (value) => matches.some((match) => match(value)) };
+}
+function parseRegex(pattern, flags) {
+  if (pattern === "") return {};
+  const caseSensitive = flags.includes("c");
+  const jsFlags = [...new Set(flags.replace(/[ci]/g, "") + (caseSensitive ? "" : "i"))].join("");
+  try {
+    const re = new RegExp(pattern, jsFlags);
+    return { match: (value) => re.test(value) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// table-plus/src/meta.ts
+function withMeta(table, name, value) {
+  const current = table.meta ?? {};
+  if (current[name] === value) return table;
+  const meta = { ...current };
+  if (value === void 0) delete meta[name];
+  else meta[name] = value;
+  return { ...table, meta };
+}
+var COLUMN_ATTRIBUTE_RE = /^([\w-]+)\.([^.:]*)(?::(\d+))?$/;
+function parseColumnAttribute(name) {
+  const match = COLUMN_ATTRIBUTE_RE.exec(name);
+  return match ? { what: match[1], id: { name: match[2], nth: Number(match[3] ?? 1) } } : void 0;
+}
+function columnAttributeName(headers, what, column) {
+  const id = columnIdOf(headers, column);
+  return id && `${what}.${id.name}${id.shared ? `:${id.nth}` : ""}`;
+}
+function columnMeta(table, what) {
+  const headers = table.rows[0]?.cells ?? [];
+  const values = /* @__PURE__ */ new Map();
+  for (const [name, value] of Object.entries(table.meta ?? {})) {
+    const attribute = parseColumnAttribute(name);
+    const column = attribute?.what === what ? findColumn(headers, attribute.id) : void 0;
+    if (column !== void 0 && !values.has(column)) values.set(column, value);
+  }
+  return values;
+}
+function withColumnMeta(table, what, values) {
+  const headers = table.rows[0]?.cells ?? [];
+  const meta = {};
+  for (const [name, value] of Object.entries(table.meta ?? {})) {
+    if (parseColumnAttribute(name)?.what !== what) meta[name] = value;
+  }
+  for (const [column, value] of values) {
+    const name = columnAttributeName(headers, what, column);
+    if (name) meta[name] = value;
+  }
+  const current = table.meta ?? {};
+  const same = Object.keys(meta).length === Object.keys(current).length && Object.entries(meta).every(([n, v]) => current[n] === v);
+  return same ? table : { ...table, meta };
+}
+function followColumnMeta(before, after, map) {
+  const old = before.meta ?? {};
+  const current = after.meta ?? {};
+  const beforeHeaders = before.rows[0]?.cells ?? [];
+  const afterHeaders = after.rows[0]?.cells ?? [];
+  let changed = false;
+  const meta = {};
+  for (const [name, value] of Object.entries(current)) {
+    const attribute = old[name] === value ? parseColumnAttribute(name) : void 0;
+    const column = attribute && findColumn(beforeHeaders, attribute.id);
+    if (!attribute || column === void 0) {
+      meta[name] = value;
+      continue;
+    }
+    const moved2 = map(column);
+    const renamed = moved2 === void 0 ? void 0 : columnAttributeName(afterHeaders, attribute.what, moved2);
+    if (renamed !== name) changed = true;
+    if (renamed !== void 0) meta[renamed] = value;
+  }
+  return changed ? { ...after, meta } : after;
+}
+function metaSort(table) {
+  for (const [column, direction] of columnMeta(table, "sort")) {
+    if (direction === "asc" || direction === "desc") return { column, direction };
+  }
+  return void 0;
+}
+function withMetaSort(table, sort) {
+  return withColumnMeta(table, "sort", new Map(sort ? [[sort.column, sort.direction]] : []));
+}
+var PIN_ATTRIBUTES = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" };
+function metaPins(table) {
+  const count = (name) => {
+    const n = Number(table.meta?.[name]);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  };
+  const bodyRows = Math.max(0, table.rows.length - 1);
+  const columns = table.align.length;
+  const top = Math.min(count(PIN_ATTRIBUTES.top), bodyRows);
+  const left = Math.min(count(PIN_ATTRIBUTES.left), columns);
+  return {
+    top,
+    bottom: Math.min(count(PIN_ATTRIBUTES.bottom), bodyRows - top),
+    left,
+    right: Math.min(count(PIN_ATTRIBUTES.right), columns - left)
+  };
+}
+function withMetaPins(table, pins) {
+  let result = table;
+  for (const edge of ["top", "bottom", "left", "right"]) {
+    result = withMeta(result, PIN_ATTRIBUTES[edge], pins[edge] > 0 ? String(pins[edge]) : void 0);
+  }
+  return result;
+}
+function tableNameProblem(name) {
+  return nameProblem(name, "table");
+}
+function metaName(table) {
+  const name = table.meta?.name?.trim();
+  return name && !tableNameProblem(name) ? name : void 0;
+}
+function withMetaName(table, name) {
+  return withMeta(table, "name", name);
+}
+function sameTableName(a, b) {
+  return a.toLowerCase() === b.toLowerCase();
+}
+function metadataAfterEdit(before, after, edit) {
+  const followed = followColumnMeta(before, after, edit.columnMap ?? ((c) => c));
+  return edit.pins ? withMetaPins(followed, edit.pins) : followed;
+}
+
+// table-plus/src/features/filters.ts
+var MAX_VALUES = 12;
+var OPERATOR_RE = /^(!|=|>=|<=|>|<)\s*/;
+var bare = (value) => value.replace(OPERATOR_RE, "");
+var NUMBER_HINTS = [
+  { code: ">10", text: "above", apply: (v) => `>${bare(v)}` },
+  { code: "<10", text: "below", apply: (v) => `<${bare(v)}` },
+  { code: ">=10", text: "at least", apply: (v) => `>=${bare(v)}` }
+];
+var TEXT_HINTS = [
+  { code: "=text", text: "exactly", apply: (v) => `=${bare(v)}` },
+  { code: "!text", text: "not", apply: (v) => v.startsWith("!") ? v : `!${v}` },
+  { code: "a|b", text: "either", apply: (v) => v === "" || v.endsWith("|") ? v : `${v}|` },
+  { code: "/^a.*z$/", text: "regular expression", apply: (v) => v.startsWith("/") ? v : `/${bare(v)}/` }
+];
+function sameFilters(a, b) {
+  for (let column = 0; column < Math.max(a.length, b.length); column++) {
+    if ((a[column] ?? "").trim() !== (b[column] ?? "").trim()) return false;
+  }
+  return true;
+}
+var Filters = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // By table key: filters typed that the table does not store (as typed, by column)
+  typed = /* @__PURE__ */ new Map();
+  // By table key: the filters stored in the table, read from its markdown (as of `source`)
+  stored = /* @__PURE__ */ new Map();
+  // Tables whose filter row is shown
+  shown = /* @__PURE__ */ new Set();
+  storeTimers = /* @__PURE__ */ new Map();
+  // Tables whose filters are stored once the cell editor in them closes, or
+  // they are rendered again (a write renders a table anew)
+  storesWaiting = /* @__PURE__ */ new Set();
+  options = { smart: true };
+  // The bubble under the field being typed in, or (popover) a column's filter on its own
+  bubble;
+  start() {
+    void this.readOptions();
+  }
+  stop() {
+    for (const timer of this.storeTimers.values()) clearTimeout(timer);
+    this.hideBubble();
+  }
+  /** Whether a node is the bubble's */
+  owns(node) {
+    return !!this.bubble?.element.contains(node);
+  }
+  /** The smart filters setting; when it changed, every table shown is filtered anew */
+  async readOptions() {
+    const smart = await this.host.setting("smartFilters") === true;
+    if (smart === this.options.smart) return;
+    this.options = { smart };
+    for (const widget of Array.from(this.host.doc.querySelectorAll(WIDGET_SELECTOR))) {
+      const info = this.host.infoOf(widget);
+      if (info) this.host.viewChanged(widget, info);
+    }
+  }
+  /** The table with `key` as rendered now: a write renders a table anew */
+  table(key) {
+    const widget = this.host.widgetForKey(key);
+    const info = widget && this.host.infoOf(widget);
+    return widget && info ? [widget, info] : void 0;
+  }
+  /** The filters stored in the table (filter.*), by column */
+  storedFilters(info) {
+    const known = this.stored.get(info.key);
+    if (known?.source === info.source) return known.filters;
+    const filters = [];
+    for (const [column, value] of columnMeta(parseTable(info.source), "filter")) {
+      while (filters.length < column) filters.push("");
+      filters[column] = value;
+    }
+    this.stored.set(info.key, { source: info.source, filters });
+    return filters;
+  }
+  /** The table's filters, by column: those typed, else those stored */
+  filtersOf(info) {
+    return this.typed.get(info.key) ?? this.storedFilters(info);
+  }
+  /** The filters that filter, by column */
+  matchers(info) {
+    const matchers = /* @__PURE__ */ new Map();
+    this.filtersOf(info).forEach((filter, column) => {
+      const match = parseFilter(filter, this.options).match;
+      if (match) matchers.set(column, match);
+    });
+    return matchers;
+  }
+  hiddenRows(info, values) {
+    const matchers = this.matchers(info);
+    if (matchers.size === 0) return void 0;
+    const hidden = /* @__PURE__ */ new Set();
+    values.forEach((row, i) => {
+      for (const [column, match] of matchers) {
+        if (!match(row[column] ?? "")) {
+          hidden.add(i);
+          return;
+        }
+      }
+    });
+    return hidden;
+  }
+  hidesRows(info) {
+    return this.matchers(info).size > 0;
+  }
+  /** A filter mark in each header, shown while its column filters (also with the filter row hidden) */
+  decorate(_widget, info) {
+    Array.from(info.table.rows[0].cells).forEach((cell, column) => {
+      if (cell.querySelector(".tp-filter-mark")) return;
+      const mark = this.host.doc.createElement("span");
+      mark.className = `${UI_CLASS} tp-filter-mark`;
+      mark.title = "Filtered: click to change the filter";
+      mark.dataset.tpAction = "filter";
+      mark.dataset.tpColumn = String(column);
+      mark.innerHTML = ICONS.filter;
+      cell.insertBefore(mark, cell.querySelector(".tp-sort"));
+    });
+  }
+  viewApplied(_widget, info) {
+    const matchers = this.matchers(info);
+    Array.from(info.table.rows[0].cells).forEach((cell, column) => cell.classList.toggle("tp-filtered", matchers.has(column)));
+    this.syncRow(info);
+  }
+  /** The filter icon at the toolbar's right; while filtered, "3 of 10 rows", its × clearing the filters */
+  toolbarButtons(_widget, info) {
+    const { key } = info;
+    const buttons = [];
+    if (this.hidesRows(info)) {
+      const rows = this.host.bodyRows(info);
+      const shown = rows.filter((tr) => !tr.classList.contains("tp-hidden")).length;
+      buttons.push({
+        label: `${shown} of ${rows.length} rows`,
+        title: "Clear the filters",
+        place: "chip",
+        icon: ICONS.filter,
+        run: () => this.clearAll(key)
+      });
+    }
+    buttons.push({
+      label: "Filter",
+      title: "Show or hide the filter row (hidden, the filters still apply: the toolbar and the headers show them)",
+      place: "icon",
+      icon: ICONS.filter,
+      pressed: this.shown.has(key),
+      run: () => {
+        if (this.shown.has(key)) this.shown.delete(key);
+        else this.shown.add(key);
+        const table = this.table(key);
+        if (table) this.host.viewChanged(...table);
+        this.scheduleStore(key);
+      }
+    });
+    return buttons;
+  }
+  /** "Filter" in a column's menu: its filter in a bubble under its header */
+  columnMenuEntries(_widget, info, column) {
+    return [{ kind: "item", label: "Filter", icon: ICONS.filter, run: () => this.openFilter(info, column) }];
+  }
+  action(name, element, _widget, info) {
+    const column = Number(element.dataset.tpColumn);
+    if (name === "filter") this.openFilter(info, column);
+    else if (name === "clear-filter") this.clear(info, column);
+    else return false;
+    return true;
+  }
+  /** Filters typed move with their columns; stored ones follow them in the markdown (meta.ts) */
+  columnsMoved(key, map) {
+    const typed = this.typed.get(key);
+    if (!typed) return;
+    const moved2 = [];
+    typed.forEach((value, column) => {
+      const target = map(column);
+      if (target === void 0 || value === "") return;
+      while (moved2.length <= target) moved2.push("");
+      moved2[target] = value;
+    });
+    this.typed.set(key, moved2);
+  }
+  /** Remove metadata: what is typed goes too, the table shows what its markdown has */
+  viewForgotten(key) {
+    this.typed.delete(key);
+    this.storesWaiting.delete(key);
+  }
+  /** The filter row as the filters are: shown with them, or gone */
+  syncRow(info) {
+    let row = info.table.querySelector("tr.tp-filter-row");
+    if (this.bubble?.popover && this.bubble.key === info.key) this.placeBubble();
+    if (!this.shown.has(info.key)) {
+      if (row && this.bubble && row.contains(this.bubble.input)) this.hideBubble();
+      row?.remove();
+      return;
+    }
+    if (!row) {
+      row = this.host.doc.createElement("tr");
+      row.className = `${UI_CLASS} tp-filter-row`;
+      for (let column = 0; column < info.columns; column++) row.append(this.field(info.key, column));
+      info.table.rows[0].after(row);
+    }
+    const filters = this.filtersOf(info);
+    for (const input of Array.from(row.querySelectorAll("input.tp-filter"))) {
+      const value = filters[Number(input.dataset.tpColumn)] ?? "";
+      if (input.value !== value && this.host.doc.activeElement !== input) input.value = value;
+      const { match, error } = parseFilter(input.value, this.options);
+      input.classList.toggle("tp-invalid", !!error);
+      input.title = error ?? "";
+      const cell = input.closest("td");
+      cell.classList.toggle("tp-filter-active", !!match);
+      cell.classList.toggle("tp-filter-typed", input.value !== "");
+    }
+  }
+  // ---- storing ------------------------------------------------------------------
+  /**
+   * Stores a table's filters in its metadata row (the metadata setting, or a
+   * table that has the row) once none of its filter fields is typed in and no
+   * cell of it is edited: a write renders the table anew, which would take a
+   * field's focus or close the cell editor
+   */
+  scheduleStore(key) {
+    clearTimeout(this.storeTimers.get(key));
+    this.storeTimers.set(
+      key,
+      setTimeout(() => {
+        this.storeTimers.delete(key);
+        const active = this.host.doc.activeElement;
+        const table = this.table(key);
+        if (active instanceof HTMLInputElement && active.classList.contains("tp-filter")) {
+          if (this.bubble?.input === active ? this.bubble.key === key : !!table && table[1].table.contains(active)) return;
+        }
+        const editing = this.host.editing;
+        if (!table || editing && this.host.infoOf(editing.widget)?.key === key) {
+          this.storesWaiting.add(key);
+          return;
+        }
+        void this.store(key);
+      }, 0)
+    );
+  }
+  /** A cell editor closed: filters waiting for it are stored */
+  editorClosed(editor) {
+    const key = this.host.infoOf(editor.widget)?.key;
+    if (key && this.storesWaiting.delete(key)) this.scheduleStore(key);
+  }
+  /** A table rendered again: filters waiting for it are stored */
+  enhanced(_widget, info) {
+    if (this.storesWaiting.delete(info.key)) this.scheduleStore(info.key);
+  }
+  async store(key) {
+    const table = this.table(key);
+    const typed = this.typed.get(key);
+    if (!table || !typed) return;
+    const [widget, info] = table;
+    if (sameFilters(typed, this.storedFilters(info))) {
+      this.typed.delete(key);
+      return;
+    }
+    if (!(info.metaRow || this.host.metadataEnabled)) return;
+    const written = [...typed];
+    const filters = /* @__PURE__ */ new Map();
+    written.forEach((filter, column) => {
+      if (filter.trim() !== "") filters.set(column, filter.trim());
+    });
+    const result = await this.host.write(widget, (t) => withColumnMeta(t, "filter", filters));
+    if (result !== "failed" && sameFilters(this.typed.get(key) ?? [], written)) this.typed.delete(key);
+  }
+  // ---- typing ---------------------------------------------------------------------
+  /** A column's field in the filter row: the filter icon, the field, its clear button */
+  field(key, column) {
+    const cell = this.host.doc.createElement("td");
+    const { box, input } = this.filterBox(key, column);
+    input.addEventListener("focus", () => {
+      void this.readOptions();
+      if (this.bubble?.input !== input) {
+        this.showBubble(key, column, input, () => input.isConnected ? input : void 0);
+      }
+    });
+    input.addEventListener("blur", (e) => this.left(key, input, e));
+    cell.append(box);
+    return cell;
+  }
+  /** A filter field with the filter icon before it and its clear button after it */
+  filterBox(key, column) {
+    const { doc } = this.host;
+    const box = doc.createElement("div");
+    box.className = "tp-filter-box";
+    const icon = doc.createElement("span");
+    icon.className = "tp-filter-icon";
+    icon.innerHTML = ICONS.filter;
+    const input = doc.createElement("input");
+    input.type = "text";
+    input.className = "tp-filter";
+    input.size = 1;
+    input.placeholder = "Filter";
+    input.spellcheck = false;
+    input.dataset.tpColumn = String(column);
+    this.host.isolate(input);
+    input.addEventListener("input", () => this.setFilter(key, column, input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" || e.key === "Enter") {
+        e.preventDefault();
+        input.blur();
+      }
+    });
+    const clear = doc.createElement("button");
+    clear.type = "button";
+    clear.tabIndex = -1;
+    clear.className = "tp-filter-clear";
+    clear.title = "Clear this filter";
+    clear.setAttribute("aria-label", clear.title);
+    clear.innerHTML = ICONS.clear;
+    clear.dataset.tpAction = "clear-filter";
+    clear.dataset.tpColumn = String(column);
+    clear.addEventListener("mousedown", (e) => e.preventDefault());
+    clear.addEventListener("click", (e) => {
+      e.preventDefault();
+      this.type(key, input, column, "");
+    });
+    box.append(icon, input, clear);
+    return { box, input };
+  }
+  /** A field's clear button in the filter row */
+  clear(info, column) {
+    const input = info.table.querySelector(`.tp-filter-row input.tp-filter[data-tp-column="${column}"]`);
+    if (input) this.type(info.key, input, column, "");
+    this.scheduleStore(info.key);
+  }
+  /** The toolbar chip's ×: no filter any more */
+  clearAll(key) {
+    this.typed.set(key, []);
+    const table = this.table(key);
+    for (const input of Array.from(table?.[1].table.querySelectorAll("input.tp-filter") ?? [])) input.value = "";
+    if (this.bubble?.key === key) this.hideBubble();
+    if (table) this.host.viewChanged(...table);
+    this.scheduleStore(key);
+  }
+  setFilter(key, column, value) {
+    const table = this.table(key);
+    if (table) {
+      const filters = [...this.filtersOf(table[1])];
+      while (filters.length <= column) filters.push("");
+      filters[column] = value;
+      this.typed.set(key, filters);
+      this.host.viewChanged(...table);
+    }
+    const bubble = this.bubble;
+    if (bubble && bubble.key === key && bubble.column === column) {
+      bubble.element.classList.toggle("tp-filter-typed", value !== "");
+      this.renderBubble();
+    }
+  }
+  /** Puts `value` in the field as if typed */
+  type(key, input, column, value) {
+    input.value = value;
+    input.closest("td")?.classList.toggle("tp-filter-typed", value !== "");
+    this.setFilter(key, column, value);
+  }
+  // ---- the bubble -------------------------------------------------------------
+  /**
+   * A column's filter alone, floating under its header (its filter mark, the
+   * column menu's Filter): nothing in the table moves. Asked again for the same
+   * column, it closes.
+   */
+  openFilter(info, column) {
+    const { key } = info;
+    if (this.bubble?.popover && this.bubble.key === key && this.bubble.column === column) {
+      this.hideBubble();
+      return;
+    }
+    void this.readOptions();
+    const { box, input } = this.filterBox(key, column);
+    input.value = this.filtersOf(info)[column] ?? "";
+    input.addEventListener("blur", (e) => this.left(key, input, e));
+    const anchor = () => this.table(key)?.[1].table.rows[0]?.cells[column];
+    this.showBubble(key, column, input, anchor, box);
+    this.bubble?.element.classList.toggle("tp-filter-typed", input.value !== "");
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+  showBubble(key, column, input, anchor, head) {
+    this.hideBubble();
+    const { doc } = this.host;
+    const element = doc.createElement("div");
+    element.className = `${UI_CLASS} tp-floating tp-filter-bubble`;
+    if (head) element.classList.add("tp-filter-popover");
+    element.addEventListener("mousedown", (e) => {
+      if (e.target !== input) e.preventDefault();
+    });
+    const body = doc.createElement("div");
+    body.className = "tp-filter-bubble-body";
+    if (head) element.append(head);
+    element.append(body);
+    doc.body.append(element);
+    this.bubble = { element, body, input, key, column, anchor, popover: !!head };
+    this.renderBubble();
+  }
+  /**
+   * A field lost the focus: its bubble goes, unless the focus went into it (a
+   * value ticked), and the filters are stored once no field has it
+   */
+  left(key, input, e) {
+    const bubble = this.bubble;
+    if (bubble?.input === input && e.relatedTarget instanceof Node && bubble.element.contains(e.relatedTarget)) return;
+    if (bubble?.input === input) this.hideBubble();
+    this.scheduleStore(key);
+  }
+  hideBubble() {
+    this.bubble?.element.remove();
+    this.bubble = void 0;
+  }
+  /** The bubble's content for the field's text now, under what it belongs to */
+  renderBubble() {
+    const bubble = this.bubble;
+    const info = bubble && this.table(bubble.key)?.[1];
+    if (!bubble || !info) return;
+    const { key, column, input } = bubble;
+    const { doc } = this.host;
+    const values = this.columnValues(info, column);
+    const parts = [];
+    if (this.options.smart) {
+      const filled = values.filter((v) => v.value !== "");
+      const numeric = filled.length > 0 && filled.filter((v) => asNumber(v.value) !== void 0).length * 2 >= filled.length;
+      const hints = numeric ? [...NUMBER_HINTS, ...TEXT_HINTS.slice(0, 3)] : TEXT_HINTS;
+      const list = doc.createElement("div");
+      list.className = "tp-filter-hints";
+      for (const hint of hints) {
+        const b = doc.createElement("button");
+        b.type = "button";
+        b.tabIndex = -1;
+        b.className = "tp-filter-hint";
+        const code = doc.createElement("code");
+        code.textContent = hint.code;
+        b.append(code, ` ${hint.text}`);
+        b.addEventListener("click", (e) => {
+          e.preventDefault();
+          this.type(key, input, column, hint.apply(input.value.trim()));
+          input.focus({ preventScroll: true });
+          input.setSelectionRange(input.value.length, input.value.length);
+        });
+        list.append(b);
+      }
+      parts.push(list);
+      const pickable = values.filter((v) => !v.value.includes("|"));
+      if (pickable.length > 0 && pickable.length <= MAX_VALUES && values.length <= MAX_VALUES) {
+        parts.push(this.valueList(key, input, column, pickable));
+      }
+    }
+    bubble.body.replaceChildren(...parts);
+    bubble.element.classList.toggle("tp-visible", parts.length > 0 || bubble.popover);
+    this.placeBubble();
+  }
+  /** Under what the bubble belongs to (the field, the header), inside the window */
+  placeBubble() {
+    const bubble = this.bubble;
+    const anchor = bubble?.anchor();
+    if (!bubble || !anchor) return;
+    const win = this.host.doc.defaultView;
+    const r = anchor.getBoundingClientRect();
+    const m = bubble.element.getBoundingClientRect();
+    const left = Math.max(4, Math.min(r.left - (bubble.popover ? 0 : 6), win.innerWidth - m.width - 4));
+    const top = r.bottom + 6 + m.height > win.innerHeight - 4 ? Math.max(4, r.top - m.height - 6) : r.bottom + 6;
+    bubble.element.style.left = `${Math.round(left)}px`;
+    bubble.element.style.top = `${Math.round(top)}px`;
+  }
+  /** The column's values to tick: ticked are those the field's =a|b names */
+  valueList(key, input, column, values) {
+    const { doc } = this.host;
+    const text = input.value.trim();
+    const ticked = new Set(text.startsWith("=") ? text.slice(1).split("|").map((v) => normalizeForFilter(v.trim())) : []);
+    const list = doc.createElement("div");
+    list.className = "tp-filter-values";
+    for (const value of values) {
+      const normalized = normalizeForFilter(value.value);
+      const item = doc.createElement("label");
+      item.className = "tp-filter-value";
+      const box = doc.createElement("input");
+      box.type = "checkbox";
+      box.tabIndex = -1;
+      box.checked = ticked.has(normalized);
+      const label = doc.createElement("span");
+      label.className = "tp-filter-value-label";
+      label.textContent = value.label || "(empty)";
+      const count = doc.createElement("span");
+      count.className = "tp-filter-value-count";
+      count.textContent = String(value.count);
+      item.append(box, label, count);
+      box.addEventListener("change", () => {
+        const chosen = values.filter((v) => {
+          const n = normalizeForFilter(v.value);
+          return n === normalized ? box.checked : ticked.has(n);
+        });
+        const filter = chosen.length === 0 ? "" : chosen.length === 1 && chosen[0].value === "" ? "=|" : `=${chosen.map((v) => v.value).join("|")}`;
+        this.type(key, input, column, filter);
+        input.focus({ preventScroll: true });
+      });
+      list.append(item);
+    }
+    return list;
+  }
+  /** A column's different values in its body rows (not the pinned ones), in the order they first come */
+  columnValues(info, column) {
+    const { top, bottom } = info.pins;
+    const rows = this.host.bodyRows(info);
+    const found = /* @__PURE__ */ new Map();
+    rows.forEach((tr, i) => {
+      if (i < top || i >= rows.length - bottom) return;
+      const cell = tr.cells[column];
+      if (!cell) return;
+      const value = this.host.cellValue(cell).trim();
+      const normalized = normalizeForFilter(value);
+      const known = found.get(normalized);
+      if (known) known.count++;
+      else found.set(normalized, { value, label: cellText(cell).trim() || value, count: 1 });
+    });
+    return Array.from(found.values());
+  }
+};
+
 // table-plus/src/features/formulas.ts
 var FORMULAS_NEED_METADATA = "Formulas are stored in the table: turn on the Store table metadata setting to add them (existing ones keep working)";
 var REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
@@ -5313,6 +5639,23 @@ var Grips = class {
       { kind: "separator" }
     ];
   }
+  /**
+   * The entries features add to a column's menu: run, they close the menu,
+   * but one that showed other entries in its place (a list to pick from)
+   */
+  featureColumnEntries(widget, info, column) {
+    const entries = this.host.columnMenuEntries(widget, info, column, (title, list) => this.replaceMenu(title, list));
+    return entries.map(
+      (entry) => entry.kind === "item" ? {
+        ...entry,
+        run: () => {
+          const shown = this.menu?.element;
+          entry.run();
+          if (this.menu && this.menu.element === shown) this.closeMenu(false);
+        }
+      } : entry
+    );
+  }
   columnMenu(widget, info, column) {
     const host = this.host;
     const view = host.viewOf(info);
@@ -5347,13 +5690,7 @@ var Grips = class {
       entries.push({ kind: "item", label: "Clear sorting", icon: ICONS.clear, run: sortBy(withoutSort(view)) });
     }
     entries.push(
-      {
-        kind: "item",
-        label: "Filter",
-        icon: ICONS.filter,
-        run: this.runAndClose(() => host.openFilter(widget, info, column))
-      },
-      ...host.columnMenuEntries(widget, info, column, (title, entries2) => this.replaceMenu(title, entries2)),
+      ...this.featureColumnEntries(widget, info, column),
       { kind: "separator" },
       {
         kind: "segmented",
@@ -5478,77 +5815,6 @@ var History = class {
   }
 };
 
-// table-plus/src/meta.ts
-function withMeta(table, name, value) {
-  const current = table.meta ?? {};
-  if (current[name] === value) return table;
-  const meta = { ...current };
-  if (value === void 0) delete meta[name];
-  else meta[name] = value;
-  return { ...table, meta };
-}
-function parseSort(value) {
-  const match = /^(.*):(asc|desc)(?::(\d+))?$/.exec(value);
-  return match ? { name: match[1], direction: match[2], nth: Number(match[3] ?? 1) } : void 0;
-}
-function metaSort(table) {
-  const sort = table.meta?.sort === void 0 ? void 0 : parseSort(table.meta.sort);
-  const column = sort && findColumn(table.rows[0]?.cells ?? [], sort);
-  return sort && column !== void 0 ? { column, direction: sort.direction } : void 0;
-}
-function withMetaSort(table, sort) {
-  const id = sort && columnIdOf(table.rows[0]?.cells ?? [], sort.column);
-  if (!sort || !id) return withMeta(table, "sort", void 0);
-  return withMeta(table, "sort", `${id.name}:${sort.direction}${id.shared ? `:${id.nth}` : ""}`);
-}
-var PIN_ATTRIBUTES = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" };
-function metaPins(table) {
-  const count = (name) => {
-    const n = Number(table.meta?.[name]);
-    return Number.isInteger(n) && n > 0 ? n : 0;
-  };
-  const bodyRows = Math.max(0, table.rows.length - 1);
-  const columns = table.align.length;
-  const top = Math.min(count(PIN_ATTRIBUTES.top), bodyRows);
-  const left = Math.min(count(PIN_ATTRIBUTES.left), columns);
-  return {
-    top,
-    bottom: Math.min(count(PIN_ATTRIBUTES.bottom), bodyRows - top),
-    left,
-    right: Math.min(count(PIN_ATTRIBUTES.right), columns - left)
-  };
-}
-function withMetaPins(table, pins) {
-  let result = table;
-  for (const edge of ["top", "bottom", "left", "right"]) {
-    result = withMeta(result, PIN_ATTRIBUTES[edge], pins[edge] > 0 ? String(pins[edge]) : void 0);
-  }
-  return result;
-}
-function tableNameProblem(name) {
-  return nameProblem(name, "table");
-}
-function metaName(table) {
-  const name = table.meta?.name?.trim();
-  return name && !tableNameProblem(name) ? name : void 0;
-}
-function withMetaName(table, name) {
-  return withMeta(table, "name", name);
-}
-function sameTableName(a, b) {
-  return a.toLowerCase() === b.toLowerCase();
-}
-function followMetaSort(before, after, map) {
-  if (after.meta?.sort === void 0 || after.meta.sort !== before.meta?.sort) return after;
-  const sort = metaSort(before);
-  const column = sort && map(sort.column);
-  return withMetaSort(after, sort && column !== void 0 ? { column, direction: sort.direction } : void 0);
-}
-function metadataAfterEdit(before, after, edit) {
-  const followed = followMetaSort(before, after, edit.columnMap ?? ((c) => c));
-  return edit.pins ? withMetaPins(followed, edit.pins) : followed;
-}
-
 // table-plus/src/features/metadata.ts
 function withoutMetadata(table) {
   const { meta: _meta, metaSource: _source, ...rest } = withoutNames(withoutFormulas(table));
@@ -5591,7 +5857,7 @@ var Metadata = class {
     if (!await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     const info = this.host.infoOf(widget) ?? shownInfo;
-    if (metaSort(parseTable(info.source))) this.host.forgetStoredSort(info.key);
+    if (parseTable(info.source).meta) this.host.forgetStoredView(info.key);
     await this.host.write(widget, withoutMetadata);
     this.host.focusEditor(widget);
   }
@@ -5616,7 +5882,7 @@ var Metadata = class {
     const page = await bridge.getCurrentPage();
     for (const range of tables) {
       const table = parseTable(range.text);
-      if (metaSort(table)) this.host.forgetStoredSort(`${page}#${range.ordinal}`);
+      if (table.meta) this.host.forgetStoredView(`${page}#${range.ordinal}`);
       span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(table)) + span.slice(range.to - from);
     }
     const edit = minimalEdit(text.slice(from, to), span);
@@ -6288,17 +6554,6 @@ var Controller = class {
     this.doc = doc;
     this.bridge = bridge;
     this.metadata = new Metadata(this);
-    this.filterRow = new FilterRow({
-      doc,
-      viewOf: (info) => this.viewOf(info),
-      setView: (widget, info, view) => this.setView(widget, info, view),
-      infoOf: (widget) => this.infoOf(widget),
-      isolate: (element) => this.isolate(element),
-      filterOptions: () => this.filterOptions,
-      filterTyped: () => void this.refreshSettings(),
-      bodyRows: (info) => this.bodyRows(info),
-      cellValue: (cell) => this.viewValue(cell)
-    });
     this.cellEditor = new CellEditing(this, {
       features: this.features,
       isolate: (element) => this.isolate(element),
@@ -6326,7 +6581,6 @@ var Controller = class {
   // Tables being enhanced: a scan meanwhile waits for it instead of starting again
   enhancing = /* @__PURE__ */ new WeakMap();
   views = /* @__PURE__ */ new Map();
-  filterOptions = DEFAULT_FILTER_OPTIONS;
   // The maximum table height setting, in pixels; 0: no limit
   maxHeight = 0;
   // The metadata setting, for menus that offer pinning
@@ -6357,7 +6611,6 @@ var Controller = class {
   warnedIncompatible = false;
   observer;
   bar;
-  filterRow;
   addRow;
   addColumn;
   // Features that keep their own state and work through this controller
@@ -6406,7 +6659,10 @@ var Controller = class {
       optional("sticky", () => new Sticky(this)),
       optional("autoscroll", () => new Autoscroll(this)),
       optional("handles", () => new Grips(this)),
+      // Recalculate first in the toolbar
       optional("formulas", () => new Formulas(this)),
+      // Before types: Filter right after the sorting in the column menu
+      optional("filters", () => new Filters(this)),
       // After formulas: a formula's result is shown in its column's type
       optional("columnTypes", () => new ColumnTypes(this)),
       // Before metadata: Name before Remove metadata in the toolbar
@@ -6452,7 +6708,6 @@ var Controller = class {
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.closeTableMenu(false);
-    this.filterRow.stop();
     for (const el of [this.bar, this.addRow, this.addColumn]) el.remove();
   }
   onBlur = () => this.cellEditor.setNavigating(false);
@@ -6562,7 +6817,7 @@ var Controller = class {
     const rows = this.bodyRows(info);
     const values = rows.map((tr) => Array.from(tr.cells).map(cellValue));
     const { top, bottom } = info.pins;
-    const middle = visibleRows(values, withPins({ ...view, filters: [] }, info.pins), this.filterOptions);
+    const middle = visibleRows(values, withPins(view, info.pins));
     const order = [
       ...rows.slice(0, top).map((_, i) => i + 1),
       ...middle.map((i) => i + 1),
@@ -6576,16 +6831,15 @@ var Controller = class {
     this.focusEditor(widget);
   }
   /**
-   * The sorting a table's metadata stored ends with the metadata, so the rows
-   * show as written. Without filters the view is forgotten, so Ctrl+Z (the
-   * metadata back) shows the stored sorting again.
+   * The view a table's metadata stored ends with the metadata, so the rows
+   * show as written: forgotten, so Ctrl+Z (the metadata back) shows it again
    */
-  forgetStoredSort(key) {
+  forgetStoredView(key) {
     clearTimeout(this.sortTimers.get(key));
     this.sortTimers.delete(key);
-    const view = this.views.get(key);
-    if (view && view.filters.some((f) => f !== "")) this.views.set(key, withoutSort(view));
-    else this.views.delete(key);
+    this.sortsWaiting.delete(key);
+    this.views.delete(key);
+    for (const feature of this.features) feature.viewForgotten?.(key);
   }
   /**
    * The table as rendered now: a write (e.g. of a stored sorting) re-renders
@@ -6598,12 +6852,10 @@ var Controller = class {
   }
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   async refreshSettings() {
-    const smart = await this.setting("smartFilters") === true;
     const maxHeight = await this.setting("maxHeight");
     this.metadataOn = await this.setting("metadata");
     this.cellEditor.selectOnClick = await this.setting("selectOnClick");
-    if (this.stopped || smart === this.filterOptions.smart && maxHeight === this.maxHeight) return;
-    this.filterOptions = { smart };
+    if (this.stopped || maxHeight === this.maxHeight) return;
     this.maxHeight = maxHeight;
     for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
@@ -6612,7 +6864,7 @@ var Controller = class {
     this.queueStickyUpdate();
   }
   rearranged(info) {
-    return isRearranged(this.viewOf(info), this.filterOptions);
+    return !!this.viewOf(info).sort || this.features.some((f) => f.hidesRows?.(info));
   }
   // ---- discovering rendered tables --------------------------------------
   queueScan() {
@@ -6772,13 +7024,6 @@ var Controller = class {
     Array.from(rows[0].cells).forEach((cell, column) => {
       if (column < left) cell.append(mark(ICONS.pinLeft, "Pinned to the left"));
       else if (column >= info.columns - right) cell.append(mark(ICONS.pinRight, "Pinned to the right"));
-      const filtered = this.doc.createElement("span");
-      filtered.className = `${UI_CLASS} tp-filter-mark`;
-      filtered.title = "Filtered: click to change the filter";
-      filtered.dataset.tpAction = "filter";
-      filtered.dataset.tpColumn = String(column);
-      filtered.innerHTML = ICONS.filter;
-      cell.append(filtered);
       const button = this.doc.createElement("button");
       button.type = "button";
       button.tabIndex = -1;
@@ -6793,6 +7038,9 @@ var Controller = class {
   // ---- view: sort and filter --------------------------------------------
   viewOf(info) {
     return this.views.get(info.key) ?? DEFAULT_VIEW;
+  }
+  viewChanged(widget, info) {
+    this.setView(widget, info, this.viewOf(info));
   }
   setView(widget, info, view) {
     this.views.set(info.key, view);
@@ -6849,9 +7097,6 @@ var Controller = class {
   }
   columnMenuEntries(widget, info, column, open) {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
-  }
-  openFilter(widget, info, column) {
-    this.filterRow.openFilter(widget, info, column);
   }
   columnMenuTopEntries(widget, info, column) {
     return this.features.flatMap((f) => f.columnMenuTopEntries?.(widget, info, column) ?? []);
@@ -6957,7 +7202,7 @@ var Controller = class {
    * A cell's value for sorting and filtering: the edited cell shows the
    * editor, not its text, so its value is what is typed (a type's value stays)
    */
-  viewValue(cell) {
+  cellValue(cell) {
     const active = this.cellEditor.active;
     return active?.cell === cell && cell.dataset.tpValue === void 0 ? active.field.value : cellValue(cell);
   }
@@ -6965,8 +7210,10 @@ var Controller = class {
     const view = this.viewOf(info);
     const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.viewValue(cell)));
-    const order = this.withHeldRow(info, visibleRows(values, withPins(view, info.pins), this.filterOptions), rows.length);
+    const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.cellValue(cell)));
+    const hidden = /* @__PURE__ */ new Set();
+    for (const feature of this.features) for (const i of feature.hiddenRows?.(info, values) ?? []) hidden.add(i);
+    const order = this.withHeldRow(info, visibleRows(values, withPins(view, info.pins), hidden), rows.length);
     const shown = new Set(order);
     const body = info.table.tBodies[0] ?? info.table;
     rows.forEach((tr, i) => {
@@ -7006,11 +7253,10 @@ var Controller = class {
       }
       if (direction) cell.setAttribute("aria-sort", direction === "asc" ? "ascending" : "descending");
       else cell.removeAttribute("aria-sort");
-      cell.classList.toggle("tp-filtered", !!parseFilter(view.filters[column] ?? "", this.filterOptions).match);
     });
-    this.filterRow.apply(widget, info, view);
+    for (const feature of this.features) feature.viewApplied?.(widget, info);
     this.pinColumns(info);
-    widget.classList.toggle("tp-rearranged", isRearranged(view, this.filterOptions));
+    widget.classList.toggle("tp-rearranged", this.rearranged(info));
     widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
     if (this.hoverWidget === widget) this.showTableControls(widget, info);
   }
@@ -7065,7 +7311,7 @@ var Controller = class {
     const cell = target.closest("td, th");
     if (!cell || cell.closest("table") !== info.table) return void 0;
     const row = cell.parentElement?.classList;
-    return row?.contains("tp-filter-row") || row?.contains("tp-meta-row") ? void 0 : cell;
+    return row?.contains(UI_CLASS) || row?.contains("tp-meta-row") ? void 0 : cell;
   }
   onMouseDown = (e) => {
     if (this.tableMenu && e.target instanceof Node && !this.tableMenu.element.contains(e.target) && !this.bar.contains(e.target)) {
@@ -7088,7 +7334,7 @@ var Controller = class {
       e.preventDefault();
       return;
     }
-    if (element.closest(".tp-cell-editor, .tp-filter-row") || element.closest(INTERACTIVE_SELECTOR)) {
+    if (element.closest(`.tp-cell-editor, tr.${UI_CLASS}`) || element.closest(INTERACTIVE_SELECTOR)) {
       return;
     }
     e.preventDefault();
@@ -7141,12 +7387,9 @@ var Controller = class {
     if (action?.dataset.tpAction === "sort") {
       e.preventDefault();
       this.setSort(widget, info, cycleSort(this.viewOf(info), Number(action.dataset.tpColumn)));
-    } else if (action?.dataset.tpAction === "filter") {
-      e.preventDefault();
-      this.openFilter(widget, info, Number(action.dataset.tpColumn));
-    } else if (action?.dataset.tpAction === "clear-filter") {
-      e.preventDefault();
-      this.filterRow.clear(widget, info, Number(action.dataset.tpColumn));
+    } else if (action?.dataset.tpAction) {
+      const name = action.dataset.tpAction;
+      if (this.features.some((f) => f.action?.(name, action, widget, info))) e.preventDefault();
     }
   };
   onDoubleClick = (e) => {
@@ -7357,7 +7600,10 @@ var Controller = class {
           if (recalculated !== table) updates.push({ range: otherRange, markdown: serialize(recalculated) });
         }
       }
-      if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
+      if (columnMap) {
+        this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
+        for (const feature of this.features) feature.columnsMoved?.(info.key, columnMap);
+      }
       if (focus) this.cellEditor.editAfterWrite(info.key, focus);
       this.holdAfterWrite(info.key, options);
       this.scrollLefts.set(info.key, widget.scrollLeft);
@@ -7435,7 +7681,7 @@ var Controller = class {
     return button;
   }
   isFloating(node) {
-    return [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) || !!this.tableMenu?.element.contains(node) || this.filterRow.owns(node) || this.features.some((f) => f.owns?.(node));
+    return [this.bar, this.addRow, this.addColumn].some((el) => el.contains(node)) || !!this.tableMenu?.element.contains(node) || this.features.some((f) => f.owns?.(node));
   }
   place(element, left, top) {
     const win = this.doc.defaultView;
@@ -7493,73 +7739,46 @@ var Controller = class {
     };
     const featureButtons = this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []);
     for (const item of featureButtons.filter((b) => b.place === "label")) button(item, "tp-bar-label");
+    const chips = [];
     if (view.sort) {
       const { column, direction } = view.sort;
       const name = cellText(info.table.rows[0].cells[column]) || `column ${column + 1}`;
+      chips.push({
+        label: `Sorted by ${name} ${direction === "asc" ? "\u2191" : "\u2193"}`,
+        title: "Clear sorting: show the rows as written",
+        place: "chip",
+        run: () => {
+          const [w, i] = this.current(widget, info);
+          this.setSort(w, i, withoutSort(this.viewOf(i)));
+        },
+        // Apply: the rows are sorted in the markdown, and the sorting view ends
+        actions: [{ icon: ICONS.applySort, title: "Sort the rows in the markdown this way", run: () => void this.applySort(widget, info) }]
+      });
+    }
+    for (const item of [...chips, ...featureButtons.filter((b) => b.place === "chip")]) {
       const chip = this.doc.createElement("span");
       chip.className = "tp-status tp-chip";
-      chip.textContent = `Sorted by ${name} ${direction === "asc" ? "\u2191" : "\u2193"}`;
-      const clear = this.doc.createElement("button");
-      clear.type = "button";
-      clear.tabIndex = -1;
-      clear.className = "tp-chip-clear";
-      clear.title = "Clear sorting: show the rows as written";
-      clear.setAttribute("aria-label", clear.title);
-      clear.innerHTML = ICONS.clear;
-      clear.addEventListener("click", (e) => {
-        e.preventDefault();
-        const [w, i] = this.current(widget, info);
-        this.setSort(w, i, withoutSort(this.viewOf(i)));
-      });
-      const apply = this.doc.createElement("button");
-      apply.type = "button";
-      apply.tabIndex = -1;
-      apply.className = "tp-chip-apply";
-      apply.title = "Sort the rows in the markdown this way";
-      apply.setAttribute("aria-label", apply.title);
-      apply.innerHTML = ICONS.applySort;
-      apply.addEventListener("click", (e) => {
-        e.preventDefault();
-        void this.applySort(widget, info);
-      });
-      chip.append(apply, clear);
-      bar.append(chip);
-    }
-    if (view.filters.some((filter) => parseFilter(filter, this.filterOptions).match)) {
-      const rows = this.bodyRows(info);
-      const shown = rows.filter((tr) => !tr.classList.contains("tp-hidden")).length;
-      const chip = this.doc.createElement("span");
-      chip.className = "tp-status tp-chip tp-filter-chip";
-      chip.innerHTML = ICONS.filter;
-      chip.append(`${shown} of ${rows.length} rows`);
-      const clear = this.doc.createElement("button");
-      clear.type = "button";
-      clear.tabIndex = -1;
-      clear.className = "tp-chip-clear";
-      clear.title = "Clear the filters";
-      clear.setAttribute("aria-label", clear.title);
-      clear.innerHTML = ICONS.clear;
-      clear.addEventListener("click", (e) => {
-        e.preventDefault();
-        const [w, i] = this.current(widget, info);
-        this.setView(w, i, { ...this.viewOf(i), filters: [] });
-      });
-      chip.append(clear);
+      if (item.icon) chip.innerHTML = item.icon;
+      chip.append(item.label);
+      const small = (className, title, icon, run) => {
+        const b = this.doc.createElement("button");
+        b.type = "button";
+        b.tabIndex = -1;
+        b.className = className;
+        b.title = title;
+        b.setAttribute("aria-label", title);
+        b.innerHTML = icon;
+        b.addEventListener("click", (e) => {
+          e.preventDefault();
+          run();
+        });
+        return b;
+      };
+      for (const action of item.actions ?? []) chip.append(small("tp-chip-apply", action.title, action.icon, action.run));
+      chip.append(small("tp-chip-clear", item.title, ICONS.clear, item.run));
       bar.append(chip);
     }
     for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
-    button({
-      label: "Filter",
-      title: "Show or hide the filter row (hidden, the filters still apply: the toolbar and the headers show them)",
-      place: "icon",
-      icon: ICONS.filter,
-      run: () => {
-        const [w, i] = this.current(widget, info);
-        const now2 = this.viewOf(i);
-        this.setView(w, i, { ...now2, showFilters: !now2.showFilters });
-      },
-      pressed: view.showFilters
-    });
     const menuItems = [
       ...featureButtons.filter((b) => (b.place ?? "menu") === "menu"),
       {

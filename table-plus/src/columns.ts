@@ -1,10 +1,10 @@
-// How metadata names a column: the sorting in the metadata row (sort="qty:desc")
-// and formula references ([qty]) both name it by its header, so the name
+// How metadata names a column: attributes of columns in the metadata row
+// (sort.qty="desc", meta.ts) and formula references ([qty]) name it by its header, so the name
 // survives the column being moved, and both write it as SilverBullet's index
 // keys table columns (`Unit price` is `unit_price`, as in a query). Any
 // spelling with the same key names the same column ([Unit price] is
 // [unit_price]). Of several columns with the same key, the occurrence tells
-// which one (the second qty is qty #2). A column with a fixed name in its
+// which one (the second qty is qty:2). A column with a fixed name in its
 // header (`<meta n="price">`, names.ts) is named by it instead, so renaming
 // the header changes nothing.
 import { unescapeCell } from "./markdown.ts";
