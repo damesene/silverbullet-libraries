@@ -79,7 +79,8 @@ describe("Column types", () => {
   });
 
   it("offers the type's values in the editor, and says when a value saved is not of the type", async () => {
-    await setup(PAGE);
+    // Enter only saves: the cell below would open with a list of its own
+    await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
     clickOn(cell(1, 2));
     const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
     const picker = document.querySelector<HTMLElement>(".tp-choices")!;
