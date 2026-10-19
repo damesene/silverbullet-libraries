@@ -154,6 +154,8 @@ main {
 .sb-table-widget {
   display: block;
   margin: 0.6em 0;
+  /* A wide table scrolls sideways in its own box, as in SilverBullet */
+  overflow: auto;
 }
 .sb-table-widget table {
   border-collapse: collapse;
@@ -168,6 +170,8 @@ main {
 .sb-table-widget td {
   padding: 4px 8px;
   border: 1px solid var(--border);
+  /* As in SilverBullet: cells do not wrap, a wide table scrolls */
+  white-space: nowrap;
 }
 
 #flash {
