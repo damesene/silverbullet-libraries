@@ -68,15 +68,22 @@ describe("the types", () => {
     expect(check("stars", "6")).toBe('"6" is not a whole number from 0 to 5');
     expect(check("stars", "2.5")).toBeDefined();
     expect([show("check", "yes"), show("check", "X"), show("check", "0")]).toEqual(["✅", "✅", "❌"]);
-    expect(check("check", "maybe")).toBe('"maybe" is not yes or no');
+    expect(check("check", "maybe")).toBe('"maybe" is not yes, no or a number');
     expect(type("check").sortValue!("yes", undefined)).toBe("1");
     expect([show("trend", "+"), show("trend", "-"), show("trend", "=")]).toEqual(["🔼", "🔽", "➡️"]);
     // A number by its sign; the list offers only +, - and =
     expect([show("trend", "3"), show("trend", "+2,5 %"), show("trend", "-0.1"), show("trend", "0")]).toEqual(["🔼", "🔼", "🔽", "➡️"]);
     expect(check("trend", "up")).toBe('"up" is not +, -, = or a number');
     expect(type("trend").choices!(undefined).map((c) => c.value)).toEqual(["+", "-", "="]);
-    // #check: 1 and 0 too, also not in its list
-    expect([show("check", "1"), show("check", "0")]).toEqual(["✅", "❌"]);
+    // #check: a number above 0 is yes, 0 or below no; not in its list either
+    expect([show("check", "1"), show("check", "42"), show("check", "0,5"), show("check", "0"), show("check", "-3")]).toEqual([
+      "✅",
+      "✅",
+      "✅",
+      "❌",
+      "❌",
+    ]);
+    expect(type("check").sortValue!("7", undefined)).toBe("1");
     expect(type("check").choices!(undefined).map((c) => c.value)).toEqual(["yes", "no"]);
     expect(show("progress", "30")).toBe("▰▰▰▱▱▱▱▱▱▱ 30%");
     expect(show("progress", "5", "10")).toBe("▰▰▰▰▰▱▱▱▱▱ 50%");

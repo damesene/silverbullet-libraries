@@ -2353,24 +2353,6 @@ function formulaHelp(text, caret) {
   return [REFERENCE_HELP];
 }
 
-// table-plus/src/types/check.ts
-var YES = /* @__PURE__ */ new Set(["yes", "y", "true", "1", "x", "\u2713", "\u2714", "\u2705", "done", "ok"]);
-var NO = /* @__PURE__ */ new Set(["no", "n", "false", "0", "\u2717", "\u274C", "-"]);
-var check_default = {
-  name: "check",
-  syntax: "#check",
-  description: "Yes or no as a check mark: yes, true, 1, x or \u2705 shows \u2705; no, false, 0 or \u274C shows \u274C.",
-  icon: lineIcon('<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/>'),
-  aliases: { logical: "" },
-  check: (text) => YES.has(text.trim().toLowerCase()) || NO.has(text.trim().toLowerCase()) ? void 0 : `"${text}" is not yes or no`,
-  format: (text) => YES.has(text.trim().toLowerCase()) ? "\u2705" : "\u274C",
-  sortValue: (text) => YES.has(text.trim().toLowerCase()) ? "1" : "0",
-  choices: () => [
-    { value: "yes", label: "\u2705 yes" },
-    { value: "no", label: "\u274C no" }
-  ]
-};
-
 // table-plus/src/types/helpers.ts
 function numberOf(text) {
   return asNumber(text);
@@ -2381,6 +2363,31 @@ function notANumber(text) {
 function formatNumber2(n, locale, options = {}) {
   return new Intl.NumberFormat(locale, options).format(n);
 }
+
+// table-plus/src/types/check.ts
+var YES = /* @__PURE__ */ new Set(["yes", "y", "true", "x", "\u2713", "\u2714", "\u2705", "done", "ok"]);
+var NO = /* @__PURE__ */ new Set(["no", "n", "false", "\u2717", "\u274C", "-"]);
+function yesOrNo(text) {
+  const t = text.trim().toLowerCase();
+  if (YES.has(t)) return true;
+  if (NO.has(t)) return false;
+  const n = numberOf(t);
+  return n === void 0 ? void 0 : n > 0;
+}
+var check_default = {
+  name: "check",
+  syntax: "#check",
+  description: "Yes or no as a check mark: yes, true, x, \u2705 or a number above 0 shows \u2705; no, false, \u274C, 0 or a number below it shows \u274C.",
+  icon: lineIcon('<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/>'),
+  aliases: { logical: "" },
+  check: (text) => yesOrNo(text) === void 0 ? `"${text}" is not yes, no or a number` : void 0,
+  format: (text) => yesOrNo(text) ? "\u2705" : "\u274C",
+  sortValue: (text) => yesOrNo(text) ? "1" : "0",
+  choices: () => [
+    { value: "yes", label: "\u2705 yes" },
+    { value: "no", label: "\u274C no" }
+  ]
+};
 
 // table-plus/src/types/currency.ts
 function homeOf(code) {
