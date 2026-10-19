@@ -9,9 +9,16 @@ import { unescapeCell } from "./markdown.ts";
 
 export type ColumnId = { readonly name: string; readonly nth: number };
 
-/** A header cell as a column name: markdown escapes and emphasis around it (**Qty**) dropped */
+// A hashtag in a header (`Price #euro`): SilverBullet leaves it out of the column's key
+const HASHTAG_RE = /(^|\s)#[^\s#]+/g;
+
+/**
+ * A header cell as a column name: markdown escapes, hashtags and the
+ * emphasis around it (**Qty**) dropped
+ */
 export function columnName(header: string): string {
   return unescapeCell(header)
+    .replace(HASHTAG_RE, "$1")
     .trim()
     .replace(/^[*_`]+|[*_`]+$/g, "")
     .trim();

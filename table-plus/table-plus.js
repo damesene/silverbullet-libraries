@@ -1182,8 +1182,9 @@ var Expressions = class {
 };
 
 // table-plus/src/columns.ts
+var HASHTAG_RE = /(^|\s)#[^\s#]+/g;
 function columnName(header) {
-  return unescapeCell(header).trim().replace(/^[*_`]+|[*_`]+$/g, "").trim();
+  return unescapeCell(header).replace(HASHTAG_RE, "$1").trim().replace(/^[*_`]+|[*_`]+$/g, "").trim();
 }
 function columnKey(name) {
   return columnName(name).replace(/[\W_]+/g, "_").toLowerCase();

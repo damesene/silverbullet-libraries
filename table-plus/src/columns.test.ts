@@ -12,6 +12,15 @@ describe("columnKey", () => {
     expect(columnKey("Cena (Kč)")).toBe("cena_k_");
   });
 
+  it("leaves hashtags out, as SilverBullet's index does", () => {
+    expect(columnKey("Price #euro")).toBe("price");
+    expect(columnKey("#stars Rating")).toBe("rating");
+    expect(columnKey("Score #percent10")).toBe("score");
+    expect(columnKey("Two #euro #bold")).toBe("two");
+    // Not a hashtag: no space before the #
+    expect(columnKey("C#")).toBe("c_");
+  });
+
   it("drops markdown emphasis and escapes first", () => {
     expect(columnKey("**Qty**")).toBe("qty");
     expect(columnKey("A \\| B")).toBe("a_b");
