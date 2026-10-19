@@ -33,7 +33,8 @@ import {
   withColumnKeys,
 } from "../formula/index.ts";
 import { ICONS } from "../icons.ts";
-import { escapeCell, parseTable, unescapeCell } from "../markdown.ts";
+import { escapeCell, parseTable, type Table, unescapeCell } from "../markdown.ts";
+import { namedRows } from "../names.ts";
 
 // New formulas are stored in the table (a <meta f> tag), as other metadata
 export const FORMULAS_NEED_METADATA =
@@ -242,9 +243,9 @@ export class Formulas implements Feature {
     this.showFormulaHint(active, formula, refs);
     for (const mark of this.referenceMarks) mark.remove();
     this.referenceMarks = [];
-    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    const table = parseTable(info.source);
     refs.forEach((ref, index) => {
-      const area = this.referenceArea(info, headers, ref, active.row - 1);
+      const area = this.referenceArea(info, table, ref, active.row - 1);
       if (!area) return;
       const color = REFERENCE_COLORS[index % REFERENCE_COLORS.length]!;
       const boxes = this.areaBoxes(active.widget, info, area);
@@ -450,14 +451,19 @@ export class Formulas implements Feature {
   }
 
   /** The body rows and columns a reference covers, within the table; undefined if none */
-  private referenceArea(info: WidgetInfo, headers: readonly string[], ref: Reference, row: number): Area | undefined {
+  private referenceArea(info: WidgetInfo, table: Table, ref: Reference, row: number): Area | undefined {
     // Another table's cells are not outlined in this one
     if (ref.table) return undefined;
     const lastRow = info.rows - 2;
     const lastColumn = info.columns - 1;
     if (ref.kind === "column") {
-      const column = referencedColumn(headers, ref.name);
+      const column = referencedColumn(table.rows[0]?.cells ?? [], ref.name);
       if (column === undefined || lastRow < 0) return undefined;
+      // A named row's cell: that one cell
+      if (ref.row) {
+        const named = namedRows(table).get(ref.row.toLowerCase());
+        return named === undefined ? undefined : { top: named - 1, left: column, bottom: named - 1, right: column };
+      }
       return ref.thisRow
         ? { top: row, left: column, bottom: row, right: column }
         : { top: 0, left: column, bottom: lastRow, right: column };
@@ -536,9 +542,10 @@ export class Formulas implements Feature {
     const field = active.field;
     const originalFormula = field.value;
     const ref = references(originalFormula)[index];
-    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    const table = parseTable(info.source);
+    const headers = table.rows[0]?.cells ?? [];
     const start = this.bodyCellAt(info, e.clientX, e.clientY);
-    const startArea = ref && this.referenceArea(info, headers, ref, active.row - 1);
+    const startArea = ref && this.referenceArea(info, table, ref, active.row - 1);
     if (!ref || !start || !startArea) return;
     const lastRow = info.rows - 2;
     const lastColumn = info.columns - 1;

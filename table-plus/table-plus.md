@@ -171,6 +171,14 @@ A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)
 * When a table with named cells is edited, the tables that use them get their new results in the same edit. When the cell is changed in the markdown, *Recalculate* is highlighted.
 * Editing the cell changes its value only: the name stays. It needs the *Store table metadata* setting; *Remove metadata* removes it.
 
+### Named rows
+
+A row can have a name, by which formulas use its cells: `pear[price]` is the Price cell of the row named pear, `prices!pear[price]` of the table named prices, `[[Shop]]prices!pear[price]` on another page. The name stays with the row wherever it is moved or sorted (also in the markdown), and does not depend on what the row's cells say. Open the row's menu (the ⠿ grip left of the row), click *Name row* and type the name; an empty name removes it.
+
+* It is stored in the row's first cell as a hidden `<meta r="pear">`: `| Pear <meta r="pear"> | 12 |`. A named row has a bar at the left edge of its first cell; hover it for the name.
+* A row's name is its table's: two rows of a table cannot have the same one. The column after it is written as any column reference (`[price]`, a fixed name, `[price:2]`) and follows the column when it is renamed or moved.
+* `XLOOKUP("Pear", prices![name], prices![price])` does the same by a key column's value; a row's name works without one, and is not changed by editing the row's cells.
+
 ### Other tables
 
 A formula can use the cells of another table on the same page, once that table has a name (see [[#Table names]]): the name and `!` go before the reference.
@@ -1282,8 +1290,20 @@ body.tp-autoscrolling * {
 /* Formulas */
 /* A named cell: a mark in its corner, as a spreadsheet marks a comment;
    drawn over the cell, so a pinned or striped cell's background does not hide it */
-.sb-table-widget.tp-table td.tp-named:not(.tp-pin-left):not(.tp-pin-right) {
+.sb-table-widget.tp-table td:is(.tp-named, .tp-row-named):not(.tp-pin-left):not(.tp-pin-right) {
   position: relative;
+}
+/* A named row: a bar at its first cell's left edge (a named first cell keeps its corner mark) */
+.sb-table-widget.tp-table td.tp-row-named:not(.tp-named)::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: color-mix(in srgb, var(--ui-accent-color) 70%, transparent);
+  pointer-events: none;
 }
 .sb-table-widget.tp-table td.tp-named::after {
   content: "";

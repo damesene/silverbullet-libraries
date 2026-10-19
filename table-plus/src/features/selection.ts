@@ -3,7 +3,7 @@
 import type { CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellValue } from "../dom.ts";
 import type { Table } from "../markdown.ts";
-import { nameOf, withName } from "../names.ts";
+import { keepNames } from "../names.ts";
 import { setCell } from "../ops.ts";
 
 /** Cells as spreadsheets copy them: tabs and line breaks between; a cell with either or a quote in quotes */
@@ -146,7 +146,7 @@ export class Selection implements Feature {
       .map((cell) => this.host.cellRef(info, cell))
       .filter((ref): ref is CellRef => ref !== undefined && ref.row > 0);
     // A cell's name is kept, as when the cell is edited
-    const emptied = (table: Table, ref: CellRef) => setCell(table, ref.row, ref.column, withName("", nameOf(table.rows[ref.row]?.cells[ref.column] ?? "")));
+    const emptied = (table: Table, ref: CellRef) => setCell(table, ref.row, ref.column, keepNames("", table.rows[ref.row]?.cells[ref.column] ?? ""));
     await this.host.write(widget, (t) => refs.reduce(emptied, t));
   }
 

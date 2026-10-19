@@ -27,7 +27,7 @@ import {
 } from "./index.ts";
 import { parseMetaRow, parseTable, serializeTable, splitRow } from "../markdown.ts";
 import { withMeta } from "../meta.ts";
-import { nameOf } from "../names.ts";
+import { keepNames, namedRows, nameOf, rowNameIn, rowNameOf, withName, withoutName, withRowName } from "../names.ts";
 import { deleteColumn, deleteRow, insertRow, moveColumn, moveRow, reorderRows, setCell } from "../ops.ts";
 
 // A table whose cell `at` holds `formula`; returns what that cell shows after recalculating
@@ -659,5 +659,57 @@ describe("named cells", () => {
     expect(namedReferences("=SUM(A1:B2)*vat+prices!C3+[[Other]]fee+TRUE+[qty]")).toEqual([{ name: "vat" }, { name: "fee", page: "Other" }]);
     expect([...referredCellNames(parseTable('| A |\n|---|\n| 1 <meta f="=VAT*2"> |'))]).toEqual(["vat"]);
     expect([...cellNamesOf(RATES)]).toEqual(["vat", "fee"]);
+  });
+});
+
+describe("named rows", () => {
+  const PRICES = parseTable('| Name | Price |\n|---|---|\n| Pear <meta r="pear"> | 12 |\n| Fig <meta r="fig"> | 3 |\n| <meta name="prices"> |');
+  const source: TableSource = (name, page) => (name.toLowerCase() === "prices" && (page === undefined || page === "Shop") ? PRICES : undefined);
+  const result = (formula: string, own = "| A |\n|---|\n| |") => {
+    const table = parseTable(own);
+    const rows = table.rows.map((r, i) => (i === table.rows.length - 1 ? { cells: [formulaCell("", formula)] } : r));
+    return formulaOf(recalculate({ ...table, rows }, source).rows[table.rows.length - 1]!.cells[0]!)!.value;
+  };
+
+  it("reads a named row's cell, in its own table, another one and on another page", () => {
+    const own = '| Name | Qty | Total |\n|---|---|---|\n| Pear <meta r="pear"> | 4 | |\n| x | | |';
+    const table = parseTable(own);
+    const withFormula = { ...table, rows: [...table.rows.slice(0, 2), { cells: ["x", "", formulaCell("", "=pear[qty]*2")] }] };
+    expect(formulaOf(recalculate(withFormula).rows[2]!.cells[2]!)!.value).toBe("8");
+    expect(result("=prices!pear[price]+prices!FIG[price]")).toBe("15");
+    expect(result("=[[Shop]]prices!fig[price]")).toBe("3");
+  });
+
+  it("says what is missing, and is not a named cell", () => {
+    const table = parseTable("| A |\n|---|\n| |");
+    const errors = (formula: string) => formulaErrors({ ...table, rows: [table.rows[0]!, { cells: [formulaCell("", formula)] }] }, source).get("1,0");
+    expect(errors("=prices!plum[price]")).toBe("#REF! there is no row named plum in prices");
+    expect(errors("=prices!pear[cost]")).toBe('#REF! there is no column named "cost" in prices');
+    expect(errors("=prices!pear[@price]")).toContain("a row's cell is written pear[price]");
+    expect(namedReferences("=pear[price]+vat")).toEqual([{ name: "vat" }]);
+    expect(references("=prices!pear[price]")[0]).toMatchObject({ kind: "column", name: "price", row: "pear", table: { name: "prices" } });
+  });
+
+  it("follows its column's rename, and the rows' new order", () => {
+    const own = parseTable('| Name | Price |\n|---|---|\n| Pear <meta r="pear"> | 12 |\n| Total | 0 <meta f="=pear[price]"> |');
+    const renamed = setCell(own, 0, 1, "Cost");
+    expect(formulaOf(shiftReferences(own, renamed).rows[2]!.cells[1]!)!.formula).toBe("=pear[cost]");
+    // Sorted into the markdown: the name moves with its row
+    const sorted = reorderRows(own, [2, 1]);
+    expect(formulaOf(recalculate(sorted).rows[1]!.cells[1]!)!.value).toBe("12");
+  });
+
+  it("keeps a cell's own name and its row's name apart", () => {
+    const cell = withRowName(withName("Pear", "first"), "pear");
+    expect(cell).toBe('Pear <meta n="first"> <meta r="pear">');
+    expect([nameOf(cell), rowNameOf(cell), withoutName(cell)]).toEqual(["first", "pear", "Pear"]);
+    expect(withName(cell, undefined)).toBe('Pear <meta r="pear">');
+    expect(keepNames("Apple", cell)).toBe('Apple <meta n="first"> <meta r="pear">');
+  });
+
+  it("finds a row's name a column inserted before the first one moved", () => {
+    const table = parseTable('| New | Name | Price |\n|---|---|---|\n| | Pear <meta r="pear"> | 12 |');
+    expect(rowNameIn(table.rows[1]!.cells)).toEqual({ name: "pear", column: 1 });
+    expect(namedRows(table).get("pear")).toBe(1);
   });
 });

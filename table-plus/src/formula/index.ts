@@ -18,7 +18,7 @@ import { type ColumnId, columnIdOf, columnKey, findColumn, followColumn, sameCol
 import { dateArithmetic, parseDate } from "./dates.ts";
 import { FUNCTIONS } from "./functions/index.ts";
 import { escapeCell, escapeMetaValue, type Table, unescapeCell, unescapeMetaValue } from "../markdown.ts";
-import { CELL_RE, namedCells, nameOf, withName, withoutName } from "../names.ts";
+import { CELL_RE, keepNames, namedCells, namedRows, nameOf, withName, withoutName } from "../names.ts";
 import { setCell } from "../ops.ts";
 import {
   asTime,
@@ -267,7 +267,8 @@ export type Reference = {
   readonly table?: TableRef;
 } & (
   | { readonly kind: "area"; readonly area: Area }
-  | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean }
+  // With `row`, the named row's cell in that column: pear[price]
+  | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly row?: string }
 );
 
 /** The cell, range and column references written in a formula, in order */
@@ -279,7 +280,10 @@ export function references(formula: string): Reference[] {
     const previous = tokens[i - 1];
     const table = previous?.kind === "table" ? { table: tableRefOf(previous) } : {};
     if (token.kind === "column") {
-      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to, ...table });
+      // pear[price]: the row named pear (of prices! before it, if written)
+      const row = previous?.kind === "name" && isRowName(tokens, i - 1) ? previous.text : undefined;
+      const rowTable = row && tokens[i - 2]?.kind === "table" ? { table: tableRefOf(tokens[i - 2] as { name: string; page?: string }) } : {};
+      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to, ...(row ? { row, ...rowTable } : table) });
       continue;
     }
     if (token.kind !== "name") continue;
@@ -304,6 +308,12 @@ export function references(formula: string): Reference[] {
   return result;
 }
 
+/** Whether the name token at `i` is a row's name: followed by a [column], and not a cell or a function's */
+function isRowName(tokens: readonly Token[], i: number): boolean {
+  const token = tokens[i];
+  return token?.kind === "name" && tokens[i + 1]?.kind === "column" && !parseCellName(token.text) && !/^(true|false)$/i.test(token.text);
+}
+
 function tableRefOf(token: { readonly name: string; readonly page?: string }): TableRef {
   return token.page === undefined ? { name: token.name } : { name: token.name, page: token.page };
 }
@@ -317,6 +327,8 @@ type Node =
   | { readonly kind: "call"; readonly name: string; readonly args: readonly Node[] }
   // A named cell (names.ts): vat, or [[Page]]vat on another page
   | { readonly kind: "named"; readonly name: string; readonly page?: string }
+  // A named row's cell: pear[price], prices!pear[price]
+  | { readonly kind: "rowCell"; readonly row: string; readonly column: string; readonly table?: TableRef }
   | { readonly kind: "unary"; readonly op: string; readonly arg: Node }
   | { readonly kind: "binary"; readonly op: string; readonly left: Node; readonly right: Node };
 
@@ -402,6 +414,10 @@ class Parser {
           }
           return { kind: "column", name: next.name, thisRow: false, table: tableRefOf(token) };
         }
+        if (next?.kind === "name" && isRowName(this.tokens, this.at)) {
+          this.at++;
+          return { ...this.rowCell(next.text), table: tableRefOf(token) };
+        }
         if (next?.kind === "name" && parseCellName(next.text) && !(this.tokens[this.at + 1]?.kind === "op" && this.text(this.tokens[this.at + 1]!) === "(")) {
           this.at++;
           const area = this.name(next.text);
@@ -420,6 +436,13 @@ class Parser {
       case "name":
         return this.name(token.text);
     }
+  }
+
+  /** The named row `row`'s cell in the [column] that follows (the token at `at`) */
+  private rowCell(row: string): Extract<Node, { kind: "rowCell" }> {
+    const column = this.tokens[this.at++] as Extract<Token, { kind: "column" }>;
+    if (column.thisRow) throw new FormulaError("#ERROR!", `${row}[@${column.name}]: a row's cell is written ${row}[${column.name}]`);
+    return { kind: "rowCell", row, column: column.name };
   }
 
   private name(text: string): Node {
@@ -444,7 +467,8 @@ class Parser {
     const upper = text.toUpperCase();
     if (upper === "TRUE" || upper === "FALSE") return { kind: "literal", value: upper === "TRUE" };
     const start = parseCellName(text);
-    // Any other name is a named cell's
+    // A name before a [column] is a row's (pear[price]); any other a named cell's
+    if (isRowName(this.tokens, this.at - 1)) return this.rowCell(text);
     if (!start) return { kind: "named", name: text };
     if (!this.peekOp(":")) {
       return { kind: "area", area: { top: start.row, left: start.column, bottom: start.row, right: start.column }, range: false };
@@ -641,6 +665,7 @@ class Sheet {
   readonly name: string | undefined;
   private totals: ReadonlySet<number> | undefined;
   private cellNames: Map<string, { readonly row: number; readonly column: number }> | undefined;
+  private rowNames: Map<string, number> | undefined;
 
   /** `page`: the page the table is on, when it is not the formulas' own (its unnamed references are to tables there) */
   constructor(
@@ -726,6 +751,17 @@ class Sheet {
     const tree = stored && parse(stored.formula);
     if (!tree || isError(tree)) return false;
     return Array.from(wholeColumnNames(tree, new Set())).some((name) => referencedColumn(this.headers, name) === target);
+  }
+
+  /** The cell of the row named `row` in the column `column` */
+  rowCellValue(row: string, column: string, prefix = ""): Value {
+    this.rowNames ??= namedRows(this.table);
+    const r = this.rowNames.get(row.toLowerCase());
+    if (r === undefined) return new FormulaError("#REF!", `there is no row named ${row}${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
+    const c = referencedColumn(this.headers, column);
+    if (c === undefined) return new FormulaError("#REF!", `there is no column named "${column}"${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
+    // namedRows counts the header as row 0, the body starts at 0 here
+    return this.value(r - 1, c);
   }
 
   /** The values of an area: one cell's value, or a range's (`range`) */
@@ -815,6 +851,11 @@ class Sheet {
       }
       case "named":
         return this.named(node.name, node.page);
+      case "rowCell": {
+        const sheet = this.sheetOf(node.table);
+        if (isError(sheet)) return sheet;
+        return sheet.rowCellValue(node.row, node.column, node.table ? `${node.table.name}!` : "");
+      }
       case "call": {
         const f = FUNCTIONS[node.name];
         if (!f) return new FormulaError("#NAME?", `there is no function ${node.name}`);
@@ -917,7 +958,7 @@ export function recalculate(table: Table, tables?: TableSource): Table {
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
       if (!stored) return;
-      const updated = formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula, stored.name);
+      const updated = keepNames(formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula), cell);
       if (updated !== cell) result = setCell(result, r, c, updated);
     });
   });
@@ -973,7 +1014,7 @@ export function withoutFormulas(table: Table): Table {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
-      if (stored) result = setCell(result, r, c, withName(stored.value, stored.name));
+      if (stored) result = setCell(result, r, c, keepNames(stored.value, cell));
     });
   });
   return result;
@@ -1017,7 +1058,7 @@ export function namedReferences(formula: string): { readonly name: string; reado
     }
     if (token.kind !== "name" || parseCellName(token.text) || /^(true|false)$/i.test(token.text)) return;
     const next = tokens[i + 1];
-    if (next?.kind === "op" && next.text === "(") return;
+    if ((next?.kind === "op" && next.text === "(") || next?.kind === "column") return;
     const previous = tokens[i - 1];
     // The end of a range (A1:B2) or a table's reference (prices!B2) is a cell
     if (previous?.kind === "table" || (previous?.kind === "op" && previous.text === ":")) return;
@@ -1172,7 +1213,7 @@ function withFormulas(table: Table, rewrite: (formula: string) => string): Table
       const stored = formulaOf(cell);
       if (!stored) return;
       const formula = rewrite(stored.formula);
-      if (formula !== stored.formula) result = setCell(result, r, c, formulaCell(stored.value, formula, stored.name));
+      if (formula !== stored.formula) result = setCell(result, r, c, keepNames(formulaCell(stored.value, formula), cell));
     });
   });
   return result;

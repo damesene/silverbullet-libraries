@@ -374,6 +374,29 @@ describe("Formulas", () => {
       expect(text).toContain('| Pear | 100 | 110 <meta f="=[@price]*(1+vat)"> |');
     });
 
+    it("names a row from its menu, refusing a name another row of the table has", async () => {
+      await setup('| Name | Price |\n|---|---|\n| Pear <meta r="pear"> | 12 |\n| Fig | 3 |\n', { "tablePlus.editor.enterKey": "save" });
+      const prompt = vi.spyOn(window, "prompt");
+      prompt.mockReturnValue("PEAR");
+      openRowMenu(2, 1);
+      item(/^Name row/).click();
+      await flush();
+      expect(flashes.pop()).toBe("Table Plus: another row of this table is named PEAR");
+      prompt.mockReturnValue("fig");
+      openRowMenu(2, 1);
+      item(/^Name row/).click();
+      await flush();
+      await controller.scan();
+      expect(text).toBe('| Name | Price |\n|---|---|\n| Pear <meta r="pear"> | 12 |\n| Fig <meta r="fig"> | 3 |\n');
+      expect(cell(2, 0).classList.contains("tp-row-named")).toBe(true);
+      expect(cell(2, 0).title).toBe("Row name: fig");
+      // Editing the first cell keeps the row's name
+      clickOn(cell(2, 0));
+      expect(field().value).toBe("Fig");
+      await type("Figs");
+      expect(text).toContain('| Figs <meta r="fig"> | 3 |');
+    });
+
     it("refuses a name another cell on the page has, or a function's", async () => {
       await setup('| A | B |\n|---|---|\n| 1 <meta n="one"> | 2 |\n');
       const prompt = vi.spyOn(window, "prompt");

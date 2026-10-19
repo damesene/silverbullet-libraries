@@ -4,7 +4,7 @@
 // sorting follow through the write steps (rowMap, columnMap).
 import type { IndexMap } from "../formula/index.ts";
 import type { Table } from "../markdown.ts";
-import { nameOf, withoutName } from "../names.ts";
+import { nameOf, rowNameOf, withoutName } from "../names.ts";
 import { columnAfterMove, deleteColumn, deleteRow, insertColumn, insertRow, moveColumn, moveRow } from "../ops.ts";
 import {
   clampColumnMove,
@@ -53,8 +53,8 @@ export function duplicateRowAt(host: TableHost, widget: HTMLElement, info: Widge
   return host.write(
     widget,
     (t) => {
-      // A cell's name is the page's: the copy does not take it
-      const cells = t.rows[row]?.cells.map((cell) => (nameOf(cell) === undefined ? cell : withoutName(cell)));
+      // A cell's name is the page's and a row's the table's: the copy takes neither
+      const cells = t.rows[row]?.cells.map((cell) => (nameOf(cell) === undefined && rowNameOf(cell) === undefined ? cell : withoutName(cell)));
       return cells ? insertRow(t, insert.at, cells) : undefined;
     },
     { pins: insert.pins, rowMap: rowAfterInsert(insert.at) },

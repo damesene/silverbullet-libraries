@@ -3,7 +3,7 @@
 // the cell, Esc cancels. Features shape what it shows and saves (a formula)
 // through the editor hooks of core/feature.ts.
 import { escapeCell, parseTable, type Table, unescapeCell } from "../markdown.ts";
-import { nameOf, withName, withoutName } from "../names.ts";
+import { keepNames, withoutName } from "../names.ts";
 import { columnAfterMove, moveColumn, moveRow, setCell } from "../ops.ts";
 import { appendRowAt, clampColumnMove, clampRowMove } from "../pins.ts";
 import { UI_CLASS } from "../dom.ts";
@@ -180,7 +180,7 @@ export class CellEditing {
     const typed = active.field.value;
     if (typed === active.initial) return active.original;
     const value = this.context.features.reduce<string | undefined>((v, f) => v ?? f.editorValue?.(active, typed), undefined) ?? escapeCell(typed);
-    return withName(value, nameOf(active.original));
+    return keepNames(value, active.original);
   }
 
   /**

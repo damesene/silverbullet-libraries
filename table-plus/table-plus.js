@@ -212,7 +212,7 @@ function parseMetaRow(line) {
   for (const match of tag[1].matchAll(META_ATTRIBUTE_RE)) {
     meta[match[1]] = unescapeMetaValue(match[2] ?? match[3] ?? "");
   }
-  if ("f" in meta || "n" in meta) return void 0;
+  if ("f" in meta || "n" in meta || "r" in meta) return void 0;
   return meta;
 }
 function unescapeMetaValue(value) {
@@ -317,9 +317,9 @@ function locateWithEmptyHeaders(text, hint, shape) {
   return nearest(
     findTables(text).filter((range) => {
       const table = parseTable(range.text);
-      const named = (table.rows[0]?.cells ?? []).filter((cell) => cell !== "").length;
+      const named2 = (table.rows[0]?.cells ?? []).filter((cell) => cell !== "").length;
       const rendered = table.rows.length + (table.meta ? 1 : 0);
-      return rendered === shape.rows && named === shape.columns && named < table.align.length;
+      return rendered === shape.rows && named2 === shape.columns && named2 < table.align.length;
     }),
     hint
   );
@@ -471,6 +471,7 @@ function columnAfterMove(c, from, to) {
 
 // table-plus/src/names.ts
 var NAME_TAG_RE = /\s*<meta\s+n\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
+var ROW_TAG_RE = /\s*<meta\s+r\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
 var CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
 var NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 function nameProblem(name, what) {
@@ -478,19 +479,50 @@ function nameProblem(name, what) {
   if (CELL_RE.test(name) || /^(true|false)$/i.test(name)) return `"${name}" would read as a cell or a value`;
   return void 0;
 }
+function tagValue(cell, re) {
+  const match = Array.from(cell.matchAll(re)).pop();
+  const value = match && unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
+  return value || void 0;
+}
 function nameOf(cell) {
-  const match = Array.from(cell.matchAll(NAME_TAG_RE)).pop();
-  const name = match && unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
-  return name || void 0;
+  return tagValue(cell, NAME_TAG_RE);
+}
+function rowNameOf(cell) {
+  return tagValue(cell, ROW_TAG_RE);
 }
 function withoutName(cell) {
-  return cell.replace(NAME_TAG_RE, "").trim();
+  return cell.replace(NAME_TAG_RE, "").replace(ROW_TAG_RE, "").trim();
+}
+function named(text, name, row) {
+  const tags = [
+    ...name ? [`<meta n="${escapeMetaValue(name)}">`] : [],
+    ...row ? [`<meta r="${escapeMetaValue(row)}">`] : []
+  ];
+  return [text, ...tags].filter((part) => part !== "").join(" ");
 }
 function withName(cell, name) {
-  const text = withoutName(cell);
-  if (!name) return text;
-  const tag = `<meta n="${escapeMetaValue(name)}">`;
-  return text === "" ? tag : `${text} ${tag}`;
+  return named(withoutName(cell), name, rowNameOf(cell));
+}
+function withRowName(cell, row) {
+  return named(withoutName(cell), nameOf(cell), row);
+}
+function keepNames(cell, from) {
+  return named(withoutName(cell), nameOf(from), rowNameOf(from));
+}
+function rowNameIn(cells) {
+  for (let column = 0; column < cells.length; column++) {
+    const name = rowNameOf(cells[column]);
+    if (name) return { name, column };
+  }
+  return void 0;
+}
+function namedRows(table) {
+  const rows = /* @__PURE__ */ new Map();
+  table.rows.forEach((r, row) => {
+    const name = row === 0 ? void 0 : rowNameIn(r.cells)?.name.toLowerCase();
+    if (name && !rows.has(name)) rows.set(name, row);
+  });
+  return rows;
 }
 function namedCells(table) {
   const cells = /* @__PURE__ */ new Map();
@@ -504,13 +536,13 @@ function namedCells(table) {
   return cells;
 }
 function hasNames(table) {
-  return table.rows.some((row) => row.cells.some((cell) => nameOf(cell) !== void 0));
+  return table.rows.some((row) => row.cells.some((cell) => nameOf(cell) !== void 0 || rowNameOf(cell) !== void 0));
 }
 function withoutNames(table) {
   let result = table;
   table.rows.forEach(
     (row, r) => row.cells.forEach((cell, c) => {
-      if (nameOf(cell) !== void 0) result = setCell(result, r, c, withoutName(cell));
+      if (withoutName(cell) !== cell.trim()) result = setCell(result, r, c, withoutName(cell));
     })
   );
   return result;
@@ -708,7 +740,7 @@ function duplicateRowAt(host, widget, info, row) {
   return host.write(
     widget,
     (t) => {
-      const cells = t.rows[row]?.cells.map((cell) => nameOf(cell) === void 0 ? cell : withoutName(cell));
+      const cells = t.rows[row]?.cells.map((cell) => nameOf(cell) === void 0 && rowNameOf(cell) === void 0 ? cell : withoutName(cell));
       return cells ? insertRow(t, insert.at, cells) : void 0;
     },
     { pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
@@ -883,7 +915,7 @@ var CellEditing = class {
     const typed = active.field.value;
     if (typed === active.initial) return active.original;
     const value = this.context.features.reduce((v, f) => v ?? f.editorValue?.(active, typed), void 0) ?? escapeCell(typed);
-    return withName(value, nameOf(active.original));
+    return keepNames(value, active.original);
   }
   /**
    * Ends editing, saving the cell if asked and changed, then opens `next`
@@ -2470,7 +2502,9 @@ function references(formula) {
     const previous = tokens[i - 1];
     const table = previous?.kind === "table" ? { table: tableRefOf(previous) } : {};
     if (token.kind === "column") {
-      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to, ...table });
+      const row = previous?.kind === "name" && isRowName(tokens, i - 1) ? previous.text : void 0;
+      const rowTable = row && tokens[i - 2]?.kind === "table" ? { table: tableRefOf(tokens[i - 2]) } : {};
+      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to, ...row ? { row, ...rowTable } : table });
       continue;
     }
     if (token.kind !== "name") continue;
@@ -2491,6 +2525,10 @@ function references(formula) {
     if (end) i += 2;
   }
   return result;
+}
+function isRowName(tokens, i) {
+  const token = tokens[i];
+  return token?.kind === "name" && tokens[i + 1]?.kind === "column" && !parseCellName(token.text) && !/^(true|false)$/i.test(token.text);
 }
 function tableRefOf(token) {
   return token.page === void 0 ? { name: token.name } : { name: token.name, page: token.page };
@@ -2570,6 +2608,10 @@ var Parser = class {
           }
           return { kind: "column", name: next.name, thisRow: false, table: tableRefOf(token) };
         }
+        if (next?.kind === "name" && isRowName(this.tokens, this.at)) {
+          this.at++;
+          return { ...this.rowCell(next.text), table: tableRefOf(token) };
+        }
         if (next?.kind === "name" && parseCellName(next.text) && !(this.tokens[this.at + 1]?.kind === "op" && this.text(this.tokens[this.at + 1]) === "(")) {
           this.at++;
           const area = this.name(next.text);
@@ -2588,6 +2630,12 @@ var Parser = class {
       case "name":
         return this.name(token.text);
     }
+  }
+  /** The named row `row`'s cell in the [column] that follows (the token at `at`) */
+  rowCell(row) {
+    const column = this.tokens[this.at++];
+    if (column.thisRow) throw new FormulaError("#ERROR!", `${row}[@${column.name}]: a row's cell is written ${row}[${column.name}]`);
+    return { kind: "rowCell", row, column: column.name };
   }
   name(text) {
     if (this.peekOp("(")) {
@@ -2611,6 +2659,7 @@ var Parser = class {
     const upper = text.toUpperCase();
     if (upper === "TRUE" || upper === "FALSE") return { kind: "literal", value: upper === "TRUE" };
     const start = parseCellName(text);
+    if (isRowName(this.tokens, this.at - 1)) return this.rowCell(text);
     if (!start) return { kind: "named", name: text };
     if (!this.peekOp(":")) {
       return { kind: "area", area: { top: start.row, left: start.column, bottom: start.row, right: start.column }, range: false };
@@ -2789,6 +2838,7 @@ var Sheet = class {
   name;
   totals;
   cellNames;
+  rowNames;
   get rows() {
     return this.body.length;
   }
@@ -2844,6 +2894,15 @@ var Sheet = class {
     const tree = stored && parse(stored.formula);
     if (!tree || isError(tree)) return false;
     return Array.from(wholeColumnNames(tree, /* @__PURE__ */ new Set())).some((name) => referencedColumn(this.headers, name) === target);
+  }
+  /** The cell of the row named `row` in the column `column` */
+  rowCellValue(row, column, prefix = "") {
+    this.rowNames ??= namedRows(this.table);
+    const r = this.rowNames.get(row.toLowerCase());
+    if (r === void 0) return new FormulaError("#REF!", `there is no row named ${row}${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
+    const c = referencedColumn(this.headers, column);
+    if (c === void 0) return new FormulaError("#REF!", `there is no column named "${column}"${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
+    return this.value(r - 1, c);
   }
   /** The values of an area: one cell's value, or a range's (`range`) */
   areaValue(area, range, prefix = "") {
@@ -2925,6 +2984,11 @@ var Sheet = class {
       }
       case "named":
         return this.named(node.name, node.page);
+      case "rowCell": {
+        const sheet = this.sheetOf(node.table);
+        if (isError(sheet)) return sheet;
+        return sheet.rowCellValue(node.row, node.column, node.table ? `${node.table.name}!` : "");
+      }
       case "call": {
         const f = FUNCTIONS[node.name];
         if (!f) return new FormulaError("#NAME?", `there is no function ${node.name}`);
@@ -3012,7 +3076,7 @@ function recalculate(table, tables) {
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
       if (!stored) return;
-      const updated = formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula, stored.name);
+      const updated = keepNames(formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula), cell);
       if (updated !== cell) result = setCell(result, r, c, updated);
     });
   });
@@ -3053,7 +3117,7 @@ function withoutFormulas(table) {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
-      if (stored) result = setCell(result, r, c, withName(stored.value, stored.name));
+      if (stored) result = setCell(result, r, c, keepNames(stored.value, cell));
     });
   });
   return result;
@@ -3080,7 +3144,7 @@ function namedReferences(formula) {
     }
     if (token.kind !== "name" || parseCellName(token.text) || /^(true|false)$/i.test(token.text)) return;
     const next = tokens[i + 1];
-    if (next?.kind === "op" && next.text === "(") return;
+    if (next?.kind === "op" && next.text === "(" || next?.kind === "column") return;
     const previous = tokens[i - 1];
     if (previous?.kind === "table" || previous?.kind === "op" && previous.text === ":") return;
     result.push({ name: token.text });
@@ -3188,7 +3252,7 @@ function withFormulas(table, rewrite) {
       const stored = formulaOf(cell);
       if (!stored) return;
       const formula = rewrite(stored.formula);
-      if (formula !== stored.formula) result = setCell(result, r, c, formulaCell(stored.value, formula, stored.name));
+      if (formula !== stored.formula) result = setCell(result, r, c, keepNames(formulaCell(stored.value, formula), cell));
     });
   });
   return result;
@@ -4042,9 +4106,9 @@ ${error}` : stored.formula;
     this.showFormulaHint(active, formula, refs);
     for (const mark of this.referenceMarks) mark.remove();
     this.referenceMarks = [];
-    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    const table = parseTable(info.source);
     refs.forEach((ref, index) => {
-      const area = this.referenceArea(info, headers, ref, active.row - 1);
+      const area = this.referenceArea(info, table, ref, active.row - 1);
       if (!area) return;
       const color = REFERENCE_COLORS[index % REFERENCE_COLORS.length];
       const boxes = this.areaBoxes(active.widget, info, area);
@@ -4232,13 +4296,17 @@ ${error}` : stored.formula;
     this.referenceMarks = [];
   }
   /** The body rows and columns a reference covers, within the table; undefined if none */
-  referenceArea(info, headers, ref, row) {
+  referenceArea(info, table, ref, row) {
     if (ref.table) return void 0;
     const lastRow = info.rows - 2;
     const lastColumn = info.columns - 1;
     if (ref.kind === "column") {
-      const column = referencedColumn(headers, ref.name);
+      const column = referencedColumn(table.rows[0]?.cells ?? [], ref.name);
       if (column === void 0 || lastRow < 0) return void 0;
+      if (ref.row) {
+        const named2 = namedRows(table).get(ref.row.toLowerCase());
+        return named2 === void 0 ? void 0 : { top: named2 - 1, left: column, bottom: named2 - 1, right: column };
+      }
       return ref.thisRow ? { top: row, left: column, bottom: row, right: column } : { top: 0, left: column, bottom: lastRow, right: column };
     }
     const { top, left, bottom, right } = ref.area;
@@ -4308,9 +4376,10 @@ ${error}` : stored.formula;
     const field = active.field;
     const originalFormula = field.value;
     const ref = references(originalFormula)[index];
-    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    const table = parseTable(info.source);
+    const headers = table.rows[0]?.cells ?? [];
     const start = this.bodyCellAt(info, e.clientX, e.clientY);
-    const startArea = ref && this.referenceArea(info, headers, ref, active.row - 1);
+    const startArea = ref && this.referenceArea(info, table, ref, active.row - 1);
     if (!ref || !start || !startArea) return;
     const lastRow = info.rows - 2;
     const lastColumn = info.columns - 1;
@@ -5259,7 +5328,8 @@ var Names = class {
   decorate(_widget, info) {
     const model = parseTable(info.source);
     for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
-      model.rows[Number(tr.dataset.tpRow)]?.cells.forEach((raw, column) => {
+      const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
+      cells.forEach((raw, column) => {
         const name = nameOf(raw);
         const cell = tr.cells[column];
         if (!name || !cell) return;
@@ -5267,13 +5337,33 @@ var Names = class {
         cell.title = cell.title ? `${cell.title}
 Name: ${name}` : `Name: ${name}`;
       });
+      const row = rowNameIn(cells)?.name;
+      const first = tr.cells[0];
+      if (row && first) {
+        first.classList.add("tp-row-named");
+        first.title = first.title ? `${first.title}
+Row name: ${row}` : `Row name: ${row}`;
+      }
     }
   }
-  /** "Name cell" in a row's menu, for its cell in `column` */
+  /** "Name row" and "Name cell" in a row's menu, the cell being the one in `column` */
   rowMenuEntries(widget, info, row, column) {
-    const name = nameOf(parseTable(info.source).rows[row]?.cells[column] ?? "");
+    const cells = parseTable(info.source).rows[row]?.cells ?? [];
+    const name = nameOf(cells[column] ?? "");
     const allowed = this.host.metadataEnabled || name !== void 0;
+    const rowName = rowNameIn(cells)?.name;
+    const rowAllowed = this.host.metadataEnabled || rowName !== void 0;
     return [
+      {
+        kind: "item",
+        label: "Name row",
+        icon: ICONS.fixedName,
+        ...rowName ? { value: { text: rowName } } : {},
+        ...rowAllowed ? {
+          hint: rowName ? `Formulas use this row's cells as ${rowName}[column] (from other tables table!${rowName}[column]), wherever it is moved. Click to rename it` : "Name this row, so formulas use its cells as name[column], wherever it is moved or sorted"
+        } : { disabled: "Needs the Store table metadata setting" },
+        run: () => void this.nameRow(widget, info, row)
+      },
       {
         kind: "item",
         label: "Name cell",
@@ -5285,6 +5375,27 @@ Name: ${name}` : `Name: ${name}`;
         run: () => void this.nameCell(widget, info, row, column)
       }
     ];
+  }
+  async nameRow(shownWidget, shownInfo, row) {
+    const table = parseTable(shownInfo.source);
+    const current = rowNameIn(table.rows[row]?.cells ?? [])?.name ?? "";
+    const answer = await this.host.promptText("Name of the row (letters, digits and _; empty: none)", current);
+    if (answer === void 0) return;
+    const name = answer.trim();
+    if (name === current) return;
+    let problem = name === "" ? void 0 : nameProblem(name, "row");
+    const other = name ? namedRows(table).get(name.toLowerCase()) : void 0;
+    if (!problem && other !== void 0 && other !== row) problem = `another row of this table is named ${name}`;
+    if (problem) {
+      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
+      return;
+    }
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    await this.host.write(widget, (t) => {
+      const column = rowNameIn(t.rows[row]?.cells ?? [])?.column ?? 0;
+      return setCell(t, row, column, withRowName(t.rows[row]?.cells[column] ?? "", name || void 0));
+    });
+    this.host.focusEditor(widget);
   }
   async nameCell(shownWidget, shownInfo, row, column) {
     const current = nameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
@@ -5458,7 +5569,7 @@ function pasteCells(table, plan, data) {
         return;
       }
       if (row === 0 && cell === "") return;
-      result = setCell(result, row, column, withName(cell, nameOf(current)));
+      result = setCell(result, row, column, keepNames(cell, current));
     });
   });
   return { table: result, skipped };
@@ -5662,7 +5773,7 @@ var Selection = class {
     const cells = this.cells();
     if (!widget || !info || !cells) return;
     const refs = cells.flat().map((cell) => this.host.cellRef(info, cell)).filter((ref) => ref !== void 0 && ref.row > 0);
-    const emptied = (table, ref) => setCell(table, ref.row, ref.column, withName("", nameOf(table.rows[ref.row]?.cells[ref.column] ?? "")));
+    const emptied = (table, ref) => setCell(table, ref.row, ref.column, keepNames("", table.rows[ref.row]?.cells[ref.column] ?? ""));
     await this.host.write(widget, (t) => refs.reduce(emptied, t));
   }
   /**

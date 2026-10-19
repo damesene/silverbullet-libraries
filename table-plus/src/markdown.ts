@@ -218,7 +218,7 @@ export function parseMetaRow(line: string): TableMeta | undefined {
     meta[match[1]!] = unescapeMetaValue(match[2] ?? match[3] ?? "");
   }
   // A formula cell with an empty result (formula/), or an empty named cell, not the table's metadata
-  if ("f" in meta || "n" in meta) return undefined;
+  if ("f" in meta || "n" in meta || "r" in meta) return undefined;
   return meta;
 }
 
