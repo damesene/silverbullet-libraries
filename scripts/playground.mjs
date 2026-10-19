@@ -3,6 +3,8 @@
 import * as esbuild from "esbuild";
 
 const port = Number(process.env.PORT ?? 8000);
+// HOST=0.0.0.0 serves it to the local network too (e.g. to try it on a phone)
+const host = process.env.HOST ?? "127.0.0.1";
 
 const ctx = await esbuild.context({
   entryPoints: ["playground/playground.ts"],
@@ -16,5 +18,5 @@ const ctx = await esbuild.context({
   logLevel: "info",
 });
 await ctx.watch();
-await ctx.serve({ servedir: "playground", host: "127.0.0.1", port });
+await ctx.serve({ servedir: "playground", host, port });
 console.log(`Playground: http://localhost:${port}/`);
