@@ -1,11 +1,12 @@
 // The row and column grips: shown next to the hovered cell's row and above its
 // column, quiet bars of a bounded length (a tall row or a wide column does not
 // stretch them); hovering one tints its row or column, a click opens the row or
-// column menu, a drag moves the row or column.
+// column menu, a drag moves the row or column. Select rows (columns) in a menu
+// selects from that row to the one under the pointer, until a click in the table.
 import type { Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import {
-  deleteColumnAt,
-  deleteRowAt,
+  deleteColumnsAt,
+  deleteRowsAt,
   duplicateRowAt,
   insertColumnWith,
   insertRowWith,
@@ -51,8 +52,23 @@ export class Grips implements Feature {
   private readonly rowGrip: HTMLButtonElement;
   private readonly columnGrip: HTMLButtonElement;
   private target: HandleTarget | undefined;
-  private menu: { element: HTMLElement; axis: Axis; widget: HTMLElement; anchor: HTMLElement } | undefined;
+  /**
+   * The open menu, for the row (column) `line`. It stays where its grip was,
+   * kept beside that row's first cell (the column's header) by `anchor`, while
+   * the grips go on following the pointer: a click on another opens its menu instead.
+   */
+  private menu:
+    | {
+        element: HTMLElement;
+        axis: Axis;
+        widget: HTMLElement;
+        line: number;
+        anchor: { readonly cell: HTMLElement; readonly dx: number; readonly dy: number; readonly width: number; readonly height: number };
+      }
+    | undefined;
   private dragging = false;
+  // Select rows (columns): from the row (column) `from` to the one under the pointer, in the table `key`
+  private picking: { readonly key: string; readonly axis: Axis; readonly from: number } | undefined;
 
   constructor(private readonly host: TableHost) {
     this.rowGrip = this.gripButton("tp-handle tp-grip", "Row: click for actions, drag to move");
@@ -88,6 +104,7 @@ export class Grips implements Feature {
   }
 
   stop(): void {
+    this.endPicking();
     this.closeMenu(false);
     this.rowGrip.remove();
     this.columnGrip.remove();
@@ -97,18 +114,30 @@ export class Grips implements Feature {
     return this.rowGrip.contains(node) || this.columnGrip.contains(node) || !!this.menu?.element.contains(node);
   }
 
-  // While a grip is dragged the hover controls stay; a menu keeps them too
+  // While a grip is dragged the hover controls stay; with a menu open, or rows being selected, the grips stay in its table
   pointerBusy(): "drag" | "menu" | undefined {
-    return this.dragging ? "drag" : this.menu ? "menu" : undefined;
+    return this.dragging ? "drag" : this.menu || this.picking ? "menu" : undefined;
   }
 
   // A press outside an open menu closes it
   mouseDown(e: MouseEvent): boolean {
+    if (this.picking && this.pickedBy(e)) return true;
     if (this.menu && e.target instanceof Node && !this.host.isFloating(e.target)) this.closeMenu(false);
     return false;
   }
 
   keyDown(e: KeyboardEvent): boolean {
+    const picking = this.picking;
+    // Esc while selecting rows (columns): just the one it started from
+    if (e.key === "Escape" && picking) {
+      e.preventDefault();
+      e.stopPropagation();
+      const widget = this.host.widgetForKey(picking.key);
+      const info = widget && this.host.infoOf(widget);
+      if (info) this.selectLines(info, picking.axis, picking.from, picking.from);
+      this.endPicking();
+      return true;
+    }
     if (e.key !== "Escape" || !this.menu) return false;
     e.preventDefault();
     e.stopPropagation();
@@ -121,6 +150,11 @@ export class Grips implements Feature {
     const ref = this.host.cellRef(info, cell);
     if (!ref) return;
     this.target = { widget, info, column: ref.column, ...(ref.row > 0 ? { row: ref.row } : {}) };
+    const picking = this.picking;
+    // Selecting rows: the header is not one of them
+    if (picking?.key === info.key && (picking.axis === "column" || ref.row > 0)) {
+      this.selectLines(info, picking.axis, picking.from, picking.axis === "row" ? ref.row : ref.column);
+    }
     const tr = cell.parentElement as HTMLTableRowElement;
     // The part of a wide table in view: the table itself may be scrolled sideways
     const shown = this.host.shownRect(widget, info);
@@ -147,6 +181,10 @@ export class Grips implements Feature {
       // Half on the header's top edge, half in the header cell
       this.host.place(this.columnGrip, center - length / 2, h.top - GRIP_THICKNESS / 2);
     }
+    // A grip shows it has the menu open only on the menu's row (column)
+    const menu = this.menu;
+    this.rowGrip.classList.toggle("tp-active", menu?.axis === "row" && menu.line === ref.row);
+    this.columnGrip.classList.toggle("tp-active", menu?.axis === "column" && menu.line === ref.column);
     this.positionMenu();
   }
 
@@ -204,10 +242,15 @@ export class Grips implements Feature {
       cleanup();
       drag?.finish(false);
     };
+    const extend = e.shiftKey;
     const up = () => {
       cleanup();
       if (drag) drag.finish(true);
-      else {
+      else if (extend) {
+        // Shift+click: rows (columns) selected as with Select rows, on from those selected
+        this.closeMenu(false, false);
+        this.pickFrom(target, axis);
+      } else {
         // A click selects the row (column) and opens its menu
         this.select(target, axis);
         this.toggleMenu(axis, target, grip);
@@ -234,13 +277,97 @@ export class Grips implements Feature {
   /** The whole row (column) selected, as shown: the header and the rows a filter leaves */
   private select(target: HandleTarget, axis: Axis): void {
     const { info } = target;
+    const line = axis === "row" ? target.row! : target.column;
+    // A row of the whole rows selected: they stay selected, for its menu (Delete 3 rows)
+    const lines = this.wholeLinesSelected(info, axis);
+    if (lines.length > 1 && lines.includes(line)) return;
+    this.selectLines(info, axis, line, line);
+  }
+
+  /** The rows (columns) selected whole, as shown; none when the selection is not whole rows (columns) */
+  private wholeLinesSelected(info: WidgetInfo, axis: Axis): number[] {
+    const cells = this.host.selectedCells(info);
+    const lines = [...new Set(cells.map((ref) => (axis === "row" ? ref.row : ref.column)))];
+    const whole = axis === "row" ? info.columns : this.host.shownRows(info).length;
+    return lines.length > 0 && cells.length === lines.length * whole && (axis === "column" || !lines.includes(0)) ? lines : [];
+  }
+
+  /** Shift+click on a grip: selecting rows (columns) from the far end of those selected whole, else from this one */
+  private pickFrom(target: HandleTarget, axis: Axis): void {
+    const line = axis === "row" ? target.row! : target.column;
+    const lines = this.wholeLinesSelected(target.info, axis);
+    const from = lines.length === 0 ? line : lines[0] === line ? lines[lines.length - 1]! : lines[0]!;
+    this.startPicking(target.info, axis, from);
+    this.selectLines(target.info, axis, from, line);
+  }
+
+  /** Selects the rows (columns) from `from` to `to`, as shown; a column with its header and every row shown */
+  private selectLines(info: WidgetInfo, axis: Axis, from: number, to: number): void {
     if (axis === "row") {
-      this.host.selectCells(info, { row: target.row!, column: 0 }, { row: target.row!, column: info.columns - 1 });
+      this.host.selectCells(info, { row: from, column: 0 }, { row: to, column: info.columns - 1 });
       return;
     }
     const shown = this.host.shownRows(info);
     const last = Number(shown[shown.length - 1]?.dataset.tpRow ?? 0);
-    this.host.selectCells(info, { row: 0, column: target.column }, { row: last, column: target.column });
+    this.host.selectCells(info, { row: 0, column: from }, { row: last, column: to });
+  }
+
+  // ---- Select rows (columns): the pointer picks the other end, a click ends it ----------
+
+  private startPicking(info: WidgetInfo, axis: Axis, line: number): void {
+    // A cell being edited is saved first: the pointer selects now
+    const taken = this.host.takeEditor();
+    if (taken) void this.host.write(taken.widget, taken.save);
+    this.picking = { key: info.key, axis, from: line };
+    this.host.doc.body.classList.add(axis === "row" ? "tp-picking-rows" : "tp-picking-columns");
+    this.selectLines(info, axis, line, line);
+    void this.host.bridge.flash(
+      `Table Plus: move to the last ${axis} to select and click in the table; Esc keeps just this one`,
+      "info",
+    );
+  }
+
+  /**
+   * A press while selecting rows (columns): in the table, the selection ends at
+   * the row (column) pressed (taken: no cell editor opens); elsewhere it just ends
+   */
+  private pickedBy(e: MouseEvent): boolean {
+    const picking = this.picking!;
+    this.endPicking();
+    const widget = this.host.widgetForKey(picking.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!info || e.button !== 0 || !(e.target instanceof Element)) return false;
+    const cell = this.host.tableCellOf(info, e.target);
+    const ref = cell && this.host.cellRef(info, cell);
+    if (!ref) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    const to = picking.axis === "row" ? (ref.row > 0 ? ref.row : undefined) : ref.column;
+    if (to !== undefined) this.selectLines(info, picking.axis, picking.from, to);
+    return true;
+  }
+
+  private endPicking(): void {
+    if (!this.picking) return;
+    this.picking = undefined;
+    this.host.doc.body.classList.remove("tp-picking-rows", "tp-picking-columns");
+  }
+
+  private selectEntry(info: WidgetInfo, axis: Axis, line: number): MenuEntry {
+    return {
+      kind: "item",
+      label: axis === "row" ? "Select rows" : "Select columns",
+      icon: axis === "row" ? ICONS.selectRows : ICONS.selectColumns,
+      hint: `Select from this ${axis} to the one you click next`,
+      run: this.runAndClose(() => this.startPicking(info, axis, line)),
+    };
+  }
+
+  /** The rows (columns) selected, when the selection holds this one; else just it */
+  private selectedLines(info: WidgetInfo, axis: Axis, line: number): number[] {
+    const cells = this.host.selectedCells(info);
+    const lines = [...new Set(cells.map((ref) => (axis === "row" ? ref.row : ref.column)))].filter((l) => axis === "column" || l > 0);
+    return lines.includes(line) ? lines : [line];
   }
 
   private beginDrag(target: HandleTarget, axis: Axis): { move: (e: PointerEvent) => void; finish: (commit: boolean) => void } {
@@ -352,12 +479,14 @@ export class Grips implements Feature {
 
   // ---- menus ----------------------------------------------------------------------
 
-  private toggleMenu(axis: Axis, target: HandleTarget, anchor: HTMLElement): void {
-    if (this.menu?.axis === axis) {
+  // A click on the grip whose menu is open closes it; on another grip, that grip's menu opens instead
+  private toggleMenu(axis: Axis, target: HandleTarget, grip: HTMLElement): void {
+    const line = axis === "row" ? target.row! : target.column;
+    if (this.menu?.axis === axis && this.menu.line === line) {
       this.closeMenu(true);
       return;
     }
-    this.closeMenu(false);
+    this.closeMenu(false, false);
     const { doc } = this.host;
     const { widget, info } = target;
     const element =
@@ -371,9 +500,12 @@ export class Grips implements Feature {
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     doc.body.append(element);
-    this.menu = { element, axis, widget, anchor };
+    const g = grip.getBoundingClientRect();
+    const cell = this.cellsOf(target, axis)[0] ?? grip;
+    const c = cell.getBoundingClientRect();
+    this.menu = { element, axis, widget, line, anchor: { cell, dx: g.left - c.left, dy: g.top - c.top, width: g.width, height: g.height } };
     this.positionMenu();
-    anchor.classList.add("tp-active");
+    grip.classList.add("tp-active");
     focusMenu(element);
   }
 
@@ -406,8 +538,13 @@ export class Grips implements Feature {
   private positionMenu(): void {
     if (!this.menu) return;
     const { element, axis, anchor } = this.menu;
+    // The table rendered anew: the menu stays where it is
+    if (!anchor.cell.isConnected) return;
     const win = this.host.doc.defaultView!;
-    const a = anchor.getBoundingClientRect();
+    const c = anchor.cell.getBoundingClientRect();
+    const left0 = c.left + anchor.dx;
+    const top0 = c.top + anchor.dy;
+    const a = { left: left0, top: top0, right: left0 + anchor.width, bottom: top0 + anchor.height, width: anchor.width };
     const m = element.getBoundingClientRect();
     let left = axis === "row" ? a.right + 4 : a.left + a.width / 2 - m.width / 2;
     let top = axis === "row" ? a.top - 6 : a.bottom + 4;
@@ -417,7 +554,8 @@ export class Grips implements Feature {
     element.style.top = `${Math.round(top)}px`;
   }
 
-  private closeMenu(refocus: boolean): void {
+  // `hide`: the grips go too (not when another grip's menu opens in its place)
+  private closeMenu(refocus: boolean, hide = true): void {
     const menu = this.menu;
     if (!menu) return;
     this.menu = undefined;
@@ -425,7 +563,7 @@ export class Grips implements Feature {
     menu.element.remove();
     this.rowGrip.classList.remove("tp-active");
     this.columnGrip.classList.remove("tp-active");
-    this.hideGrips();
+    if (hide) this.hideGrips();
     if (refocus && hadFocus) this.host.focusEditor(menu.widget);
   }
 
@@ -509,8 +647,26 @@ export class Grips implements Feature {
         disabled: pinBlocked("bottom"),
       },
       { kind: "separator" },
-      { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => deleteRowAt(host, widget, info, row)) },
+      this.selectEntry(info, "row", row),
+      this.deleteEntry(widget, info, "row", row),
     ];
+  }
+
+  /** Delete row (column), or the rows (columns) selected when they hold it */
+  private deleteEntry(widget: HTMLElement, info: WidgetInfo, axis: Axis, line: number): MenuEntry {
+    const lines = this.selectedLines(info, axis, line);
+    const many = lines.length > 1;
+    const run = this.runAndClose(() => {
+      void (axis === "row" ? deleteRowsAt(this.host, widget, info, lines) : deleteColumnsAt(this.host, widget, info, lines));
+    });
+    return {
+      kind: "item",
+      label: axis === "row" ? (many ? `Delete ${lines.length} rows` : "Delete row") : many ? `Delete ${lines.length} columns` : "Delete column",
+      icon: ICONS.trash,
+      danger: true,
+      run,
+      ...(axis === "column" && lines.length >= info.columns ? { disabled: "A table needs at least one column" } : {}),
+    };
   }
 
   /** Entries features add at the top of a menu (naming), before a separator, closing the menu when run */
@@ -645,14 +801,8 @@ export class Grips implements Feature {
         disabled: pinBlocked("right"),
       },
       { kind: "separator" },
-      {
-        kind: "item",
-        label: "Delete column",
-        icon: ICONS.trash,
-        danger: true,
-        run: act(() => deleteColumnAt(host, widget, info, column)),
-        disabled: info.columns <= 1 ? "A table needs at least one column" : undefined,
-      },
+      this.selectEntry(info, "column", column),
+      this.deleteEntry(widget, info, "column", column),
     );
     return entries;
   }

@@ -50,6 +50,103 @@ describe("Row and column grips", () => {
     expect(Array.from(editor.querySelectorAll(".tp-selected"))).toEqual([cell(0, 1), cell(1, 1), cell(2, 1), cell(3, 1)]);
   });
 
+  it("extends the selection with Shift+click on a grip, and deletes the rows selected", async () => {
+    const PINNED = "| A | B |\n|---|---|\n| 1 | a |\n| 2 | b |\n| 3 | c |\n| 4 | d |\n| <meta pin-bottom=\"1\"> |\n";
+    await setup(PINNED);
+    openMenu(1, "row");
+    // With the first row's menu open, the grip follows the pointer: Shift+click on the third row's, rows 1 to 3
+    cell(3, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const grip = document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+    expect(grip.classList.contains("tp-active")).toBe(false);
+    expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 1");
+    grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, shiftKey: true }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    // Rows picked as with Select rows: no menu, the pointer moves the end, a click in the table ends it
+    expect(editor.querySelectorAll(".tp-selected").length).toBe(6);
+    expect(document.querySelector(".tp-menu")).toBeNull();
+    cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(editor.querySelectorAll(".tp-selected").length).toBe(4);
+    clickOn(cell(3, 1));
+    expect(editor.querySelectorAll(".tp-selected").length).toBe(6);
+    item(openMenu(2, "row"), "Delete 3 rows").click();
+    await flush();
+    // The row pinned to the bottom stays pinned
+    expect(text).toBe("| A | B |\n|---|---|\n| 4 | d |\n| <meta pin-bottom=\"1\"> |\n");
+  });
+
+  it("selects rows (columns) from the menu's one to the one under the pointer, until a click", async () => {
+    await setup(PAGE);
+    const selected = () => Array.from(editor.querySelectorAll(".tp-selected"));
+    item(openMenu(1, "row"), "Select rows").click();
+    expect(selected()).toEqual([cell(1, 0), cell(1, 1)]);
+    // The header is not a row to select: the selection stays
+    cell(0, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(selected().length).toBe(2);
+    cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(selected().length).toBe(4);
+    // A click in the table ends it there, without editing the cell
+    clickOn(cell(3, 1));
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+    expect(selected().length).toBe(6);
+    cell(1, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(selected().length).toBe(6);
+    expect(item(openMenu(2, "row"), "Delete 3 rows")).toBeDefined();
+
+    // Columns; Esc keeps just the first
+    item(openMenu(1, "column", 0), "Select columns").click();
+    cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(selected().length).toBe(8);
+    key(editor, "Escape");
+    expect(selected()).toEqual([cell(0, 0), cell(1, 0), cell(2, 0), cell(3, 0)]);
+    cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(selected().length).toBe(4);
+  });
+
+  it("deletes whole rows (columns) with a second Delete, once they are empty", async () => {
+    await setup("| A | B | C |\n|---|---|---|\n| 1 | a | x |\n| 2 | b | y |\n");
+    openMenu(1, "row");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    key(editor, "Delete");
+    await flush();
+    expect(text).toBe("| A | B | C |\n|---|---|---|\n| | | |\n| 2 | b | y |\n");
+    await controller.scan();
+    key(editor, "Delete");
+    await flush();
+    expect(text).toBe("| A | B | C |\n|---|---|---|\n| 2 | b | y |\n");
+    // A column: its cells emptied, then the column deleted (its header name does not count)
+    await controller.scan();
+    openMenu(1, "column", 2);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    key(editor, "Delete");
+    await flush();
+    expect(text).toBe("| A | B | C |\n|---|---|---|\n| 2 | b | |\n");
+    await controller.scan();
+    key(editor, "Delete");
+    await flush();
+    expect(text).toBe("| A | B |\n|---|---|\n| 2 | b |\n");
+  });
+
+  it("asks once before deleting columns that hold names", async () => {
+    const NAMED = '| Name | Price | Note |\n|---|---|---|\n| <meta n="pear"> | | a |\n| | <meta cn="fig_price"> | b |\n';
+    await setup(NAMED);
+    const questions: string[] = [];
+    (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+      questions.push(message);
+      return true;
+    };
+    openMenu(1, "column", 0);
+    openMenu(1, "column", 1);
+    // openMenu(…) clicks without Shift: extend by hand
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    controller.selectCells(controller.infoOf(editor.querySelector(".sb-table-widget")!)!, { row: 0, column: 0 }, { row: 2, column: 1 });
+    key(editor, "Delete");
+    await flush();
+    expect(questions).toEqual([
+      "Deleting these columns also removes the name of the row pear: formulas that use it show #REF! or #NAME?, and the name of the cell fig_price: formulas that use it show #REF! or #NAME?. Delete the 2 columns? Ctrl+Z brings it back.",
+    ]);
+    expect(text).toBe("| Note |\n|---|\n| a |\n| b |\n");
+  });
+
   it("offers pinning only with the metadata setting", async () => {
     await setup(PAGE);
     await flush();

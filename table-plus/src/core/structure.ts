@@ -72,9 +72,19 @@ export function duplicateRowAt(host: TableHost, widget: HTMLElement, info: Widge
 }
 
 export function deleteRowAt(host: TableHost, widget: HTMLElement, info: WidgetInfo, row: number): Promise<WriteResult> {
-  return host.write(widget, (t) => deleteRow(t, row), {
-    pins: deleteRowPins(info.pins, info.rows, row),
-    rowMap: (r) => (r === row ? undefined : r > row ? r - 1 : r),
+  return deleteRowsAt(host, widget, info, [row]);
+}
+
+/** Deletes rows (of the markdown; the header is not one of them), as one edit */
+export function deleteRowsAt(host: TableHost, widget: HTMLElement, info: WidgetInfo, rows: readonly number[]): Promise<WriteResult> {
+  const doomed = [...new Set(rows.filter((r) => r > 0))].sort((a, b) => b - a);
+  if (doomed.length === 0) return Promise.resolve("unchanged");
+  // From the last up: the rows above keep their places, the pins count down zone by zone
+  let pins = info.pins;
+  doomed.forEach((row, i) => (pins = deleteRowPins(pins, info.rows - i, row)));
+  return host.write(widget, (t) => doomed.reduce((table, row) => deleteRow(table, row), t), {
+    pins,
+    rowMap: (r) => (doomed.includes(r) ? undefined : r - doomed.filter((d) => d < r).length),
   });
 }
 
@@ -99,15 +109,30 @@ export function insertColumnWith(host: TableHost, widget: HTMLElement, info: Wid
  * Deletes a column. What the features keep in it that goes with it (names of
  * rows and cells, which formulas use) is asked first.
  */
-export async function deleteColumnAt(host: TableHost, widget: HTMLElement, info: WidgetInfo, column: number): Promise<WriteResult> {
-  const lost = host.columnDeleteWarnings(info, column);
+export function deleteColumnAt(host: TableHost, widget: HTMLElement, info: WidgetInfo, column: number): Promise<WriteResult> {
+  return deleteColumnsAt(host, widget, info, [column]);
+}
+
+/** Deletes columns, as one edit; at least one stays (a table needs one) */
+export async function deleteColumnsAt(host: TableHost, widget: HTMLElement, info: WidgetInfo, columns: readonly number[]): Promise<WriteResult> {
+  const doomed = [...new Set(columns)].sort((a, b) => b - a);
+  if (doomed.length === 0) return "unchanged";
+  if (doomed.length >= info.columns) {
+    void host.bridge.flash("Table Plus: a table keeps at least one column", "info");
+    return "unchanged";
+  }
+  // Left to right, as the columns are shown
+  const lost = [...doomed].reverse().flatMap((column) => host.columnDeleteWarnings(info, column));
   if (lost.length) {
-    const question = `Deleting this column also removes ${lost.join(", and ")}. Delete the column? Ctrl+Z brings it back.`;
+    const what = doomed.length === 1 ? "this column" : "these columns";
+    const question = `Deleting ${what} also removes ${lost.join(", and ")}. Delete ${doomed.length === 1 ? "the column" : `the ${doomed.length} columns`}? Ctrl+Z brings it back.`;
     if (!(await host.ask(question))) return "unchanged";
   }
-  return host.write(widget, (t) => deleteColumn(t, column), {
-    columnMap: (c) => (c === column ? undefined : c > column ? c - 1 : c),
-    pins: deleteColumnPins(info.pins, info.columns, column),
+  let pins = info.pins;
+  doomed.forEach((column, i) => (pins = deleteColumnPins(pins, info.columns - i, column)));
+  return host.write(widget, (t) => doomed.reduce((table, column) => deleteColumn(table, column), t), {
+    columnMap: (c) => (doomed.includes(c) ? undefined : c - doomed.filter((d) => d < c).length),
+    pins,
   });
 }
 

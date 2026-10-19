@@ -63,6 +63,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * Cells copy what they show: a formula's result, a link's text.
 * The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
 * **Delete** empties the selected cells, formulas included, as one edit (Ctrl+Z brings them back). Header cells keep their names: a column needs one. Names of rows and cells stay with their cells.
+* **Delete whole rows or columns**: select them (click a row's or column's grip; for more, Shift+click a grip or *Select rows* in its menu, see [[#Rows and columns]]), then Delete: the first press empties them, a second deletes the rows (columns) once they are empty. A column is deleted only when it is empty in every row, also the rows a filter hides. *Delete N rows* and *Delete N columns* in the cell menu or the grip menu delete them right away.
 * Esc or a click elsewhere ends the selection.
 * **Copy as CSV** in the ⋯ menu of the table's toolbar (the `export` module) copies the whole table as CSV (commas between cells, quotes where a cell needs them): its header and its rows as shown, sorted and filtered, cells as Ctrl+C copies them.
 
@@ -77,6 +78,7 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 | *Clear* | Empties the cell (the cells selected) as Delete does; a header keeps its name. |
 | *Filter: = value* | Shows only the rows with this value in this column (with the values of the cells selected in one column: any of them). A column filtered by values already gets this one added: `=open\|blocked`. |
 | *Filter: ≠ value* | Hides the rows with this value in this column. |
+| *Delete N rows*, *Delete N columns* | On a selection: deletes the rows (columns) its cells are in. A table keeps at least one column. |
 
 Each comes from a module (`names`, `selection`, `filters`, see [[#Settings]]): a module turned off leaves its items out, and with none left the right click gives the browser's menu.
 
@@ -345,8 +347,9 @@ Numbers and dates are written as your browser's language writes them.
 Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; moving the pointer along the left of the table (above it) takes them from row to row (column to column). Hovering a grip tints its row or column. While a cell is edited, they stay with it.
 
 * **Click a grip**: the row (column) is selected, for Ctrl+C or Delete, and its menu opens:
-  * Row: insert above or below, duplicate, move up or down, delete.
-  * Column: sort, filter, type (see [[#Column types]]), align (left, center, right), insert left or right, move, delete.
+  * Row: insert above or below, duplicate, move up or down, select rows, delete.
+  * Column: sort, filter, type (see [[#Column types]]), align (left, center, right), insert left or right, move, select columns, delete.
+* **Select rows** (*Select columns*) in the menu: from that row, the rows up to the one under the pointer are selected as you move it; a click anywhere in the table ends the selection there (without editing the cell). Esc keeps just the first row. **Shift+click on a grip** does the same without the menu: from the first of the rows already selected, else from that row. A click on the grip of a selected row then opens its menu with *Delete N rows*.
 * **Drag a grip** to move the row or column: a copy follows the pointer and the others move aside to show where it goes; near the top or bottom of the view the page scrolls. Esc cancels the drag.
 * **Insert with +**: with a mouse or a pen, hover the left edge of the table on the border between two rows, or the top edge above the header on the border between two columns: a **+** inserts a row (column) there. On the last border it adds one at the end. A new column is named *Column N*, ready to rename. On a touch screen, insert from the row's or column's menu.
 * Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.
@@ -436,7 +439,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `pageLinks` | Formulas can refer to tables and named cells on other pages (`[[Prices]]fruit!B2`), which Table Plus reads for them. Off: it reads no other page; formulas that refer to one keep the results they have (the formulas using them too), a new one shows `#REF!`. It needs the `formulas` module. See [[#Tables on other pages]]. |
 | `filters` | Rows can be filtered: the toolbar's filter icon shows a filter field under each header, *Filter* in a column menu opens that column's filter, *Filter: = value* in the cell menu filters by a cell's value; with *Store table metadata* the filters are stored in the table. Its setting `smart` (default `true`): fields understand `>10`, `/pattern/`, `=text`, `a\|b` and `!filter`; `false`: everything typed is text to find. Off: no filtering; filters stored in a table are kept but not used. See [[#Filtering]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
-| `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them; *Copy* and *Clear* in the cell menu. |
+| `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them (whole rows or columns already empty: deletes them); *Copy*, *Clear* and *Delete N rows / columns* in the cell menu. |
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
@@ -1279,6 +1282,11 @@ body.tp-navigating .sb-table-widget.tp-table * {
 /* What the hovered grip acts on */
 .sb-table-widget.tp-table .tp-handle-hover {
   box-shadow: inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 10%, transparent);
+}
+/* Select rows (columns): the pointer picks the last one */
+body.tp-picking-rows .sb-table-widget.tp-table :is(td, th),
+body.tp-picking-columns .sb-table-widget.tp-table :is(td, th) {
+  cursor: cell;
 }
 .tp-insert {
   /* Over its line */

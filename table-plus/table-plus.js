@@ -701,10 +701,14 @@ function duplicateRowAt(host, widget, info, row) {
     { pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
   );
 }
-function deleteRowAt(host, widget, info, row) {
-  return host.write(widget, (t) => deleteRow(t, row), {
-    pins: deleteRowPins(info.pins, info.rows, row),
-    rowMap: (r) => r === row ? void 0 : r > row ? r - 1 : r
+function deleteRowsAt(host, widget, info, rows) {
+  const doomed = [...new Set(rows.filter((r) => r > 0))].sort((a, b) => b - a);
+  if (doomed.length === 0) return Promise.resolve("unchanged");
+  let pins = info.pins;
+  doomed.forEach((row, i) => pins = deleteRowPins(pins, info.rows - i, row));
+  return host.write(widget, (t) => doomed.reduce((table, row) => deleteRow(table, row), t), {
+    pins,
+    rowMap: (r) => doomed.includes(r) ? void 0 : r - doomed.filter((d) => d < r).length
   });
 }
 function moveRowTo(host, widget, info, from, asked) {
@@ -720,15 +724,24 @@ function insertColumnWith(host, widget, info, at) {
     pins: insert.pins
   });
 }
-async function deleteColumnAt(host, widget, info, column) {
-  const lost = host.columnDeleteWarnings(info, column);
+async function deleteColumnsAt(host, widget, info, columns) {
+  const doomed = [...new Set(columns)].sort((a, b) => b - a);
+  if (doomed.length === 0) return "unchanged";
+  if (doomed.length >= info.columns) {
+    void host.bridge.flash("Table Plus: a table keeps at least one column", "info");
+    return "unchanged";
+  }
+  const lost = [...doomed].reverse().flatMap((column) => host.columnDeleteWarnings(info, column));
   if (lost.length) {
-    const question = `Deleting this column also removes ${lost.join(", and ")}. Delete the column? Ctrl+Z brings it back.`;
+    const what = doomed.length === 1 ? "this column" : "these columns";
+    const question = `Deleting ${what} also removes ${lost.join(", and ")}. Delete ${doomed.length === 1 ? "the column" : `the ${doomed.length} columns`}? Ctrl+Z brings it back.`;
     if (!await host.ask(question)) return "unchanged";
   }
-  return host.write(widget, (t) => deleteColumn(t, column), {
-    columnMap: (c) => c === column ? void 0 : c > column ? c - 1 : c,
-    pins: deleteColumnPins(info.pins, info.columns, column)
+  let pins = info.pins;
+  doomed.forEach((column, i) => pins = deleteColumnPins(pins, info.columns - i, column));
+  return host.write(widget, (t) => doomed.reduce((table, column) => deleteColumn(table, column), t), {
+    columnMap: (c) => doomed.includes(c) ? void 0 : c - doomed.filter((d) => d < c).length,
+    pins
   });
 }
 function moveColumnTo(host, widget, info, from, asked) {
@@ -1201,6 +1214,8 @@ var ICONS = {
   columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
   columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
   duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),
+  selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
   arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
   arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
@@ -5602,8 +5617,15 @@ var Grips = class {
   rowGrip;
   columnGrip;
   target;
+  /**
+   * The open menu, for the row (column) `line`. It stays where its grip was,
+   * kept beside that row's first cell (the column's header) by `anchor`, while
+   * the grips go on following the pointer: a click on another opens its menu instead.
+   */
   menu;
   dragging = false;
+  // Select rows (columns): from the row (column) `from` to the one under the pointer, in the table `key`
+  picking;
   start() {
     this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
     this.columnGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "column"));
@@ -5629,6 +5651,7 @@ var Grips = class {
     return [info.table.rows[0], ...this.host.bodyRows(info)].flatMap((tr) => tr.cells[target.column] ?? []);
   }
   stop() {
+    this.endPicking();
     this.closeMenu(false);
     this.rowGrip.remove();
     this.columnGrip.remove();
@@ -5636,16 +5659,27 @@ var Grips = class {
   owns(node) {
     return this.rowGrip.contains(node) || this.columnGrip.contains(node) || !!this.menu?.element.contains(node);
   }
-  // While a grip is dragged the hover controls stay; a menu keeps them too
+  // While a grip is dragged the hover controls stay; with a menu open, or rows being selected, the grips stay in its table
   pointerBusy() {
-    return this.dragging ? "drag" : this.menu ? "menu" : void 0;
+    return this.dragging ? "drag" : this.menu || this.picking ? "menu" : void 0;
   }
   // A press outside an open menu closes it
   mouseDown(e) {
+    if (this.picking && this.pickedBy(e)) return true;
     if (this.menu && e.target instanceof Node && !this.host.isFloating(e.target)) this.closeMenu(false);
     return false;
   }
   keyDown(e) {
+    const picking = this.picking;
+    if (e.key === "Escape" && picking) {
+      e.preventDefault();
+      e.stopPropagation();
+      const widget = this.host.widgetForKey(picking.key);
+      const info = widget && this.host.infoOf(widget);
+      if (info) this.selectLines(info, picking.axis, picking.from, picking.from);
+      this.endPicking();
+      return true;
+    }
     if (e.key !== "Escape" || !this.menu) return false;
     e.preventDefault();
     e.stopPropagation();
@@ -5657,6 +5691,10 @@ var Grips = class {
     const ref = this.host.cellRef(info, cell);
     if (!ref) return;
     this.target = { widget, info, column: ref.column, ...ref.row > 0 ? { row: ref.row } : {} };
+    const picking = this.picking;
+    if (picking?.key === info.key && (picking.axis === "column" || ref.row > 0)) {
+      this.selectLines(info, picking.axis, picking.from, picking.axis === "row" ? ref.row : ref.column);
+    }
     const tr = cell.parentElement;
     const shown = this.host.shownRect(widget, info);
     const rearranged = this.host.rearranged(info);
@@ -5678,6 +5716,9 @@ var Grips = class {
       const center = Math.max(shown.left + length / 2, Math.min(h.left + h.width / 2, shown.right - length / 2));
       this.host.place(this.columnGrip, center - length / 2, h.top - GRIP_THICKNESS / 2);
     }
+    const menu = this.menu;
+    this.rowGrip.classList.toggle("tp-active", menu?.axis === "row" && menu.line === ref.row);
+    this.columnGrip.classList.toggle("tp-active", menu?.axis === "column" && menu.line === ref.column);
     this.positionMenu();
   }
   /** No cell is hovered (editing, or the table left the view): the grips go, and with `closeMenus` an open menu */
@@ -5728,10 +5769,14 @@ var Grips = class {
       cleanup();
       drag?.finish(false);
     };
+    const extend = e.shiftKey;
     const up = () => {
       cleanup();
       if (drag) drag.finish(true);
-      else {
+      else if (extend) {
+        this.closeMenu(false, false);
+        this.pickFrom(target, axis);
+      } else {
         this.select(target, axis);
         this.toggleMenu(axis, target, grip);
       }
@@ -5756,13 +5801,86 @@ var Grips = class {
   /** The whole row (column) selected, as shown: the header and the rows a filter leaves */
   select(target, axis) {
     const { info } = target;
+    const line = axis === "row" ? target.row : target.column;
+    const lines = this.wholeLinesSelected(info, axis);
+    if (lines.length > 1 && lines.includes(line)) return;
+    this.selectLines(info, axis, line, line);
+  }
+  /** The rows (columns) selected whole, as shown; none when the selection is not whole rows (columns) */
+  wholeLinesSelected(info, axis) {
+    const cells = this.host.selectedCells(info);
+    const lines = [...new Set(cells.map((ref) => axis === "row" ? ref.row : ref.column))];
+    const whole = axis === "row" ? info.columns : this.host.shownRows(info).length;
+    return lines.length > 0 && cells.length === lines.length * whole && (axis === "column" || !lines.includes(0)) ? lines : [];
+  }
+  /** Shift+click on a grip: selecting rows (columns) from the far end of those selected whole, else from this one */
+  pickFrom(target, axis) {
+    const line = axis === "row" ? target.row : target.column;
+    const lines = this.wholeLinesSelected(target.info, axis);
+    const from = lines.length === 0 ? line : lines[0] === line ? lines[lines.length - 1] : lines[0];
+    this.startPicking(target.info, axis, from);
+    this.selectLines(target.info, axis, from, line);
+  }
+  /** Selects the rows (columns) from `from` to `to`, as shown; a column with its header and every row shown */
+  selectLines(info, axis, from, to) {
     if (axis === "row") {
-      this.host.selectCells(info, { row: target.row, column: 0 }, { row: target.row, column: info.columns - 1 });
+      this.host.selectCells(info, { row: from, column: 0 }, { row: to, column: info.columns - 1 });
       return;
     }
     const shown = this.host.shownRows(info);
     const last = Number(shown[shown.length - 1]?.dataset.tpRow ?? 0);
-    this.host.selectCells(info, { row: 0, column: target.column }, { row: last, column: target.column });
+    this.host.selectCells(info, { row: 0, column: from }, { row: last, column: to });
+  }
+  // ---- Select rows (columns): the pointer picks the other end, a click ends it ----------
+  startPicking(info, axis, line) {
+    const taken = this.host.takeEditor();
+    if (taken) void this.host.write(taken.widget, taken.save);
+    this.picking = { key: info.key, axis, from: line };
+    this.host.doc.body.classList.add(axis === "row" ? "tp-picking-rows" : "tp-picking-columns");
+    this.selectLines(info, axis, line, line);
+    void this.host.bridge.flash(
+      `Table Plus: move to the last ${axis} to select and click in the table; Esc keeps just this one`,
+      "info"
+    );
+  }
+  /**
+   * A press while selecting rows (columns): in the table, the selection ends at
+   * the row (column) pressed (taken: no cell editor opens); elsewhere it just ends
+   */
+  pickedBy(e) {
+    const picking = this.picking;
+    this.endPicking();
+    const widget = this.host.widgetForKey(picking.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!info || e.button !== 0 || !(e.target instanceof Element)) return false;
+    const cell = this.host.tableCellOf(info, e.target);
+    const ref = cell && this.host.cellRef(info, cell);
+    if (!ref) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    const to = picking.axis === "row" ? ref.row > 0 ? ref.row : void 0 : ref.column;
+    if (to !== void 0) this.selectLines(info, picking.axis, picking.from, to);
+    return true;
+  }
+  endPicking() {
+    if (!this.picking) return;
+    this.picking = void 0;
+    this.host.doc.body.classList.remove("tp-picking-rows", "tp-picking-columns");
+  }
+  selectEntry(info, axis, line) {
+    return {
+      kind: "item",
+      label: axis === "row" ? "Select rows" : "Select columns",
+      icon: axis === "row" ? ICONS.selectRows : ICONS.selectColumns,
+      hint: `Select from this ${axis} to the one you click next`,
+      run: this.runAndClose(() => this.startPicking(info, axis, line))
+    };
+  }
+  /** The rows (columns) selected, when the selection holds this one; else just it */
+  selectedLines(info, axis, line) {
+    const cells = this.host.selectedCells(info);
+    const lines = [...new Set(cells.map((ref) => axis === "row" ? ref.row : ref.column))].filter((l) => axis === "column" || l > 0);
+    return lines.includes(line) ? lines : [line];
   }
   beginDrag(target, axis) {
     const { widget, info } = target;
@@ -5863,12 +5981,14 @@ var Grips = class {
     else if (ev.clientY > view.bottom - AUTOSCROLL_EDGE) scroller.scrollTop += AUTOSCROLL_STEP;
   }
   // ---- menus ----------------------------------------------------------------------
-  toggleMenu(axis, target, anchor) {
-    if (this.menu?.axis === axis) {
+  // A click on the grip whose menu is open closes it; on another grip, that grip's menu opens instead
+  toggleMenu(axis, target, grip) {
+    const line = axis === "row" ? target.row : target.column;
+    if (this.menu?.axis === axis && this.menu.line === line) {
       this.closeMenu(true);
       return;
     }
-    this.closeMenu(false);
+    this.closeMenu(false, false);
     const { doc } = this.host;
     const { widget, info } = target;
     const element = axis === "row" ? renderMenu(doc, `Row ${target.row}`, this.rowMenu(widget, info, target.row, target.column)) : renderMenu(
@@ -5879,9 +5999,12 @@ var Grips = class {
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     doc.body.append(element);
-    this.menu = { element, axis, widget, anchor };
+    const g = grip.getBoundingClientRect();
+    const cell = this.cellsOf(target, axis)[0] ?? grip;
+    const c = cell.getBoundingClientRect();
+    this.menu = { element, axis, widget, line, anchor: { cell, dx: g.left - c.left, dy: g.top - c.top, width: g.width, height: g.height } };
     this.positionMenu();
-    anchor.classList.add("tp-active");
+    grip.classList.add("tp-active");
     focusMenu(element);
   }
   /**
@@ -5911,8 +6034,12 @@ var Grips = class {
   positionMenu() {
     if (!this.menu) return;
     const { element, axis, anchor } = this.menu;
+    if (!anchor.cell.isConnected) return;
     const win = this.host.doc.defaultView;
-    const a = anchor.getBoundingClientRect();
+    const c = anchor.cell.getBoundingClientRect();
+    const left0 = c.left + anchor.dx;
+    const top0 = c.top + anchor.dy;
+    const a = { left: left0, top: top0, right: left0 + anchor.width, bottom: top0 + anchor.height, width: anchor.width };
     const m = element.getBoundingClientRect();
     let left = axis === "row" ? a.right + 4 : a.left + a.width / 2 - m.width / 2;
     let top = axis === "row" ? a.top - 6 : a.bottom + 4;
@@ -5921,7 +6048,8 @@ var Grips = class {
     element.style.left = `${Math.round(left)}px`;
     element.style.top = `${Math.round(top)}px`;
   }
-  closeMenu(refocus) {
+  // `hide`: the grips go too (not when another grip's menu opens in its place)
+  closeMenu(refocus, hide = true) {
     const menu = this.menu;
     if (!menu) return;
     this.menu = void 0;
@@ -5929,7 +6057,7 @@ var Grips = class {
     menu.element.remove();
     this.rowGrip.classList.remove("tp-active");
     this.columnGrip.classList.remove("tp-active");
-    this.hideGrips();
+    if (hide) this.hideGrips();
     if (refocus && hadFocus) this.host.focusEditor(menu.widget);
   }
   runAndClose(run) {
@@ -5997,8 +6125,25 @@ var Grips = class {
         disabled: pinBlocked("bottom")
       },
       { kind: "separator" },
-      { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => deleteRowAt(host, widget, info, row)) }
+      this.selectEntry(info, "row", row),
+      this.deleteEntry(widget, info, "row", row)
     ];
+  }
+  /** Delete row (column), or the rows (columns) selected when they hold it */
+  deleteEntry(widget, info, axis, line) {
+    const lines = this.selectedLines(info, axis, line);
+    const many = lines.length > 1;
+    const run = this.runAndClose(() => {
+      void (axis === "row" ? deleteRowsAt(this.host, widget, info, lines) : deleteColumnsAt(this.host, widget, info, lines));
+    });
+    return {
+      kind: "item",
+      label: axis === "row" ? many ? `Delete ${lines.length} rows` : "Delete row" : many ? `Delete ${lines.length} columns` : "Delete column",
+      icon: ICONS.trash,
+      danger: true,
+      run,
+      ...axis === "column" && lines.length >= info.columns ? { disabled: "A table needs at least one column" } : {}
+    };
   }
   /** Entries features add at the top of a menu (naming), before a separator, closing the menu when run */
   topEntries(entries) {
@@ -6117,14 +6262,8 @@ var Grips = class {
         disabled: pinBlocked("right")
       },
       { kind: "separator" },
-      {
-        kind: "item",
-        label: "Delete column",
-        icon: ICONS.trash,
-        danger: true,
-        run: act(() => deleteColumnAt(host, widget, info, column)),
-        disabled: info.columns <= 1 ? "A table needs at least one column" : void 0
-      }
+      this.selectEntry(info, "column", column),
+      this.deleteEntry(widget, info, "column", column)
     );
     return entries;
   }
@@ -6798,6 +6937,9 @@ var Selection = class {
     this.selection = { key: info.key, anchor, focus };
     this.show();
   }
+  selected(info) {
+    return this.selection?.key === info.key ? this.refs(info) : void 0;
+  }
   /** Copy and Clear in the menu of a cell or of the cells selected */
   cellMenuEntries(widget, info, cells) {
     const body = cells.filter((ref) => ref.row > 0).length;
@@ -6819,7 +6961,34 @@ var Selection = class {
         run: () => void this.empty(widget, info, cells)
       });
     }
-    return { order: 1, entries };
+    const deleting = [];
+    if (cells.length > 1) {
+      const rows = [...new Set(cells.map((ref) => ref.row).filter((row) => row > 0))];
+      const columns = [...new Set(cells.map((ref) => ref.column))];
+      if (rows.length) {
+        deleting.push({
+          kind: "item",
+          label: rows.length > 1 ? `Delete ${rows.length} rows` : "Delete row",
+          icon: ICONS.trash,
+          danger: true,
+          hint: "Delete the rows these cells are in",
+          run: () => void this.deleteRows(widget, info, rows)
+        });
+      }
+      deleting.push({
+        kind: "item",
+        label: columns.length > 1 ? `Delete ${columns.length} columns` : "Delete column",
+        icon: ICONS.trash,
+        danger: true,
+        hint: "Delete the columns these cells are in",
+        run: () => void this.deleteColumns(widget, info, columns),
+        ...columns.length >= info.columns ? { disabled: "A table needs at least one column" } : {}
+      });
+    }
+    return [
+      { order: 1, entries },
+      { order: 9, entries: deleting }
+    ];
   }
   /** The cells, as values in rows as shown, onto the clipboard as Ctrl+C puts them */
   async copy(info, cells) {
@@ -6880,12 +7049,46 @@ var Selection = class {
   refs(info) {
     return (this.cells() ?? []).flat().flatMap((cell) => this.host.cellRef(info, cell) ?? []);
   }
-  /** Empties the selected cells (Delete). The selection stays. */
+  /**
+   * Delete: empties the selected cells (the selection stays). Whole rows (all
+   * columns) or whole columns (the header and every row shown) whose cells are
+   * empty already are deleted: a first Delete empties them, a second deletes them.
+   */
   async emptyCells() {
     const selection = this.selection;
     const widget = selection && this.host.widgetForKey(selection.key);
     const info = widget && this.host.infoOf(widget);
-    if (widget && info) await this.empty(widget, info, this.refs(info));
+    if (!widget || !info) return;
+    const refs = this.refs(info);
+    const table = parseTable(info.source);
+    const empty = (row, column) => withoutTags(table.rows[row]?.cells[column] ?? "") === "";
+    const rows = [...new Set(refs.map((ref) => ref.row))];
+    const columns = [...new Set(refs.map((ref) => ref.column))];
+    const body = rows.filter((row) => row > 0);
+    const wholeRows = columns.length === info.columns && body.length > 0;
+    const shown = this.host.shownRows(info).length;
+    const wholeColumns = rows.includes(0) && rows.length === shown;
+    if (wholeRows && body.every((row) => columns.every((column) => empty(row, column)))) {
+      this.clear();
+      await deleteRowsAt(this.host, widget, info, body);
+      return;
+    }
+    if (wholeColumns && !wholeRows && columns.every((column) => table.rows.every((_, row) => row === 0 || empty(row, column)))) {
+      this.clear();
+      await deleteColumnsAt(this.host, widget, info, columns);
+      return;
+    }
+    await this.empty(widget, info, refs);
+  }
+  async deleteRows(shownWidget, info, rows) {
+    this.clear();
+    const widget = this.host.widgetForKey(info.key) ?? shownWidget;
+    await deleteRowsAt(this.host, widget, this.host.infoOf(widget) ?? info, rows);
+  }
+  async deleteColumns(shownWidget, info, columns) {
+    this.clear();
+    const widget = this.host.widgetForKey(info.key) ?? shownWidget;
+    await deleteColumnsAt(this.host, widget, this.host.infoOf(widget) ?? info, columns);
   }
   /**
    * Empties cells, formulas included, as one edit; header cells keep their
@@ -7199,6 +7402,13 @@ var Controller = class {
   }
   selectCells(info, anchor, focus) {
     for (const feature of this.features) feature.selectCells?.(info, anchor, focus);
+  }
+  selectedCells(info) {
+    for (const feature of this.features) {
+      const cells = feature.selected?.(info);
+      if (cells) return cells;
+    }
+    return [];
   }
   moduleOn(name) {
     return this.modulesOn.has(name);
@@ -7918,10 +8128,12 @@ var Controller = class {
   insertedIn;
   onPointerMove = (e) => {
     this.lastPointer = { pointerType: e.pointerType, clientX: e.clientX, clientY: e.clientY };
-    this.inInsertBand = !this.tableMenu && !this.features.some((f) => f.pointerBusy?.()) && this.showInsert(e);
+    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
+    this.inInsertBand = !this.tableMenu && busy !== "drag" && this.showInsert(e, !busy);
   };
   onMouseMove = (e) => {
-    if (this.tableMenu || this.features.some((f) => f.pointerBusy?.()) || e.buttons !== 0) return;
+    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
+    if (this.tableMenu || busy === "drag" || e.buttons !== 0) return;
     const target = e.target;
     if (target instanceof Node && this.isFloating(target) || this.inInsertBand) {
       this.cancelHide();
@@ -7929,12 +8141,13 @@ var Controller = class {
     }
     const hit = this.enhancedWidgetOf(target);
     if (!hit) {
-      if (!this.overScrollbar(e)) this.scheduleHide();
+      if (!busy && !this.overScrollbar(e)) this.scheduleHide();
       return;
     }
     const [widget, info] = hit;
     this.cancelHide();
     if (this.hoverWidget !== widget) {
+      if (busy) return;
       this.hoverWidget = widget;
       this.showTableControls(widget, info);
     }
@@ -8076,7 +8289,8 @@ var Controller = class {
    * A finger does not hover: it inserts from the row and column menus.
    * Whether the pointer is in that band around the table.
    */
-  showInsert(e) {
+  // `mark` false (a menu open): the grips follow the pointer along the edges, no + is shown
+  showInsert(e, mark = true) {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (e.pointerType === "touch" || e.buttons !== 0 || !widget || !info || renderedTable(widget) !== info.table) return this.hideInsert();
@@ -8090,7 +8304,7 @@ var Controller = class {
       const rows = this.shownRows(info);
       const beside = rows.find((tr, i) => i > 0 && y >= tr.getBoundingClientRect().top && y < tr.getBoundingClientRect().bottom);
       if (beside) this.hoverAt(widget, info, beside.cells[this.hoverCell?.cellIndex ?? 0] ?? beside.cells[0]);
-      for (let i = 0; i < rows.length; i++) {
+      for (let i = 0; mark && i < rows.length; i++) {
         const edge = rows[i].getBoundingClientRect().bottom;
         if (!near(y, edge)) continue;
         const next = rows[i + 1];
@@ -8109,7 +8323,7 @@ var Controller = class {
       const row = this.hoverCell?.parentElement ?? info.table.rows[0];
       if (column >= 0 && row.closest("table") === info.table) this.hoverAt(widget, info, row.cells[column]);
       const edges = [cells[0].getBoundingClientRect().left, ...cells.map((c) => c.getBoundingClientRect().right)];
-      for (let i = 0; i < edges.length; i++) {
+      for (let i = 0; mark && i < edges.length; i++) {
         if (!near(x, edges[i]) || edges[i] < shown.left - INSERT_REACH || edges[i] > shown.right + INSERT_REACH) continue;
         const at = i < cells.length ? i : appendColumnAt(info.pins, info.columns);
         this.markInsert(widget, info, { key: info.key, axis: "column", at, beside: {} }, edges[i], shown);
@@ -8435,10 +8649,7 @@ var Controller = class {
         break;
       }
     }
-    const groups = this.features.flatMap((f) => {
-      const group = f.cellMenuEntries?.(widget, info, cells);
-      return group && group.entries.length ? [group] : [];
-    }).sort((a, b) => a.order - b.order);
+    const groups = this.features.flatMap((f) => [f.cellMenuEntries?.(widget, info, cells) ?? []].flat()).filter((group) => group.entries.length > 0).sort((a, b) => a.order - b.order);
     if (groups.length === 0) return false;
     const entries = groups.flatMap((group, i) => [...i ? [{ kind: "separator" }] : [], ...group.entries]);
     const header = cellText(info.table.rows[0].cells[at.column]) || `column ${at.column + 1}`;

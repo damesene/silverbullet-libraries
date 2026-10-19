@@ -102,6 +102,9 @@ export type WritePage = { readonly text: string; readonly tables: readonly PageT
 /** An edit as features' write steps see it: how rows and columns moved, and the page */
 export type WriteEdit = WriteOptions & { readonly page: WritePage };
 
+/** A group of entries in the cell menu, between separators */
+export type CellMenuGroup = { readonly order: number; readonly entries: readonly MenuEntry[] };
+
 /**
  * What a feature says it keeps in tables, for Remove metadata: "2 formulas:
  * those cells keep …"; `tags`: the attributes of its hidden tags in cells
@@ -153,6 +156,8 @@ export interface TableHost {
   otherPages(): OtherPages | undefined;
   /** Selects cells, where a feature selects (Feature.selectCells) */
   selectCells(info: WidgetInfo, anchor: CellRef, focus: CellRef): void;
+  /** The cells selected in a table, if a feature selects (Feature.selected) */
+  selectedCells(info: WidgetInfo): readonly CellRef[];
   /** Whether a module is on (one feature serves another: pageLinks reads pages for formulas) */
   moduleOn(name: FeatureName): boolean;
   /** Tables changed outside the page (another page read anew): features check them again */
@@ -236,7 +241,10 @@ export interface Feature {
   stop?(): void;
   /** Whether a node is one of the feature's floating elements (a grip, a menu) */
   owns?(node: Node): boolean;
-  /** Something holds the pointer: a drag, or an open menu; the hover controls stay where they are */
+  /**
+   * Something holds the pointer: a drag (the hover controls stay where they
+   * are), or an open menu (they stay in its table, cells hovered there still reported)
+   */
   pointerBusy?(): "drag" | "menu" | undefined;
   /** The pointer is over a cell, or the page moved under it */
   cellHovered?(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void;
@@ -268,17 +276,22 @@ export interface Feature {
   ): MenuEntry[];
   /**
    * Entries for the menu of a cell, or of cells (selected), opened with a right
-   * click, a long press or the Menu key; `order` places the group (0 naming, 1
-   * editing, 2 viewing). They close the menu when run.
+   * click, a long press or the Menu key, in groups; `order` places a group (0
+   * naming, 1 editing, 2 viewing, 9 deleting, last). They close the menu when run.
    */
-  cellMenuEntries?(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): { readonly order: number; readonly entries: readonly MenuEntry[] } | undefined;
+  cellMenuEntries?(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | readonly CellMenuGroup[] | undefined;
   /**
    * The cells the cell menu opened on `at` is for: the cells selected (as
    * shown) when the selection holds it, else `at`, now selected
    */
   selectedCells?(info: WidgetInfo, at: CellRef): readonly CellRef[] | undefined;
-  /** Selects the cells from `anchor` to `focus` (rows as shown): a row's or a column's grip clicked */
+  /**
+   * Selects the cells from `anchor` to `focus` (rows as shown): a row's or a
+   * column's grip clicked, rows (columns) picked with the pointer
+   */
   selectCells?(info: WidgetInfo, anchor: CellRef, focus: CellRef): void;
+  /** The cells selected in the table (as shown), if any */
+  selected?(info: WidgetInfo): readonly CellRef[] | undefined;
   /** Entries at the top of a column's menu, before its sorting (naming the column); they close the menu when run */
   columnMenuTopEntries?(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
   /** Entries at the top of a row's menu, about its cell in `column` (the one under the pointer or edited); they close the menu when run */

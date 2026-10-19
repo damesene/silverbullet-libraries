@@ -58,7 +58,7 @@ describe("Cell menu", () => {
     await flush();
     rightClick(cell(2, 1));
     expect(menu()!.querySelector(".tp-menu-title")!.textContent).toBe("2 cells");
-    expect(entries()).toEqual(["Copy 2 cells", "Clear 2 cells", "—", "Filter: = 3, 10", "Filter: ≠ 3, 10"]);
+    expect(entries()).toEqual(["Copy 2 cells", "Clear 2 cells", "—", "Filter: = 3, 10", "Filter: ≠ 3, 10", "—", "Delete 2 rows", "Delete column"]);
     cellMenuItem(cell(2, 1), /^Copy 2 cells$/)!.click();
     await flush();
     expect(copied).toBe("3\n10");

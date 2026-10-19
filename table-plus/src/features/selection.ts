@@ -1,10 +1,15 @@
-// Selecting cells by dragging across them, to copy them for a spreadsheet
-// (Ctrl+C) or empty them (Delete); Copy and Clear in the menu of a cell or of
-// the cells selected.
-import type { CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+// Selecting cells by dragging across them (or whole rows and columns with
+// their grips), to copy them for a spreadsheet (Ctrl+C) or
+// empty them (Delete); whole rows or columns already empty, Delete deletes
+// them. Copy, Clear and Delete rows / columns in the menu of a cell or of the
+// cells selected.
+import type { CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellValue } from "../dom.ts";
+import { deleteColumnsAt, deleteRowsAt } from "../core/structure.ts";
 import { ICONS } from "../icons.ts";
+import { parseTable } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
+import { withoutTags } from "../tags.ts";
 import type { Table } from "../markdown.ts";
 import { setCell } from "../ops.ts";
 
@@ -116,8 +121,12 @@ export class Selection implements Feature {
     this.show();
   }
 
+  selected(info: WidgetInfo): readonly CellRef[] | undefined {
+    return this.selection?.key === info.key ? this.refs(info) : undefined;
+  }
+
   /** Copy and Clear in the menu of a cell or of the cells selected */
-  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): { order: number; entries: MenuEntry[] } {
+  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup[] {
     const body = cells.filter((ref) => ref.row > 0).length;
     const entries: MenuEntry[] = [
       {
@@ -138,7 +147,35 @@ export class Selection implements Feature {
         run: () => void this.empty(widget, info, cells),
       });
     }
-    return { order: 1, entries };
+    // Cells selected: the rows and the columns they are in, deleted whole, last
+    const deleting: MenuEntry[] = [];
+    if (cells.length > 1) {
+      const rows = [...new Set(cells.map((ref) => ref.row).filter((row) => row > 0))];
+      const columns = [...new Set(cells.map((ref) => ref.column))];
+      if (rows.length) {
+        deleting.push({
+          kind: "item",
+          label: rows.length > 1 ? `Delete ${rows.length} rows` : "Delete row",
+          icon: ICONS.trash,
+          danger: true,
+          hint: "Delete the rows these cells are in",
+          run: () => void this.deleteRows(widget, info, rows),
+        });
+      }
+      deleting.push({
+        kind: "item",
+        label: columns.length > 1 ? `Delete ${columns.length} columns` : "Delete column",
+        icon: ICONS.trash,
+        danger: true,
+        hint: "Delete the columns these cells are in",
+        run: () => void this.deleteColumns(widget, info, columns),
+        ...(columns.length >= info.columns ? { disabled: "A table needs at least one column" } : {}),
+      });
+    }
+    return [
+      { order: 1, entries },
+      { order: 9, entries: deleting },
+    ];
   }
 
   /** The cells, as values in rows as shown, onto the clipboard as Ctrl+C puts them */
@@ -208,12 +245,49 @@ export class Selection implements Feature {
     return (this.cells() ?? []).flat().flatMap((cell) => this.host.cellRef(info, cell) ?? []);
   }
 
-  /** Empties the selected cells (Delete). The selection stays. */
+  /**
+   * Delete: empties the selected cells (the selection stays). Whole rows (all
+   * columns) or whole columns (the header and every row shown) whose cells are
+   * empty already are deleted: a first Delete empties them, a second deletes them.
+   */
   private async emptyCells(): Promise<void> {
     const selection = this.selection;
     const widget = selection && this.host.widgetForKey(selection.key);
     const info = widget && this.host.infoOf(widget);
-    if (widget && info) await this.empty(widget, info, this.refs(info));
+    if (!widget || !info) return;
+    const refs = this.refs(info);
+    const table = parseTable(info.source);
+    const empty = (row: number, column: number) => withoutTags(table.rows[row]?.cells[column] ?? "") === "";
+    const rows = [...new Set(refs.map((ref) => ref.row))];
+    const columns = [...new Set(refs.map((ref) => ref.column))];
+    const body = rows.filter((row) => row > 0);
+    const wholeRows = columns.length === info.columns && body.length > 0;
+    const shown = this.host.shownRows(info).length;
+    const wholeColumns = rows.includes(0) && rows.length === shown;
+    if (wholeRows && body.every((row) => columns.every((column) => empty(row, column)))) {
+      this.clear();
+      await deleteRowsAt(this.host, widget, info, body);
+      return;
+    }
+    // Every row's cell, also the rows a filter hides: their data would go too
+    if (wholeColumns && !wholeRows && columns.every((column) => table.rows.every((_, row) => row === 0 || empty(row, column)))) {
+      this.clear();
+      await deleteColumnsAt(this.host, widget, info, columns);
+      return;
+    }
+    await this.empty(widget, info, refs);
+  }
+
+  private async deleteRows(shownWidget: HTMLElement, info: WidgetInfo, rows: readonly number[]): Promise<void> {
+    this.clear();
+    const widget = this.host.widgetForKey(info.key) ?? shownWidget;
+    await deleteRowsAt(this.host, widget, this.host.infoOf(widget) ?? info, rows);
+  }
+
+  private async deleteColumns(shownWidget: HTMLElement, info: WidgetInfo, columns: readonly number[]): Promise<void> {
+    this.clear();
+    const widget = this.host.widgetForKey(info.key) ?? shownWidget;
+    await deleteColumnsAt(this.host, widget, this.host.infoOf(widget) ?? info, columns);
   }
 
   /**

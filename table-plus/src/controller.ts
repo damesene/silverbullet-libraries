@@ -366,6 +366,14 @@ export class Controller implements TableHost {
     for (const feature of this.features) feature.selectCells?.(info, anchor, focus);
   }
 
+  selectedCells(info: WidgetInfo): readonly CellRef[] {
+    for (const feature of this.features) {
+      const cells = feature.selected?.(info);
+      if (cells) return cells;
+    }
+    return [];
+  }
+
   moduleOn(name: FeatureName): boolean {
     return this.modulesOn.has(name);
   }
@@ -1199,12 +1207,14 @@ export class Controller implements TableHost {
 
   private onPointerMove = (e: PointerEvent): void => {
     this.lastPointer = { pointerType: e.pointerType, clientX: e.clientX, clientY: e.clientY };
-    this.inInsertBand = !this.tableMenu && !this.features.some((f) => f.pointerBusy?.()) && this.showInsert(e);
+    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
+    this.inInsertBand = !this.tableMenu && busy !== "drag" && this.showInsert(e, !busy);
   };
 
   private onMouseMove = (e: MouseEvent): void => {
     // A pressed button: dragging a scrollbar or selecting; the controls stay where they are
-    if (this.tableMenu || this.features.some((f) => f.pointerBusy?.()) || e.buttons !== 0) return;
+    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
+    if (this.tableMenu || busy === "drag" || e.buttons !== 0) return;
     const target = e.target;
     if ((target instanceof Node && this.isFloating(target)) || this.inInsertBand) {
       this.cancelHide();
@@ -1212,12 +1222,14 @@ export class Controller implements TableHost {
     }
     const hit = this.enhancedWidgetOf(target);
     if (!hit) {
-      if (!this.overScrollbar(e)) this.scheduleHide();
+      if (!busy && !this.overScrollbar(e)) this.scheduleHide();
       return;
     }
     const [widget, info] = hit;
     this.cancelHide();
     if (this.hoverWidget !== widget) {
+      // A menu open: the controls stay in its table (its grips follow the pointer there)
+      if (busy) return;
       this.hoverWidget = widget;
       this.showTableControls(widget, info);
     }
@@ -1389,7 +1401,8 @@ export class Controller implements TableHost {
    * A finger does not hover: it inserts from the row and column menus.
    * Whether the pointer is in that band around the table.
    */
-  private showInsert(e: Pick<PointerEvent, "pointerType" | "buttons" | "target" | "clientX" | "clientY">): boolean {
+  // `mark` false (a menu open): the grips follow the pointer along the edges, no + is shown
+  private showInsert(e: Pick<PointerEvent, "pointerType" | "buttons" | "target" | "clientX" | "clientY">, mark = true): boolean {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (e.pointerType === "touch" || e.buttons !== 0 || !widget || !info || renderedTable(widget) !== info.table) return this.hideInsert();
@@ -1405,7 +1418,7 @@ export class Controller implements TableHost {
       // The row grip goes to the row beside the pointer
       const beside = rows.find((tr, i) => i > 0 && y >= tr.getBoundingClientRect().top && y < tr.getBoundingClientRect().bottom);
       if (beside) this.hoverAt(widget, info, beside.cells[this.hoverCell?.cellIndex ?? 0] ?? beside.cells[0]);
-      for (let i = 0; i < rows.length; i++) {
+      for (let i = 0; mark && i < rows.length; i++) {
         const edge = rows[i]!.getBoundingClientRect().bottom;
         if (!near(y, edge)) continue;
         const next = rows[i + 1];
@@ -1427,7 +1440,7 @@ export class Controller implements TableHost {
       const row = (this.hoverCell?.parentElement as HTMLTableRowElement | undefined) ?? info.table.rows[0]!;
       if (column >= 0 && row.closest("table") === info.table) this.hoverAt(widget, info, row.cells[column]);
       const edges = [cells[0]!.getBoundingClientRect().left, ...cells.map((c) => c.getBoundingClientRect().right)];
-      for (let i = 0; i < edges.length; i++) {
+      for (let i = 0; mark && i < edges.length; i++) {
         if (!near(x, edges[i]!) || edges[i]! < shown.left - INSERT_REACH || edges[i]! > shown.right + INSERT_REACH) continue;
         const at = i < cells.length ? i : appendColumnAt(info.pins, info.columns);
         this.markInsert(widget, info, { key: info.key, axis: "column", at, beside: {} }, edges[i]!, shown);
@@ -1814,10 +1827,8 @@ export class Controller implements TableHost {
       }
     }
     const groups = this.features
-      .flatMap((f) => {
-        const group = f.cellMenuEntries?.(widget, info, cells);
-        return group && group.entries.length ? [group] : [];
-      })
+      .flatMap((f) => [f.cellMenuEntries?.(widget, info, cells) ?? []].flat())
+      .filter((group) => group.entries.length > 0)
       .sort((a, b) => a.order - b.order);
     if (groups.length === 0) return false;
     const entries = groups.flatMap((group, i): MenuEntry[] => [...(i ? [{ kind: "separator" as const }] : []), ...group.entries]);
