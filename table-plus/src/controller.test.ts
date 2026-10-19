@@ -527,7 +527,7 @@ describe("Controller", () => {
       clickOn(cell(0, 1).querySelector(".tp-sort")!); // Qty descending
       await wait(450);
       await controller.scan();
-      expect(text).toBe(PAGE.replace("| Fig | 2 |\n", '| Fig | 2 |\n| <meta sort="Qty:desc"> |\n'));
+      expect(text).toBe(PAGE.replace("| Fig | 2 |\n", '| Fig | 2 |\n| <meta sort="qty:desc"> |\n'));
       expect(bodyTexts()).toEqual(["apple", "Pear", "Fig"]);
       clickOn(cell(0, 1).querySelector(".tp-sort")!); // back to the order as written
       await wait(450);
@@ -650,14 +650,14 @@ describe("Controller", () => {
       key(editor.querySelector(".tp-cell-editor")!, "Enter");
       await flush();
       await controller.scan();
-      expect(text).toBe('| Name | Count |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort="Count:desc"> |\n');
+      expect(text).toBe('| Name | Count |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort="count:desc"> |\n');
       // a row added at the end goes above the metadata row
       clickOn(editor.querySelector('tr[data-tp-row="1"]')!.querySelector("td")!); // Pear (shown last)
       key(editor.querySelector(".tp-cell-editor")!, "Tab");
       key(editor.querySelector(".tp-cell-editor")!, "Tab");
       await flush();
       await controller.scan();
-      expect(text.split("\n").slice(-3)).toEqual(["| | |", '| <meta sort="Count:desc"> |', ""]);
+      expect(text.split("\n").slice(-3)).toEqual(["| | |", '| <meta sort="count:desc"> |', ""]);
     });
   });
 
@@ -977,11 +977,12 @@ describe("Controller", () => {
       key(field(), "Tab");
       expect(field().value).toBe("=SUM(");
       expect(field().selectionStart).toBe(5);
+      // Saved with the column's key, as SilverBullet's queries name it
       field().value = "=SUM([Qty])";
       field().setSelectionRange(11, 11);
       key(field(), "Tab");
       await flush();
-      expect(text).toContain('| Total | 13 <meta f="=SUM([Qty])"> |');
+      expect(text).toContain('| Total | 13 <meta f="=SUM([qty])"> |');
     });
 
     it("fixes a missing ) when the formula is saved, and says so", async () => {
@@ -1114,11 +1115,11 @@ describe("Controller", () => {
         field().setSelectionRange(9, 9);
         press(cell(0, 1), "mousedown", { clientX: 150, clientY: 10 });
         window.dispatchEvent(new MouseEvent("mouseup"));
-        expect(field().value).toBe("=SUM(A2, [Qty]");
+        expect(field().value).toBe("=SUM(A2, [qty]");
         field().value += ")";
         key(field(), "Enter");
         await flush();
-        expect(text).toContain('| Total | 13 <meta f="=SUM(A2, [Qty])"> |');
+        expect(text).toContain('| Total | 13 <meta f="=SUM(A2, [qty])"> |');
       });
 
       it("shows that cells can be pointed at, extends with Shift+click and stops a drag when editing ends", async () => {
@@ -1180,7 +1181,7 @@ describe("Controller", () => {
         expect(marks().length).toBe(1);
         pointer(marks()[0]!.querySelector(".tp-ref-left")!, "pointerdown", 150, 30);
         pointer(window, "pointermove", 50, 30);
-        expect(field().value).toBe("=[Name]");
+        expect(field().value).toBe("=[name]");
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
         expect(field().value).toBe("=[Qty]");
         expect(document.querySelector(".tp-cell-editor")).not.toBeNull();

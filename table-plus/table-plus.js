@@ -104,6 +104,322 @@ function caretTextOffset(cell, x, y) {
   return before.replace(/\s+/g, " ").trimStart().length;
 }
 
+// table-plus/src/markdown.ts
+var DELIMITER_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+var FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
+function splitRow(line) {
+  return cellRanges(line).map((r) => line.slice(r.from, r.to));
+}
+function cellRanges(line) {
+  let start = 0;
+  let end = line.length;
+  while (start < end && /\s/.test(line[start])) start++;
+  while (end > start && /\s/.test(line[end - 1])) end--;
+  if (line[start] === "|") start++;
+  if (end > start && line[end - 1] === "|" && !isEscaped(line, end - 1)) end--;
+  const ranges = [];
+  const push = (from, to) => {
+    while (from < to && /\s/.test(line[from])) from++;
+    while (to > from && /\s/.test(line[to - 1])) to--;
+    ranges.push({ from, to });
+  };
+  let cellStart = start;
+  for (let i = start; i < end; i++) {
+    if (line[i] === "\\" && i + 1 < end) {
+      i++;
+      continue;
+    }
+    if (line[i] === "|") {
+      push(cellStart, i);
+      cellStart = i + 1;
+    }
+  }
+  push(cellStart, end);
+  return ranges;
+}
+function cellSourceOffset(tableText, row, column, within = 0) {
+  const lines = tableText.split("\n");
+  const index = Math.min(row === 0 ? 0 : row + 1, lines.length - 1);
+  let offset = 0;
+  for (let i = 0; i < index; i++) offset += lines[i].length + 1;
+  const line = (lines[index] ?? "").replace(/\r$/, "");
+  const range = cellRanges(line)[column];
+  if (!range) return offset + line.length;
+  return offset + range.from + Math.max(0, Math.min(within, range.to - range.from));
+}
+function isEscaped(s, index) {
+  let backslashes = 0;
+  for (let i = index - 1; i >= 0 && s[i] === "\\"; i--) backslashes++;
+  return backslashes % 2 === 1;
+}
+function hasUnescapedPipe(line) {
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (line[i] === "|") return true;
+  }
+  return false;
+}
+function isDelimiterRow(line) {
+  return DELIMITER_RE.test(line);
+}
+function alignOf(delimiterCell) {
+  const left = delimiterCell.startsWith(":");
+  const right = delimiterCell.endsWith(":");
+  if (left && right) return "center";
+  if (right) return "right";
+  if (left) return "left";
+  return "";
+}
+function linesOf(text) {
+  const lines = [];
+  let from = 0;
+  while (from <= text.length) {
+    const end = text.indexOf("\n", from);
+    const to = end === -1 ? text.length : end;
+    const raw = text.slice(from, to);
+    const lineText = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    lines.push({ text: lineText, from, to: from + lineText.length });
+    if (end === -1) break;
+    from = end + 1;
+  }
+  return lines;
+}
+function findTables(text) {
+  const lines = linesOf(text);
+  const tables = [];
+  let fence;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].text;
+    const fenceMatch = FENCE_RE.exec(line);
+    if (fence) {
+      if (fenceMatch && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) {
+        fence = void 0;
+      }
+      continue;
+    }
+    if (fenceMatch) {
+      fence = fenceMatch[1];
+      continue;
+    }
+    const next = lines[i + 1];
+    if (!next || !hasUnescapedPipe(line) || !isDelimiterRow(next.text)) continue;
+    if (splitRow(line).length !== splitRow(next.text).length) continue;
+    let last = i + 1;
+    while (last + 1 < lines.length) {
+      const candidate = lines[last + 1].text;
+      if (candidate.trim() === "" || !hasUnescapedPipe(candidate)) break;
+      last++;
+    }
+    const from = lines[i].from;
+    const to = lines[last].to;
+    tables.push({ from, to, text: text.slice(from, to), ordinal: tables.length });
+    i = last;
+  }
+  return tables;
+}
+function parseTable(text) {
+  let lines = text.split(/\r?\n/);
+  const last = lines.length > 2 ? lines[lines.length - 1] : void 0;
+  const meta = last === void 0 ? void 0 : parseMetaRow(last);
+  if (meta) lines = lines.slice(0, -1);
+  const header = lines[0] ?? "";
+  const delimiter = lines[1] ?? "";
+  const align = splitRow(delimiter).map(alignOf);
+  const rows = [header, ...lines.slice(2)].map((line) => {
+    const cells = splitRow(line);
+    while (cells.length < align.length) cells.push("");
+    return { cells, source: line, sourceCells: cells };
+  });
+  const widths = lines.map((l) => charLength(l));
+  const padded2 = lines.length > 2 && widths.every((w) => w === widths[0]) && lines.some((l) => /\S {2,}\|/.test(l));
+  return {
+    indent: /^\s*/.exec(header)[0],
+    align,
+    rows,
+    padded: padded2,
+    delimiterSource: delimiter,
+    alignSource: align,
+    ...meta && last !== void 0 ? { meta, metaSource: { line: last, meta } } : {}
+  };
+}
+var META_TAG_RE = /^<meta\b([^>]*?)\/?>$/i;
+var META_ATTRIBUTE_RE = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+function parseMetaRow(line) {
+  const [first, ...rest] = splitRow(line);
+  const tag = META_TAG_RE.exec(first ?? "");
+  if (!tag || rest.some((cell) => cell !== "")) return void 0;
+  const meta = {};
+  for (const match of tag[1].matchAll(META_ATTRIBUTE_RE)) {
+    meta[match[1]] = unescapeMetaValue(match[2] ?? match[3] ?? "");
+  }
+  if ("f" in meta) return void 0;
+  return meta;
+}
+function unescapeMetaValue(value) {
+  return value.replace(/\\\|/g, "|").replace(/&quot;/g, '"').replace(/&gt;/g, ">").replace(/&#92;/g, "\\").replace(/&amp;/g, "&");
+}
+function escapeMetaValue(value) {
+  return value.replace(/&/g, "&amp;").replace(/\\/g, "&#92;").replace(/"/g, "&quot;").replace(/>/g, "&gt;").replace(/\|/g, "\\|");
+}
+function metaRow(indent, meta) {
+  const attributes = Object.entries(meta).map(([name, value]) => ` ${name}="${escapeMetaValue(value)}"`).join("");
+  return `${indent}| <meta${attributes}> |`;
+}
+function charLength(s) {
+  return Array.from(s).length;
+}
+var DELIMITER_CELL = {
+  "": "---",
+  left: ":---",
+  center: ":---:",
+  right: "---:"
+};
+function sameCells(a, b) {
+  return !!b && a.length === b.length && a.every((cell, i) => cell === b[i]);
+}
+function serializeTable(table) {
+  const columns = table.align.length;
+  const widths = [];
+  for (const row of table.rows) {
+    row.cells.forEach((cell, c) => {
+      widths[c] = Math.max(widths[c] ?? 3, charLength(cell));
+    });
+  }
+  const pad = (cell, c) => {
+    const gap = (widths[c] ?? 3) - charLength(cell);
+    const align = table.align[c] ?? "";
+    const left = align === "right" ? gap : align === "center" ? Math.floor(gap / 2) : 0;
+    return " ".repeat(left) + cell + " ".repeat(gap - left);
+  };
+  const cellText2 = (cell, c) => table.padded ? ` ${pad(cell, c)} ` : cell === "" ? " " : ` ${cell} `;
+  const rowText = (row) => !table.padded && row.source !== void 0 && sameCells(row.cells, row.sourceCells) ? row.source : `${table.indent}|${row.cells.map(cellText2).join("|")}|`;
+  const delimiterCell = (align, c) => {
+    if (!table.padded) return DELIMITER_CELL[align];
+    const dashes = "-".repeat(
+      Math.max(1, (widths[c] ?? 3) - (align === "center" ? 2 : align ? 1 : 0))
+    );
+    const left = align === "center" || align === "left" ? ":" : "";
+    const right = align === "center" || align === "right" ? ":" : "";
+    return ` ${left}${dashes}${right} `;
+  };
+  const delimiterText = !table.padded && table.delimiterSource !== void 0 && sameCells(table.align, table.alignSource) ? table.delimiterSource : `${table.indent}|${table.align.slice(0, columns).map(delimiterCell).join("|")}|`;
+  const [header, ...body] = table.rows;
+  const lines = [header ? rowText(header) : "", delimiterText, ...body.map(rowText)];
+  if (table.meta && table.metaSource?.meta === table.meta) lines.push(table.metaSource.line);
+  else if (table.meta && Object.keys(table.meta).length > 0) lines.push(metaRow(table.indent, table.meta));
+  return lines.join("\n");
+}
+function escapeCell(value) {
+  return value.replace(/\r?\n/g, " ").trim().replace(
+    /(\\*)\|/g,
+    (match, backslashes) => backslashes.length % 2 === 1 ? match : `${backslashes}\\|`
+  );
+}
+function unescapeCell(cell) {
+  return cell.replace(/\\\|/g, "|");
+}
+function plainText(markdown) {
+  return markdown.replace(/\[\[([^\]|]*\|)?([^\]]*)\]\]/g, "$2").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`~=\\]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+function shapeOf(range) {
+  const table = parseTable(range.text);
+  return {
+    // SilverBullet renders the metadata row too
+    rows: table.rows.length + (table.meta ? 1 : 0),
+    columns: table.align.length,
+    headers: (table.rows[0]?.cells ?? []).map(plainText)
+  };
+}
+function distance(range, hint) {
+  if (hint >= range.from && hint <= range.to) return 0;
+  return Math.min(Math.abs(hint - range.from), Math.abs(hint - range.to));
+}
+function nearest(ranges, hint) {
+  let best;
+  for (const range of ranges) {
+    if (!best || distance(range, hint) < distance(best, hint)) best = range;
+  }
+  return best;
+}
+function locateByShape(text, hint, shape) {
+  const candidates = findTables(text).filter((range) => {
+    const s = shapeOf(range);
+    return s.rows === shape.rows && s.columns === shape.columns;
+  });
+  const headers = shape.headers?.map((h) => h.replace(/\s+/g, " ").trim().toLowerCase());
+  const sameHeaders = headers ? candidates.filter((range) => {
+    const s = shapeOf(range);
+    return s.headers.every((h, i) => h === headers[i]);
+  }) : [];
+  return nearest(sameHeaders.length ? sameHeaders : candidates, hint);
+}
+function locateWithEmptyHeaders(text, hint, shape) {
+  return nearest(
+    findTables(text).filter((range) => {
+      const table = parseTable(range.text);
+      const named = (table.rows[0]?.cells ?? []).filter((cell) => cell !== "").length;
+      const rendered = table.rows.length + (table.meta ? 1 : 0);
+      return rendered === shape.rows && named === shape.columns && named < table.align.length;
+    }),
+    hint
+  );
+}
+function locateBySource(text, hint, source) {
+  return nearest(
+    findTables(text).filter((range) => range.text === source),
+    hint
+  );
+}
+function minimalEdit(before, after) {
+  let start = 0;
+  const max = Math.min(before.length, after.length);
+  while (start < max && before[start] === after[start]) start++;
+  let end = 0;
+  while (end < max - start && before[before.length - 1 - end] === after[after.length - 1 - end]) {
+    end++;
+  }
+  return {
+    from: start,
+    to: before.length - end,
+    insert: after.slice(start, after.length - end)
+  };
+}
+
+// table-plus/src/columns.ts
+function columnName(header) {
+  return unescapeCell(header).trim().replace(/^[*_`]+|[*_`]+$/g, "").trim();
+}
+function columnKey(name) {
+  return columnName(name).replace(/[\W_]+/g, "_").toLowerCase();
+}
+function findColumn(headers, id) {
+  const wanted = columnKey(id.name);
+  let seen = 0;
+  const index = headers.findIndex((header) => columnKey(header) === wanted && ++seen === id.nth);
+  return index < 0 ? void 0 : index;
+}
+function columnIdOf(headers, column) {
+  const header = headers[column];
+  if (header === void 0) return void 0;
+  const wanted = columnKey(header);
+  const same = headers.filter((h) => columnKey(h) === wanted).length;
+  const nth = headers.slice(0, column + 1).filter((h) => columnKey(h) === wanted).length;
+  return { name: wanted, nth, shared: same > 1 };
+}
+function followColumn(before, after, id, map = (c) => c) {
+  const column = findColumn(before, id);
+  if (column === void 0) return void 0;
+  const moved2 = map(column);
+  if (moved2 === void 0) return null;
+  return columnIdOf(after, moved2) ?? null;
+}
+function sameColumnId(a, b) {
+  return columnKey(a.name) === columnKey(b.name) && a.nth === b.nth;
+}
+
 // table-plus/src/format.ts
 function formatLuaNumber(n) {
   if (Number.isInteger(n)) return String(n);
@@ -542,290 +858,6 @@ var concat_default = {
 var ALL = [sum_default, average_default, min_default, max_default, product_default, count_default, counta_default, round_default, abs_default, if_default, iferror_default, and_default, or_default, not_default, concat_default];
 var FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
 
-// table-plus/src/markdown.ts
-var DELIMITER_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
-var FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
-function splitRow(line) {
-  return cellRanges(line).map((r) => line.slice(r.from, r.to));
-}
-function cellRanges(line) {
-  let start = 0;
-  let end = line.length;
-  while (start < end && /\s/.test(line[start])) start++;
-  while (end > start && /\s/.test(line[end - 1])) end--;
-  if (line[start] === "|") start++;
-  if (end > start && line[end - 1] === "|" && !isEscaped(line, end - 1)) end--;
-  const ranges = [];
-  const push = (from, to) => {
-    while (from < to && /\s/.test(line[from])) from++;
-    while (to > from && /\s/.test(line[to - 1])) to--;
-    ranges.push({ from, to });
-  };
-  let cellStart = start;
-  for (let i = start; i < end; i++) {
-    if (line[i] === "\\" && i + 1 < end) {
-      i++;
-      continue;
-    }
-    if (line[i] === "|") {
-      push(cellStart, i);
-      cellStart = i + 1;
-    }
-  }
-  push(cellStart, end);
-  return ranges;
-}
-function cellSourceOffset(tableText, row, column, within = 0) {
-  const lines = tableText.split("\n");
-  const index = Math.min(row === 0 ? 0 : row + 1, lines.length - 1);
-  let offset = 0;
-  for (let i = 0; i < index; i++) offset += lines[i].length + 1;
-  const line = (lines[index] ?? "").replace(/\r$/, "");
-  const range = cellRanges(line)[column];
-  if (!range) return offset + line.length;
-  return offset + range.from + Math.max(0, Math.min(within, range.to - range.from));
-}
-function isEscaped(s, index) {
-  let backslashes = 0;
-  for (let i = index - 1; i >= 0 && s[i] === "\\"; i--) backslashes++;
-  return backslashes % 2 === 1;
-}
-function hasUnescapedPipe(line) {
-  for (let i = 0; i < line.length; i++) {
-    if (line[i] === "\\") {
-      i++;
-      continue;
-    }
-    if (line[i] === "|") return true;
-  }
-  return false;
-}
-function isDelimiterRow(line) {
-  return DELIMITER_RE.test(line);
-}
-function alignOf(delimiterCell) {
-  const left = delimiterCell.startsWith(":");
-  const right = delimiterCell.endsWith(":");
-  if (left && right) return "center";
-  if (right) return "right";
-  if (left) return "left";
-  return "";
-}
-function linesOf(text) {
-  const lines = [];
-  let from = 0;
-  while (from <= text.length) {
-    const end = text.indexOf("\n", from);
-    const to = end === -1 ? text.length : end;
-    const raw = text.slice(from, to);
-    const lineText = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-    lines.push({ text: lineText, from, to: from + lineText.length });
-    if (end === -1) break;
-    from = end + 1;
-  }
-  return lines;
-}
-function findTables(text) {
-  const lines = linesOf(text);
-  const tables = [];
-  let fence;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].text;
-    const fenceMatch = FENCE_RE.exec(line);
-    if (fence) {
-      if (fenceMatch && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) {
-        fence = void 0;
-      }
-      continue;
-    }
-    if (fenceMatch) {
-      fence = fenceMatch[1];
-      continue;
-    }
-    const next = lines[i + 1];
-    if (!next || !hasUnescapedPipe(line) || !isDelimiterRow(next.text)) continue;
-    if (splitRow(line).length !== splitRow(next.text).length) continue;
-    let last = i + 1;
-    while (last + 1 < lines.length) {
-      const candidate = lines[last + 1].text;
-      if (candidate.trim() === "" || !hasUnescapedPipe(candidate)) break;
-      last++;
-    }
-    const from = lines[i].from;
-    const to = lines[last].to;
-    tables.push({ from, to, text: text.slice(from, to), ordinal: tables.length });
-    i = last;
-  }
-  return tables;
-}
-function parseTable(text) {
-  let lines = text.split(/\r?\n/);
-  const last = lines.length > 2 ? lines[lines.length - 1] : void 0;
-  const meta = last === void 0 ? void 0 : parseMetaRow(last);
-  if (meta) lines = lines.slice(0, -1);
-  const header = lines[0] ?? "";
-  const delimiter = lines[1] ?? "";
-  const align = splitRow(delimiter).map(alignOf);
-  const rows = [header, ...lines.slice(2)].map((line) => {
-    const cells = splitRow(line);
-    while (cells.length < align.length) cells.push("");
-    return { cells, source: line, sourceCells: cells };
-  });
-  const widths = lines.map((l) => charLength(l));
-  const padded2 = lines.length > 2 && widths.every((w) => w === widths[0]) && lines.some((l) => /\S {2,}\|/.test(l));
-  return {
-    indent: /^\s*/.exec(header)[0],
-    align,
-    rows,
-    padded: padded2,
-    delimiterSource: delimiter,
-    alignSource: align,
-    ...meta && last !== void 0 ? { meta, metaSource: { line: last, meta } } : {}
-  };
-}
-var META_TAG_RE = /^<meta\b([^>]*?)\/?>$/i;
-var META_ATTRIBUTE_RE = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-function parseMetaRow(line) {
-  const [first, ...rest] = splitRow(line);
-  const tag = META_TAG_RE.exec(first ?? "");
-  if (!tag || rest.some((cell) => cell !== "")) return void 0;
-  const meta = {};
-  for (const match of tag[1].matchAll(META_ATTRIBUTE_RE)) {
-    meta[match[1]] = unescapeMetaValue(match[2] ?? match[3] ?? "");
-  }
-  if ("f" in meta) return void 0;
-  return meta;
-}
-function unescapeMetaValue(value) {
-  return value.replace(/\\\|/g, "|").replace(/&quot;/g, '"').replace(/&gt;/g, ">").replace(/&#92;/g, "\\").replace(/&amp;/g, "&");
-}
-function escapeMetaValue(value) {
-  return value.replace(/&/g, "&amp;").replace(/\\/g, "&#92;").replace(/"/g, "&quot;").replace(/>/g, "&gt;").replace(/\|/g, "\\|");
-}
-function metaRow(indent, meta) {
-  const attributes = Object.entries(meta).map(([name, value]) => ` ${name}="${escapeMetaValue(value)}"`).join("");
-  return `${indent}| <meta${attributes}> |`;
-}
-function charLength(s) {
-  return Array.from(s).length;
-}
-var DELIMITER_CELL = {
-  "": "---",
-  left: ":---",
-  center: ":---:",
-  right: "---:"
-};
-function sameCells(a, b) {
-  return !!b && a.length === b.length && a.every((cell, i) => cell === b[i]);
-}
-function serializeTable(table) {
-  const columns = table.align.length;
-  const widths = [];
-  for (const row of table.rows) {
-    row.cells.forEach((cell, c) => {
-      widths[c] = Math.max(widths[c] ?? 3, charLength(cell));
-    });
-  }
-  const pad = (cell, c) => {
-    const gap = (widths[c] ?? 3) - charLength(cell);
-    const align = table.align[c] ?? "";
-    const left = align === "right" ? gap : align === "center" ? Math.floor(gap / 2) : 0;
-    return " ".repeat(left) + cell + " ".repeat(gap - left);
-  };
-  const cellText2 = (cell, c) => table.padded ? ` ${pad(cell, c)} ` : cell === "" ? " " : ` ${cell} `;
-  const rowText = (row) => !table.padded && row.source !== void 0 && sameCells(row.cells, row.sourceCells) ? row.source : `${table.indent}|${row.cells.map(cellText2).join("|")}|`;
-  const delimiterCell = (align, c) => {
-    if (!table.padded) return DELIMITER_CELL[align];
-    const dashes = "-".repeat(
-      Math.max(1, (widths[c] ?? 3) - (align === "center" ? 2 : align ? 1 : 0))
-    );
-    const left = align === "center" || align === "left" ? ":" : "";
-    const right = align === "center" || align === "right" ? ":" : "";
-    return ` ${left}${dashes}${right} `;
-  };
-  const delimiterText = !table.padded && table.delimiterSource !== void 0 && sameCells(table.align, table.alignSource) ? table.delimiterSource : `${table.indent}|${table.align.slice(0, columns).map(delimiterCell).join("|")}|`;
-  const [header, ...body] = table.rows;
-  const lines = [header ? rowText(header) : "", delimiterText, ...body.map(rowText)];
-  if (table.meta && table.metaSource?.meta === table.meta) lines.push(table.metaSource.line);
-  else if (table.meta && Object.keys(table.meta).length > 0) lines.push(metaRow(table.indent, table.meta));
-  return lines.join("\n");
-}
-function escapeCell(value) {
-  return value.replace(/\r?\n/g, " ").trim().replace(
-    /(\\*)\|/g,
-    (match, backslashes) => backslashes.length % 2 === 1 ? match : `${backslashes}\\|`
-  );
-}
-function unescapeCell(cell) {
-  return cell.replace(/\\\|/g, "|");
-}
-function plainText(markdown) {
-  return markdown.replace(/\[\[([^\]|]*\|)?([^\]]*)\]\]/g, "$2").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`~=\\]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
-}
-function shapeOf(range) {
-  const table = parseTable(range.text);
-  return {
-    // SilverBullet renders the metadata row too
-    rows: table.rows.length + (table.meta ? 1 : 0),
-    columns: table.align.length,
-    headers: (table.rows[0]?.cells ?? []).map(plainText)
-  };
-}
-function distance(range, hint) {
-  if (hint >= range.from && hint <= range.to) return 0;
-  return Math.min(Math.abs(hint - range.from), Math.abs(hint - range.to));
-}
-function nearest(ranges, hint) {
-  let best;
-  for (const range of ranges) {
-    if (!best || distance(range, hint) < distance(best, hint)) best = range;
-  }
-  return best;
-}
-function locateByShape(text, hint, shape) {
-  const candidates = findTables(text).filter((range) => {
-    const s = shapeOf(range);
-    return s.rows === shape.rows && s.columns === shape.columns;
-  });
-  const headers = shape.headers?.map((h) => h.replace(/\s+/g, " ").trim().toLowerCase());
-  const sameHeaders = headers ? candidates.filter((range) => {
-    const s = shapeOf(range);
-    return s.headers.every((h, i) => h === headers[i]);
-  }) : [];
-  return nearest(sameHeaders.length ? sameHeaders : candidates, hint);
-}
-function locateWithEmptyHeaders(text, hint, shape) {
-  return nearest(
-    findTables(text).filter((range) => {
-      const table = parseTable(range.text);
-      const named = (table.rows[0]?.cells ?? []).filter((cell) => cell !== "").length;
-      const rendered = table.rows.length + (table.meta ? 1 : 0);
-      return rendered === shape.rows && named === shape.columns && named < table.align.length;
-    }),
-    hint
-  );
-}
-function locateBySource(text, hint, source) {
-  return nearest(
-    findTables(text).filter((range) => range.text === source),
-    hint
-  );
-}
-function minimalEdit(before, after) {
-  let start = 0;
-  const max = Math.min(before.length, after.length);
-  while (start < max && before[start] === after[start]) start++;
-  let end = 0;
-  while (end < max - start && before[before.length - 1 - end] === after[after.length - 1 - end]) {
-    end++;
-  }
-  return {
-    from: start,
-    to: before.length - end,
-    insert: after.slice(start, after.length - end)
-  };
-}
-
 // table-plus/src/ops.ts
 function withRows(table, rows) {
   return { ...table, rows };
@@ -990,8 +1022,29 @@ function areaText(area) {
   const start = cellName(area.top, area.left);
   return area.top === area.bottom && area.left === area.right ? start : `${start}:${cellName(area.bottom, area.right)}`;
 }
-function columnRefText(name, thisRow) {
-  return name === "" || /[[\]]/.test(name) ? void 0 : `[${thisRow ? "@" : ""}${name}]`;
+function columnRefText(id, thisRow) {
+  const name = id && columnKey(id.name);
+  if (!id || !name) return void 0;
+  return `[${thisRow ? "@" : ""}${name}${id.nth > 1 ? `:${id.nth}` : ""}]`;
+}
+function withColumnKeys(formula, headers) {
+  let result = formula;
+  for (const ref of references(formula).reverse()) {
+    if (ref.kind !== "column") continue;
+    const column = referencedColumn(headers, ref.name);
+    const text = column === void 0 ? void 0 : columnRefText(columnIdOf(headers, column), ref.thisRow);
+    if (text) result = result.slice(0, ref.from) + text + result.slice(ref.to);
+  }
+  return result;
+}
+function referencedColumnId(headers, written) {
+  const exact = { name: written, nth: 1 };
+  if (findColumn(headers, exact) !== void 0) return exact;
+  const match = /^(.*\S)\s*:\s*([1-9]\d*)$/.exec(written);
+  return match ? { name: match[1], nth: Number(match[2]) } : exact;
+}
+function referencedColumn(headers, written) {
+  return findColumn(headers, referencedColumnId(headers, written));
 }
 var CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
 function parseCellName(text) {
@@ -1268,7 +1321,7 @@ function autofixFormula(formula) {
 function wholeColumnNames(node, names) {
   switch (node.kind) {
     case "column":
-      if (!node.thisRow) names.add(normalizeName(node.name));
+      if (!node.thisRow) names.add(node.name);
       break;
     case "call":
       for (const arg of node.args) wholeColumnNames(arg, names);
@@ -1282,17 +1335,6 @@ function wholeColumnNames(node, names) {
       break;
   }
   return names;
-}
-function normalizeName(name) {
-  return unescapeCell(name).replace(/[*_`]/g, "").trim().toLowerCase();
-}
-function columnByName(headers, name) {
-  const wanted = normalizeName(name);
-  const index = headers.findIndex((h) => normalizeName(h) === wanted);
-  return index < 0 ? void 0 : index;
-}
-function columnName(header) {
-  return unescapeCell(header).replace(/[*_`]/g, "").trim();
 }
 var DECIMAL_COMMA_RE = /\d,\d/;
 var Sheet = class {
@@ -1367,11 +1409,12 @@ var Sheet = class {
     const text = toText(result);
     return typeof result === "number" && this.decimalComma ? text.replace(".", ",") : text;
   }
-  /** Whether the cell holds a formula that refers to a whole column */
-  refersToColumn(row, column, name) {
+  /** Whether the cell holds a formula that refers to the whole column `target` */
+  refersToColumn(row, column, target) {
     const stored = formulaOf(this.body[row]?.[column] ?? "");
     const tree = stored && parse(stored.formula);
-    return !!tree && !isError(tree) && wholeColumnNames(tree, /* @__PURE__ */ new Set()).has(name);
+    if (!tree || isError(tree)) return false;
+    return Array.from(wholeColumnNames(tree, /* @__PURE__ */ new Set())).some((name) => referencedColumn(this.headers, name) === target);
   }
   evaluate(node, row, column) {
     switch (node.kind) {
@@ -1389,13 +1432,12 @@ var Sheet = class {
         return node.range ? values : values[0];
       }
       case "column": {
-        const index = columnByName(this.headers, node.name);
+        const index = referencedColumn(this.headers, node.name);
         if (index === void 0) return new FormulaError("#REF!", `there is no column named "${node.name}"`);
         if (node.thisRow) return this.value(row, index);
-        const name = normalizeName(node.name);
         const values = [];
         for (let r = 0; r < this.rows; r++) {
-          if (!this.refersToColumn(r, index, name)) values.push(this.value(r, index));
+          if (!this.refersToColumn(r, index, index)) values.push(this.value(r, index));
         }
         return values;
       }
@@ -1580,14 +1622,13 @@ function shiftReferences(before, after, rowMap, columnMap) {
         text = rows && cols ? range ? `${cellName(rows[0], cols[0])}:${cellName(rows[1], cols[1])}` : cellName(rows[0], cols[0]) : REF_ERROR;
         if (text === written.toUpperCase()) continue;
       } else {
-        const index = columnByName(headersBefore, ref.name);
-        if (index === void 0) continue;
-        const moved2 = columns(index);
-        if (moved2 === void 0) text = REF_ERROR;
+        const id = referencedColumnId(headersBefore, ref.name);
+        const followed = followColumn(headersBefore, headersAfter, id, columns);
+        if (followed === void 0) continue;
+        if (followed === null) text = REF_ERROR;
         else {
-          const name = columnName(headersAfter[moved2] ?? "");
-          if (normalizeName(name) === normalizeName(ref.name)) continue;
-          text = columnRefText(name, ref.thisRow);
+          if (sameColumnId(followed, id)) continue;
+          text = columnRefText(followed, ref.thisRow);
           if (!text) continue;
         }
       }
@@ -1797,27 +1838,19 @@ function withMeta(table, name, value) {
   else meta[name] = value;
   return { ...table, meta };
 }
-function headerNames(table) {
-  return (table.rows[0]?.cells ?? []).map(unescapeCell);
-}
 function parseSort(value) {
   const match = /^(.*):(asc|desc)(?::(\d+))?$/.exec(value);
   return match ? { name: match[1], direction: match[2], nth: Number(match[3] ?? 1) } : void 0;
 }
 function metaSort(table) {
   const sort = table.meta?.sort === void 0 ? void 0 : parseSort(table.meta.sort);
-  if (!sort) return void 0;
-  let seen = 0;
-  const column = headerNames(table).findIndex((name) => name === sort.name && ++seen === sort.nth);
-  return column < 0 ? void 0 : { column, direction: sort.direction };
+  const column = sort && findColumn(table.rows[0]?.cells ?? [], sort);
+  return sort && column !== void 0 ? { column, direction: sort.direction } : void 0;
 }
 function withMetaSort(table, sort) {
-  const names = headerNames(table);
-  const name = sort ? names[sort.column] : void 0;
-  if (!sort || name === void 0) return withMeta(table, "sort", void 0);
-  const same = names.filter((n) => n === name).length;
-  const nth = names.slice(0, sort.column + 1).filter((n) => n === name).length;
-  return withMeta(table, "sort", `${name}:${sort.direction}${same > 1 ? `:${nth}` : ""}`);
+  const id = sort && columnIdOf(table.rows[0]?.cells ?? [], sort.column);
+  if (!sort || !id) return withMeta(table, "sort", void 0);
+  return withMeta(table, "sort", `${id.name}:${sort.direction}${id.shared ? `:${id.nth}` : ""}`);
 }
 var PIN_ATTRIBUTES = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" };
 function metaPins(table) {
@@ -3158,7 +3191,8 @@ ${error}` : stored.formula;
     if (active.row > 0 && isFormulaInput(typed)) {
       const { formula, fixes } = autofixFormula(typed.trim());
       if (fixes.length) void this.bridge.flash(`Table Plus: formula fixed: ${fixes.join(", ")}`, "info");
-      return formulaCell("", formula);
+      const headers = parseTable(this.infos.get(active.widget)?.source ?? "").rows[0]?.cells ?? [];
+      return formulaCell("", withColumnKeys(formula, headers));
     }
     return escapeCell(active.row > 0 && typed.startsWith("'=") ? typed.slice(1) : typed);
   }
@@ -3459,8 +3493,8 @@ ${error}` : stored.formula;
       this.updateFormulaUi();
     };
     if (cell.row === 0) {
-      const header = parseTable(info.source).rows[0]?.cells[cell.column] ?? "";
-      const text = columnRefText(columnName(header), false);
+      const headers = parseTable(info.source).rows[0]?.cells ?? [];
+      const text = columnRefText(columnIdOf(headers, cell.column), false);
       if (text) put(text);
       return true;
     }
@@ -3594,7 +3628,7 @@ ${error}` : stored.formula;
     const lastRow = info.rows - 2;
     const lastColumn = info.columns - 1;
     if (ref.kind === "column") {
-      const column = columnByName(headers, ref.name);
+      const column = referencedColumn(headers, ref.name);
       if (column === void 0 || lastRow < 0) return void 0;
       return ref.thisRow ? { top: row, left: column, bottom: row, right: column } : { top: 0, left: column, bottom: lastRow, right: column };
     }
@@ -3679,7 +3713,7 @@ ${error}` : stored.formula;
       const dColumn = cell.column - start.column;
       if (ref.kind === "column") {
         const column = clamp(startArea.left + dColumn, lastColumn);
-        return columnRefText(columnName(headers[column] ?? ""), ref.thisRow);
+        return columnRefText(columnIdOf(headers, column), ref.thisRow);
       }
       if (mode === "resize") {
         return areaText({

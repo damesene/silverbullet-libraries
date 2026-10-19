@@ -19,10 +19,10 @@ Click a result to edit its formula: each reference is outlined in its own color;
 
 | Item | Qty | Unit price | Amount |
 |---|--:|--:|--:|
-| Pear | 3 | 12,50 | 37,5 <meta f="=[@Qty]*[@Unit price]"> |
-| Apple | 10 | 4,50 | 45 <meta f="=[@Qty]*[@Unit price]"> |
-| Fig | 2 | 25 | 50 <meta f="=[@Qty]*[@Unit price]"> |
-| Total | 15 <meta f="=SUM([Qty])"> | | 132,5 <meta f="=SUM([Amount])"> |
+| Pear | 3 | 12,50 | 37,5 <meta f="=[@qty]*[@unit_price]"> |
+| Apple | 10 | 4,50 | 45 <meta f="=[@qty]*[@unit_price]"> |
+| Fig | 2 | 25 | 50 <meta f="=[@qty]*[@unit_price]"> |
+| Total | 15 <meta f="=SUM([qty])"> | | 132,5 <meta f="=SUM([amount])"> |
 | Average | 5 <meta f="=AVERAGE(B1:B3)"> | 14 <meta f="=ROUND(AVERAGE(C1:C3), 2)"> | |
 
 ## Tasks

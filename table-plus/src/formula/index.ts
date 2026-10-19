@@ -10,7 +10,9 @@
 // References: A1 is the first body row (the header is not counted), A1:B3 a
 // range, [Qty] the column named Qty (without the cells whose formulas refer to
 // that whole column, such as a total below it), [@Qty] the Qty cell of the
-// formula's own row.
+// formula's own row. Columns are named as columns.ts names them: of several
+// columns named Qty, [Qty:2] is the second.
+import { type ColumnId, columnIdOf, columnKey, findColumn, followColumn, sameColumnId } from "../columns.ts";
 import { FUNCTIONS } from "./functions/index.ts";
 import { escapeCell, escapeMetaValue, type Table, unescapeCell, unescapeMetaValue } from "../markdown.ts";
 import { setCell } from "../ops.ts";
@@ -95,9 +97,43 @@ export function areaText(area: Area): string {
   return area.top === area.bottom && area.left === area.right ? start : `${start}:${cellName(area.bottom, area.right)}`;
 }
 
-/** [Name] or [@Name], or undefined when the name cannot be written in brackets */
-export function columnRefText(name: string, thisRow: boolean): string | undefined {
-  return name === "" || /[[\]]/.test(name) ? undefined : `[${thisRow ? "@" : ""}${name}]`;
+/**
+ * [name], [name:2] or [@name] for a column, by its key as SilverBullet's index
+ * writes it (columns.ts). Undefined for a column without a name.
+ */
+export function columnRefText(id: ColumnId | undefined, thisRow: boolean): string | undefined {
+  const name = id && columnKey(id.name);
+  if (!id || !name) return undefined;
+  return `[${thisRow ? "@" : ""}${name}${id.nth > 1 ? `:${id.nth}` : ""}]`;
+}
+
+/**
+ * The formula with its column references written by the columns' keys, as
+ * Table Plus writes them ([Unit price] becomes [unit_price]); references to
+ * columns the table does not have stay as written
+ */
+export function withColumnKeys(formula: string, headers: readonly string[]): string {
+  let result = formula;
+  for (const ref of references(formula).reverse()) {
+    if (ref.kind !== "column") continue;
+    const column = referencedColumn(headers, ref.name);
+    const text = column === undefined ? undefined : columnRefText(columnIdOf(headers, column), ref.thisRow);
+    if (text) result = result.slice(0, ref.from) + text + result.slice(ref.to);
+  }
+  return result;
+}
+
+/** The column a [Name] or [Name:2] reference names; a column named exactly "Name:2" comes first */
+export function referencedColumnId(headers: readonly string[], written: string): ColumnId {
+  const exact = { name: written, nth: 1 };
+  if (findColumn(headers, exact) !== undefined) return exact;
+  const match = /^(.*\S)\s*:\s*([1-9]\d*)$/.exec(written);
+  return match ? { name: match[1]!, nth: Number(match[2]) } : exact;
+}
+
+/** The index of the column a [Name] reference names, or undefined */
+export function referencedColumn(headers: readonly string[], written: string): number | undefined {
+  return findColumn(headers, referencedColumnId(headers, written));
 }
 
 const CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
@@ -446,7 +482,7 @@ export function autofixFormula(formula: string): FormulaFix {
 function wholeColumnNames(node: Node, names: Set<string>): Set<string> {
   switch (node.kind) {
     case "column":
-      if (!node.thisRow) names.add(normalizeName(node.name));
+      if (!node.thisRow) names.add(node.name);
       break;
     case "call":
       for (const arg of node.args) wholeColumnNames(arg, names);
@@ -463,23 +499,6 @@ function wholeColumnNames(node: Node, names: Set<string>): Set<string> {
 }
 
 // ---- evaluation ----------------------------------------------------------------
-
-/** A column name as references match it: markdown emphasis dropped, any case */
-function normalizeName(name: string): string {
-  return unescapeCell(name).replace(/[*_`]/g, "").trim().toLowerCase();
-}
-
-/** The index of the column a [Name] reference means, or undefined */
-export function columnByName(headers: readonly string[], name: string): number | undefined {
-  const wanted = normalizeName(name);
-  const index = headers.findIndex((h) => normalizeName(h) === wanted);
-  return index < 0 ? undefined : index;
-}
-
-/** A column's name as a [Name] reference writes it */
-export function columnName(header: string): string {
-  return unescapeCell(header).replace(/[*_`]/g, "").trim();
-}
 
 const DECIMAL_COMMA_RE = /\d,\d/;
 
@@ -563,11 +582,12 @@ class Sheet {
     return typeof result === "number" && this.decimalComma ? text.replace(".", ",") : text;
   }
 
-  /** Whether the cell holds a formula that refers to a whole column */
-  private refersToColumn(row: number, column: number, name: string): boolean {
+  /** Whether the cell holds a formula that refers to the whole column `target` */
+  private refersToColumn(row: number, column: number, target: number): boolean {
     const stored = formulaOf(this.body[row]?.[column] ?? "");
     const tree = stored && parse(stored.formula);
-    return !!tree && !isError(tree) && wholeColumnNames(tree, new Set()).has(name);
+    if (!tree || isError(tree)) return false;
+    return Array.from(wholeColumnNames(tree, new Set())).some((name) => referencedColumn(this.headers, name) === target);
   }
 
   private evaluate(node: Node, row: number, column: number): Value {
@@ -586,14 +606,13 @@ class Sheet {
         return node.range ? values : values[0]!;
       }
       case "column": {
-        const index = columnByName(this.headers, node.name);
+        const index = referencedColumn(this.headers, node.name);
         if (index === undefined) return new FormulaError("#REF!", `there is no column named "${node.name}"`);
         if (node.thisRow) return this.value(row, index);
         // Cells that refer to this whole column (a total under it) are not part of it
-        const name = normalizeName(node.name);
         const values: Scalar[] = [];
         for (let r = 0; r < this.rows; r++) {
-          if (!this.refersToColumn(r, index, name)) values.push(this.value(r, index));
+          if (!this.refersToColumn(r, index, index)) values.push(this.value(r, index));
         }
         return values;
       }
@@ -833,14 +852,13 @@ export function shiftReferences(before: Table, after: Table, rowMap?: IndexMap, 
             : REF_ERROR;
         if (text === written.toUpperCase()) continue;
       } else {
-        const index = columnByName(headersBefore, ref.name);
-        if (index === undefined) continue;
-        const moved = columns(index);
-        if (moved === undefined) text = REF_ERROR;
+        const id = referencedColumnId(headersBefore, ref.name);
+        const followed = followColumn(headersBefore, headersAfter, id, columns);
+        if (followed === undefined) continue;
+        if (followed === null) text = REF_ERROR;
         else {
-          const name = columnName(headersAfter[moved] ?? "");
-          if (normalizeName(name) === normalizeName(ref.name)) continue;
-          text = columnRefText(name, ref.thisRow);
+          if (sameColumnId(followed, id)) continue;
+          text = columnRefText(followed, ref.thisRow);
           if (!text) continue;
         }
       }

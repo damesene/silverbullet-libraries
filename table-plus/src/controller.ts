@@ -13,6 +13,7 @@ import {
   UI_CLASS,
   WIDGET_SELECTOR,
 } from "./dom.ts";
+import { columnIdOf } from "./columns.ts";
 import { formatLuaNumber } from "./format.ts";
 import {
   type Area,
@@ -20,8 +21,6 @@ import {
   autofixFormula,
   completeFunction,
   type FunctionCompletion,
-  columnByName,
-  columnName,
   columnRefText,
   formulaCell,
   formulaCount,
@@ -35,9 +34,11 @@ import {
   recalculate,
   type Reference,
   referenceSlot,
+  referencedColumn,
   references,
   shiftReferences,
   withCalculatedCells,
+  withColumnKeys,
   withoutFormulas,
 } from "./formula/index.ts";
 import { ICONS } from "./icons.ts";
@@ -1557,7 +1558,9 @@ export class Controller {
       // Mistakes with only one possible fix (a missing ")") are fixed, and said so
       const { formula, fixes } = autofixFormula(typed.trim());
       if (fixes.length) void this.bridge.flash(`Table Plus: formula fixed: ${fixes.join(", ")}`, "info");
-      return formulaCell("", formula);
+      // Column references are written by the columns' keys, as SilverBullet's queries name them
+      const headers = parseTable(this.infos.get(active.widget)?.source ?? "").rows[0]?.cells ?? [];
+      return formulaCell("", withColumnKeys(formula, headers));
     }
     return escapeCell(active.row > 0 && typed.startsWith("'=") ? typed.slice(1) : typed);
   }
@@ -1901,8 +1904,8 @@ export class Controller {
       this.updateFormulaUi();
     };
     if (cell.row === 0) {
-      const header = parseTable(info.source).rows[0]?.cells[cell.column] ?? "";
-      const text = columnRefText(columnName(header), false);
+      const headers = parseTable(info.source).rows[0]?.cells ?? [];
+      const text = columnRefText(columnIdOf(headers, cell.column), false);
       // A header whose name cannot be a reference: the click is taken, but inserts nothing
       if (text) put(text);
       return true;
@@ -2051,7 +2054,7 @@ export class Controller {
     const lastRow = info.rows - 2;
     const lastColumn = info.columns - 1;
     if (ref.kind === "column") {
-      const column = columnByName(headers, ref.name);
+      const column = referencedColumn(headers, ref.name);
       if (column === undefined || lastRow < 0) return undefined;
       return ref.thisRow
         ? { top: row, left: column, bottom: row, right: column }
@@ -2146,7 +2149,7 @@ export class Controller {
       const dColumn = cell.column - start.column;
       if (ref.kind === "column") {
         const column = clamp(startArea.left + dColumn, lastColumn);
-        return columnRefText(columnName(headers[column] ?? ""), ref.thisRow);
+        return columnRefText(columnIdOf(headers, column), ref.thisRow);
       }
       if (mode === "resize") {
         return areaText({

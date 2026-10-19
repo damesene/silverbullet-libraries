@@ -17,7 +17,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Sort**: click ⇅ in a column header. See [[#Sorting]].
 * **Filter**: hover the table and click *Filter*; `>10`, `/regex/`, `=text` and `!text` work too. See [[#Filtering]].
 * **Add, move or delete rows and columns**: click the ⠿ grip next to a row or above a column. See [[#Rows and columns]].
-* **Formulas**: type `=SUM(B1:B3)` or `=SUM([Qty])` into a cell; the result is written into the markdown. See [[#Formulas]].
+* **Formulas**: type `=SUM(B1:B3)` or `=SUM([qty])` into a cell; the result is written into the markdown. See [[#Formulas]].
 * **Pin rows and columns** to the edges, where they stay in view (needs *Store table metadata*). See [[#Pinning]].
 * **Change how Enter or filters work**: *Configuration: Open*, category *Table Plus*. See [[#Settings]].
 
@@ -90,19 +90,19 @@ Plain text is found anywhere in a cell, ignoring case and diacritics (`cesky` fi
 
 ## Formulas
 
-Type a formula into a body cell, starting with `=`: `=B1*2`, `=SUM(B1:B3)`, `=SUM([Qty])`. Table Plus writes the result into the cell, followed by the formula in a hidden `<meta>` tag:
+Type a formula into a body cell, starting with `=`: `=B1*2`, `=SUM(B1:B3)`, `=SUM([qty])`. Table Plus writes the result into the cell, followed by the formula in a hidden `<meta>` tag:
 
 ```
 | Name  | Qty |
 | ----- | --: |
 | Pear  |   3 |
 | Apple |  10 |
-| Total |  13 <meta f="=SUM([Qty])"> |
+| Total |  13 <meta f="=SUM([qty])"> |
 ```
 
-* SilverBullet and browsers show only the result, other renderers (GitHub, Obsidian) drop the tag. Queries over the table (`index.tag "table"`) see the cell's text with the tag, e.g. `13 <meta f="=SUM([Qty])">`.
+* SilverBullet and browsers show only the result, other renderers (GitHub, Obsidian) drop the tag. Queries over the table (`index.tag "table"`) see the cell's text with the tag, e.g. `13 <meta f="=SUM([qty])">`.
 * Saving a formula fixes mistakes that have only one possible fix, and says what it changed: missing `)` at the end are added (`=SUM(A1:A3` becomes `=SUM(A1:A3)`), a text in quotes or a `[column]` left open at the end is closed, and extra `)` at the very end are dropped. Anything else stays as typed and shows `#ERROR!`.
-* **Calculated columns**: when every row of a column holds the same formula, such as `=[@Qty]*[@Price]`, a new row (*+ Row*, Ctrl+Enter, Tab on the last cell, *Insert row*) gets it too. Total rows (with a formula over a whole column, such as `=SUM([Qty])`) do not count.
+* **Calculated columns**: when every row of a column holds the same formula, such as `=[@qty]*[@price]`, a new row (*+ Row*, Ctrl+Enter, Tab on the last cell, *Insert row*) gets it too. Total rows (with a formula over a whole column, such as `=SUM([qty])`) do not count.
 * Click the cell to edit its formula. Typing a plain value removes the formula. To type a text that starts with `=`, start it with `'=`; such a text opens with the `'` again, so it stays text.
 * Results are written whenever Table Plus edits the table, in the same edit (one Ctrl+Z undoes both). Viewing a table never changes it: when the table was changed outside Table Plus (by typing in the markdown), the toolbar shows *Recalculate*.
 * A formula's result has a dotted underline; hover it to see its formula, or why it shows an error.
@@ -114,12 +114,14 @@ Type a formula into a body cell, starting with `=`: `=B1*2`, `=SUM(B1:B3)`, `=SU
 |---|---|
 | `B1` | Column B, the first row under the header |
 | `A1:B3` | The range from A1 to B3 |
-| `[Qty]` | The whole column named Qty (any case), without the cells whose formulas refer to the whole column (a total or an average under it) |
-| `[@Qty]` | The Qty cell in the formula's own row, e.g. `=[@Price]*[@Qty]` |
+| `[qty]` | The whole column named Qty (written by its key, see below), without the cells whose formulas refer to the whole column (a total or an average under it) |
+| `[qty:2]` | The second column named Qty, when several share the name |
+| `[@qty]` | The Qty cell in the formula's own row, e.g. `=[@price]*[@qty]` |
 
 * Edits made with Table Plus keep references on their cells, as in a spreadsheet: inserting, deleting, moving and sorting rows (*Sort the rows in the markdown*), and inserting, deleting and moving columns. A row inserted inside a range widens it, a deleted one narrows it, and a reference to deleted cells becomes `#REF!`. Renaming a column renames its `[Name]` references.
-* Edits made in the markdown do not change references. `[Qty]` and `[@Qty]` are not affected by added or moved rows at all, so they are the safest choice for totals.
+* Edits made in the markdown do not change references. `[qty]` and `[@qty]` are not affected by added or moved rows at all, so they are the safest choice for totals.
 * `A1` counts rows in the markdown, not as a sorting or filter shows them.
+* Column names match as SilverBullet's queries name columns: in lower case, with every run of other characters than `A-Z`, `a-z` and `0-9` as one `_`. So `[Unit price]`, `[unit price]` and `[unit_price]` are the same column, the one a query reads as `unit_price`. Letters with diacritics count as other characters there too (`Množství` is `mno_stv_`), so names that differ only in them are the same name; `[Name:2]` tells them apart. Table Plus writes column references by that key, as a query names the column: a formula saved as `=[@Unit price]*2` is stored as `=[@unit_price]*2`, and clicking a header inserts `[unit_price]`. References to a column the table does not have stay as typed (and show `#REF!`).
 * Not supported: absolute references (`$A$1`) and references to other tables.
 * **Point instead of typing**: where the formula expects a reference (after `=`, `(`, `,` or an operator, not inside a text in quotes), the pointer over the table becomes a move cursor: click a cell to insert it, drag across cells for a range, or click a column's header for `[Name]`. Pointing again right away replaces that reference, Shift+click extends its range. After a typed reference or another complete operand, a click ends editing as usual.
 * While you edit a formula, each reference is outlined in the table in its own color. Drag an outline's edge to move the reference, a range's corner to resize it; Esc while dragging puts it back.
@@ -244,14 +246,14 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 | Pear  |   3 |
 | Apple |  10 |
 | Total |  13 |
-| <meta sort="Qty:desc" pin-bottom="1"> |
+| <meta sort="qty:desc" pin-bottom="1"> |
 ```
 
 * `sort` is the sorting, `pin-top`, `pin-bottom`, `pin-left` and `pin-right` how many rows (columns) at each edge are pinned.
 
 * The row is hidden in SilverBullet. Browsers never show `<meta>`, and other markdown renderers (GitHub, Obsidian) drop it, leaving at most an empty row.
 * It is always the last row: new rows go above it, and it is not sorted, filtered or moved.
-* The sorting is stored by column name: `Qty:desc`. With several columns of the same name, the occurrence is added: `Qty:desc:2` is the second column named Qty. It follows its column when the column is renamed or moved, and is removed with it.
+* The sorting is stored by column name: `qty:desc`. Names are keys, as for formula references (see [[#References]]): the column `Unit price` is stored as `unit_price`, and any spelling with that key names it. With several columns of the same name, the occurrence is added: `qty:desc:2` is the second column named Qty. It follows its column when the column is renamed or moved, and is removed with it.
 * When the sorting is cleared and nothing is pinned, the row is removed.
 * With the setting off, a table without a `<meta>` row gets none. A table with one keeps using it: its sorting is still stored, and its rows and columns can be unpinned, but nothing new can be pinned. When the row is left empty, it is removed.
 * To remove metadata: *Remove metadata* in a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row (a sorting stored there ends: the rows show as written) and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.

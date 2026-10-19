@@ -17,6 +17,7 @@ import {
   referenceSlot,
   shiftReferences,
   withCalculatedCells,
+  withColumnKeys,
 } from "./index.ts";
 import { parseMetaRow, parseTable, serializeTable, splitRow } from "../markdown.ts";
 import { deleteColumn, deleteRow, insertRow, moveColumn, moveRow, reorderRows, setCell } from "../ops.ts";
@@ -117,6 +118,19 @@ describe("evaluation", () => {
     const done = recalculate({ ...table, rows });
     expect(formulaOf(done.rows[4]!.cells[1]!)!.value).toBe("15");
     expect(formulaOf(done.rows[5]!.cells[1]!)!.value).toBe("5");
+  });
+
+  it("names columns as SilverBullet's index keys them, and duplicates by occurrence", () => {
+    const markdown = ["| Name | Unit price | Qty | qty |", "|---|---|---|---|", "| a | 2 | 3 | 4 |", "| x | | | |"].join("\n");
+    expect(evaluate(markdown, "=SUM([unit_price])", { row: 2, column: 1 })).toBe("2");
+    expect(evaluate(markdown, "=SUM([Qty:2])", { row: 2, column: 1 })).toBe("4");
+    expect(evaluate(markdown, "=SUM([QTY])", { row: 2, column: 1 })).toBe("3");
+  });
+
+  it("writes column references by the columns' keys, leaving unknown ones as written", () => {
+    const headers = ["Name", "Unit price", "Qty", "qty"];
+    expect(withColumnKeys("=[@Unit price]*[QTY:2]+[Nope]", headers)).toBe("=[@unit_price]*[qty:2]+[Nope]");
+    expect(withColumnKeys("=SUM(A1:A3)", headers)).toBe("=SUM(A1:A3)");
   });
 
   it("refers to a column of the formula's own row with [@Name]", () => {
@@ -231,8 +245,14 @@ describe("shiftReferences", () => {
     expect(shifted((t) => deleteColumn(t, 1), undefined, gone)).toEqual(["=SUM(#REF!)"]);
   });
 
-  it("renames [Name] references with their column", () => {
-    expect(shifted((t) => setCell(t, 0, 1, "Amount"))).toEqual(["=SUM(B1:B3)+B1", "=SUM([Amount])"]);
+  it("renames [name] references with their column, written by its key", () => {
+    expect(shifted((t) => setCell(t, 0, 1, "Amount"))).toEqual(["=SUM(B1:B3)+B1", "=SUM([amount])"]);
+    // The same key written another way is not a rename
+    expect(shifted((t) => setCell(t, 0, 1, "QTY"))).toEqual(["=SUM(B1:B3)+B1", "=SUM([Qty])"]);
+  });
+
+  it("writes the occurrence when a column comes to share its name with another", () => {
+    expect(shifted((t) => setCell(t, 0, 0, "Qty"))).toEqual(["=SUM(B1:B3)+B1", "=SUM([qty:2])"]);
   });
 
   it("evaluates a reference to deleted cells as #REF!", () => {

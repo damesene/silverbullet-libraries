@@ -63,15 +63,15 @@ describe("stored sorting", () => {
 
   it("is stored by column name", () => {
     const sorted = withMetaSort(base, { column: 0, direction: "desc" });
-    expect(sorted.meta).toEqual({ sort: "Name:desc" });
+    expect(sorted.meta).toEqual({ sort: "name:desc" });
     expect(metaSort(sorted)).toEqual({ column: 0, direction: "desc" });
   });
 
   it("adds the occurrence for duplicate column names", () => {
     const second = withMetaSort(base, { column: 2, direction: "asc" });
-    expect(second.meta).toEqual({ sort: "Qty:asc:2" });
+    expect(second.meta).toEqual({ sort: "qty:asc:2" });
     expect(metaSort(second)).toEqual({ column: 2, direction: "asc" });
-    expect(withMetaSort(base, { column: 1, direction: "asc" }).meta).toEqual({ sort: "Qty:asc:1" });
+    expect(withMetaSort(base, { column: 1, direction: "asc" }).meta).toEqual({ sort: "qty:asc:1" });
   });
 
   it("is ignored when its column is gone", () => {
@@ -82,9 +82,9 @@ describe("stored sorting", () => {
   it("follows its column through rename, move and delete", () => {
     const sorted = withMetaSort(base, { column: 2, direction: "desc" }); // the second Qty
     const renamed = followMetaSort(sorted, setCell(sorted, 0, 2, "Price"), (c) => c);
-    expect(renamed.meta).toEqual({ sort: "Price:desc" });
+    expect(renamed.meta).toEqual({ sort: "price:desc" });
     const moved = followMetaSort(sorted, moveColumn(sorted, 2, 0), (c) => columnAfterMove(c, 2, 0));
-    expect(moved.meta).toEqual({ sort: "Qty:desc:1" });
+    expect(moved.meta).toEqual({ sort: "qty:desc:1" });
     expect(metaSort(moved)).toEqual({ column: 0, direction: "desc" });
     const deleted = followMetaSort(sorted, deleteColumn(sorted, 2), (c) => (c === 2 ? undefined : c));
     expect(deleted.meta).toEqual({});

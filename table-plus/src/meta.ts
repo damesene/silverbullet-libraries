@@ -1,11 +1,11 @@
 // What Table Plus keeps in a table's metadata row (`<meta …>`):
-// - sort="Name:asc": the sorting, by column name so it survives moving columns;
-//   with several columns of the same name the occurrence is added ("Qty:desc:2"
-//   is the second column named Qty)
+// - sort="Name:asc": the sorting, by column name as columns.ts names columns,
+//   so it survives moving columns; with several columns of the same name the
+//   occurrence is added ("Qty:desc:2" is the second column named Qty)
 // - pin-top="2", pin-bottom, pin-left, pin-right: how many rows (columns) at
 //   each edge of the table are pinned
+import { columnIdOf, findColumn } from "./columns.ts";
 import type { Row, Table } from "./markdown.ts";
-import { unescapeCell } from "./markdown.ts";
 import { DEFAULT_VIEW, NO_PINS, type Pins, type SortDirection, type ViewState } from "./view.ts";
 
 export type MetaSort = { readonly column: number; readonly direction: SortDirection };
@@ -20,10 +20,6 @@ export function withMeta(table: Table, name: string, value: string | undefined):
   return { ...table, meta };
 }
 
-function headerNames(table: Table): string[] {
-  return (table.rows[0]?.cells ?? []).map(unescapeCell);
-}
-
 // ---- sorting ------------------------------------------------------------------
 
 function parseSort(value: string): { name: string; direction: SortDirection; nth: number } | undefined {
@@ -34,20 +30,15 @@ function parseSort(value: string): { name: string; direction: SortDirection; nth
 /** The sorting stored in the table, if its column still exists */
 export function metaSort(table: Table): MetaSort | undefined {
   const sort = table.meta?.sort === undefined ? undefined : parseSort(table.meta.sort);
-  if (!sort) return undefined;
-  let seen = 0;
-  const column = headerNames(table).findIndex((name) => name === sort.name && ++seen === sort.nth);
-  return column < 0 ? undefined : { column, direction: sort.direction };
+  const column = sort && findColumn(table.rows[0]?.cells ?? [], sort);
+  return sort && column !== undefined ? { column, direction: sort.direction } : undefined;
 }
 
 /** Stores (or, with undefined, removes) the sorting */
 export function withMetaSort(table: Table, sort: MetaSort | undefined): Table {
-  const names = headerNames(table);
-  const name = sort ? names[sort.column] : undefined;
-  if (!sort || name === undefined) return withMeta(table, "sort", undefined);
-  const same = names.filter((n) => n === name).length;
-  const nth = names.slice(0, sort.column + 1).filter((n) => n === name).length;
-  return withMeta(table, "sort", `${name}:${sort.direction}${same > 1 ? `:${nth}` : ""}`);
+  const id = sort && columnIdOf(table.rows[0]?.cells ?? [], sort.column);
+  if (!sort || !id) return withMeta(table, "sort", undefined);
+  return withMeta(table, "sort", `${id.name}:${sort.direction}${id.shared ? `:${id.nth}` : ""}`);
 }
 
 // ---- pins -----------------------------------------------------------------------
