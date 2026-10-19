@@ -567,11 +567,10 @@ function remapColumns(view, map) {
 function normalizeForFilter(s) {
   return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 }
-var NUMBER_RE = /^[-+]?(\d{1,3}([  ]\d{3})+|\d+)([.,]\d+)?\s*%?$/;
+var NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
 function asNumber(s) {
-  const t = s.trim();
-  if (!NUMBER_RE.test(t)) return void 0;
-  return Number(t.replace(/[  %]/g, "").replace(",", "."));
+  const m = NUMBER_RE.exec(s.trim());
+  return m ? Number(m[1].replace(/[ \u00a0]/g, "").replace(",", ".")) : void 0;
 }
 var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
 function compareValues(a, b) {

@@ -62,7 +62,7 @@ A plain click edits a cell and no longer switches the table to its markdown. To 
 * Click the ⇅ control that appears in a column header on hover: ascending, descending, then back to the order as written. The column menu (see [[#Rows and columns]]) has the same options.
 * Sorting only changes what you see, never the markdown, unless the *Store table metadata* setting is on: then the sorting is also stored in the table, see [[#Table metadata]].
 * While sorted, the toolbar shows *Sorted by …*; its × shows the rows as written again, and its ✓ sorts the rows in the markdown that way (after asking) and ends the sorting view. Rows a filter hides are sorted too, pinned rows stay where they are, and one Ctrl+Z undoes it.
-* Numbers sort as numbers (`1 000`, `2,5`, `-3`, `15 %` included); empty cells always come last.
+* Numbers sort as numbers (`1 000`, `2,5`, `-3`, `15 %`, `12,99 €`, `$5`, `3 kg` included); empty cells always come last.
 
 ## Filtering
 

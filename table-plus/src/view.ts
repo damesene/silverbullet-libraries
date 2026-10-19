@@ -99,12 +99,13 @@ export function normalizeForFilter(s: string): string {
   return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 }
 
-const NUMBER_RE = /^[-+]?(\d{1,3}([  ]\d{3})+|\d+)([.,]\d+)?\s*%?$/;
+// A number with an optional currency symbol in front and a unit after it:
+// "12,99 €", "$5", "15 %", "3 kg", "1 000"
+const NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
 
 function asNumber(s: string): number | undefined {
-  const t = s.trim();
-  if (!NUMBER_RE.test(t)) return undefined;
-  return Number(t.replace(/[  %]/g, "").replace(",", "."));
+  const m = NUMBER_RE.exec(s.trim());
+  return m ? Number(m[1]!.replace(/[ \u00a0]/g, "").replace(",", ".")) : undefined;
 }
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });

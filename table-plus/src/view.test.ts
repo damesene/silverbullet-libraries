@@ -38,6 +38,9 @@ describe("sorting", () => {
     expect(compareValues("-2,5", "1")).toBeLessThan(0);
     expect(compareValues("1 000", "999")).toBeGreaterThan(0);
     expect(compareValues("15 %", "9 %")).toBeGreaterThan(0);
+    expect(compareValues("105 €", "12,99 €")).toBeGreaterThan(0);
+    expect(compareValues("$5", "$40")).toBeLessThan(0);
+    expect(compareValues("3 kg", "20kg")).toBeLessThan(0);
   });
 
   it("keeps the source order without sorting", () => {
@@ -60,12 +63,20 @@ describe("filtering", () => {
     expect(visibleRows(qty, withFilter(DEFAULT_VIEW, 1, ">-1"))).toEqual([0, 1, 2, 3]);
   });
 
+  it("compares numbers with a currency symbol or a unit", () => {
+    const prices = [["a", "12,99 €"], ["b", "8,5 €"], ["c", "$9.5"], ["d", "105 Kč"], ["e", "3 kg"]];
+    expect(visibleRows(prices, withFilter(DEFAULT_VIEW, 1, ">10"))).toEqual([0, 3]);
+    expect(visibleRows(prices, withFilter(DEFAULT_VIEW, 1, "<=9.5"))).toEqual([1, 2, 4]);
+    expect(visibleRows(prices, withFilter(DEFAULT_VIEW, 1, ">10 €"))).toEqual([0, 3]);
+  });
+
   it("does not filter while only an operator is typed, and finds text after a non-number", () => {
     expect(filterMatcher(">")).toBeUndefined();
     expect(filterMatcher(" >= ")).toBeUndefined();
     expect(isRearranged(withFilter(DEFAULT_VIEW, 0, ">"))).toBe(false);
     expect(filterMatcher(">abc")!("x >abc y")).toBe(true);
     expect(filterMatcher(">abc")!("abc")).toBe(false);
+    expect(filterMatcher(">1")!("v2")).toBe(false);
   });
 
   it("matches regular expressions, case-insensitive unless flagged c", () => {
