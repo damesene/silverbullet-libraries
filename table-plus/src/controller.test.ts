@@ -260,6 +260,47 @@ describe("Controller", () => {
     expect(at()).toBe(0);
   });
 
+  it("jumps and moves rows by 10 with Ctrl(+Shift)+PageUp and PageDown", async () => {
+    const rows = Array.from({ length: 15 }, (_, i) => `| r${i + 1} |`).join("\n");
+    await setup(`| N |\n|---|\n${rows}\n`);
+    const at = () => (editor.querySelector(".tp-cell-editor")!.closest("tr") as HTMLTableRowElement).rowIndex;
+    const press = async (k: string, shiftKey = false) => {
+      key(editor.querySelector(".tp-cell-editor")!, k, { ctrlKey: true, shiftKey });
+      await flush();
+      await controller.scan();
+    };
+    clickOn(cell(2, 0)); // r2
+    await press("PageDown");
+    expect(at()).toBe(12);
+    await press("PageDown"); // stops at the last row
+    expect(at()).toBe(15);
+    await press("PageUp");
+    expect(at()).toBe(5);
+    await press("PageUp"); // stops at the first body row, not the header
+    expect(at()).toBe(1);
+
+    await press("PageDown", true); // r1 moves 10 places down
+    expect(text.split("\n").slice(2, 13).join(",")).toBe(
+      "| r2 |,| r3 |,| r4 |,| r5 |,| r6 |,| r7 |,| r8 |,| r9 |,| r10 |,| r11 |,| r1 |",
+    );
+    expect(at()).toBe(11);
+    await press("PageDown", true); // only 4 places left: to the end
+    expect(text.split("\n")[16]).toBe("| r1 |");
+    expect(at()).toBe(15);
+    await press("PageUp", true);
+    expect(at()).toBe(5);
+
+    // the same with Ctrl+Alt, which browsers leave to the page
+    key(editor.querySelector(".tp-cell-editor")!, "PageDown", { ctrlKey: true, altKey: true });
+    await flush();
+    expect(at()).toBe(15);
+    key(editor.querySelector(".tp-cell-editor")!, "PageUp", { ctrlKey: true, altKey: true, shiftKey: true });
+    await flush();
+    await controller.scan();
+    expect(at()).toBe(5);
+    expect(text.split("\n")[6]).toBe("| r15 |");
+  });
+
   it("does not move the header row, nor rows while sorted", async () => {
     await setup(PAGE);
     clickOn(cell(0, 0));

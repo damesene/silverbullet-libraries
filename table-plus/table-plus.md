@@ -36,13 +36,16 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Ctrl+arrows | Save, edit the cell beside |
 | Ctrl+Home | Save, edit the row's first cell |
 | Ctrl+End | Save, edit the row's last cell |
+| Ctrl(+Alt)+PageUp / PageDown | Save, edit the cell 10 rows up / down |
 | Ctrl+Shift+↑ / ↓ | Move the row up / down |
 | Ctrl+Shift+← / → | Move the column left / right |
 | Ctrl+Shift+Home / End | Move the column to the start / end |
+| Ctrl(+Alt)+Shift+PageUp / PageDown | Move the row 10 places up / down |
 
 * Tab on the last cell adds a row.
 * Ctrl+Shift+arrows save the cell and move it with its row or column, and keep editing it. Rows cannot move while sorted or filtered, nor the header row.
 * With the `moveDown` setting, Enter also moves to the cell below and Shift+Enter to the cell above. See [[#Settings]].
+* Browsers use Ctrl+PageUp / PageDown to switch tabs and do not pass them to the page: use Ctrl+Alt+PageUp / PageDown (with Shift to move the row) instead. Without Alt they work where SilverBullet runs without tabs (installed as an app).
 * While Ctrl is held, the pointer shows a move cursor. Without Ctrl, arrows, Home and End move within the cell's text as usual.
 
 ## Showing the markdown

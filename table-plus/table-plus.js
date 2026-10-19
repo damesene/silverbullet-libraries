@@ -717,8 +717,18 @@ var DRAG_THRESHOLD = 4;
 var STICKY_GAP = 38;
 var BAR_GAP = 10;
 var AUTOSCROLL_DEAD_ZONE = 12;
-var MOVE_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
-var NAVIGATION_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
+var MOVE_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
+var NAVIGATION_KEYS = /* @__PURE__ */ new Set([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Home",
+  "End",
+  "PageUp",
+  "PageDown"
+]);
+var PAGE_ROWS = 10;
 var FILTER_HINT = "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
@@ -1475,10 +1485,12 @@ var Controller = class {
     field.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
       if (e.key === "Control") this.setNavigating(true);
-      if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && MOVE_KEYS.has(e.key)) {
+      const page = e.key === "PageUp" || e.key === "PageDown";
+      const ctrl = e.ctrlKey && !e.metaKey && (!e.altKey || page);
+      if (ctrl && e.shiftKey && MOVE_KEYS.has(e.key)) {
         e.preventDefault();
         void this.moveWithKeyboard(e.key);
-      } else if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && NAVIGATION_KEYS.has(e.key)) {
+      } else if (ctrl && !e.shiftKey && NAVIGATION_KEYS.has(e.key)) {
         e.preventDefault();
         void this.navigate(e.key);
       } else if (e.key === "Escape") {
@@ -1579,7 +1591,8 @@ var Controller = class {
   }
   /**
    * Ctrl+Shift+arrows: move the edited cell's row up / down, or its column
-   * left / right; Ctrl+Shift+Home / End: its column to the first / last place.
+   * left / right; Ctrl+Shift+Home / End: its column to the first / last place;
+   * Ctrl+Shift+PageUp / PageDown: its row 10 places up / down.
    * The cell is saved in the same edit and the editor stays on it. Rows cannot
    * move while sorted or filtered, nor the header row.
    */
@@ -1587,10 +1600,11 @@ var Controller = class {
     const active = this.editor;
     const info = active && this.infos.get(active.widget);
     if (!active || !info) return;
-    const vertical = key === "ArrowUp" || key === "ArrowDown";
+    const vertical = key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown";
     const step = key === "ArrowUp" || key === "ArrowLeft" ? -1 : 1;
     const from = vertical ? active.row : active.column;
-    const to = key === "Home" ? 0 : key === "End" ? info.columns - 1 : from + step;
+    const lastRow = parseTable(info.source).rows.length - 1;
+    const to = key === "Home" ? 0 : key === "End" ? info.columns - 1 : key === "PageUp" ? Math.max(1, from - PAGE_ROWS) : key === "PageDown" ? Math.min(lastRow, from + PAGE_ROWS) : from + step;
     if (to === from) return;
     if (vertical) {
       if (from === 0) return;
@@ -1631,6 +1645,8 @@ var Controller = class {
     else if (key === "ArrowDown") r++;
     else if (key === "Home") column = 0;
     else if (key === "End") column = info.columns - 1;
+    else if (key === "PageUp") r = r === 0 ? 0 : Math.max(1, r - PAGE_ROWS);
+    else if (key === "PageDown") r = Math.min(shown.length - 1, r + PAGE_ROWS);
     const target = shown[r]?.cells[column];
     if (!target || target === active.cell) return;
     const ref = this.cellRef(info, target);
