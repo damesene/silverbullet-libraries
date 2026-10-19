@@ -7136,7 +7136,7 @@ var Controller = class {
     const fits = above >= viewTop + 2;
     const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
     const viewRight = this.scrollParentOf(widget)?.getBoundingClientRect().right ?? this.doc.defaultView.innerWidth;
-    this.place(bar, Math.min(rect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
+    this.place(bar, Math.min(rect.right, tableRect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
     this.addRow.classList.add("tp-visible");
     const inView = this.shownRect(widget, info);
     this.place(this.addRow, inView.left, inView.bottom + 4);

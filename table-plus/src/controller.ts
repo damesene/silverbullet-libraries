@@ -1584,10 +1584,12 @@ export class Controller implements TableHost {
     // No room above the header: over the header's right end instead
     const fits = above >= viewTop + 2;
     const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
-    // At the right edge of the table's box as far as it is in view: the page
-    // around a wide table may scroll sideways too, taking the box's edge along
+    // At the table's right edge, or its box's when the table scrolls in it,
+    // as far as it is in view: the page around a wide table may scroll
+    // sideways too, taking the box's edge along. A box wider than its table
+    // (a renderer's block) does not take the toolbar past the table.
     const viewRight = this.scrollParentOf(widget)?.getBoundingClientRect().right ?? this.doc.defaultView!.innerWidth;
-    this.place(bar, Math.min(rect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
+    this.place(bar, Math.min(rect.right, tableRect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
 
     this.addRow.classList.add("tp-visible");
     const inView = this.shownRect(widget, info);
