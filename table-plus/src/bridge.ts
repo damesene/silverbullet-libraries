@@ -13,6 +13,8 @@ export type Bridge = {
   readonly getCursor?: () => number | Promise<number>;
   readonly undo?: () => unknown;
   readonly redo?: () => unknown;
+  // Optional: re-evaluates `${…}` cells once the page index is up to date
+  readonly evalExpression?: (expression: string) => unknown;
 };
 
 type Setting<T> = {

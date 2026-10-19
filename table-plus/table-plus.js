@@ -716,6 +716,7 @@ var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
 var DRAG_THRESHOLD = 4;
 var STICKY_GAP = 38;
 var BAR_GAP = 10;
+var INDEX_SETTLE_MS = 500;
 var AUTOSCROLL_DEAD_ZONE = 12;
 var MOVE_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 var NAVIGATION_KEYS = /* @__PURE__ */ new Set([
@@ -775,6 +776,7 @@ var Controller = class {
   stopped = false;
   settingsTimer;
   settingsReadAt = 0;
+  expressionTimer;
   stickyQueued = false;
   warnedIncompatible = false;
   observer;
@@ -819,6 +821,7 @@ var Controller = class {
     this.doc.removeEventListener("mousemove", this.onMouseMove);
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
+    clearTimeout(this.expressionTimer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
     for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
@@ -1447,9 +1450,56 @@ var Controller = class {
     const row = tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow);
     return Number.isInteger(row) ? { row, column: cell.cellIndex } : void 0;
   }
-  cellAt(info, ref) {
+  // ---- `${…}` cells: re-evaluated once the page index is up to date --------
+  /**
+   * SilverBullet renders a table right after Table Plus writes it, before the
+   * page is re-indexed, so a `${…}` cell that reads the index (e.g. a formula
+   * from a spreadsheet library) shows a stale result until the table renders
+   * again. Once the page is indexed, Table Plus has SilverBullet re-evaluate
+   * such cells (lua.evalExpression) and shows the new values in place.
+   * `page:index` is the event the indexers write the index on, not a signal
+   * that they are done, so the evaluation waits a moment for them.
+   */
+  async pageIndexed(name) {
+    if (this.stopped || !this.bridge.evalExpression) return;
+    if (name !== await this.bridge.getCurrentPage()) return;
+    clearTimeout(this.expressionTimer);
+    this.expressionTimer = setTimeout(() => void this.refreshExpressions(), INDEX_SETTLE_MS);
+  }
+  async refreshExpressions() {
+    for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.infos.get(widget);
+      if (this.stopped || !info || !info.source.includes("${")) continue;
+      const rows = parseTable(info.source).rows;
+      let changed = false;
+      for (let row = 0; row < rows.length; row++) {
+        const cells = rows[row].cells;
+        for (let column = 0; column < cells.length; column++) {
+          const expression = /^\$\{([\s\S]+)\}$/.exec(cells[column].trim())?.[1];
+          if (!expression) continue;
+          let value;
+          try {
+            value = await this.bridge.evalExpression(expression.replaceAll("\\|", "|"));
+          } catch {
+            continue;
+          }
+          const text = value === null || value === void 0 ? "" : typeof value === "number" || typeof value === "string" || typeof value === "boolean" ? String(value) : void 0;
+          const cell = this.cellAt(info, { row, column }, true);
+          if (text === void 0 || !cell || cell === this.editor?.cell || renderedTable(widget) !== info.table) continue;
+          if (cellText(cell) === text) continue;
+          for (const node of Array.from(cell.childNodes)) {
+            if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
+          }
+          cell.prepend(this.doc.createTextNode(text));
+          changed = true;
+        }
+      }
+      if (changed && renderedTable(widget) === info.table) this.applyView(widget, info);
+    }
+  }
+  cellAt(info, ref, includeHidden = false) {
     const tr = ref.row === 0 ? info.table.rows[0] : info.table.querySelector(`tr[data-tp-row="${ref.row}"]`);
-    if (!tr || tr.classList.contains("tp-hidden")) return void 0;
+    if (!tr || tr.classList.contains("tp-hidden") && !includeHidden) return void 0;
     return tr.cells[ref.column];
   }
   openEditor(widget, info, cell, select = false) {
@@ -2241,6 +2291,10 @@ var Controller = class {
 // table-plus/src/index.ts
 var version = "0.1.0";
 var GLOBAL_KEY = "__tablePlus";
+function pageIndexed(name) {
+  const controller = globalThis[GLOBAL_KEY];
+  void controller?.pageIndexed(name);
+}
 function init(bridge) {
   const missing = missingBridgeFunctions(bridge);
   if (missing.length) {
@@ -2259,5 +2313,6 @@ function init(bridge) {
 }
 export {
   init,
+  pageIndexed,
   version
 };

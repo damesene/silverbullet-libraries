@@ -97,6 +97,7 @@ describe("Controller", () => {
   });
   afterEach(() => {
     controller?.stop();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -385,6 +386,28 @@ describe("Controller", () => {
     await setup(PAGE, { "tablePlus.maxHeight": "nonsense" });
     await flush();
     expect(editor.querySelector<HTMLElement>(".sb-table-widget")!.style.maxHeight).toBe("");
+  });
+
+  it("re-evaluates ${…} cells once the page is indexed", async () => {
+    // the fake render shows the expression source; SilverBullet would show a stale value
+    await setup("| N | Sum |\n|---|---|\n| a | 1 |\n| b | ${S()} |\n| c | x ${S()} |\n");
+    let sum = 42;
+    (controller as unknown as { bridge: Record<string, unknown> }).bridge.evalExpression = (e: string) =>
+      e === "S()" ? sum : undefined;
+    vi.useFakeTimers();
+    const indexed = async (page: string) => {
+      await controller.pageIndexed(page);
+      await vi.advanceTimersByTimeAsync(600); // the time given to the indexers
+    };
+    await indexed("Other page");
+    expect(cell(2, 1).textContent).toBe("${S()}");
+    await indexed("Test");
+    expect(cell(2, 1).textContent).toBe("42");
+    expect(cell(3, 1).textContent).toBe("x ${S()}"); // not a single expression: left alone
+    sum = 7;
+    await indexed("Test");
+    expect(cell(2, 1).textContent).toBe("7");
+    vi.useRealTimers();
   });
 
   it("sorts numbers numerically", async () => {

@@ -125,6 +125,7 @@ config.set("tablePlus.maxHeight", 400)
 
 * Every change is one ordinary edit: Ctrl+Z undoes it.
 * Rows you did not change are kept byte for byte. Tables with aligned pipes stay aligned; compact tables stay compact.
+* Cells that are one `${…}` expression (e.g. formulas of a spreadsheet library such as MdTableSheet) are re-evaluated once the page is re-indexed after an edit, so they do not keep a stale result.
 * Sorting, filters and scroll positions (sideways and, with a maximum height, up and down) are views only: they are remembered per table until the page is reloaded, and never written to the page.
 * SilverBullet does not show columns without a name, which shifts the header against the data. For such a table Table Plus shows a notice with a *Name them* button instead of enhancing it.
 
@@ -183,7 +184,15 @@ if js and js.window then
     getCursor = editor.getCursor,
     undo = editor.undo,
     redo = editor.redo,
+    evalExpression = lua.evalExpression,
   })
+  -- Once the page is re-indexed, `${…}` cells show results from the new index
+  event.listen {
+    name = "page:index",
+    run = function(e)
+      tablePlus.pageIndexed(e.data.name)
+    end,
+  }
 end
 ```
 

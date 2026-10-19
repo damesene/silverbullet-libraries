@@ -8,6 +8,12 @@ export const version = "0.1.0";
 // One controller per window, even if the module is loaded again (e.g. after an update)
 const GLOBAL_KEY = "__tablePlus";
 
+/** Called by the library page on SilverBullet's `page:index` event */
+export function pageIndexed(name: string): void {
+  const controller = (globalThis as unknown as Record<string, Controller | undefined>)[GLOBAL_KEY];
+  void controller?.pageIndexed(name);
+}
+
 export function init(bridge: Bridge): void {
   const missing = missingBridgeFunctions(bridge);
   if (missing.length) {

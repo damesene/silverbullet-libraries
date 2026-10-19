@@ -120,6 +120,9 @@ const STICKY_GAP = 38;
 // Toolbar distance above the header: clear of the column grip on the header's top edge
 const BAR_GAP = 10;
 
+// Time the indexers get to write the index after `page:index`
+const INDEX_SETTLE_MS = 500;
+
 // Middle-button autoscroll: no movement within this distance of the start point
 const AUTOSCROLL_DEAD_ZONE = 12;
 
@@ -174,6 +177,7 @@ export class Controller {
   private stopped = false;
   private settingsTimer: ReturnType<typeof setTimeout> | undefined;
   private settingsReadAt = 0;
+  private expressionTimer: ReturnType<typeof setTimeout> | undefined;
   private stickyQueued = false;
   private warnedIncompatible = false;
   private observer: MutationObserver | undefined;
@@ -239,6 +243,7 @@ export class Controller {
     this.doc.removeEventListener("mousemove", this.onMouseMove);
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
+    clearTimeout(this.expressionTimer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
     for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
@@ -942,12 +947,68 @@ export class Controller {
     return Number.isInteger(row) ? { row, column: cell.cellIndex } : undefined;
   }
 
-  private cellAt(info: WidgetInfo, ref: CellRef): HTMLTableCellElement | undefined {
+  // ---- `${…}` cells: re-evaluated once the page index is up to date --------
+
+  /**
+   * SilverBullet renders a table right after Table Plus writes it, before the
+   * page is re-indexed, so a `${…}` cell that reads the index (e.g. a formula
+   * from a spreadsheet library) shows a stale result until the table renders
+   * again. Once the page is indexed, Table Plus has SilverBullet re-evaluate
+   * such cells (lua.evalExpression) and shows the new values in place.
+   * `page:index` is the event the indexers write the index on, not a signal
+   * that they are done, so the evaluation waits a moment for them.
+   */
+  async pageIndexed(name: string): Promise<void> {
+    if (this.stopped || !this.bridge.evalExpression) return;
+    if (name !== (await this.bridge.getCurrentPage())) return;
+    clearTimeout(this.expressionTimer);
+    this.expressionTimer = setTimeout(() => void this.refreshExpressions(), INDEX_SETTLE_MS);
+  }
+
+  private async refreshExpressions(): Promise<void> {
+    for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.infos.get(widget);
+      if (this.stopped || !info || !info.source.includes("${")) continue;
+      const rows = parseTable(info.source).rows;
+      let changed = false;
+      for (let row = 0; row < rows.length; row++) {
+        const cells = rows[row]!.cells;
+        for (let column = 0; column < cells.length; column++) {
+          // Only cells that are one expression: their shown text is its value
+          const expression = /^\$\{([\s\S]+)\}$/.exec(cells[column]!.trim())?.[1];
+          if (!expression) continue;
+          let value: unknown;
+          try {
+            value = await this.bridge.evalExpression!(expression.replaceAll("\\|", "|"));
+          } catch {
+            continue;
+          }
+          const text =
+            value === null || value === undefined
+              ? ""
+              : typeof value === "number" || typeof value === "string" || typeof value === "boolean"
+                ? String(value)
+                : undefined;
+          const cell = this.cellAt(info, { row, column }, true);
+          if (text === undefined || !cell || cell === this.editor?.cell || renderedTable(widget) !== info.table) continue;
+          if (cellText(cell) === text) continue;
+          for (const node of Array.from(cell.childNodes)) {
+            if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
+          }
+          cell.prepend(this.doc.createTextNode(text));
+          changed = true;
+        }
+      }
+      if (changed && renderedTable(widget) === info.table) this.applyView(widget, info);
+    }
+  }
+
+  private cellAt(info: WidgetInfo, ref: CellRef, includeHidden = false): HTMLTableCellElement | undefined {
     const tr =
       ref.row === 0
         ? info.table.rows[0]
         : info.table.querySelector<HTMLTableRowElement>(`tr[data-tp-row="${ref.row}"]`);
-    if (!tr || tr.classList.contains("tp-hidden")) return undefined;
+    if (!tr || (tr.classList.contains("tp-hidden") && !includeHidden)) return undefined;
     return tr.cells[ref.column];
   }
 
