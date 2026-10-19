@@ -10,7 +10,7 @@
 // also set in its menu: pear[price] is the row's Price cell, wherever the row
 // is moved or sorted.
 import { columnIdOf, columnKey } from "../columns.ts";
-import type { Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { FUNCTIONS } from "../formula/functions/index.ts";
 import { ICONS } from "../icons.ts";
 import { findTables, locateBySource, parseTable, type Table } from "../markdown.ts";
@@ -144,11 +144,9 @@ export class Names implements Feature {
     this.host.focusEditor(widget);
   }
 
-  /** "Name row" and "Name cell" at the top of a row's menu, the cell being the one in `column` */
-  rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
+  /** "Name row" at the top of a row's menu */
+  rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number): MenuEntry[] {
     const cells = parseTable(info.source).rows[row]?.cells ?? [];
-    const name = cellNameOf(cells[column] ?? "");
-    const allowed = this.host.metadataEnabled || name !== undefined;
     const rowName = rowNameIn(cells)?.name;
     const rowAllowed = this.host.metadataEnabled || rowName !== undefined;
     return [
@@ -166,21 +164,32 @@ export class Names implements Feature {
           : { disabled: "Needs the Store table metadata setting" }),
         run: () => void this.nameRow(widget, info, row),
       },
-      {
-        kind: "item",
-        label: "Name cell",
-        icon: ICONS.fixedName,
-        ...(name ? { value: { text: name } } : {}),
-        ...(allowed
-          ? {
-              hint: name
-                ? `Formulas use this cell as ${name} (on other pages [[Page]]${name}), wherever it is moved. Click to rename it`
-                : "Name this cell, so formulas use it by its name (vat), wherever it is moved",
-            }
-          : { disabled: "Needs the Store table metadata setting" }),
-        run: () => void this.nameCell(widget, info, row, column),
-      },
     ];
+  }
+
+  /** First in a cell's menu: Name cell and Name row (also in the row's menu); in a header's, Name column */
+  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): { order: number; entries: MenuEntry[] } | undefined {
+    const [cell] = cells;
+    if (cells.length !== 1 || !cell) return undefined;
+    if (cell.row === 0) return { order: 0, entries: this.columnMenuTopEntries(widget, info, cell.column) };
+    const { row, column } = cell;
+    const name = cellNameOf(parseTable(info.source).rows[row]?.cells[column] ?? "");
+    const allowed = this.host.metadataEnabled || name !== undefined;
+    const entry: MenuEntry = {
+      kind: "item",
+      label: "Name cell",
+      icon: ICONS.fixedName,
+      ...(name ? { value: { text: name } } : {}),
+      ...(allowed
+        ? {
+            hint: name
+              ? `Formulas use this cell as ${name} (on other pages [[Page]]${name}), wherever it is moved. Click to rename it`
+              : "Name this cell, so formulas use it by its name (vat), wherever it is moved",
+          }
+        : { disabled: "Needs the Store table metadata setting" }),
+      run: () => void this.nameCell(widget, info, row, column),
+    };
+    return { order: 0, entries: [entry, ...this.rowMenuEntries(widget, info, row)] };
   }
 
   private async nameRow(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number): Promise<void> {

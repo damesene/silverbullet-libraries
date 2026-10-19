@@ -1,7 +1,10 @@
 // Selecting cells by dragging across them, to copy them for a spreadsheet
-// (Ctrl+C) or empty them (Delete).
+// (Ctrl+C) or empty them (Delete); Copy and Clear in the menu of a cell or of
+// the cells selected.
 import type { CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellValue } from "../dom.ts";
+import { ICONS } from "../icons.ts";
+import type { MenuEntry } from "../menu.ts";
 import type { Table } from "../markdown.ts";
 import { setCell } from "../ops.ts";
 
@@ -94,6 +97,71 @@ export class Selection implements Feature {
     return false;
   }
 
+  /**
+   * The cells the cell menu is for: the selection when it holds `at`; else
+   * `at` is selected (marked, not edited), as a right click selects in a
+   * spreadsheet, and stays so for Ctrl+C and Delete
+   */
+  selectedCells(info: WidgetInfo, at: CellRef): readonly CellRef[] {
+    const refs = this.selection?.key === info.key ? this.refs(info) : [];
+    if (refs.some((ref) => ref.row === at.row && ref.column === at.column)) return refs;
+    // A cell being edited is saved as the menu takes the focus
+    this.selection = { key: info.key, anchor: at, focus: at };
+    this.show();
+    return [at];
+  }
+
+  /** Copy and Clear in the menu of a cell or of the cells selected */
+  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): { order: number; entries: MenuEntry[] } {
+    const body = cells.filter((ref) => ref.row > 0).length;
+    const entries: MenuEntry[] = [
+      {
+        kind: "item",
+        label: cells.length > 1 ? `Copy ${cells.length} cells` : "Copy",
+        icon: ICONS.duplicate,
+        hint: "Copy as Ctrl+C does: a spreadsheet pastes it into cells",
+        run: () => void this.copy(info, cells),
+      },
+    ];
+    // A header keeps its name: a column needs one
+    if (body > 0) {
+      entries.push({
+        kind: "item",
+        label: body > 1 ? `Clear ${body} cells` : "Clear",
+        icon: ICONS.clear,
+        hint: "Empty the cells, formulas included, as Delete does",
+        run: () => void this.empty(widget, info, cells),
+      });
+    }
+    return { order: 1, entries };
+  }
+
+  /** The cells, as values in rows as shown, onto the clipboard as Ctrl+C puts them */
+  private async copy(info: WidgetInfo, cells: readonly CellRef[]): Promise<void> {
+    const rows = new Map<number, string[]>();
+    for (const ref of cells) {
+      const cell = this.host.cellAt(info, ref, true);
+      const row = rows.get(ref.row) ?? [];
+      row.push(cell ? cellValue(cell) : "");
+      rows.set(ref.row, row);
+    }
+    const values = Array.from(rows.values());
+    const clipboard = this.host.doc.defaultView!.navigator.clipboard;
+    try {
+      const win = this.host.doc.defaultView as (Window & { ClipboardItem?: typeof ClipboardItem }) | null;
+      if (win?.ClipboardItem && clipboard.write) {
+        const blob = (type: string, text: string) => new Blob([text], { type });
+        await clipboard.write([
+          new win.ClipboardItem({ "text/plain": blob("text/plain", clipboardText(values)), "text/html": blob("text/html", clipboardHtml(values)) }),
+        ]);
+      } else {
+        await clipboard.writeText(clipboardText(values));
+      }
+    } catch (e) {
+      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
+    }
+  }
+
   // A table rendered again (after a write) shows the selection again
   enhanced(_widget: HTMLElement, info: WidgetInfo): void {
     if (this.selection?.key === info.key) this.show();
@@ -130,21 +198,26 @@ export class Selection implements Feature {
     for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
   }
 
-  /**
-   * Empties the selected cells, formulas included, as one edit; header cells
-   * keep their names (a column needs one). The selection stays.
-   */
+  /** The selected cells as references, rows as shown (the header first), columns left to right */
+  private refs(info: WidgetInfo): CellRef[] {
+    return (this.cells() ?? []).flat().flatMap((cell) => this.host.cellRef(info, cell) ?? []);
+  }
+
+  /** Empties the selected cells (Delete). The selection stays. */
   private async emptyCells(): Promise<void> {
     const selection = this.selection;
     const widget = selection && this.host.widgetForKey(selection.key);
     const info = widget && this.host.infoOf(widget);
-    const cells = this.cells();
-    if (!widget || !info || !cells) return;
-    const refs = cells
-      .flat()
-      .map((cell) => this.host.cellRef(info, cell))
-      .filter((ref): ref is CellRef => ref !== undefined && ref.row > 0);
-    // A cell's name is kept, as when the cell is edited
+    if (widget && info) await this.empty(widget, info, this.refs(info));
+  }
+
+  /**
+   * Empties cells, formulas included, as one edit; header cells keep their
+   * names (a column needs one), cells their hidden tags (names)
+   */
+  private async empty(shownWidget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): Promise<void> {
+    const widget = this.host.widgetForKey(info.key) ?? shownWidget;
+    const refs = cells.filter((ref) => ref.row > 0);
     const emptied = (table: Table, ref: CellRef) => setCell(table, ref.row, ref.column, this.host.keepTags("", table.rows[ref.row]?.cells[ref.column] ?? ""));
     await this.host.write(widget, (t) => refs.reduce(emptied, t));
   }

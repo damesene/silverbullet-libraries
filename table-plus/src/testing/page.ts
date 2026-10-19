@@ -148,3 +148,10 @@ export function tableMenuItem(label: RegExp, table = 0): HTMLElement | undefined
   if (!document.querySelector(".tp-menu")) document.querySelector<HTMLElement>(".tp-bar .tp-bar-more")!.click();
   return Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => label.test(b.textContent!));
 }
+
+/** An item of the menu of a cell (or of the cells selected), by its label, the menu opened with a right click on it */
+export function cellMenuItem(target: Element, label: RegExp): HTMLElement | undefined {
+  if (document.querySelector(".tp-menu")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 }));
+  return Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => label.test(b.textContent!));
+}

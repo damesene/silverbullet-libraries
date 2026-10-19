@@ -4271,6 +4271,17 @@ var TEXT_HINTS = [
   { code: "a|b", text: "either", apply: (v) => v === "" || v.endsWith("|") ? v : `${v}|` },
   { code: "/^a.*z$/", text: "regular expression", apply: (v) => v.startsWith("/") ? v : `/${bare(v)}/` }
 ];
+function withValues(current, prefix, values) {
+  const text = current.trim();
+  const listed2 = text.startsWith(prefix) && (prefix === "!=" || !text.startsWith("!")) ? text.slice(prefix.length).split("|").map((v) => v.trim()) : [];
+  const all = [...listed2];
+  for (const value of values) if (!all.some((v) => normalizeForFilter(v) === normalizeForFilter(value))) all.push(value);
+  return `${prefix}${all.length === 1 && all[0] === "" ? "|" : all.join("|")}`;
+}
+function valuesLabel(values) {
+  const named2 = values.map((v) => v === "" ? "empty" : v.length > 20 ? `${v.slice(0, 19)}\u2026` : v);
+  return named2.length > 3 ? `${named2.slice(0, 3).join(", ")} and ${named2.length - 3} more` : named2.join(", ");
+}
 function sameFilters(a, b) {
   for (let column = 0; column < Math.max(a.length, b.length); column++) {
     if ((a[column] ?? "").trim() !== (b[column] ?? "").trim()) return false;
@@ -4412,6 +4423,38 @@ var Filters = class {
       }
     });
     return buttons;
+  }
+  /**
+   * In the menu of body cells of one column: Filter = their values (only
+   * rows with one of them) and Filter ≠ their values (rows with none); added
+   * to a list of that kind the column filters by already
+   */
+  cellMenuEntries(_widget, info, cells) {
+    const body = cells.filter((ref) => ref.row > 0);
+    const column = body[0]?.column;
+    if (column === void 0 || body.some((ref) => ref.column !== column)) return void 0;
+    const values = [];
+    for (const ref of body) {
+      const cell = this.host.cellAt(info, ref, true);
+      const value = cell ? this.host.cellValue(cell).trim() : "";
+      if (!values.some((v) => normalizeForFilter(v) === normalizeForFilter(value))) values.push(value);
+    }
+    if (values.some((v) => v.includes("|"))) return void 0;
+    const { key } = info;
+    const apply = (prefix) => () => {
+      const table = this.table(key);
+      if (!table) return;
+      this.setFilter(key, column, withValues(this.filtersOf(table[1])[column] ?? "", prefix, values));
+      this.scheduleStore(key);
+    };
+    const label = valuesLabel(values);
+    return {
+      order: 2,
+      entries: [
+        { kind: "item", label: `Filter: = ${label}`, icon: ICONS.filter, hint: "Show only the rows with this value here", run: apply("=") },
+        { kind: "item", label: `Filter: \u2260 ${label}`, icon: ICONS.filter, hint: "Hide the rows with this value here", run: apply("!=") }
+      ]
+    };
   }
   /** "Filter" in a column's menu: its filter in a bubble under its header */
   columnMenuEntries(_widget, info, column) {
@@ -6259,11 +6302,9 @@ Row name: ${row}` : `Row name: ${row}`;
     await this.host.write(widget, (t) => withMetaName(t, name === "" ? void 0 : name));
     this.host.focusEditor(widget);
   }
-  /** "Name row" and "Name cell" at the top of a row's menu, the cell being the one in `column` */
-  rowMenuEntries(widget, info, row, column) {
+  /** "Name row" at the top of a row's menu */
+  rowMenuEntries(widget, info, row) {
     const cells = parseTable(info.source).rows[row]?.cells ?? [];
-    const name = cellNameOf(cells[column] ?? "");
-    const allowed = this.host.metadataEnabled || name !== void 0;
     const rowName = rowNameIn(cells)?.name;
     const rowAllowed = this.host.metadataEnabled || rowName !== void 0;
     return [
@@ -6276,18 +6317,28 @@ Row name: ${row}` : `Row name: ${row}`;
           hint: rowName ? `Formulas use this row's cells as ${rowName}[column] (from other tables table!${rowName}[column]), wherever it is moved. Click to rename it` : "Name this row, so formulas use its cells as name[column], wherever it is moved or sorted"
         } : { disabled: "Needs the Store table metadata setting" },
         run: () => void this.nameRow(widget, info, row)
-      },
-      {
-        kind: "item",
-        label: "Name cell",
-        icon: ICONS.fixedName,
-        ...name ? { value: { text: name } } : {},
-        ...allowed ? {
-          hint: name ? `Formulas use this cell as ${name} (on other pages [[Page]]${name}), wherever it is moved. Click to rename it` : "Name this cell, so formulas use it by its name (vat), wherever it is moved"
-        } : { disabled: "Needs the Store table metadata setting" },
-        run: () => void this.nameCell(widget, info, row, column)
       }
     ];
+  }
+  /** First in a cell's menu: Name cell and Name row (also in the row's menu); in a header's, Name column */
+  cellMenuEntries(widget, info, cells) {
+    const [cell] = cells;
+    if (cells.length !== 1 || !cell) return void 0;
+    if (cell.row === 0) return { order: 0, entries: this.columnMenuTopEntries(widget, info, cell.column) };
+    const { row, column } = cell;
+    const name = cellNameOf(parseTable(info.source).rows[row]?.cells[column] ?? "");
+    const allowed = this.host.metadataEnabled || name !== void 0;
+    const entry = {
+      kind: "item",
+      label: "Name cell",
+      icon: ICONS.fixedName,
+      ...name ? { value: { text: name } } : {},
+      ...allowed ? {
+        hint: name ? `Formulas use this cell as ${name} (on other pages [[Page]]${name}), wherever it is moved. Click to rename it` : "Name this cell, so formulas use it by its name (vat), wherever it is moved"
+      } : { disabled: "Needs the Store table metadata setting" },
+      run: () => void this.nameCell(widget, info, row, column)
+    };
+    return { order: 0, entries: [entry, ...this.rowMenuEntries(widget, info, row)] };
   }
   async nameRow(shownWidget, shownInfo, row) {
     const table = parseTable(shownInfo.source);
@@ -6648,6 +6699,66 @@ var Selection = class {
     }
     return false;
   }
+  /**
+   * The cells the cell menu is for: the selection when it holds `at`; else
+   * `at` is selected (marked, not edited), as a right click selects in a
+   * spreadsheet, and stays so for Ctrl+C and Delete
+   */
+  selectedCells(info, at) {
+    const refs = this.selection?.key === info.key ? this.refs(info) : [];
+    if (refs.some((ref) => ref.row === at.row && ref.column === at.column)) return refs;
+    this.selection = { key: info.key, anchor: at, focus: at };
+    this.show();
+    return [at];
+  }
+  /** Copy and Clear in the menu of a cell or of the cells selected */
+  cellMenuEntries(widget, info, cells) {
+    const body = cells.filter((ref) => ref.row > 0).length;
+    const entries = [
+      {
+        kind: "item",
+        label: cells.length > 1 ? `Copy ${cells.length} cells` : "Copy",
+        icon: ICONS.duplicate,
+        hint: "Copy as Ctrl+C does: a spreadsheet pastes it into cells",
+        run: () => void this.copy(info, cells)
+      }
+    ];
+    if (body > 0) {
+      entries.push({
+        kind: "item",
+        label: body > 1 ? `Clear ${body} cells` : "Clear",
+        icon: ICONS.clear,
+        hint: "Empty the cells, formulas included, as Delete does",
+        run: () => void this.empty(widget, info, cells)
+      });
+    }
+    return { order: 1, entries };
+  }
+  /** The cells, as values in rows as shown, onto the clipboard as Ctrl+C puts them */
+  async copy(info, cells) {
+    const rows = /* @__PURE__ */ new Map();
+    for (const ref of cells) {
+      const cell = this.host.cellAt(info, ref, true);
+      const row = rows.get(ref.row) ?? [];
+      row.push(cell ? cellValue(cell) : "");
+      rows.set(ref.row, row);
+    }
+    const values = Array.from(rows.values());
+    const clipboard = this.host.doc.defaultView.navigator.clipboard;
+    try {
+      const win = this.host.doc.defaultView;
+      if (win?.ClipboardItem && clipboard.write) {
+        const blob = (type, text) => new Blob([text], { type });
+        await clipboard.write([
+          new win.ClipboardItem({ "text/plain": blob("text/plain", clipboardText(values)), "text/html": blob("text/html", clipboardHtml(values)) })
+        ]);
+      } else {
+        await clipboard.writeText(clipboardText(values));
+      }
+    } catch (e) {
+      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
+    }
+  }
   // A table rendered again (after a write) shows the selection again
   enhanced(_widget, info) {
     if (this.selection?.key === info.key) this.show();
@@ -6678,17 +6789,24 @@ var Selection = class {
   unmark() {
     for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
   }
-  /**
-   * Empties the selected cells, formulas included, as one edit; header cells
-   * keep their names (a column needs one). The selection stays.
-   */
+  /** The selected cells as references, rows as shown (the header first), columns left to right */
+  refs(info) {
+    return (this.cells() ?? []).flat().flatMap((cell) => this.host.cellRef(info, cell) ?? []);
+  }
+  /** Empties the selected cells (Delete). The selection stays. */
   async emptyCells() {
     const selection = this.selection;
     const widget = selection && this.host.widgetForKey(selection.key);
     const info = widget && this.host.infoOf(widget);
-    const cells = this.cells();
-    if (!widget || !info || !cells) return;
-    const refs = cells.flat().map((cell) => this.host.cellRef(info, cell)).filter((ref) => ref !== void 0 && ref.row > 0);
+    if (widget && info) await this.empty(widget, info, this.refs(info));
+  }
+  /**
+   * Empties cells, formulas included, as one edit; header cells keep their
+   * names (a column needs one), cells their hidden tags (names)
+   */
+  async empty(shownWidget, info, cells) {
+    const widget = this.host.widgetForKey(info.key) ?? shownWidget;
+    const refs = cells.filter((ref) => ref.row > 0);
     const emptied = (table, ref) => setCell(table, ref.row, ref.column, this.host.keepTags("", table.rows[ref.row]?.cells[ref.column] ?? ""));
     await this.host.write(widget, (t) => refs.reduce(emptied, t));
   }
@@ -6766,6 +6884,7 @@ var STOPPED_EVENTS = [
 ];
 var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
 var BAR_GAP = 10;
+var LONG_PRESS_MS = 550;
 var STORE_SORT_DELAY_MS = 400;
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 function placeAtEnd(parent, rows) {
@@ -6843,7 +6962,11 @@ var Controller = class {
   // The modules turned on
   modulesOn = /* @__PURE__ */ new Set();
   // The toolbar's open ⋯ menu
+  // The open menu of a table's toolbar (⋯, at its button) or of cells (at the pointer)
   tableMenu;
+  // When a long press on a touch screen last opened a cell menu: the press is no click on the cell
+  longPressAt = 0;
+  stopLongPress;
   metadata;
   // Steps every write goes through after the edit, in this order
   writeSteps = [metadataAfterEdit];
@@ -6854,6 +6977,8 @@ var Controller = class {
     const win = this.doc.defaultView;
     win.addEventListener("mousedown", this.onMouseDown, true);
     win.addEventListener("click", this.onClick, true);
+    win.addEventListener("contextmenu", this.onContextMenu, true);
+    win.addEventListener("pointerdown", this.onPointerDown, true);
     win.addEventListener("dblclick", this.onDoubleClick, true);
     win.addEventListener("scroll", this.onScroll, true);
     win.addEventListener("keydown", this.onKeyDown, true);
@@ -6920,6 +7045,9 @@ var Controller = class {
     const win = this.doc.defaultView;
     win.removeEventListener("mousedown", this.onMouseDown, true);
     win.removeEventListener("click", this.onClick, true);
+    win.removeEventListener("contextmenu", this.onContextMenu, true);
+    win.removeEventListener("pointerdown", this.onPointerDown, true);
+    this.stopLongPress?.();
     win.removeEventListener("dblclick", this.onDoubleClick, true);
     win.removeEventListener("scroll", this.onScroll, true);
     win.removeEventListener("keydown", this.onKeyDown, true);
@@ -7512,6 +7640,11 @@ var Controller = class {
     return row?.contains(UI_CLASS) || row?.contains("tp-meta-row") ? void 0 : cell;
   }
   onMouseDown = (e) => {
+    if (Date.now() - this.longPressAt < 1e3) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (this.tableMenu && e.target instanceof Node && !this.tableMenu.element.contains(e.target) && !this.bar.contains(e.target)) {
       this.closeTableMenu(false);
     }
@@ -7677,6 +7810,7 @@ var Controller = class {
       this.closeTableMenu(true);
       return;
     }
+    if (this.cellMenuKey(e)) return;
     for (const feature of this.features) if (feature.keyDown?.(e)) return;
   };
   onKeyUp = (e) => {
@@ -8004,11 +8138,11 @@ var Controller = class {
         title: "More for this table",
         place: "icon",
         icon: ICONS.more,
-        run: () => this.tableMenu ? this.closeTableMenu(true) : this.openTableMenu(widget, more, menuItems)
+        run: () => this.tableMenu?.kind === "table" ? this.closeTableMenu(true) : this.openTableMenu(widget, more, menuItems)
       },
       "tp-bar-more"
     );
-    if (this.tableMenu) {
+    if (this.tableMenu?.kind === "table") {
       more.classList.add("tp-active");
       this.tableMenu.anchor = more;
     }
@@ -8045,34 +8179,54 @@ var Controller = class {
       hint: item.title,
       ...item.value ? { value: { text: item.value } } : {},
       ...item.danger ? { danger: true } : {},
-      run: () => {
-        this.closeTableMenu(false);
-        item.run();
-      }
+      run: item.run
     });
     const safe = items.filter((item) => !item.danger).map(entry);
     const danger = items.filter((item) => item.danger).map(entry);
-    const element = renderMenu(this.doc, "Table", [...safe, ...safe.length && danger.length ? [{ kind: "separator" }] : [], ...danger]);
+    this.showMenu(widget, "Table", [...safe, ...safe.length && danger.length ? [{ kind: "separator" }] : [], ...danger], { kind: "table", anchor });
+  }
+  /** A menu of the toolbar or of cells: its items close it when run; Escape or a press elsewhere closes it */
+  showMenu(widget, title, entries, place) {
+    this.closeTableMenu(false);
+    const closing = entries.map(
+      (entry) => entry.kind === "item" ? {
+        ...entry,
+        run: () => {
+          this.closeTableMenu(false);
+          entry.run();
+        }
+      } : entry
+    );
+    const element = renderMenu(this.doc, title, closing);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     this.doc.body.append(element);
-    this.tableMenu = { element, widget, anchor };
-    anchor.classList.add("tp-active");
+    this.tableMenu = { element, widget, ...place };
+    place.anchor?.classList.add("tp-active");
     this.positionTableMenu();
     focusMenu(element);
   }
-  /** Below the ⋯ button, its right edge at the button's; always inside the window */
+  /** Below the ⋯ button, its right edge at the button's; at the pointer; always inside the window */
   positionTableMenu() {
     if (!this.tableMenu) return;
-    const { element, anchor } = this.tableMenu;
+    const { element, anchor, point } = this.tableMenu;
     const win = this.doc.defaultView;
-    const a = anchor.getBoundingClientRect();
     const m = element.getBoundingClientRect();
-    const left = Math.max(4, Math.min(a.right - m.width, win.innerWidth - m.width - 4));
-    let top = a.bottom + 4;
-    if (top + m.height > win.innerHeight - 4) top = Math.max(4, a.top - m.height - 4);
-    element.style.left = `${Math.round(left)}px`;
-    element.style.top = `${Math.round(top)}px`;
+    let left;
+    let top;
+    if (anchor) {
+      const a = anchor.getBoundingClientRect();
+      left = a.right - m.width;
+      top = a.bottom + 4;
+      if (top + m.height > win.innerHeight - 4) top = a.top - m.height - 4;
+    } else {
+      left = point?.x ?? 0;
+      top = point?.y ?? 0;
+      if (top + m.height > win.innerHeight - 4) top -= m.height;
+      if (left + m.width > win.innerWidth - 4) left -= m.width;
+    }
+    element.style.left = `${Math.round(Math.max(4, Math.min(left, win.innerWidth - m.width - 4)))}px`;
+    element.style.top = `${Math.round(Math.max(4, top))}px`;
   }
   closeTableMenu(refocus) {
     const menu = this.tableMenu;
@@ -8080,8 +8234,95 @@ var Controller = class {
     this.tableMenu = void 0;
     const hadFocus = menu.element.contains(this.doc.activeElement);
     menu.element.remove();
-    menu.anchor.classList.remove("tp-active");
+    menu.anchor?.classList.remove("tp-active");
     if (refocus && hadFocus) this.focusEditor(menu.widget);
+  }
+  // ---- the cell menu: right click, a long press, the Menu key ------------------
+  /**
+   * The menu of a cell, or of the cells selected when it is one of them: what
+   * the features offer (Feature.cellMenuEntries), in their groups' order.
+   * False when none offers anything: the browser's menu stays.
+   */
+  openCellMenu(widget, info, at, point) {
+    let cells = [at];
+    for (const feature of this.features) {
+      const selected = feature.selectedCells?.(info, at);
+      if (selected) {
+        cells = selected;
+        break;
+      }
+    }
+    const groups = this.features.flatMap((f) => {
+      const group = f.cellMenuEntries?.(widget, info, cells);
+      return group && group.entries.length ? [group] : [];
+    }).sort((a, b) => a.order - b.order);
+    if (groups.length === 0) return false;
+    const entries = groups.flatMap((group, i) => [...i ? [{ kind: "separator" }] : [], ...group.entries]);
+    const header = cellText(info.table.rows[0].cells[at.column]) || `column ${at.column + 1}`;
+    const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? `Header: ${header}` : `Cell: ${header}, row ${at.row}`;
+    this.showMenu(widget, title, entries, { kind: "cell", point });
+    return true;
+  }
+  /** The cell a pointer event is on, in an enhanced table; not in the cell editor (its menu is the browser's) */
+  cellOfEvent(e) {
+    if (!(e.target instanceof Element) || e.target.closest(".tp-cell-editor")) return void 0;
+    const hit = this.enhancedWidgetOf(e.target);
+    const cell = hit && this.tableCellOf(hit[1], e.target);
+    const ref = hit && cell && this.cellRef(hit[1], cell);
+    return hit && ref ? [hit[0], hit[1], ref] : void 0;
+  }
+  /** Right click (Shift+right click: the browser's menu) */
+  onContextMenu = (e) => {
+    if (e.shiftKey) return;
+    if (Date.now() - this.longPressAt < 1e3) {
+      e.preventDefault();
+      return;
+    }
+    const hit = this.cellOfEvent(e);
+    if (hit && this.openCellMenu(hit[0], hit[1], hit[2], { x: e.clientX, y: e.clientY })) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  /** A long press on a touch screen: the cell menu, where no right click is (iOS fires no contextmenu) */
+  onPointerDown = (e) => {
+    this.stopLongPress?.();
+    if (e.pointerType !== "touch") return;
+    const hit = this.cellOfEvent(e);
+    if (!hit) return;
+    const win = this.doc.defaultView;
+    const { clientX: x, clientY: y } = e;
+    const timer = setTimeout(() => {
+      stop();
+      if (this.tableMenu?.kind === "cell") return;
+      if (this.openCellMenu(hit[0], hit[1], hit[2], { x, y })) this.longPressAt = Date.now();
+    }, LONG_PRESS_MS);
+    const move = (ev) => {
+      if (Math.hypot(ev.clientX - x, ev.clientY - y) > 10) stop();
+    };
+    const stop = () => {
+      clearTimeout(timer);
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", stop, true);
+      win.removeEventListener("pointercancel", stop, true);
+      this.stopLongPress = void 0;
+    };
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", stop, true);
+    win.addEventListener("pointercancel", stop, true);
+    this.stopLongPress = stop;
+  };
+  /** The Menu key or Shift+F10 in a cell editor: the menu of the edited cell (or of the cells selected) */
+  cellMenuKey(e) {
+    if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return false;
+    const editing = this.cellEditor.active;
+    const info = editing && this.infos.get(editing.widget);
+    if (!editing || !info) return false;
+    const rect = editing.cell.getBoundingClientRect();
+    if (!this.openCellMenu(editing.widget, info, { row: editing.row, column: editing.column }, { x: rect.left, y: rect.bottom })) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
   }
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
   shownRect(widget, info) {

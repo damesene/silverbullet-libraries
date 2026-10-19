@@ -264,6 +264,17 @@ export interface Feature {
     column: number,
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[];
+  /**
+   * Entries for the menu of a cell, or of cells (selected), opened with a right
+   * click, a long press or the Menu key; `order` places the group (0 naming, 1
+   * editing, 2 viewing). They close the menu when run.
+   */
+  cellMenuEntries?(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): { readonly order: number; readonly entries: readonly MenuEntry[] } | undefined;
+  /**
+   * The cells the cell menu opened on `at` is for: the cells selected (as
+   * shown) when the selection holds it, else `at`, now selected
+   */
+  selectedCells?(info: WidgetInfo, at: CellRef): readonly CellRef[] | undefined;
   /** Entries at the top of a column's menu, before its sorting (naming the column); they close the menu when run */
   columnMenuTopEntries?(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
   /** Entries at the top of a row's menu, about its cell in `column` (the one under the pointer or edited); they close the menu when run */

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cell, clickOn, controller, editor, flashes, flush, key, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
 
 describe("Formulas", () => {
@@ -403,11 +403,10 @@ describe("Formulas", () => {
     };
     const item = (label: RegExp) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => label.test(b.textContent!))!;
 
-    it("names a cell from its row's menu; the tables using the name get its value in the same edit", async () => {
+    it("names a cell from its menu; the tables using the name get its value in the same edit", async () => {
       await setup(PAGE4.replace('121 <meta f="=[@price]*(1+vat)">', '0 <meta f="=[@price]*(1+vat)">'), { "tablePlus.editor.enterKey": "save" });
       vi.spyOn(window, "prompt").mockReturnValue("vat");
-      openRowMenu(1, 1);
-      item(/^Name cell/).click();
+      cellMenuItem(cell(1, 1), /^Name cell/)!.click();
       await flush();
       await controller.scan();
       expect(text).toContain('| VAT | 0.21 <meta cn="vat"> |');
@@ -485,13 +484,11 @@ describe("Formulas", () => {
       await setup('| A | B |\n|---|---|\n| 1 <meta cn="one"> | 2 |\n');
       const prompt = vi.spyOn(window, "prompt");
       prompt.mockReturnValue("ONE");
-      openRowMenu(1, 1);
-      item(/^Name cell/).click();
+      cellMenuItem(cell(1, 1), /^Name cell/)!.click();
       await flush();
       expect(flashes.pop()).toBe("Table Plus: another cell on this page is named ONE");
       prompt.mockReturnValue("sum");
-      openRowMenu(1, 1);
-      item(/^Name cell/).click();
+      cellMenuItem(cell(1, 1), /^Name cell/)!.click();
       await flush();
       expect(flashes.pop()).toBe("Table Plus: sum is a function's name");
       expect(text).toBe('| A | B |\n|---|---|\n| 1 <meta cn="one"> | 2 |\n');

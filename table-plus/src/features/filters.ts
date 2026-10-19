@@ -13,7 +13,7 @@
 // filters were typed that are not stored (yet, or the setting is off): so an
 // undo of the metadata (Ctrl+Z after Remove metadata, after a store) shows
 // what the markdown has again.
-import type { CellEditor, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { CellEditor, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { cellText, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
 import { type FilterOptions, normalizeForFilter, parseFilter } from "../filter.ts";
 import { ICONS } from "../icons.ts";
@@ -44,6 +44,25 @@ const TEXT_HINTS: readonly Hint[] = [
 
 /** A column's different values (as filters see them), each with what it shows and how many cells have it */
 type ColumnValue = { readonly value: string; readonly label: string; readonly count: number };
+
+/**
+ * A column's filter with `values` added to its list of whole values: `=a|b`
+ * (`prefix` "=") or `!=a|b` (none of them), what it lists of that kind kept.
+ * An empty value is an empty alternative (`=|a`; alone `=|`).
+ */
+export function withValues(current: string, prefix: "=" | "!=", values: readonly string[]): string {
+  const text = current.trim();
+  const listed = text.startsWith(prefix) && (prefix === "!=" || !text.startsWith("!")) ? text.slice(prefix.length).split("|").map((v) => v.trim()) : [];
+  const all = [...listed];
+  for (const value of values) if (!all.some((v) => normalizeForFilter(v) === normalizeForFilter(value))) all.push(value);
+  return `${prefix}${all.length === 1 && all[0] === "" ? "|" : all.join("|")}`;
+}
+
+/** Values as a menu item names them: a few, "empty" for an empty one */
+function valuesLabel(values: readonly string[]): string {
+  const named = values.map((v) => (v === "" ? "empty" : v.length > 20 ? `${v.slice(0, 19)}…` : v));
+  return named.length > 3 ? `${named.slice(0, 3).join(", ")} and ${named.length - 3} more` : named.join(", ");
+}
 
 /** Whether two tables' filters (by column, "" none) are the same */
 function sameFilters(a: readonly string[], b: readonly string[]): boolean {
@@ -210,6 +229,40 @@ export class Filters implements Feature {
       },
     });
     return buttons;
+  }
+
+  /**
+   * In the menu of body cells of one column: Filter = their values (only
+   * rows with one of them) and Filter ≠ their values (rows with none); added
+   * to a list of that kind the column filters by already
+   */
+  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): { order: number; entries: MenuEntry[] } | undefined {
+    const body = cells.filter((ref) => ref.row > 0);
+    const column = body[0]?.column;
+    if (column === undefined || body.some((ref) => ref.column !== column)) return undefined;
+    const values: string[] = [];
+    for (const ref of body) {
+      const cell = this.host.cellAt(info, ref, true);
+      const value = cell ? this.host.cellValue(cell).trim() : "";
+      if (!values.some((v) => normalizeForFilter(v) === normalizeForFilter(value))) values.push(value);
+    }
+    // A value with a | cannot be listed
+    if (values.some((v) => v.includes("|"))) return undefined;
+    const { key } = info;
+    const apply = (prefix: "=" | "!=") => () => {
+      const table = this.table(key);
+      if (!table) return;
+      this.setFilter(key, column, withValues(this.filtersOf(table[1])[column] ?? "", prefix, values));
+      this.scheduleStore(key);
+    };
+    const label = valuesLabel(values);
+    return {
+      order: 2,
+      entries: [
+        { kind: "item", label: `Filter: = ${label}`, icon: ICONS.filter, hint: "Show only the rows with this value here", run: apply("=") },
+        { kind: "item", label: `Filter: ≠ ${label}`, icon: ICONS.filter, hint: "Hide the rows with this value here", run: apply("!=") },
+      ],
+    };
   }
 
   /** "Filter" in a column's menu: its filter in a bubble under its header */

@@ -66,6 +66,20 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * Esc or a click elsewhere ends the selection.
 * **Copy as CSV** in the ⋯ menu of the table's toolbar (the `export` module) copies the whole table as CSV (commas between cells, quotes where a cell needs them): its header and its rows as shown, sorted and filtered, cells as Ctrl+C copies them.
 
+## Cell menu
+
+Right-click a cell (on a touch screen: press and hold it; in the cell editor: the Menu key or Shift+F10) for its menu: the cell is selected (marked, not edited), and stays so afterwards for Ctrl+C and Delete. Right-click a cell of a selection for the selection's menu. Shift+right-click, and a right click in the cell editor, give the browser's menu.
+
+| Item | What it does |
+|---|---|
+| *Name cell*, *Name row* | Names the cell, see [[#Named cells]], or its row, see [[#Named rows]]; on a header *Name column*, see [[#Named columns]]. |
+| *Copy* | Copies the cell (the cells selected) as Ctrl+C does. |
+| *Clear* | Empties the cell (the cells selected) as Delete does; a header keeps its name. |
+| *Filter: = value* | Shows only the rows with this value in this column (with the values of the cells selected in one column: any of them). A column filtered by values already gets this one added: `=open\|blocked`. |
+| *Filter: ≠ value* | Hides the rows with this value in this column. |
+
+Each comes from a module (`names`, `selection`, `filters`, see [[#Settings]]): a module turned off leaves its items out, and with none left the right click gives the browser's menu.
+
 ## Pasting from a spreadsheet
 
 Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table and paste:
@@ -173,7 +187,7 @@ A column can have a name of its own, by which formulas and the stored sorting na
 
 ### Named cells
 
-A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)`, or on another page `[[Prices]]vat`. The name stays with the cell wherever it is moved (also in the markdown), so such references never need to change. Open the row's menu (the ⠿ grip left of the row, for the cell under the pointer or being edited), click *Name cell* and type the name (letters, digits and `_`); an empty name removes it.
+A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)`, or on another page `[[Prices]]vat`. The name stays with the cell wherever it is moved (also in the markdown), so such references never need to change. Open the cell's menu (right-click it, see [[#Cell menu]]), click *Name cell* and type the name (letters, digits and `_`); an empty name removes it.
 
 * It is stored in the cell as a hidden `<meta cn="vat">`: `| VAT | 0.21 <meta cn="vat"> |`. A named cell has a mark in its corner; hover it for the name.
 * A name is the page's: two cells on a page cannot have the same one, and it cannot be a function's name or read as a cell (`A1`). A formula looks for it in its own table first, then in the page's other tables.
@@ -182,7 +196,7 @@ A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)
 
 ### Named rows
 
-A row can have a name, by which formulas use its cells: `pear[price]` is the Price cell of the row named pear, `prices!pear[price]` of the table named prices, `[[Shop]]prices!pear[price]` on another page. The name stays with the row wherever it is moved or sorted (also in the markdown), and does not depend on what the row's cells say. Open the row's menu (the ⠿ grip left of the row), click *Name row* and type the name; an empty name removes it.
+A row can have a name, by which formulas use its cells: `pear[price]` is the Price cell of the row named pear, `prices!pear[price]` of the table named prices, `[[Shop]]prices!pear[price]` on another page. The name stays with the row wherever it is moved or sorted (also in the markdown), and does not depend on what the row's cells say. Open the row's menu (the ⠿ grip left of the row) or the menu of one of its cells (right-click it), click *Name row* and type the name; an empty name removes it.
 
 * It is stored in the row's first cell as a hidden `<meta n="pear">`: `| Pear <meta n="pear"> | 12 |`, as a column's name is in its header. A named row has a mark in the top left corner of its first cell; hover it for the name. A first cell that is also a named cell holds both in one tag: `<meta n="pear" cn="first">`.
 * A row's name is its table's: two rows of a table cannot have the same one. The column after it is written as any column reference (`[price]`, a column's name, `[price:2]`) and follows the column when it is renamed or moved.
@@ -358,6 +372,7 @@ On a phone or a tablet:
 * Tap a cell to edit it. The handles of its row and column show next to it: tap one for the row's or column's menu, or drag it to move the row or column.
 * The sort buttons in the header are always shown (there is no hover to show them on). The toolbar (the filter icon, the ⋯ menu) shows while a cell of the table is edited.
 * Swiping scrolls a wide table sideways and the page up and down, as usual.
+* Press and hold a cell for its menu (copy, clear, filter by its value, name it).
 * Not on touch screens: selecting cells by dragging, the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
 
 ## Large tables
@@ -417,11 +432,11 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | Module | When on |
 |---|---|
 | `formulas` | Formulas can be typed into cells, with their help and references; *Recalculate* in the toolbar; every edit recalculates the table and the tables referring to it, and references follow moved rows and columns. Off: nothing is recalculated, results stay as written, and references do not follow moves. A typed formula is saved as text; a formula cell edited, pasted over or emptied keeps its formula (hidden), which is used again once formulas are on. See [[#Formulas]]. |
-| `names` | Tables, columns, rows and cells can be named: *Name table* in a table's ⋯ menu, *Name column* in the column menu, *Name row* and *Name cell* in the row menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them, but a duplicated row copies them too. See [[#Table names]]. |
+| `names` | Tables, columns, rows and cells can be named: *Name table* in a table's ⋯ menu, *Name column* in the column menu, *Name row* in the row and cell menus, *Name cell* in the cell menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them, but a duplicated row copies them too. See [[#Table names]]. |
 | `pageLinks` | Formulas can refer to tables and named cells on other pages (`[[Prices]]fruit!B2`), which Table Plus reads for them. Off: it reads no other page; formulas that refer to one keep the results they have (the formulas using them too), a new one shows `#REF!`. It needs the `formulas` module. See [[#Tables on other pages]]. |
-| `filters` | Rows can be filtered: the toolbar's filter icon shows a filter field under each header, *Filter* in a column menu opens that column's filter; with *Store table metadata* the filters are stored in the table. Its setting `smart` (default `true`): fields understand `>10`, `/pattern/`, `=text`, `a\|b` and `!filter`; `false`: everything typed is text to find. Off: no filtering; filters stored in a table are kept but not used. See [[#Filtering]]. |
+| `filters` | Rows can be filtered: the toolbar's filter icon shows a filter field under each header, *Filter* in a column menu opens that column's filter, *Filter: = value* in the cell menu filters by a cell's value; with *Store table metadata* the filters are stored in the table. Its setting `smart` (default `true`): fields understand `>10`, `/pattern/`, `=text`, `a\|b` and `!filter`; `false`: everything typed is text to find. Off: no filtering; filters stored in a table are kept but not used. See [[#Filtering]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
-| `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them. |
+| `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them; *Copy* and *Clear* in the cell menu. |
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and *+ Row* and *+* still add them. |
@@ -576,7 +591,7 @@ config.define("tablePlus", {
             enabled = {
               type = "boolean",
               default = true,
-              description = "Naming tables (Name table in the toolbar's ⋯ menu), columns (Name column in the column menu), rows and cells (Name row, Name cell in the row menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
+              description = "Naming tables (Name table in the toolbar's ⋯ menu), columns (Name column in the column menu), rows and cells (Name row in the row menu, Name cell in the cell menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
               ui = { category = "Table Plus: Modules", label = "Names", priority = 12 },
             },
           },
@@ -805,6 +820,12 @@ end
 @media (hover: none) {
   .sb-table-widget.tp-table thead tr .tp-sort:not(.tp-active) {
     opacity: 0.3;
+  }
+  /* A long press opens the cell menu: not the system's text selection and callout */
+  .sb-table-widget.tp-table td:not(.tp-editing) {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 }
 .sb-table-widget.tp-table thead tr .tp-sort:hover,

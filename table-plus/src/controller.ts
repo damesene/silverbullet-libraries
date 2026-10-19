@@ -100,6 +100,9 @@ const SORT_GLYPH = { asc: "▲", desc: "▼", none: "⇅" } as const;
 // Toolbar distance above the header: clear of the column grip on the header's top edge
 const BAR_GAP = 10;
 
+// A press this long on a touch screen opens the cell menu
+const LONG_PRESS_MS = 550;
+
 // A sorting is stored (metadata setting) once the clicks have settled
 const STORE_SORT_DELAY_MS = 400;
 
@@ -169,7 +172,13 @@ export class Controller implements TableHost {
   // The modules turned on
   private readonly modulesOn = new Set<FeatureName>();
   // The toolbar's open ⋯ menu
-  private tableMenu: { element: HTMLElement; widget: HTMLElement; anchor: HTMLElement } | undefined;
+  // The open menu of a table's toolbar (⋯, at its button) or of cells (at the pointer)
+  private tableMenu:
+    | { element: HTMLElement; widget: HTMLElement; kind: "table" | "cell"; anchor?: HTMLElement; point?: { x: number; y: number } }
+    | undefined;
+  // When a long press on a touch screen last opened a cell menu: the press is no click on the cell
+  private longPressAt = 0;
+  private stopLongPress: (() => void) | undefined;
   private readonly metadata: Metadata;
   // Steps every write goes through after the edit, in this order
   private readonly writeSteps: readonly WriteStep[] = [metadataAfterEdit];
@@ -202,6 +211,8 @@ export class Controller implements TableHost {
     const win = this.doc.defaultView!;
     win.addEventListener("mousedown", this.onMouseDown, true);
     win.addEventListener("click", this.onClick, true);
+    win.addEventListener("contextmenu", this.onContextMenu, true);
+    win.addEventListener("pointerdown", this.onPointerDown, true);
     win.addEventListener("dblclick", this.onDoubleClick, true);
     win.addEventListener("scroll", this.onScroll, true);
     win.addEventListener("keydown", this.onKeyDown, true);
@@ -274,6 +285,9 @@ export class Controller implements TableHost {
     const win = this.doc.defaultView!;
     win.removeEventListener("mousedown", this.onMouseDown, true);
     win.removeEventListener("click", this.onClick, true);
+    win.removeEventListener("contextmenu", this.onContextMenu, true);
+    win.removeEventListener("pointerdown", this.onPointerDown, true);
+    this.stopLongPress?.();
     win.removeEventListener("dblclick", this.onDoubleClick, true);
     win.removeEventListener("scroll", this.onScroll, true);
     win.removeEventListener("keydown", this.onKeyDown, true);
@@ -965,6 +979,12 @@ export class Controller implements TableHost {
   }
 
   private onMouseDown = (e: MouseEvent): void => {
+    // The mouse events a touch screen fires after a long press that opened a cell menu
+    if (Date.now() - this.longPressAt < 1000) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     // A press anywhere but the toolbar or its menu closes the menu
     if (this.tableMenu && e.target instanceof Node && !this.tableMenu.element.contains(e.target) && !this.bar.contains(e.target)) {
       this.closeTableMenu(false);
@@ -1151,6 +1171,7 @@ export class Controller implements TableHost {
       this.closeTableMenu(true);
       return;
     }
+    if (this.cellMenuKey(e)) return;
     for (const feature of this.features) if (feature.keyDown?.(e)) return;
   };
 
@@ -1536,11 +1557,11 @@ export class Controller implements TableHost {
         title: "More for this table",
         place: "icon",
         icon: ICONS.more,
-        run: () => (this.tableMenu ? this.closeTableMenu(true) : this.openTableMenu(widget, more, menuItems)),
+        run: () => (this.tableMenu?.kind === "table" ? this.closeTableMenu(true) : this.openTableMenu(widget, more, menuItems)),
       },
       "tp-bar-more",
     );
-    if (this.tableMenu) {
+    if (this.tableMenu?.kind === "table") {
       // Shown again (a write, a change of the table's state): the open menu stays, at the new button
       more.classList.add("tp-active");
       this.tableMenu.anchor = more;
@@ -1587,35 +1608,63 @@ export class Controller implements TableHost {
       hint: item.title,
       ...(item.value ? { value: { text: item.value } } : {}),
       ...(item.danger ? { danger: true } : {}),
-      run: () => {
-        this.closeTableMenu(false);
-        item.run();
-      },
+      run: item.run,
     });
     const safe = items.filter((item) => !item.danger).map(entry);
     const danger = items.filter((item) => item.danger).map(entry);
-    const element = renderMenu(this.doc, "Table", [...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger]);
+    this.showMenu(widget, "Table", [...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], { kind: "table", anchor });
+  }
+
+  /** A menu of the toolbar or of cells: its items close it when run; Escape or a press elsewhere closes it */
+  private showMenu(
+    widget: HTMLElement,
+    title: string,
+    entries: readonly MenuEntry[],
+    place: { readonly kind: "table" | "cell"; readonly anchor?: HTMLElement; readonly point?: { x: number; y: number } },
+  ): void {
+    this.closeTableMenu(false);
+    const closing = entries.map((entry): MenuEntry =>
+      entry.kind === "item"
+        ? {
+            ...entry,
+            run: () => {
+              this.closeTableMenu(false);
+              entry.run();
+            },
+          }
+        : entry,
+    );
+    const element = renderMenu(this.doc, title, closing);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     this.doc.body.append(element);
-    this.tableMenu = { element, widget, anchor };
-    anchor.classList.add("tp-active");
+    this.tableMenu = { element, widget, ...place };
+    place.anchor?.classList.add("tp-active");
     this.positionTableMenu();
     focusMenu(element);
   }
 
-  /** Below the ⋯ button, its right edge at the button's; always inside the window */
+  /** Below the ⋯ button, its right edge at the button's; at the pointer; always inside the window */
   private positionTableMenu(): void {
     if (!this.tableMenu) return;
-    const { element, anchor } = this.tableMenu;
+    const { element, anchor, point } = this.tableMenu;
     const win = this.doc.defaultView!;
-    const a = anchor.getBoundingClientRect();
     const m = element.getBoundingClientRect();
-    const left = Math.max(4, Math.min(a.right - m.width, win.innerWidth - m.width - 4));
-    let top = a.bottom + 4;
-    if (top + m.height > win.innerHeight - 4) top = Math.max(4, a.top - m.height - 4);
-    element.style.left = `${Math.round(left)}px`;
-    element.style.top = `${Math.round(top)}px`;
+    let left: number;
+    let top: number;
+    if (anchor) {
+      const a = anchor.getBoundingClientRect();
+      left = a.right - m.width;
+      top = a.bottom + 4;
+      if (top + m.height > win.innerHeight - 4) top = a.top - m.height - 4;
+    } else {
+      left = point?.x ?? 0;
+      top = point?.y ?? 0;
+      if (top + m.height > win.innerHeight - 4) top -= m.height;
+      if (left + m.width > win.innerWidth - 4) left -= m.width;
+    }
+    element.style.left = `${Math.round(Math.max(4, Math.min(left, win.innerWidth - m.width - 4)))}px`;
+    element.style.top = `${Math.round(Math.max(4, top))}px`;
   }
 
   private closeTableMenu(refocus: boolean): void {
@@ -1624,8 +1673,104 @@ export class Controller implements TableHost {
     this.tableMenu = undefined;
     const hadFocus = menu.element.contains(this.doc.activeElement);
     menu.element.remove();
-    menu.anchor.classList.remove("tp-active");
+    menu.anchor?.classList.remove("tp-active");
     if (refocus && hadFocus) this.focusEditor(menu.widget);
+  }
+
+  // ---- the cell menu: right click, a long press, the Menu key ------------------
+
+  /**
+   * The menu of a cell, or of the cells selected when it is one of them: what
+   * the features offer (Feature.cellMenuEntries), in their groups' order.
+   * False when none offers anything: the browser's menu stays.
+   */
+  private openCellMenu(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean {
+    let cells: readonly CellRef[] = [at];
+    for (const feature of this.features) {
+      const selected = feature.selectedCells?.(info, at);
+      if (selected) {
+        cells = selected;
+        break;
+      }
+    }
+    const groups = this.features
+      .flatMap((f) => {
+        const group = f.cellMenuEntries?.(widget, info, cells);
+        return group && group.entries.length ? [group] : [];
+      })
+      .sort((a, b) => a.order - b.order);
+    if (groups.length === 0) return false;
+    const entries = groups.flatMap((group, i): MenuEntry[] => [...(i ? [{ kind: "separator" as const }] : []), ...group.entries]);
+    const header = cellText(info.table.rows[0]!.cells[at.column]!) || `column ${at.column + 1}`;
+    const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? `Header: ${header}` : `Cell: ${header}, row ${at.row}`;
+    this.showMenu(widget, title, entries, { kind: "cell", point });
+    return true;
+  }
+
+  /** The cell a pointer event is on, in an enhanced table; not in the cell editor (its menu is the browser's) */
+  private cellOfEvent(e: Event): [HTMLElement, WidgetInfo, CellRef] | undefined {
+    if (!(e.target instanceof Element) || e.target.closest(".tp-cell-editor")) return undefined;
+    const hit = this.enhancedWidgetOf(e.target);
+    const cell = hit && this.tableCellOf(hit[1], e.target);
+    const ref = hit && cell && this.cellRef(hit[1], cell);
+    return hit && ref ? [hit[0], hit[1], ref] : undefined;
+  }
+
+  /** Right click (Shift+right click: the browser's menu) */
+  private onContextMenu = (e: MouseEvent): void => {
+    if (e.shiftKey) return;
+    // A long press opened it already (Android fires this too)
+    if (Date.now() - this.longPressAt < 1000) {
+      e.preventDefault();
+      return;
+    }
+    const hit = this.cellOfEvent(e);
+    if (hit && this.openCellMenu(hit[0], hit[1], hit[2], { x: e.clientX, y: e.clientY })) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  /** A long press on a touch screen: the cell menu, where no right click is (iOS fires no contextmenu) */
+  private onPointerDown = (e: PointerEvent): void => {
+    this.stopLongPress?.();
+    if (e.pointerType !== "touch") return;
+    const hit = this.cellOfEvent(e);
+    if (!hit) return;
+    const win = this.doc.defaultView!;
+    const { clientX: x, clientY: y } = e;
+    const timer = setTimeout(() => {
+      stop();
+      if (this.tableMenu?.kind === "cell") return;
+      if (this.openCellMenu(hit[0], hit[1], hit[2], { x, y })) this.longPressAt = Date.now();
+    }, LONG_PRESS_MS);
+    const move = (ev: PointerEvent) => {
+      if (Math.hypot(ev.clientX - x, ev.clientY - y) > 10) stop();
+    };
+    const stop = () => {
+      clearTimeout(timer);
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", stop, true);
+      win.removeEventListener("pointercancel", stop, true);
+      this.stopLongPress = undefined;
+    };
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", stop, true);
+    win.addEventListener("pointercancel", stop, true);
+    this.stopLongPress = stop;
+  };
+
+  /** The Menu key or Shift+F10 in a cell editor: the menu of the edited cell (or of the cells selected) */
+  private cellMenuKey(e: KeyboardEvent): boolean {
+    if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return false;
+    const editing = this.cellEditor.active;
+    const info = editing && this.infos.get(editing.widget);
+    if (!editing || !info) return false;
+    const rect = editing.cell.getBoundingClientRect();
+    if (!this.openCellMenu(editing.widget, info, { row: editing.row, column: editing.column }, { x: rect.left, y: rect.bottom })) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
   }
 
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
