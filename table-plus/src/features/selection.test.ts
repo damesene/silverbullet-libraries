@@ -54,8 +54,8 @@ describe("Selecting cells", () => {
     drag(cell(1, 0), cell(2, 1));
     key(editor, "Delete");
     await flush();
-    expect(text).toContain('| <meta n="pear"> | |');
-    expect(text).toContain('<meta f="=1+1"> |');
+    // Nothing recalculated: the cell empty, its formula kept for when formulas are on
+    expect(text).toBe('| Name | Qty |\n|---|---|\n| <meta n="pear"> | |\n| | <meta f="=1+1"> |\n');
   });
 
   it("empties the selected cells with Delete, formulas included, keeping the header", async () => {

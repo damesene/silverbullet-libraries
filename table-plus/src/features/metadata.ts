@@ -1,36 +1,56 @@
-// Removing what Table Plus stores in tables: the metadata row (sorting, pins,
-// name), the names in cells and the formulas, which keep their results. For one
-// table from its toolbar, for all tables of the page with the "Table Plus:
-// Remove table metadata" command.
-import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+// Removing what Table Plus stores in tables: the metadata row (sorting,
+// filters, pins, name) and the hidden tags in cells (tags.ts: formulas, whose
+// cells keep their results, names), whatever module keeps them. The modules
+// say what they keep, for the question asked first (Feature.metadataPart).
+// For one table from its toolbar, for all tables of the page with the "Table
+// Plus: Remove table metadata" command.
+import type { Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { EDITOR_SELECTOR } from "../dom.ts";
 import { ICONS } from "../icons.ts";
-import { formulaCount, withoutFormulas } from "../formula/index.ts";
 import { findTables, minimalEdit, parseTable, serializeTable, type Table } from "../markdown.ts";
-import { hasNames, withoutNames } from "../names.ts";
+import { attributesOf, cellTags, withoutTags } from "../tags.ts";
 
-/** A table without its metadata row and without formulas (their cells keep their results) */
+/** A table without its metadata row and without the hidden tags in its cells (formula cells keep their results) */
 export function withoutMetadata(table: Table): Table {
-  const { meta: _meta, metaSource: _source, ...rest } = withoutNames(withoutFormulas(table));
-  return rest;
+  const { meta: _meta, metaSource: _source, ...rest } = table;
+  return { ...rest, rows: table.rows.map((row) => (row.cells.some(hasTags) ? { ...row, cells: row.cells.map(withoutTags) } : row)) };
+}
+
+const hasTags = (cell: string) => cellTags(cell).length > 0;
+
+/** Whether a table holds metadata: a metadata row, or hidden tags in cells */
+function hasMetadata(table: Table): boolean {
+  return table.meta !== undefined || table.rows.some((row) => row.cells.some(hasTags));
 }
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
+/**
+ * What the modules say is kept in cells ("its 2 formulas: those cells …"),
+ * and that more is where cells have tags none of them says it keeps (a
+ * module turned off)
+ */
+function described(parts: readonly MetadataPart[], tables: readonly Table[], form: (part: MetadataPart) => string): string[] {
+  const told = new Set(parts.flatMap((part) => part.tags));
+  const untold = tables.some((table) =>
+    table.rows.some((row) => row.cells.some((cell) => cellTags(cell).some((tag) => attributesOf(tag).some((name) => !told.has(name))))),
+  );
+  return [...parts.map(form), ...(untold ? [`${parts.length ? "other " : ""}hidden data in cells`] : [])];
+}
+
 export class Metadata implements Feature {
   constructor(private readonly host: TableHost) {}
 
   toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
-    const table = parseTable(info.source);
-    if (!info.metaRow && formulaCount(table) === 0 && !hasNames(table)) return [];
+    if (!hasMetadata(parseTable(info.source))) return [];
     return [
       {
         label: "Remove metadata",
         icon: ICONS.trash,
         danger: true,
-        title: "Remove this table's <meta> tags: its stored settings (sorting, pinning, name), the formulas of its cells, which keep their results, and the names of its columns and cells",
+        title: "Remove this table's <meta> tags: its stored settings (sorting, filters, pinning, name) and what its cells keep (formulas, which keep their results, names)",
         run: () => void this.removeFromTable(widget, info),
       },
     ];
@@ -43,11 +63,9 @@ export class Metadata implements Feature {
    */
   private async removeFromTable(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
     const shown = parseTable(shownInfo.source);
-    const formulas = formulaCount(shown);
     const removed = [
-      ...(shownInfo.metaRow ? ["its stored settings (sorting, pinning, name)"] : []),
-      ...(formulas ? [`its ${plural(formulas, "formula")}: those cells keep their current results as plain values`] : []),
-      ...(hasNames(shown) ? ["the names of its columns and cells"] : []),
+      ...(shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name)"] : []),
+      ...described(this.host.metadataParts([shown]), [shown], (p) => `its ${plural(p.count, p.what)}${p.note ? `: ${p.note}` : ""}`),
     ];
     if (!(await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`))) return;
     // The table as rendered now: the dialog may have outlived the rendering it was asked from
@@ -66,18 +84,18 @@ export class Metadata implements Feature {
     // From the last table up, so the earlier ones keep their positions
     const tables = findTables(text)
       .filter((range) => {
-        const table = parseTable(range.text);
-        return table.meta !== undefined || formulaCount(table) > 0 || hasNames(table);
+        return hasMetadata(parseTable(range.text));
       })
       .reverse();
     if (tables.length === 0) {
       void bridge.flash("Table Plus: no table on this page has metadata", "info");
       return;
     }
-    const formulas = tables.reduce((n, range) => n + formulaCount(parseTable(range.text)), 0);
+    const models = tables.map((range) => parseTable(range.text));
+    const parts = described(this.host.metadataParts(models), models, (p) => `${plural(p.count, p.what)}${p.note ? ` (${p.note})` : ""}`);
     const question =
       `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` +
-      (formulas ? `, including ${plural(formulas, "formula")} (those cells keep their current results as plain values)` : "") +
+      (parts.length ? `, including ${parts.join(" and ")}` : "") +
       "? Ctrl+Z brings it back.";
     if (!(await this.host.ask(question))) return;
     // One edit over the span of all those tables, so one Ctrl+Z undoes it

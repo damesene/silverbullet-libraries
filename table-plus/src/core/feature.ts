@@ -1,9 +1,9 @@
 // What Table Plus' features share: the controller (the host) finds and
 // enhances tables, routes events and writes tables; each feature keeps its own
 // state and listeners and works through the host.
-import type { Bridge, SETTINGS, SettingValue } from "../bridge.ts";
-import type { IndexMap, TableSource } from "../formula/index.ts";
-import type { Table } from "../markdown.ts";
+import type { Bridge, FeatureName, SETTINGS, SettingValue } from "../bridge.ts";
+import type { IndexMap } from "../ops.ts";
+import type { OtherPages, PageTable, Table } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
 import type { Pins, ViewState } from "../view.ts";
 
@@ -96,6 +96,18 @@ export type RowHold = { readonly after?: number; readonly before?: number };
  */
 export type WriteStep = (before: Table, after: Table, options: WriteOptions) => Table;
 
+/** The page a write edits: its text as read for it, its tables, and where the edited table is */
+export type WritePage = { readonly text: string; readonly tables: readonly PageTable[]; readonly from: number };
+
+/** An edit as features' write steps see it: how rows and columns moved, and the page */
+export type WriteEdit = WriteOptions & { readonly page: WritePage };
+
+/**
+ * What a feature says it keeps in tables, for Remove metadata: "2 formulas:
+ * those cells keep …"; `tags`: the attributes of its hidden tags in cells
+ */
+export type MetadataPart = { readonly count: number; readonly what: string; readonly note?: string; readonly tags: readonly string[] };
+
 /** What the controller offers features */
 export interface TableHost {
   readonly doc: Document;
@@ -133,8 +145,22 @@ export interface TableHost {
     | undefined;
   /** Asks the user (SilverBullet's dialog, else the browser's) */
   ask(question: string): Promise<boolean>;
-  /** The page's tables (as last read) that formulas can refer to by name */
-  tableSource(): TableSource;
+  /** The page's text as last read */
+  readonly pageText: string;
+  /** The name of the page shown */
+  readonly currentPage: string;
+  /** The other pages a feature read for formulas (pageLinks); undefined: none reads them */
+  otherPages(): OtherPages | undefined;
+  /** Whether a module is on (one feature serves another: pageLinks reads pages for formulas) */
+  moduleOn(name: FeatureName): boolean;
+  /** Tables changed outside the page (another page read anew): features check them again */
+  tablesChanged(): void;
+  /** What deleting a column also removes, by the features (names of rows and cells in it) */
+  columnDeleteWarnings(info: WidgetInfo, column: number): string[];
+  /** Attributes of hidden tags a copy of a row leaves out (names: one per page or table) */
+  uniqueTags(): ReadonlySet<string>;
+  /** What the features say the metadata of these tables holds (Remove metadata) */
+  metadataParts(tables: readonly Table[]): MetadataPart[];
   /** What a feature's toolbar buttons show changed: the toolbar in view is shown again */
   toolbarChanged(): void;
   /** Asks for a text (SilverBullet's dialog, else the browser's); undefined: cancelled */
@@ -244,6 +270,24 @@ export interface Feature {
   rowMenuEntries?(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[];
   /** Buttons for the table's toolbar, shown while the pointer is over the table */
   toolbarButtons?(widget: HTMLElement, info: WidgetInfo): ToolbarButton[];
+  /** Before a write reads the page's text: what it needs read first (other pages the tables written refer to) */
+  prepareWrite?(info: WidgetInfo): Promise<void>;
+  /** After the edit, before the write steps: what they need read (other pages the edited table refers to) */
+  prepareEdit?(edited: Table, page: WritePage): Promise<void>;
+  /** A write step: the table edited, as the feature changes it in the same write (formulas recalculated, references following) */
+  writeStep?(before: Table, after: Table, edit: WriteEdit): Table;
+  /** Other tables of the page the write changes too, in the same edit (formulas referring to the edited table) */
+  otherTablesWritten?(before: Table, after: Table, edit: WriteEdit): readonly PageTable[];
+  /** Other pages read for formulas (the pageLinks module) */
+  otherPages?(): OtherPages;
+  /** SilverBullet indexed a page (it changed) */
+  pageIndexed?(name: string): Promise<void> | void;
+  /** What deleting a column of the table also removes, asked first: "the names of 2 rows pear and fig: …" */
+  columnDeleteWarning?(info: WidgetInfo, column: number): string | undefined;
+  /** Attributes of the feature's hidden tags a copy of a row leaves out (a name is one cell's, one row's) */
+  uniqueTags?(): readonly string[];
+  /** What the feature keeps in these tables, for Remove metadata (which removes it) */
+  metadataPart?(tables: readonly Table[]): MetadataPart | undefined;
   /**
    * Body rows the feature hides (filters), as indexes into `values` (one array
    * of cell values per body row, values[0] being row 1); pinned rows are not hidden

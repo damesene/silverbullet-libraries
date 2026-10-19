@@ -66,7 +66,7 @@ describe("Pasting from a spreadsheet", () => {
     clickOn(cell(1, 0));
     pasteText("Fig\t2\nAll\t9");
     await flush();
-    expect(text).toContain('| Fig <meta n="pear"> | 2 |');
-    expect(text).toContain('<meta f="=SUM([qty])"> |');
+    // Nothing recalculated: the value pasted stays, the formula kept for when formulas are on
+    expect(text).toBe('| Name | Qty |\n|---|---|\n| Fig <meta n="pear"> | 2 |\n| All | 9 <meta f="=SUM([qty])"> |\n');
   });
 });

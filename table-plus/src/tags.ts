@@ -20,8 +20,14 @@ export function withoutTags(cell: string): string {
   return cell.replace(TAG_RE, "").trim();
 }
 
-function attributesOf(tag: string): string[] {
+export function attributesOf(tag: string): string[] {
   return Array.from(tag.matchAll(ATTRIBUTE_RE), (match) => match[1]!.toLowerCase());
+}
+
+/** A cell without the hidden tags that have one of these attributes */
+export function withoutTagsWith(cell: string, attributes: ReadonlySet<string>): string {
+  const kept = cellTags(cell).filter((tag) => !attributesOf(tag).some((name) => attributes.has(name)));
+  return [withoutTags(cell), ...kept].filter((part) => part !== "").join(" ");
 }
 
 /**

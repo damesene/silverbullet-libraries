@@ -144,6 +144,20 @@ describe("Table metadata", () => {
     expect(bodyTexts()).toEqual(["Pear", "apple"]);
   });
 
+  it("says it removes what a module turned off keeps in cells too", async () => {
+    const page = '| Name | Qty |\n|---|---|\n| Pear <meta n="pear"> | 3 |\n| Total | 3 <meta f="=SUM([Qty])"> |\n';
+    await setup(page, { "tablePlus.modules.formulas.enabled": false });
+    const questions: string[] = [];
+    (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+      questions.push(message);
+      return true;
+    };
+    tableMenuItem(/^Remove metadata$/)!.click();
+    await flush();
+    expect(questions[0]).toBe("Remove this table's metadata, its 1 name, and other hidden data in cells? Ctrl+Z brings it back.");
+    expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n");
+  });
+
   it("removes formulas with the metadata, keeping their results, and says so", async () => {
     const page = '| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta f="=SUM([Qty])"> |\n| <meta sort.qty="desc"> |\n';
     await setup(page);
@@ -154,7 +168,7 @@ describe("Table metadata", () => {
     };
     tableMenuItem(/^Remove metadata$/)!.click();
     await flush();
-    expect(questions[0]).toContain("its stored settings (sorting, pinning, name), and its 1 formula: those cells keep their current results");
+    expect(questions[0]).toContain("its stored settings (sorting, filters, pinning, name), and its 1 formula: those cells keep their current results");
     expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n");
 
     // A table with formulas only: the button shows, and the command counts it

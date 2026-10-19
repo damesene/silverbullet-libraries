@@ -32,6 +32,16 @@ describe("Controller", () => {
     expect(cell(1, 1).textContent).toBe("✅");
   });
 
+  it("recalculates nothing with the formulas module off: results stay as written", async () => {
+    const SUMMED = '| Item | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta f="=SUM([qty])"> |\n\n| Order |\n|---|\n| 6 <meta f="=Totals!A1*2"> |\n';
+    await setup(SUMMED, { "tablePlus.editor.enterKey": "save", "tablePlus.modules.formulas.enabled": false });
+    clickOn(cell(1, 1));
+    editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "5";
+    key(editor.querySelector(".tp-cell-editor")!, "Enter");
+    await flush();
+    expect(text).toBe(SUMMED.replace("| Pear | 3 |", "| Pear | 5 |"));
+  });
+
   it("leaves out naming with the names module off, the names still working in formulas", async () => {
     const NAMED = '| Price <meta n="price"> | Total |\n|---|---|\n| 2 | 0.5 <meta cn="vat"> |\n| 3 | 4.5 <meta f="=[@price]*(1+vat)"> |\n| <meta name="prices"> |\n';
     await setup(NAMED, { "tablePlus.metadata": true, "tablePlus.editor.enterKey": "save", "tablePlus.modules.names.enabled": false });

@@ -297,7 +297,31 @@ describe("Formulas", () => {
       clickOn(cell(2, 1));
       await type("=[[Prices]]fruit!B1");
       expect(text).toContain('| Kiwi | #REF! <meta f="=[[Prices]]fruit!B1"> |');
-      expect(cell(2, 1).title).toContain("links to other pages are turned off");
+      expect(cell(2, 1).title).toContain("the other page is not read");
+      expect(read).toEqual([]);
+    });
+
+    it("gives an error's real reason once the page it refers to is read", async () => {
+      const page = '| Item | Cost |\n|---|---|\n| Fig | #REF! <meta f="=[[Nowhere]]fruit!B1"> |\n';
+      await setup(page, {}, {
+        readPage: () => {
+          throw new Error("no such page");
+        },
+      });
+      for (let i = 0; i < 3; i++) await flush();
+      expect(cell(1, 1).title).toContain("there is no table named fruit on Nowhere");
+    });
+
+    it("reads no other page with the formulas module off", async () => {
+      const read: string[] = [];
+      await setup(
+        '| Item | Cost |\n|---|---|\n| Fig | 3 <meta f="=[[Prices]]fruit!B2"> |\n',
+        { "tablePlus.editor.enterKey": "save", "tablePlus.modules.formulas.enabled": false },
+        { readPage: (name) => (read.push(name), OTHER) },
+      );
+      clickOn(cell(1, 0));
+      await type("Figs");
+      expect(text).toContain("| Figs |");
       expect(read).toEqual([]);
     });
 

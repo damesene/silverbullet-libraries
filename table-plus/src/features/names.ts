@@ -10,17 +10,58 @@
 // also set in its menu: pear[price] is the row's Price cell, wherever the row
 // is moved or sorted.
 import { columnIdOf, columnKey } from "../columns.ts";
-import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { FUNCTIONS } from "../formula/functions/index.ts";
 import { ICONS } from "../icons.ts";
-import { findTables, locateBySource, parseTable } from "../markdown.ts";
+import { findTables, locateBySource, parseTable, type Table } from "../markdown.ts";
 import { metaName, sameTableName, tableNameProblem, withMetaName } from "../meta.ts";
 import type { MenuEntry } from "../menu.ts";
 import { cellNameOf, namedRows, nameOf, nameProblem, rowNameIn, withCellName, withName } from "../names.ts";
 import { setCell } from "../ops.ts";
 
+/** Names, as a sentence lists them: "pear, fig and 3 more" */
+function listed(names: readonly string[]): string {
+  const shown = names.slice(0, 5);
+  const more = names.length - shown.length;
+  if (more > 0) return `${shown.join(", ")} and ${more} more`;
+  return shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}` : shown.join("");
+}
+
 export class Names implements Feature {
   constructor(private readonly host: TableHost) {}
+
+  /** A name is one cell's, one row's: a copy of a row takes none */
+  uniqueTags(): readonly string[] {
+    return ["n", "cn"];
+  }
+
+  /** Deleting a column removes the names of the rows and cells it holds, and the formulas using them break */
+  columnDeleteWarning(info: WidgetInfo, column: number): string | undefined {
+    const body = parseTable(info.source).rows.slice(1);
+    const rows = body.flatMap((r) => {
+      const named = rowNameIn(r.cells);
+      return named && named.column === column ? [named.name] : [];
+    });
+    const cells = body.flatMap((r) => {
+      const name = cellNameOf(r.cells[column] ?? "");
+      return name ? [name] : [];
+    });
+    if (!rows.length && !cells.length) return undefined;
+    const lost = [
+      ...(rows.length ? [`the name${rows.length === 1 ? "" : "s"} of ${rows.length === 1 ? "the row" : `${rows.length} rows`} ${listed(rows)}`] : []),
+      ...(cells.length ? [`the name${cells.length === 1 ? "" : "s"} of ${cells.length === 1 ? "the cell" : `${cells.length} cells`} ${listed(cells)}`] : []),
+    ];
+    return `${lost.join(" and ")}: formulas that use ${rows.length + cells.length === 1 ? "it" : "them"} show #REF! or #NAME?`;
+  }
+
+  /** Remove metadata removes the names of columns, rows and cells */
+  metadataPart(tables: readonly Table[]): MetadataPart | undefined {
+    const count = tables.reduce(
+      (n, table) => n + table.rows.reduce((m, row) => m + row.cells.filter((cell) => nameOf(cell) !== undefined || cellNameOf(cell) !== undefined).length, 0),
+      0,
+    );
+    return count ? { count, what: "name", tags: ["n", "cn"] } : undefined;
+  }
 
   /** Named cells show a mark in their corner, and their name on hover */
   decorate(_widget: HTMLElement, info: WidgetInfo): void {

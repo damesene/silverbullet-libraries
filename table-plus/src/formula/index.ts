@@ -20,7 +20,7 @@ import { FUNCTIONS } from "./functions/index.ts";
 import { escapeCell, escapeMetaValue, type Table, unescapeCell, unescapeMetaValue } from "../markdown.ts";
 import { CELL_RE, cellNameOf, namedCells, namedRows, withCellName } from "../names.ts";
 import { keepTags, withoutTags } from "../tags.ts";
-import { setCell } from "../ops.ts";
+import { type IndexMap, setCell } from "../ops.ts";
 import {
   asTime,
   ERROR_CODES,
@@ -737,7 +737,7 @@ class Sheet {
       const shown = unescapeCell(formulaOf(this.body[row]?.[column] ?? "")?.value ?? "").trim();
       // None yet, or an error code written: an error, saying why it is not calculated
       const code = shown === "" ? "#REF!" : ERROR_CODES.find((c) => c === shown);
-      const kept: Scalar = code ? new FormulaError(code, "links to other pages are turned off") : (asNumber(shown) ?? parseClock(shown) ?? shown);
+      const kept: Scalar = code ? new FormulaError(code, "the other page is not read (are links to other pages turned off?)") : (asNumber(shown) ?? parseClock(shown) ?? shown);
       this.results.set(key, kept);
       return kept;
     }
@@ -1166,8 +1166,7 @@ export function formulaErrors(table: Table, tables?: TableSource): Map<string, s
 
 // ---- references follow edits ---------------------------------------------------
 
-// Where a row or column of the table before an edit is after it; undefined: deleted
-export type IndexMap = (index: number) => number | undefined;
+export type { IndexMap } from "../ops.ts";
 
 /**
  * Where a span of rows (columns) a..b ends up. A map that keeps order (insert,

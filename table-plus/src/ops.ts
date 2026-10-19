@@ -27,6 +27,9 @@ function moved<T>(items: readonly T[], from: number, to: number): T[] {
   return result;
 }
 
+// Where a row or column of the table before an edit is after it; undefined: deleted
+export type IndexMap = (index: number) => number | undefined;
+
 export function setCell(table: Table, row: number, column: number, value: string): Table {
   return withRows(
     table,

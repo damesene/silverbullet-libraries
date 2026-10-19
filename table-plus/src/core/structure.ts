@@ -2,10 +2,9 @@
 // moving and pinning rows and columns. Each is one write, rows and columns
 // pinned to the edges stay there (pins.ts), and formulas and the stored
 // sorting follow through the write steps (rowMap, columnMap).
-import type { IndexMap } from "../formula/index.ts";
-import { parseTable, type Table } from "../markdown.ts";
-import { cellNameOf, rowNameIn, withoutName } from "../names.ts";
-import { columnAfterMove, deleteColumn, deleteRow, insertColumn, insertRow, moveColumn, moveRow } from "../ops.ts";
+import type { Table } from "../markdown.ts";
+import { columnAfterMove, deleteColumn, deleteRow, type IndexMap, insertColumn, insertRow, moveColumn, moveRow } from "../ops.ts";
+import { withoutTagsWith } from "../tags.ts";
 import {
   clampColumnMove,
   clampRowMove,
@@ -60,8 +59,12 @@ export function duplicateRowAt(host: TableHost, widget: HTMLElement, info: Widge
   return host.write(
     widget,
     (t) => {
-      // A cell's name is the page's and a row's the table's: the copy takes neither
-      const cells = t.rows[row]?.cells.map((cell) => (withoutName(cell) === cell.trim() ? cell : withoutName(cell)));
+      // What is one cell's or row's (names) the copy does not take
+      const unique = host.uniqueTags();
+      const cells = t.rows[row]?.cells.map((cell) => {
+        const copy = withoutTagsWith(cell, unique);
+        return copy === cell.trim() ? cell : copy;
+      });
       return cells ? insertRow(t, insert.at, cells) : undefined;
     },
     { pins: insert.pins, rowMap: rowAfterInsert(insert.at) },
@@ -92,34 +95,14 @@ export function insertColumnWith(host: TableHost, widget: HTMLElement, info: Wid
   });
 }
 
-/** Names, as a sentence lists them: "pear, fig and 3 more" */
-function listed(names: readonly string[]): string {
-  const shown = names.slice(0, 5);
-  const more = names.length - shown.length;
-  if (more > 0) return `${shown.join(", ")} and ${more} more`;
-  return shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}` : shown.join("");
-}
-
 /**
- * Deletes a column. The names of rows and cells it holds go with it, and the
- * formulas that use them break: that is asked first.
+ * Deletes a column. What the features keep in it that goes with it (names of
+ * rows and cells, which formulas use) is asked first.
  */
 export async function deleteColumnAt(host: TableHost, widget: HTMLElement, info: WidgetInfo, column: number): Promise<WriteResult> {
-  const body = parseTable(info.source).rows.slice(1);
-  const rows = body.flatMap((r) => {
-    const named = rowNameIn(r.cells);
-    return named && named.column === column ? [named.name] : [];
-  });
-  const cells = body.flatMap((r) => {
-    const name = cellNameOf(r.cells[column] ?? "");
-    return name ? [name] : [];
-  });
-  if (rows.length || cells.length) {
-    const lost = [
-      ...(rows.length ? [`the name${rows.length === 1 ? "" : "s"} of ${rows.length === 1 ? "the row" : `${rows.length} rows`} ${listed(rows)}`] : []),
-      ...(cells.length ? [`the name${cells.length === 1 ? "" : "s"} of ${cells.length === 1 ? "the cell" : `${cells.length} cells`} ${listed(cells)}`] : []),
-    ];
-    const question = `Deleting this column also removes ${lost.join(" and ")}: formulas that use ${rows.length + cells.length === 1 ? "it" : "them"} show #REF! or #NAME?. Delete the column? Ctrl+Z brings it back.`;
+  const lost = host.columnDeleteWarnings(info, column);
+  if (lost.length) {
+    const question = `Deleting this column also removes ${lost.join(", and ")}. Delete the column? Ctrl+Z brings it back.`;
     if (!(await host.ask(question))) return "unchanged";
   }
   return host.write(widget, (t) => deleteColumn(t, column), {

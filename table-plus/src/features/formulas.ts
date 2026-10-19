@@ -1,11 +1,16 @@
-// Formulas in cells, while they are edited: a formula cell opens as its
-// formula, the formula is fixed and its column references keyed when saved;
-// its references are outlined in the table, can be dragged or pointed at, and
-// function names complete with Tab. Formula cells are marked, and a table with
-// results out of date offers to recalculate. (Evaluating formulas and keeping
-// them through edits is formula/index.ts; this is the editing around it.)
+// The formulas module. Formulas in cells, while they are edited: a formula
+// cell opens as its formula, the formula is fixed and its column references
+// keyed when saved; its references are outlined in the table, can be dragged
+// or pointed at, and function names complete with Tab. Formula cells are
+// marked, and a table with results out of date offers to recalculate. Every
+// write recalculates the table written (its write step), its references
+// following moved rows and columns, and the tables of the page referring to it
+// (otherTablesWritten). (Evaluating formulas and keeping them through edits is
+// formula/; this is the module around it.) Turned off, nothing is
+// recalculated: results stay as written.
+
 import { columnIdOf } from "../columns.ts";
-import type { CellEditor, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { CellEditor, CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo, WriteEdit } from "../core/feature.ts";
 import { WIDGET_SELECTOR } from "../dom.ts";
 import {
   type Area,
@@ -18,6 +23,8 @@ import {
   formulaErrors,
   formulaHelp,
   formulaOf,
+  formulasAfterEdit,
+  followTable,
   type FunctionCompletion,
   isErrorText,
   isFormulaInput,
@@ -30,10 +37,13 @@ import {
   referredTableNames,
   references,
   referenceSlot,
+  type TableSource,
   withColumnKeys,
 } from "../formula/index.ts";
+import { addAffected, affectedBy, isAffected, pageTables, referredBy } from "../formula/page.ts";
 import { ICONS } from "../icons.ts";
-import { escapeCell, parseTable, type Table, unescapeCell } from "../markdown.ts";
+import { escapeCell, type PageTable, pageTablesOf, parseTable, type Table, unescapeCell } from "../markdown.ts";
+import { metaName } from "../meta.ts";
 import { namedRows } from "../names.ts";
 import { withoutTags } from "../tags.ts";
 
@@ -55,9 +65,73 @@ export class Formulas implements Feature {
   private readonly stale = new WeakSet<HTMLTableElement>();
   // Tables (as rendered) with formulas: their toolbar can recalculate them
   private readonly withFormulas = new WeakSet<HTMLTableElement>();
+  // The page's tables for formulas, as of the page's text and the other pages read
+  private source: { readonly key: string; readonly source: TableSource } | undefined;
 
   constructor(private readonly host: TableHost) {
     this.formulaHint = host.floating("div", "tp-formula-hint");
+  }
+
+  /** The page's tables (as last read) formulas can refer to by name, and those of the other pages read */
+  private tableSource(): TableSource {
+    const { pageText, currentPage } = this.host;
+    const others = this.host.otherPages();
+    const key = `${others?.version ?? -1}\u0000${currentPage}\u0000${pageText}`;
+    if (this.source?.key !== key) {
+      this.source = { key, source: pageTables(() => pageTablesOf(pageText), currentPage, undefined, others) };
+    }
+    return this.source.source;
+  }
+
+  // ---- writing --------------------------------------------------------------------
+
+  /**
+   * The write step: calculated columns fill new rows, references follow moved
+   * rows and columns, and the results are recalculated, other tables of the
+   * page (the written one as edited) and of other pages read seen
+   */
+  writeStep(before: Table, after: Table, edit: WriteEdit): Table {
+    const { page } = edit;
+    const tables = pageTables(() => page.tables, this.host.currentPage, { from: page.from, table: after }, this.host.otherPages());
+    return formulasAfterEdit(before, after, { ...edit, tables });
+  }
+
+  /**
+   * The tables of the page whose formulas refer to the written one (by its
+   * name before or after the edit, or to its named cells), or in turn to those:
+   * their results for it as written, their references to it following its
+   * moved rows and columns and its new name. Other tables are left as they are.
+   */
+  otherTablesWritten(before: Table, after: Table, edit: WriteEdit): readonly PageTable[] {
+    const { page } = edit;
+    const now = pageTables(() => page.tables, this.host.currentPage, { from: page.from, table: after }, this.host.otherPages());
+    // Its name and the names of its cells, before and after the edit, and in turn those of the tables that refer to them
+    const affected = affectedBy(before, after);
+    const oldName = metaName(before)?.toLowerCase();
+    // What each other table refers to, read once for all the passes below
+    const others = page.tables.filter((other) => other.range.from !== page.from).map((other) => ({ ...other, referred: referredBy(other.table) }));
+    const written: PageTable[] = [];
+    for (let found = true; found; ) {
+      found = false;
+      for (let i = others.length - 1; i >= 0; i--) {
+        const { range, table, referred } = others[i]!;
+        if (!isAffected(referred, affected)) continue;
+        others.splice(i, 1);
+        found = true;
+        addAffected(affected, table);
+        // Its references to this table follow the edit: moved rows and columns, a new name
+        const followed = oldName && referred.tables.has(oldName) ? followTable(table, before, after, edit.rowMap, edit.columnMap) : table;
+        const recalculated = recalculate(followed, now);
+        if (recalculated !== table) written.push({ range, table: recalculated });
+      }
+    }
+    return written;
+  }
+
+  /** Remove metadata removes the formulas: their cells keep their results */
+  metadataPart(tables: readonly Table[]): MetadataPart | undefined {
+    const count = tables.reduce((n, table) => n + formulaCount(table), 0);
+    return count ? { count, what: "formula", note: "those cells keep their current results as plain values", tags: ["f"] } : undefined;
   }
 
   stop(): void {
@@ -161,8 +235,13 @@ export class Formulas implements Feature {
   decorate(_widget: HTMLElement, info: WidgetInfo): void {
     const model = parseTable(info.source);
     if (formulaCount(model) > 0) this.withFormulas.add(info.table);
-    const tables = this.host.tableSource();
+    const tables = this.tableSource();
     if (recalculate(model, tables) !== model) this.stale.add(info.table);
+    this.markCells(info, model, tables);
+  }
+
+  /** Formula cells marked, with their formulas and the reasons of their errors as their titles */
+  private markCells(info: WidgetInfo, model: Table, tables: TableSource): void {
     const errors = formulaErrors(model, tables);
     for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
       const row = Number(tr.dataset.tpRow);
@@ -193,7 +272,7 @@ export class Formulas implements Feature {
 
   /** Checks again whether the tables that refer to other tables (but `except`) are out of date */
   private recheck(except?: HTMLElement): void {
-    const tables = this.host.tableSource();
+    const tables = this.tableSource();
     for (const other of Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = other === except ? undefined : this.host.infoOf(other);
       if (!info || !this.withFormulas.has(info.table)) continue;
@@ -201,6 +280,8 @@ export class Formulas implements Feature {
       if (referredTableNames(model).size === 0 && referredPages(model).size === 0 && referredCellNames(model).size === 0) continue;
       if (recalculate(model, tables) !== model) this.stale.add(info.table);
       else this.stale.delete(info.table);
+      // An error's reason may have changed (another page read)
+      this.markCells(info, model, tables);
     }
     this.host.toolbarChanged();
   }
@@ -383,7 +464,7 @@ export class Formulas implements Feature {
     const completion = completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
     // A name typed in full that a cell on the page has is that cell, not the start of a function
     const typed = completion && field.value.slice(completion.from, completion.to);
-    return typed && this.host.tableSource().cell?.(typed) ? undefined : completion;
+    return typed && this.tableSource().cell?.(typed) ? undefined : completion;
   }
 
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
