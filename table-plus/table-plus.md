@@ -111,6 +111,9 @@ Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, 
 * **Smart filters** (`tablePlus.smartFilters`), default `true`
   * `true`: filter fields understand `>10`, `/pattern/`, `=text` and `!filter`.
   * `false`: everything typed in a filter field is text to find.
+* **Format tables** (`tablePlus.autoFormat`), default `true`
+  * `true`: a table edited with Table Plus is written with aligned pipes, padded to the widest cell of each column and aligned as its delimiter row says.
+  * `false`: each table keeps its own style: aligned tables stay aligned, compact tables stay compact, untouched rows are kept byte for byte.
 * **Maximum table height (px)** (`tablePlus.maxHeight`), default `0`
   * `0`: no limit, a table is as tall as its rows.
   * A number of pixels, e.g. `400`: a taller table gets its own vertical scrollbar.
@@ -118,13 +121,14 @@ Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, 
 ```lua
 config.set("tablePlus.enterKey", "moveDown")
 config.set("tablePlus.smartFilters", false)
+config.set("tablePlus.autoFormat", false)
 config.set("tablePlus.maxHeight", 400)
 ```
 
 ## How your markdown is kept
 
 * Every change is one ordinary edit: Ctrl+Z undoes it.
-* Rows you did not change are kept byte for byte. Tables with aligned pipes stay aligned; compact tables stay compact.
+* With *Format tables* on (the default), every table you edit is written with aligned pipes. Tables are formatted only when edited, never just by viewing them. With it off, rows you did not change are kept byte for byte, and aligned tables stay aligned, compact ones compact. See [[#Settings]].
 * Cells that are one `${…}` expression (e.g. formulas of a spreadsheet library such as MdTableSheet) are re-evaluated once the page is re-indexed after an edit, so they do not keep a stale result.
 * Sorting, filters and scroll positions (sideways and, with a maximum height, up and down) are views only: they are remembered per table until the page is reloaded, and never written to the page.
 * SilverBullet does not show columns without a name, which shifts the header against the data. For such a table Table Plus shows a notice with a *Name them* button instead of enhancing it.
@@ -160,6 +164,12 @@ config.define("tablePlus", {
       default = true,
       description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell) and !filter (not). Off: everything typed is text to find.",
       ui = { category = "Table Plus", label = "Smart filters", priority = 0 },
+    },
+    autoFormat = {
+      type = "boolean",
+      default = true,
+      description = "Write tables edited with Table Plus with aligned pipes. Off: each table keeps its own style (aligned or compact).",
+      ui = { category = "Table Plus", label = "Format tables", priority = -0.5 },
     },
     maxHeight = {
       type = "number",

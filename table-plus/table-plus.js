@@ -10,6 +10,12 @@ var SETTINGS = {
     default: true,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
+  // Write edited tables with aligned pipes; off: keep each table's own style
+  autoFormat: {
+    path: "tablePlus.autoFormat",
+    default: true,
+    parse: (v) => typeof v === "boolean" ? v : void 0
+  },
   // Pixels; 0: no limit
   maxHeight: {
     path: "tablePlus.maxHeight",
@@ -1791,7 +1797,8 @@ var Controller = class {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
-      const markdown = serializeTable(changed);
+      const format = await this.setting("autoFormat");
+      const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
       if (markdown === range.text) return "unchanged";
       if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
       if (focus) this.pendingFocus = { key: info.key, ...focus, until: Date.now() + 3e3 };

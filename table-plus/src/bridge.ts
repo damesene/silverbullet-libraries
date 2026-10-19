@@ -36,6 +36,12 @@ export const SETTINGS = {
     default: true,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
+  // Write edited tables with aligned pipes; off: keep each table's own style
+  autoFormat: {
+    path: "tablePlus.autoFormat",
+    default: true,
+    parse: (v) => (typeof v === "boolean" ? v : undefined),
+  } satisfies Setting<boolean>,
   // Pixels; 0: no limit
   maxHeight: {
     path: "tablePlus.maxHeight",

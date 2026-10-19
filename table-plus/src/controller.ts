@@ -1354,7 +1354,9 @@ export class Controller {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
-      const markdown = serializeTable(changed);
+      // With the autoFormat setting every edited table is written aligned
+      const format = await this.setting("autoFormat");
+      const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
       if (markdown === range.text) return "unchanged";
       if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
       if (focus) this.pendingFocus = { key: info.key, ...focus, until: Date.now() + 3000 };

@@ -50,7 +50,10 @@ describe("Controller", () => {
   let flashes: string[];
   let controller: Controller;
 
-  const setup = async (page: string, config: Record<string, unknown> = {}) => {
+  // Most tests check the markdown byte for byte as written, so formatting is off
+  // unless a test turns it on
+  const setup = async (page: string, settings: Record<string, unknown> = {}) => {
+    const config: Record<string, unknown> = { "tablePlus.autoFormat": false, ...settings };
     text = page;
     editor = document.createElement("div");
     editor.className = "cm-content";
@@ -154,6 +157,17 @@ describe("Controller", () => {
     await flush();
     await flush();
     expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+  });
+
+  it("writes edited tables aligned with the autoFormat setting", async () => {
+    await setup("| Name | Qty |\n|---|--:|\n| Pear | 3 |\n| Apple | 10 |\n", { "tablePlus.autoFormat": true });
+    clickOn(cell(1, 1));
+    editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "300";
+    key(editor.querySelector(".tp-cell-editor")!, "Enter");
+    await flush();
+    expect(text).toBe(
+      "| Name  | Qty |\n| ----- | --: |\n| Pear  | 300 |\n| Apple |  10 |\n",
+    );
   });
 
   it("cancels an edit with Escape", async () => {
