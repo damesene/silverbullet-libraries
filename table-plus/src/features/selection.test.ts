@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { PAGE, cell, clickOn, controller, editor, flashes, flush, key, press, setup, text, useTablePage } from "../testing/page.ts";
+import { PAGE, cell, clickOn, controller, editor, flashes, flush, key, press, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 
 describe("Selecting cells", () => {
   useTablePage();
@@ -56,6 +56,17 @@ describe("Selecting cells", () => {
     await flush();
     // Nothing recalculated: the cell empty, its formula kept for when formulas are on
     expect(text).toBe('| Name | Qty |\n|---|---|\n| <meta n="pear"> | |\n| | <meta f="=1+1"> |\n');
+  });
+
+  it("copies the table as CSV from the toolbar's menu, its rows as shown", async () => {
+    await setup('| Name | Note |\n|---|---|\n| Pear | ripe, "sweet" |\n| apple | 10 |\n| Fig | 2 <meta f="=1+1"> |\n');
+    let copied = "";
+    Object.defineProperty(window.navigator, "clipboard", { value: { writeText: async (t: string) => void (copied = t) }, configurable: true });
+    clickOn(cell(0, 0).querySelector(".tp-sort")!);
+    tableMenuItem(/^Copy as CSV$/)!.click();
+    await flush();
+    expect(copied).toBe('Name,Note\r\napple,10\r\nFig,2\r\nPear,"ripe, ""sweet"""\r\n');
+    expect(flashes.pop()).toBe("Table Plus: copied 3 rows as CSV");
   });
 
   it("empties the selected cells with Delete, formulas included, keeping the header", async () => {
