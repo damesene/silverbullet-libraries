@@ -9,6 +9,7 @@ import type { MenuDetail, MenuEntry } from "../menu.ts";
 import { setCell } from "../ops.ts";
 import { formulaOf } from "../formula/index.ts";
 import { escapeCell, parseTable, unescapeCell } from "../markdown.ts";
+import { withoutName } from "../names.ts";
 import {
   type Choice,
   type ColumnType,
@@ -291,7 +292,7 @@ export class ColumnTypes implements Feature {
         const cell = tr.cells[column];
         if (raw === undefined || !cell) continue;
         // A formula's result, else the cell's text
-        const text = unescapeCell(formulaOf(raw)?.value ?? raw).trim();
+        const text = unescapeCell(formulaOf(raw)?.value ?? withoutName(raw)).trim();
         // Only plain values: a cell with markup (a link, emphasis) is left as it is
         if (text === "" || cellText(cell) !== text) continue;
         const { type, param } = typed;

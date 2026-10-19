@@ -8,10 +8,11 @@ import { EDITOR_SELECTOR } from "../dom.ts";
 import { formulaCount, withoutFormulas } from "../formula/index.ts";
 import { findTables, locateBySource, minimalEdit, parseTable, serializeTable, type Table } from "../markdown.ts";
 import { metaName, metaSort, sameTableName, tableNameProblem, withMetaName } from "../meta.ts";
+import { hasNames, withoutNames } from "../names.ts";
 
 /** A table without its metadata row and without formulas (their cells keep their results) */
 export function withoutMetadata(table: Table): Table {
-  const { meta: _meta, metaSource: _source, ...rest } = withoutFormulas(table);
+  const { meta: _meta, metaSource: _source, ...rest } = withoutNames(withoutFormulas(table));
   return rest;
 }
 
@@ -38,12 +39,12 @@ export class Metadata implements Feature {
             },
           ]
         : [];
-    if (!info.metaRow && formulaCount(table) === 0) return naming;
+    if (!info.metaRow && formulaCount(table) === 0 && !hasNames(table)) return naming;
     return [
       ...naming,
       {
         label: "Remove metadata",
-        title: "Remove this table's <meta> tags: its stored settings (sorting, pinning, name) and the formulas of its cells, which keep their results",
+        title: "Remove this table's <meta> tags: its stored settings (sorting, pinning, name), the formulas of its cells, which keep their results, and the names of its columns and cells",
         run: () => void this.removeFromTable(widget, info),
       },
     ];
@@ -91,10 +92,12 @@ export class Metadata implements Feature {
    * its cells, which keep their results as plain values
    */
   private async removeFromTable(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
-    const formulas = formulaCount(parseTable(shownInfo.source));
+    const shown = parseTable(shownInfo.source);
+    const formulas = formulaCount(shown);
     const removed = [
       ...(shownInfo.metaRow ? ["its stored settings (sorting, pinning, name)"] : []),
       ...(formulas ? [`its ${plural(formulas, "formula")}: those cells keep their current results as plain values`] : []),
+      ...(hasNames(shown) ? ["the names of its columns and cells"] : []),
     ];
     if (!(await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`))) return;
     // The table as rendered now: the dialog may have outlived the rendering it was asked from
@@ -114,7 +117,7 @@ export class Metadata implements Feature {
     const tables = findTables(text)
       .filter((range) => {
         const table = parseTable(range.text);
-        return table.meta !== undefined || formulaCount(table) > 0;
+        return table.meta !== undefined || formulaCount(table) > 0 || hasNames(table);
       })
       .reverse();
     if (tables.length === 0) {

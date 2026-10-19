@@ -153,6 +153,15 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * Under the cell, the formula shows with its references in the same colors, with help for the function being typed.
 * **Tab completes a function name**: `=AVE` and Tab gives `=AVERAGE(`. It works when the name can only be one function (or is one's whole name, as `IF` next to `IFERROR`); the help shows *Tab: AVERAGE(* then. Elsewhere Tab moves to the next cell as usual.
 
+### Fixed column names
+
+A column can have a fixed name, by which formulas and the stored sorting name it whatever its header says: renaming the header (also in the markdown) breaks nothing, nor references to the column from other pages. Click *Fixed name* in the column's menu and type it (letters, digits and `_`); an empty name removes it.
+
+* It is stored in the header cell as a hidden `<meta n="price">`: `| Unit price <meta n="price"> |`. SilverBullet does not show it, and a query still reads the column as `unit_price`.
+* `[price]` is the column with that fixed name before any column whose header is Price, which is then `[price:2]`.
+* Setting or removing it rewrites the references to the column on the page: `[unit_price]` becomes `[price]`.
+* Editing the header changes only its name: the fixed name stays. It needs the *Store table metadata* setting, as formulas do; *Remove metadata* removes it.
+
 ### Other tables
 
 A formula can use the cells of another table on the same page, once that table has a name (see [[#Table names]]): the name and `!` go before the reference.

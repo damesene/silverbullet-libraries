@@ -22,6 +22,7 @@ import { Formulas } from "./features/formulas.ts";
 import { Grips } from "./features/grips.ts";
 import { History } from "./features/history.ts";
 import { Metadata } from "./features/metadata.ts";
+import { Names } from "./features/names.ts";
 import { Paste } from "./features/paste.ts";
 import { Selection } from "./features/selection.ts";
 import { Sticky } from "./features/sticky.ts";
@@ -306,6 +307,7 @@ export class Controller implements TableHost {
       // After formulas: a formula's result is shown in its column's type
       optional("columnTypes", () => new ColumnTypes(this)),
       always(() => this.metadata),
+      always(() => new Names(this)),
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
       always(() => (this.expressions = new Expressions(this))),

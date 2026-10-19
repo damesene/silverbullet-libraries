@@ -3,6 +3,7 @@
 // rows; a cell holding a tab, a line break or a quote is quoted as in CSV.
 import { formulaOf, withCalculatedCells } from "./formula/index.ts";
 import { escapeCell, type Table } from "./markdown.ts";
+import { nameOf, withName } from "./names.ts";
 import { insertColumn, insertRow, setCell } from "./ops.ts";
 import { insertRowAt } from "./pins.ts";
 import type { Pins } from "./view.ts";
@@ -166,7 +167,8 @@ export function pasteCells(table: Table, plan: PastePlan, data: readonly (readon
         return;
       }
       if (row === 0 && cell === "") return;
-      result = setCell(result, row, column, cell);
+      // A cell's name (a column's fixed name) is kept, as when the cell is edited
+      result = setCell(result, row, column, withName(cell, nameOf(current)));
     });
   });
   return { table: result, skipped };

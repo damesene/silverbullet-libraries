@@ -212,7 +212,7 @@ function parseMetaRow(line) {
   for (const match of tag[1].matchAll(META_ATTRIBUTE_RE)) {
     meta[match[1]] = unescapeMetaValue(match[2] ?? match[3] ?? "");
   }
-  if ("f" in meta) return void 0;
+  if ("f" in meta || "n" in meta) return void 0;
   return meta;
 }
 function unescapeMetaValue(value) {
@@ -467,6 +467,42 @@ function columnAfterMove(c, from, to) {
   if (from < to && c > from && c <= to) return c - 1;
   if (from > to && c >= to && c < from) return c + 1;
   return c;
+}
+
+// table-plus/src/names.ts
+var NAME_TAG_RE = /\s*<meta\s+n\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
+var CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
+var NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function nameProblem(name, what) {
+  if (!NAME_RE.test(name)) return `"${name}" is not a ${what} name: letters, digits and _, not starting with a digit`;
+  if (CELL_RE.test(name) || /^(true|false)$/i.test(name)) return `"${name}" would read as a cell or a value`;
+  return void 0;
+}
+function nameOf(cell) {
+  const match = Array.from(cell.matchAll(NAME_TAG_RE)).pop();
+  const name = match && unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
+  return name || void 0;
+}
+function withoutName(cell) {
+  return cell.replace(NAME_TAG_RE, "").trim();
+}
+function withName(cell, name) {
+  const text = withoutName(cell);
+  if (!name) return text;
+  const tag = `<meta n="${escapeMetaValue(name)}">`;
+  return text === "" ? tag : `${text} ${tag}`;
+}
+function hasNames(table) {
+  return table.rows.some((row) => row.cells.some((cell) => nameOf(cell) !== void 0));
+}
+function withoutNames(table) {
+  let result = table;
+  table.rows.forEach(
+    (row, r) => row.cells.forEach((cell, c) => {
+      if (nameOf(cell) !== void 0) result = setCell(result, r, c, withoutName(cell));
+    })
+  );
+  return result;
 }
 
 // table-plus/src/pins.ts
@@ -748,6 +784,7 @@ var CellEditing = class {
     const ref = this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
+    const bare = withoutName(original);
     const cellStyle = cell.getAttribute("style");
     const rect = cell.getBoundingClientRect();
     if (rect.width > 0) {
@@ -762,7 +799,7 @@ var CellEditing = class {
     field.className = `${UI_CLASS} tp-cell-editor`;
     field.size = 1;
     field.spellcheck = true;
-    field.value = this.context.features.reduce((text, f) => text ?? f.editorText?.(info, ref, original), void 0) ?? unescapeCell(original);
+    field.value = this.context.features.reduce((text, f) => text ?? f.editorText?.(info, ref, bare), void 0) ?? unescapeCell(bare);
     const kept = this.host.doc.createDocumentFragment();
     while (cell.firstChild) kept.append(cell.firstChild);
     cell.classList.add("tp-editing");
@@ -816,7 +853,7 @@ var CellEditing = class {
     this.editor = void 0;
     for (const feature of this.context.features) feature.editorClosed?.(active);
     let value = this.cellValue(active);
-    if (active.row === 0 && value === "" && active.original !== "") {
+    if (active.row === 0 && withoutName(value) === "" && active.original !== "") {
       value = active.original;
       void this.host.bridge.flash("Table Plus: a column needs a name; the old name was kept", "info");
     }
@@ -834,7 +871,8 @@ var CellEditing = class {
   cellValue(active) {
     const typed = active.field.value;
     if (typed === active.initial) return active.original;
-    return this.context.features.reduce((value, f) => value ?? f.editorValue?.(active, typed), void 0) ?? escapeCell(typed);
+    const value = this.context.features.reduce((v, f) => v ?? f.editorValue?.(active, typed), void 0) ?? escapeCell(typed);
+    return withName(value, nameOf(active.original));
   }
   /**
    * Ends editing, saving the cell if asked and changed, then opens `next`
@@ -1170,6 +1208,8 @@ var ICONS = {
   // Two arrows round: calculate again
   recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
   filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  // A padlock: a name that stays
+  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
   columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
   alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
   alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
@@ -1184,23 +1224,34 @@ var ICONS = {
 // table-plus/src/columns.ts
 var HASHTAG_RE = /(^|\s)#[^\s#]+/g;
 function columnName(header) {
-  return unescapeCell(header).replace(HASHTAG_RE, "$1").trim().replace(/^[*_`]+|[*_`]+$/g, "").trim();
+  return unescapeCell(header).replace(/<meta\b[^>]*>/gi, "").replace(HASHTAG_RE, "$1").trim().replace(/^[*_`]+|[*_`]+$/g, "").trim();
 }
 function columnKey(name) {
   return columnName(name).replace(/[\W_]+/g, "_").toLowerCase();
 }
 function findColumn(headers, id) {
+  const fixed = fixedColumn(headers, id.name);
+  if (fixed >= 0 && id.nth === 1) return fixed;
   const wanted = columnKey(id.name);
-  let seen = 0;
-  const index = headers.findIndex((header) => columnKey(header) === wanted && ++seen === id.nth);
+  let seen = fixed >= 0 ? 1 : 0;
+  const index = headers.findIndex((header, c) => c !== fixed && columnKey(header) === wanted && ++seen === id.nth);
   return index < 0 ? void 0 : index;
+}
+function fixedColumn(headers, name) {
+  const wanted = name.toLowerCase();
+  return headers.findIndex((header) => nameOf(header)?.toLowerCase() === wanted);
 }
 function columnIdOf(headers, column) {
   const header = headers[column];
   if (header === void 0) return void 0;
+  const fixed = nameOf(header);
+  if (fixed) return { name: fixed, nth: 1, shared: false };
   const wanted = columnKey(header);
-  const same = headers.filter((h) => columnKey(h) === wanted).length;
-  const nth = headers.slice(0, column + 1).filter((h) => columnKey(h) === wanted).length;
+  const fixedOther = fixedColumn(headers, wanted);
+  const counted = (h, c) => c !== fixedOther && columnKey(h) === wanted;
+  const before = fixedOther >= 0 ? 1 : 0;
+  const same = before + headers.filter(counted).length;
+  const nth = before + headers.slice(0, column + 1).filter(counted).length;
   return { name: wanted, nth, shared: same > 1 };
 }
 function followColumn(before, after, id, map = (c) => c) {
@@ -2258,13 +2309,14 @@ function formulaOf(cell) {
   const match = Array.from(cell.matchAll(FORMULA_TAG_RE)).pop();
   if (!match) return void 0;
   const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
-  const value = (cell.slice(0, match.index) + cell.slice(match.index + match[0].length)).trim();
-  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value };
+  const rest = cell.slice(0, match.index) + cell.slice(match.index + match[0].length);
+  const name = nameOf(rest);
+  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value: withoutName(rest), ...name ? { name } : {} };
 }
-function formulaCell(value, formula) {
+function formulaCell(value, formula, name) {
   const tag = `<meta f="${escapeMetaValue(formula)}">`;
   const shown = escapeCell(value);
-  return shown === "" ? tag : `${shown} ${tag}`;
+  return withName(shown === "" ? tag : `${shown} ${tag}`, name);
 }
 function isFormulaInput(text) {
   const trimmed = text.trim();
@@ -2315,10 +2367,6 @@ function referencedColumnId(headers, written) {
 }
 function referencedColumn(headers, written) {
   return findColumn(headers, referencedColumnId(headers, written));
-}
-var CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
-function isCellName(text) {
-  return CELL_RE.test(text);
 }
 function parseCellName(text) {
   const m = CELL_RE.exec(text);
@@ -2719,7 +2767,7 @@ var Sheet = class {
     }
     const stored = formulaOf(cell);
     if (!stored) {
-      const text = unescapeCell(cell).trim();
+      const text = unescapeCell(withoutName(cell)).trim();
       if (text === "") return null;
       return asNumber(text) ?? parseClock(text) ?? text;
     }
@@ -2910,7 +2958,7 @@ function recalculate(table, tables) {
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
       if (!stored) return;
-      const updated = formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula);
+      const updated = formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula, stored.name);
       if (updated !== cell) result = setCell(result, r, c, updated);
     });
   });
@@ -2951,7 +2999,7 @@ function withoutFormulas(table) {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
-      if (stored) result = setCell(result, r, c, stored.value);
+      if (stored) result = setCell(result, r, c, withName(stored.value, stored.name));
     });
   });
   return result;
@@ -3059,7 +3107,7 @@ function withFormulas(table, rewrite) {
       const stored = formulaOf(cell);
       if (!stored) return;
       const formula = rewrite(stored.formula);
-      if (formula !== stored.formula) result = setCell(result, r, c, formulaCell(stored.value, formula));
+      if (formula !== stored.formula) result = setCell(result, r, c, formulaCell(stored.value, formula, stored.name));
     });
   });
   return result;
@@ -3644,7 +3692,7 @@ var ColumnTypes = class {
         const raw = model.rows[Number(tr.dataset.tpRow)]?.cells[column];
         const cell = tr.cells[column];
         if (raw === void 0 || !cell) continue;
-        const text = unescapeCell(formulaOf(raw)?.value ?? raw).trim();
+        const text = unescapeCell(formulaOf(raw)?.value ?? withoutName(raw)).trim();
         if (text === "" || cellText(cell) !== text) continue;
         const { type, param } = typed;
         const error = type.check(text, param);
@@ -4967,11 +5015,8 @@ function withMetaPins(table, pins) {
   }
   return result;
 }
-var TABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 function tableNameProblem(name) {
-  if (!TABLE_NAME_RE.test(name)) return `"${name}" is not a table name: letters, digits and _, not starting with a digit`;
-  if (isCellName(name) || /^(true|false)$/i.test(name)) return `"${name}" would read as a cell or a value`;
-  return void 0;
+  return nameProblem(name, "table");
 }
 function metaName(table) {
   const name = table.meta?.name?.trim();
@@ -4996,7 +5041,7 @@ function metadataAfterEdit(before, after, edit) {
 
 // table-plus/src/features/metadata.ts
 function withoutMetadata(table) {
-  const { meta: _meta, metaSource: _source, ...rest } = withoutFormulas(table);
+  const { meta: _meta, metaSource: _source, ...rest } = withoutNames(withoutFormulas(table));
   return rest;
 }
 function plural(n, word) {
@@ -5017,12 +5062,12 @@ var Metadata = class {
         run: () => void this.rename(widget, info)
       }
     ] : [];
-    if (!info.metaRow && formulaCount(table) === 0) return naming;
+    if (!info.metaRow && formulaCount(table) === 0 && !hasNames(table)) return naming;
     return [
       ...naming,
       {
         label: "Remove metadata",
-        title: "Remove this table's <meta> tags: its stored settings (sorting, pinning, name) and the formulas of its cells, which keep their results",
+        title: "Remove this table's <meta> tags: its stored settings (sorting, pinning, name), the formulas of its cells, which keep their results, and the names of its columns and cells",
         run: () => void this.removeFromTable(widget, info)
       }
     ];
@@ -5066,10 +5111,12 @@ var Metadata = class {
    * its cells, which keep their results as plain values
    */
   async removeFromTable(shownWidget, shownInfo) {
-    const formulas = formulaCount(parseTable(shownInfo.source));
+    const shown = parseTable(shownInfo.source);
+    const formulas = formulaCount(shown);
     const removed = [
       ...shownInfo.metaRow ? ["its stored settings (sorting, pinning, name)"] : [],
-      ...formulas ? [`its ${plural(formulas, "formula")}: those cells keep their current results as plain values`] : []
+      ...formulas ? [`its ${plural(formulas, "formula")}: those cells keep their current results as plain values`] : [],
+      ...hasNames(shown) ? ["the names of its columns and cells"] : []
     ];
     if (!await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
@@ -5084,7 +5131,7 @@ var Metadata = class {
     const text = await bridge.getText();
     const tables = findTables(text).filter((range) => {
       const table = parseTable(range.text);
-      return table.meta !== void 0 || formulaCount(table) > 0;
+      return table.meta !== void 0 || formulaCount(table) > 0 || hasNames(table);
     }).reverse();
     if (tables.length === 0) {
       void bridge.flash("Table Plus: no table on this page has metadata", "info");
@@ -5106,6 +5153,48 @@ var Metadata = class {
     await bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
     this.host.doc.querySelector(EDITOR_SELECTOR)?.focus({ preventScroll: true });
     void bridge.flash(`Table Plus: removed the metadata of ${tables.length} table(s)`, "info");
+  }
+};
+
+// table-plus/src/features/names.ts
+var Names = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  /** "Fixed name" in a column's menu */
+  columnMenuEntries(widget, info, column) {
+    const fixed = nameOf(parseTable(info.source).rows[0]?.cells[column] ?? "");
+    const allowed = this.host.metadataEnabled || fixed !== void 0;
+    return [
+      {
+        kind: "item",
+        label: "Fixed name",
+        icon: ICONS.fixedName,
+        ...fixed ? { value: { text: fixed } } : {},
+        ...allowed ? {
+          hint: fixed ? `Formulas refer to this column as [${fixed}], whatever its header says. Click to change or remove it` : "Give the column a name formulas refer to it by, which stays when its header is renamed (also from other pages)"
+        } : { disabled: "Needs the Store table metadata setting" },
+        run: () => void this.rename(widget, info, column)
+      }
+    ];
+  }
+  async rename(shownWidget, shownInfo, column) {
+    const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
+    const current = nameOf(headers[column] ?? "") ?? "";
+    const answer = await this.host.promptText("Fixed name of the column (letters, digits and _; empty: none)", current || columnKey(headers[column] ?? ""));
+    if (answer === void 0) return;
+    const name = answer.trim();
+    if (name === current) return;
+    const problem = name === "" ? void 0 : nameProblem(name, "column");
+    const taken = name !== "" && headers.some((header, c) => c !== column && (nameOf(header)?.toLowerCase() === name.toLowerCase() || columnIdOf(headers, c)?.name === name.toLowerCase()));
+    if (problem || taken) {
+      void this.host.bridge.flash(`Table Plus: ${problem ?? `another column of this table is named ${name}`}`, "error");
+      return;
+    }
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    await this.host.write(widget, (t) => setCell(t, 0, column, withName(t.rows[0]?.cells[column] ?? "", name || void 0)));
+    this.host.focusEditor(widget);
   }
 };
 
@@ -5219,7 +5308,7 @@ function pasteCells(table, plan, data) {
         return;
       }
       if (row === 0 && cell === "") return;
-      result = setCell(result, row, column, cell);
+      result = setCell(result, row, column, withName(cell, nameOf(current)));
     });
   });
   return { table: result, skipped };
@@ -5423,7 +5512,8 @@ var Selection = class {
     const cells = this.cells();
     if (!widget || !info || !cells) return;
     const refs = cells.flat().map((cell) => this.host.cellRef(info, cell)).filter((ref) => ref !== void 0 && ref.row > 0);
-    await this.host.write(widget, (t) => refs.reduce((table, ref) => setCell(table, ref.row, ref.column, ""), t));
+    const emptied = (table, ref) => setCell(table, ref.row, ref.column, withName("", nameOf(table.rows[ref.row]?.cells[ref.column] ?? "")));
+    await this.host.write(widget, (t) => refs.reduce(emptied, t));
   }
   /**
    * Ctrl+C with cells selected copies them as a spreadsheet does: as text with
@@ -5659,6 +5749,7 @@ var Controller = class {
       // After formulas: a formula's result is shown in its column's type
       optional("columnTypes", () => new ColumnTypes(this)),
       always(() => this.metadata),
+      always(() => new Names(this)),
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
       always(() => this.expressions = new Expressions(this)),

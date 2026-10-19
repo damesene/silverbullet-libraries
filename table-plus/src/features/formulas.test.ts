@@ -289,6 +289,50 @@ describe("Formulas", () => {
     });
   });
 
+  describe("fixed column names", () => {
+    const PRICES = '| Unit price | Total |\n|---|---|\n| 3 | 3 <meta f="=SUM([unit_price])"> |\n';
+    const openColumnMenu = (column: number) => {
+      cell(1, column).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    };
+    const item = (label: RegExp) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => label.test(b.textContent!))!;
+
+    it("gives a column a fixed name from its menu, and its references then use it", async () => {
+      await setup(PRICES, { "tablePlus.editor.enterKey": "save" });
+      vi.spyOn(window, "prompt").mockReturnValue("price");
+      openColumnMenu(0);
+      item(/^Fixed name/).click();
+      await flush();
+      await controller.scan();
+      expect(text).toBe('| Unit price <meta n="price"> | Total |\n|---|---|\n| 3 | 3 <meta f="=SUM([price])"> |\n');
+      // The header shows without it, and is edited as the name only: the fixed name stays
+      expect(cell(0, 0).textContent!.trim().startsWith("Unit price")).toBe(true);
+      clickOn(cell(0, 0));
+      expect(field().value).toBe("Unit price");
+      await type("Cost");
+      expect(text).toBe('| Cost <meta n="price"> | Total |\n|---|---|\n| 3 | 3 <meta f="=SUM([price])"> |\n');
+    });
+
+    it("refuses a name another column answers to", async () => {
+      await setup('| A | B |\n|---|---|\n| 1 | 2 |\n');
+      vi.spyOn(window, "prompt").mockReturnValue("b");
+      openColumnMenu(0);
+      item(/^Fixed name/).click();
+      await flush();
+      expect(text).toBe("| A | B |\n|---|---|\n| 1 | 2 |\n");
+      expect(flashes.pop()).toBe("Table Plus: another column of this table is named b");
+    });
+
+    it("keeps a cell's name when the cell is edited", async () => {
+      await setup('| A |\n|---|\n| 1 <meta n="one"> |\n', { "tablePlus.editor.enterKey": "save" });
+      clickOn(cell(1, 0));
+      expect(field().value).toBe("1");
+      await type("2");
+      expect(text).toBe('| A |\n|---|\n| 2 <meta n="one"> |\n');
+    });
+  });
+
   describe("with the metadata setting off", () => {
     const OFF = { "tablePlus.metadata": false };
 

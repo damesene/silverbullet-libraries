@@ -4,8 +4,11 @@
 // keys table columns (`Unit price` is `unit_price`, as in a query). Any
 // spelling with the same key names the same column ([Unit price] is
 // [unit_price]). Of several columns with the same key, the occurrence tells
-// which one (the second qty is qty #2).
+// which one (the second qty is qty #2). A column with a fixed name in its
+// header (`<meta n="price">`, names.ts) is named by it instead, so renaming
+// the header changes nothing.
 import { unescapeCell } from "./markdown.ts";
+import { nameOf } from "./names.ts";
 
 export type ColumnId = { readonly name: string; readonly nth: number };
 
@@ -18,6 +21,8 @@ const HASHTAG_RE = /(^|\s)#[^\s#]+/g;
  */
 export function columnName(header: string): string {
   return unescapeCell(header)
+    // Tags are not part of it either: SilverBullet leaves <meta> out of the key
+    .replace(/<meta\b[^>]*>/gi, "")
     .replace(HASHTAG_RE, "$1")
     .trim()
     .replace(/^[*_`]+|[*_`]+$/g, "")
@@ -36,10 +41,20 @@ export function columnKey(name: string): string {
 
 /** The column `id` names, or undefined if the table has none of that name (and occurrence) */
 export function findColumn(headers: readonly string[], id: ColumnId): number | undefined {
+  // A fixed name first: it is the column's whatever the headers say
+  const fixed = fixedColumn(headers, id.name);
+  if (fixed >= 0 && id.nth === 1) return fixed;
   const wanted = columnKey(id.name);
-  let seen = 0;
-  const index = headers.findIndex((header) => columnKey(header) === wanted && ++seen === id.nth);
+  // The column with the fixed name is the first of that name, the headers of that key follow it
+  let seen = fixed >= 0 ? 1 : 0;
+  const index = headers.findIndex((header, c) => c !== fixed && columnKey(header) === wanted && ++seen === id.nth);
   return index < 0 ? undefined : index;
+}
+
+/** The column whose fixed name is `name`, or -1 */
+function fixedColumn(headers: readonly string[], name: string): number {
+  const wanted = name.toLowerCase();
+  return headers.findIndex((header) => nameOf(header)?.toLowerCase() === wanted);
 }
 
 /**
@@ -52,9 +67,15 @@ export function columnIdOf(
 ): (ColumnId & { readonly shared: boolean }) | undefined {
   const header = headers[column];
   if (header === undefined) return undefined;
+  const fixed = nameOf(header);
+  if (fixed) return { name: fixed, nth: 1, shared: false };
   const wanted = columnKey(header);
-  const same = headers.filter((h) => columnKey(h) === wanted).length;
-  const nth = headers.slice(0, column + 1).filter((h) => columnKey(h) === wanted).length;
+  // Another column with this key as its fixed name comes first (findColumn)
+  const fixedOther = fixedColumn(headers, wanted);
+  const counted = (h: string, c: number) => c !== fixedOther && columnKey(h) === wanted;
+  const before = fixedOther >= 0 ? 1 : 0;
+  const same = before + headers.filter(counted).length;
+  const nth = before + headers.slice(0, column + 1).filter(counted).length;
   return { name: wanted, nth, shared: same > 1 };
 }
 

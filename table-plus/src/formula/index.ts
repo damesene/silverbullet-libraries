@@ -18,6 +18,7 @@ import { type ColumnId, columnIdOf, columnKey, findColumn, followColumn, sameCol
 import { dateArithmetic, parseDate } from "./dates.ts";
 import { FUNCTIONS } from "./functions/index.ts";
 import { escapeCell, escapeMetaValue, type Table, unescapeCell, unescapeMetaValue } from "../markdown.ts";
+import { CELL_RE, nameOf, withName, withoutName } from "../names.ts";
 import { setCell } from "../ops.ts";
 import {
   asTime,
@@ -45,6 +46,8 @@ export type StoredFormula = {
   readonly formula: string;
   // The result written with it, as markdown
   readonly value: string;
+  // The cell's name (names.ts), kept when the result is written again
+  readonly name?: string;
 };
 
 /** The formula a cell holds, or undefined for a plain cell */
@@ -53,15 +56,16 @@ export function formulaOf(cell: string): StoredFormula | undefined {
   const match = Array.from(cell.matchAll(FORMULA_TAG_RE)).pop();
   if (!match) return undefined;
   const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
-  const value = (cell.slice(0, match.index) + cell.slice(match.index + match[0].length)).trim();
-  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value };
+  const rest = cell.slice(0, match.index) + cell.slice(match.index + match[0].length);
+  const name = nameOf(rest);
+  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value: withoutName(rest), ...(name ? { name } : {}) };
 }
 
-/** A cell holding `formula`, showing `value` (plain text) */
-export function formulaCell(value: string, formula: string): string {
+/** A cell holding `formula`, showing `value` (plain text), and named `name` if given */
+export function formulaCell(value: string, formula: string, name?: string): string {
   const tag = `<meta f="${escapeMetaValue(formula)}">`;
   const shown = escapeCell(value);
-  return shown === "" ? tag : `${shown} ${tag}`;
+  return withName(shown === "" ? tag : `${shown} ${tag}`, name);
 }
 
 /** Whether text typed into a cell is a formula: "=" and something after it */
@@ -145,13 +149,6 @@ export function referencedColumnId(headers: readonly string[], written: string):
 /** The index of the column a [Name] reference names, or undefined */
 export function referencedColumn(headers: readonly string[], written: string): number | undefined {
   return findColumn(headers, referencedColumnId(headers, written));
-}
-
-const CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
-
-/** Whether a name reads as a cell reference in formulas (A1, AB12) */
-export function isCellName(text: string): boolean {
-  return CELL_RE.test(text);
 }
 
 function parseCellName(text: string): { row: number; column: number } | undefined {
@@ -647,7 +644,7 @@ class Sheet {
     }
     const stored = formulaOf(cell);
     if (!stored) {
-      const text = unescapeCell(cell).trim();
+      const text = unescapeCell(withoutName(cell)).trim();
       if (text === "") return null;
       // A number, a time (14:30, 40:00), or text
       return asNumber(text) ?? parseClock(text) ?? text;
@@ -862,7 +859,7 @@ export function recalculate(table: Table, tables?: TableSource): Table {
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
       if (!stored) return;
-      const updated = formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula);
+      const updated = formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula, stored.name);
       if (updated !== cell) result = setCell(result, r, c, updated);
     });
   });
@@ -918,7 +915,7 @@ export function withoutFormulas(table: Table): Table {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
-      if (stored) result = setCell(result, r, c, stored.value);
+      if (stored) result = setCell(result, r, c, withName(stored.value, stored.name));
     });
   });
   return result;
@@ -1079,7 +1076,7 @@ function withFormulas(table: Table, rewrite: (formula: string) => string): Table
       const stored = formulaOf(cell);
       if (!stored) return;
       const formula = rewrite(stored.formula);
-      if (formula !== stored.formula) result = setCell(result, r, c, formulaCell(stored.value, formula));
+      if (formula !== stored.formula) result = setCell(result, r, c, formulaCell(stored.value, formula, stored.name));
     });
   });
   return result;
