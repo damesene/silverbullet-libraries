@@ -71,7 +71,17 @@ export type WriteOptions = {
   readonly columnMap?: IndexMap;
   // The pins after the edit, for edits that change them
   readonly pins?: Pins;
+  // The focused row (a new one) is held where it is shown beside these rows
+  // (of the markdown after the edit) until the editor leaves it; none: at the end
+  readonly hold?: RowHold;
 };
+
+/**
+ * Where a held row shows while it is edited, sorting and filters
+ * notwithstanding: right after the row `after`, else right before `before`
+ * (rows of the markdown), else last
+ */
+export type RowHold = { readonly after?: number; readonly before?: number };
 
 /**
  * A step every write goes through after the edit itself, such as formulas

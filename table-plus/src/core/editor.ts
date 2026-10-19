@@ -44,6 +44,12 @@ export type EditorContext = {
   endHover(): void;
   // Rows are being rearranged: the field losing its focus to that is not leaving it
   movingRows(): boolean;
+  // A row is entered: it stays where it is shown, sorting and filters notwithstanding, until it is left
+  holdRow(widget: HTMLElement, info: WidgetInfo, row: number): void;
+  // The row held is left: sorting and filters place it
+  releaseRow(): void;
+  // The editor of a cell of the table closed
+  editingEnded(widget: HTMLElement): void;
 };
 
 export class CellEditing {
@@ -80,6 +86,7 @@ export class CellEditing {
   ): void {
     const ref = this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
+    this.context.holdRow(widget, info, ref.row);
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
     // A cell's name is not edited as text: it is kept (names.ts)
     const bare = withoutName(original);
@@ -169,6 +176,7 @@ export class CellEditing {
     if (active.cellStyle === null) active.cell.removeAttribute("style");
     else active.cell.setAttribute("style", active.cellStyle);
     active.cell.append(active.kept);
+    this.context.editingEnded(active.widget);
     return { ...active, value };
   }
 
@@ -196,6 +204,8 @@ export class CellEditing {
     if (!closed) return;
     const changed = save && closed.value !== closed.original;
     const sameTable = next?.widget === closed.widget;
+    // Leaving the row: sorting and filters place it (Tab within the row keeps it held)
+    if (!(sameTable && next?.row === closed.row)) this.context.releaseRow();
     let result: WriteResult = "unchanged";
     if (changed) {
       result = await this.host.write(closed.widget, (t) => this.withCellEdit(t, closed), { focus: sameTable ? next : undefined });
@@ -232,7 +242,7 @@ export class CellEditing {
     }
     const info = this.host.infoOf(active.widget);
     const closed = this.close()!;
-    if (info) await insertRowWith(this.host, closed.widget, info, closed.row + 1, closed.column, (t) => this.withSaved(t, closed));
+    if (info) await insertRowWith(this.host, closed.widget, info, closed.row + 1, closed.column, (t) => this.withSaved(t, closed), { after: closed.row });
   }
 
   /** The table with the closed editor's value saved, if it changed */
@@ -370,7 +380,7 @@ export class CellEditing {
     }
     // Tab on the last cell adds a row (above the rows pinned to the bottom)
     const closed = this.close()!;
-    await insertRowWith(this.host, closed.widget, info, appendRowAt(info.pins, info.rows), 0, (t) => this.withSaved(t, closed));
+    await insertRowWith(this.host, closed.widget, info, appendRowAt(info.pins, info.rows), 0, (t) => this.withSaved(t, closed), { after: closed.row });
   }
 
   takePending(widget: HTMLElement, info: WidgetInfo): void {

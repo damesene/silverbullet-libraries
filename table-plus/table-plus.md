@@ -89,10 +89,11 @@ A plain click edits a cell and no longer switches the table to its markdown. To 
 * Sorting only changes what you see, never the markdown, unless the *Store table metadata* setting is on: then the sorting is also stored in the table, see [[#Table metadata]].
 * While sorted, the toolbar shows *Sorted by …*; its × shows the rows as written again, and its ✓ sorts the rows in the markdown that way (after asking) and ends the sorting view. Rows a filter hides are sorted too, pinned rows stay where they are, and one Ctrl+Z undoes it.
 * Numbers sort as numbers (`1 000`, `2,5`, `-3`, `15 %`, `12,99 €`, `$5`, `3 kg` included); empty cells always come last.
+* A row you are editing (or have just added) stays where it is while you type and Tab through its cells; it moves to its place once you leave it (Escape, Enter, another row, a click elsewhere).
 
 ## Filtering
 
-Hover the table and click the filter icon in its toolbar (or *Filter* in a column menu) to show a filter field under each header. The toolbar shows how many rows match. Hiding the filter row clears the filters.
+Hover the table and click the filter icon in its toolbar (or *Filter* in a column menu) to show a filter field under each header. The toolbar shows how many rows match. Hiding the filter row clears the filters. A row you are editing (or have just added) stays shown until you leave it, even when the filters do not match it.
 
 Plain text is found anywhere in a cell, ignoring case and diacritics (`cesky` finds `Český`). With *Smart filters* (on by default, see [[#Settings]]) a field also understands:
 

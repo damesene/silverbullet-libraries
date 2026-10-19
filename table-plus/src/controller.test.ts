@@ -75,6 +75,86 @@ describe("Controller", () => {
     expect(document.querySelector(".tp-menu")).toBeNull();
   });
 
+  describe("a row being edited stays where it is shown until the editor leaves it", () => {
+    const editing = () => editor.querySelector<HTMLInputElement>(".tp-cell-editor");
+    const waitFor = async (done: () => boolean) => {
+      for (let i = 0; i < 50 && !done(); i++) {
+        await flush();
+        await controller.scan();
+      }
+    };
+
+    it("shows a row added under a filter until it is left", async () => {
+      await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      document.querySelector<HTMLElement>('.tp-bar button[aria-label="Filter"]')!.click();
+      const filter = editor.querySelector<HTMLInputElement>('.tp-filter[data-tp-column="1"]')!;
+      filter.value = ">5";
+      filter.dispatchEvent(new Event("input"));
+      await flush();
+      expect(bodyTexts()).toEqual(["apple"]);
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      document.querySelector<HTMLElement>(".tp-add-row")!.click();
+      await waitFor(() => !!editing());
+      expect(bodyTexts()).toEqual(["apple", ""]);
+      // Tab within the row: still shown, though Plum (no Qty) does not match
+      editing()!.value = "Plum";
+      key(editing()!, "Tab");
+      await waitFor(() => editing()?.closest("td")?.cellIndex === 1);
+      expect(text).toContain("| Plum | |");
+      expect(bodyTexts()).toEqual(["apple", "Plum"]);
+      // Left: the filter hides it
+      key(editing()!, "Escape");
+      await flush();
+      expect(bodyTexts()).toEqual(["apple"]);
+    });
+
+    it("keeps an edited row in its place while sorted, and sorts it once left", async () => {
+      await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
+      clickOn(cell(0, 0).querySelector(".tp-sort")!);
+      expect(bodyTexts()).toEqual(["apple", "Fig", "Pear"]);
+      clickOn(editor.querySelector<HTMLTableRowElement>("tr[data-tp-row]:not(.tp-hidden)")!.cells[0]!);
+      editing()!.value = "Zucchini";
+      key(editing()!, "Tab");
+      await waitFor(() => editing()?.closest("td")?.cellIndex === 1);
+      expect(text).toContain("| Zucchini | 10 |");
+      expect(bodyTexts()).toEqual(["Zucchini", "Fig", "Pear"]);
+      key(editing()!, "Escape");
+      await flush();
+      expect(bodyTexts()).toEqual(["Fig", "Pear", "Zucchini"]);
+    });
+
+    it("keeps the row in its place for a click on another of its cells, sorts it on a click in another row", async () => {
+      await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
+      clickOn(cell(0, 0).querySelector(".tp-sort")!);
+      const rows = () => Array.from(editor.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]:not(.tp-hidden)"));
+      clickOn(rows()[0]!.cells[0]!);
+      editing()!.value = "Zucchini";
+      clickOn(rows()[0]!.cells[1]!);
+      await waitFor(() => editing()?.closest("td")?.cellIndex === 1);
+      expect(text).toContain("| Zucchini | 10 |");
+      expect(bodyTexts()).toEqual(["Zucchini", "Fig", "Pear"]);
+      clickOn(rows()[1]!.cells[1]!);
+      await waitFor(() => bodyTexts()[2] === "Zucchini");
+      expect(bodyTexts()).toEqual(["Fig", "Pear", "Zucchini"]);
+    });
+
+    it("sorts the row being edited with the others when the sorting changes", async () => {
+      await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
+      // The rows shown, by their rows in the markdown (Pear 1, apple 2, Fig 3)
+      const order = () => Array.from(editor.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]:not(.tp-hidden)")).map((tr) => tr.dataset.tpRow);
+      // Pear's name is edited: the column sorted by, sorted by what is typed
+      clickOn(cell(1, 0));
+      expect(order()).toEqual(["1", "2", "3"]);
+      clickOn(cell(0, 0).querySelector(".tp-sort")!);
+      expect(editing()).not.toBeNull();
+      expect(order()).toEqual(["2", "3", "1"]);
+      key(editing()!, "Escape");
+      await flush();
+      expect(order()).toEqual(["2", "3", "1"]);
+    });
+  });
+
   it("sorts and restores the order without touching the markdown", async () => {
     await setup(PAGE);
     const sort = cell(0, 0).querySelector(".tp-sort")!;

@@ -6,6 +6,7 @@ import type {
   CellEditor,
   CellRef,
   Feature,
+  RowHold,
   TableHost,
   ToolbarButton,
   WidgetInfo,
@@ -268,9 +269,15 @@ export class Controller implements TableHost {
   private stopped = false;
   // Rows are being rearranged: a cell editor losing its focus to that is not left
   private movingRows = false;
+  // The row being edited (or just added), in the table with `key`: it stays
+  // where it is shown until the editor leaves it, so sorting and filters do not
+  // move or hide it while it is typed into
+  private held: (RowHold & { readonly key: string; readonly row: number }) | undefined;
   private settingsTimer: ReturnType<typeof setTimeout> | undefined;
   private settingsReadAt = 0;
   private readonly sortTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Tables whose sorting is stored once their cell editor closes
+  private readonly sortsWaiting = new Set<string>();
   private stickyQueued = false;
   private warnedIncompatible = false;
   private observer: MutationObserver | undefined;
@@ -300,6 +307,9 @@ export class Controller implements TableHost {
       isolate: (element) => this.isolate(element),
       endHover: () => this.hoverEdited(),
       movingRows: () => this.movingRows,
+      holdRow: (widget, info, row) => this.holdRow(widget, info, row),
+      releaseRow: () => this.releaseRow(),
+      editingEnded: (widget) => this.editingEnded(widget),
     });
     this.bar = this.floating("div", "tp-bar");
     this.addRow = this.floatingButton("tp-add tp-add-row", "Add a row at the end", ICONS.plus);
@@ -515,6 +525,7 @@ export class Controller implements TableHost {
     // A sorting still to be stored would undo this
     clearTimeout(this.sortTimers.get(shownInfo.key));
     this.sortTimers.delete(shownInfo.key);
+    this.sortsWaiting.delete(shownInfo.key);
     const [widget, info] = this.current(shownWidget, shownInfo);
     const rows = this.bodyRows(info);
     const values = rows.map((tr) => Array.from(tr.cells).map(cellValue));
@@ -773,7 +784,12 @@ export class Controller implements TableHost {
 
   setView(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
     this.views.set(info.key, view);
+    // A new sorting or filter places every row, the one being edited too,
+    // which is then held where it shows
+    if (this.held?.key === info.key) this.held = undefined;
     this.applyView(widget, info);
+    const active = this.cellEditor.active;
+    if (active?.widget === widget) this.holdRow(widget, info, active.row);
   }
 
   /**
@@ -782,15 +798,32 @@ export class Controller implements TableHost {
    */
   setSort(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
     this.setView(widget, info, view);
-    // Clicks in a row store only where they end, in the table as rendered then
-    clearTimeout(this.sortTimers.get(info.key));
+    this.scheduleSortStore(info.key);
+  }
+
+  /**
+   * Stores a table's sorting a moment after it changed: clicks in a row store
+   * only where they end, in the table as rendered then. Not while a cell of the
+   * table is edited (writing would render the table anew under the editor): then
+   * once the editor closes.
+   */
+  private scheduleSortStore(key: string): void {
+    clearTimeout(this.sortTimers.get(key));
     this.sortTimers.set(
-      info.key,
+      key,
       setTimeout(() => {
-        this.sortTimers.delete(info.key);
-        void this.storeSort(info.key);
+        this.sortTimers.delete(key);
+        const active = this.cellEditor.active;
+        if (active && this.infos.get(active.widget)?.key === key) this.sortsWaiting.add(key);
+        else void this.storeSort(key);
       }, STORE_SORT_DELAY_MS),
     );
+  }
+
+  /** The cell editor closed: a sorting waiting for it is stored */
+  private editingEnded(widget: HTMLElement): void {
+    const key = this.infos.get(widget)?.key;
+    if (key && this.sortsWaiting.delete(key)) this.scheduleSortStore(key);
   }
 
   private async storeSort(key: string): Promise<void> {
@@ -886,12 +919,78 @@ export class Controller implements TableHost {
     );
   }
 
+  /**
+   * The rows shown (indexes of the body rows), with the held row of this table
+   * shown beside its anchors, whether the sorting and filters would show it there or not
+   */
+  private withHeldRow(info: WidgetInfo, order: number[], count: number): number[] {
+    const held = this.held;
+    const { top, bottom } = info.pins;
+    if (held?.key !== info.key || held.row - 1 < top || held.row - 1 >= count - bottom) return order;
+    const index = held.row - 1;
+    const rest = order.filter((i) => i !== index);
+    const after = held.after === undefined ? -1 : rest.indexOf(held.after - 1);
+    const before = held.before === undefined ? -1 : rest.indexOf(held.before - 1);
+    const at = after >= 0 ? after + 1 : before >= 0 ? before : rest.length;
+    return [...rest.slice(0, at), index, ...rest.slice(at)];
+  }
+
+  /** A row is entered in the cell editor: held where it is shown now, beside the rows shown next to it */
+  private holdRow(widget: HTMLElement, info: WidgetInfo, row: number): void {
+    if (this.held?.key === info.key && this.held.row === row) return;
+    this.releaseRow();
+    if (row === 0) return;
+    const { top, bottom } = info.pins;
+    // The rows shown, but those pinned (they are not sorted or filtered)
+    const shown = this.shownRows(info)
+      .slice(1)
+      .map((tr) => Number(tr.dataset.tpRow))
+      .filter((r) => r > top && r <= info.rows - 1 - bottom);
+    const at = shown.indexOf(row);
+    if (at < 0) return;
+    this.held = {
+      key: info.key,
+      row,
+      ...(at > 0 ? { after: shown[at - 1] } : {}),
+      ...(at < shown.length - 1 ? { before: shown[at + 1] } : {}),
+    };
+  }
+
+  /** The held row is left: the sorting and filters place it */
+  private releaseRow(): void {
+    const held = this.held;
+    if (!held) return;
+    this.held = undefined;
+    const widget = this.widgetForKey(held.key);
+    const info = widget && this.infos.get(widget);
+    if (widget && info && renderedTable(widget) === info.table) this.applyView(widget, info);
+  }
+
+  /** After a write: a new row focused is held beside the rows asked */
+  private holdAfterWrite(key: string, options: WriteOptions): void {
+    if (options.hold && options.focus) {
+      this.held = { key, row: options.focus.row, ...options.hold };
+      return;
+    }
+    // Rows moved, inserted or deleted: the row is held anew where it shows once the editor is back in it
+    if (this.held?.key === key && options.rowMap) this.held = undefined;
+  }
+
+  /**
+   * A cell's value for sorting and filtering: the edited cell shows the
+   * editor, not its text, so its value is what is typed (a type's value stays)
+   */
+  private viewValue(cell: HTMLTableCellElement): string {
+    const active = this.cellEditor.active;
+    return active?.cell === cell && cell.dataset.tpValue === undefined ? active.field.value : cellValue(cell);
+  }
+
   applyView(widget: HTMLElement, info: WidgetInfo): void {
     const view = this.viewOf(info);
     const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map(cellValue));
-    const order = visibleRows(values, withPins(view, info.pins), this.filterOptions);
+    const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.viewValue(cell)));
+    const order = this.withHeldRow(info, visibleRows(values, withPins(view, info.pins), this.filterOptions), rows.length);
     const shown = new Set(order);
     const body = info.table.tBodies[0] ?? info.table;
     rows.forEach((tr, i) => {
@@ -1393,6 +1492,7 @@ export class Controller implements TableHost {
       }
       if (columnMap) this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
       if (focus) this.cellEditor.editAfterWrite(info.key, focus);
+      this.holdAfterWrite(info.key, options);
       this.scrollLefts.set(info.key, widget.scrollLeft);
       this.scrollTops.set(info.key, widget.scrollTop);
       let written = text;

@@ -35,15 +35,22 @@ export function insertRowWith(
   at: number,
   column: number,
   prepare: (t: Table) => Table | undefined = (t) => t,
+  // Where the new row shows while it is edited (rows of the markdown before the insert); none: last
+  beside: { readonly after?: number; readonly before?: number } = {},
 ): Promise<WriteResult> {
   const insert = insertRowAt(info.pins, info.rows, at);
+  const rowMap = rowAfterInsert(insert.at);
+  const hold = {
+    ...(beside.after !== undefined ? { after: rowMap(beside.after) } : {}),
+    ...(beside.before !== undefined ? { before: rowMap(beside.before) } : {}),
+  };
   return host.write(
     widget,
     (t) => {
       const prepared = prepare(t);
       return prepared && insertRow(prepared, insert.at);
     },
-    { focus: { row: insert.at, column }, pins: insert.pins, rowMap: rowAfterInsert(insert.at) },
+    { focus: { row: insert.at, column }, pins: insert.pins, rowMap, hold },
   );
 }
 
