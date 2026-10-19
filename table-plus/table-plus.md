@@ -120,33 +120,33 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 
 Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, or set them in your [[CONFIG]]:
 
-* **Enter in a cell editor** (`tablePlus.enterKey`), default `save`
-  * `save`: Enter saves the cell.
-  * `moveDown`: Enter saves and edits the cell below, Shift+Enter the cell above.
-* **Smart filters** (`tablePlus.smartFilters`), default `true`
-  * `true`: filter fields understand `>10`, `/pattern/`, `=text` and `!filter`.
-  * `false`: everything typed in a filter field is text to find.
-
 * **Store table metadata** (`tablePlus.metadata`), default `false`
   * `true`: table settings (the sorting and pinned rows and columns) are stored in the table itself, see [[#Table metadata]], and rows and columns can be pinned, see [[#Pinning]].
   * `false`: sorting is a view only and never changes a table, and pinning is not offered.
-* **Ctrl+Enter adds a row** (`tablePlus.ctrlEnterAddsRow`), default `true`
-  * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
-  * `false`: Ctrl+Enter works like Enter.
-* **Format tables** (`tablePlus.autoFormat`), default `true`
-  * `true`: a table edited with Table Plus is written with aligned pipes, padded to the widest cell of each column and aligned as its delimiter row says.
-  * `false`: each table keeps its own style: aligned tables stay aligned, compact tables stay compact, untouched rows are kept byte for byte.
 * **Maximum table height (px)** (`tablePlus.maxHeight`), default `0`
   * `0`: no limit, a table is as tall as its rows.
   * A number of pixels, e.g. `400`: a taller table gets its own vertical scrollbar.
 
+* **Format tables** (`tablePlus.autoFormat`), default `true`
+  * `true`: a table edited with Table Plus is written with aligned pipes, padded to the widest cell of each column and aligned as its delimiter row says.
+  * `false`: each table keeps its own style: aligned tables stay aligned, compact tables stay compact, untouched rows are kept byte for byte.
+* **Enter in a cell editor** (`tablePlus.enterKey`), default `save`
+  * `save`: Enter saves the cell.
+  * `moveDown`: Enter saves and edits the cell below, Shift+Enter the cell above.
+* **Ctrl+Enter adds a row** (`tablePlus.ctrlEnterAddsRow`), default `true`
+  * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
+  * `false`: Ctrl+Enter works like Enter.
+* **Smart filters** (`tablePlus.smartFilters`), default `true`
+  * `true`: filter fields understand `>10`, `/pattern/`, `=text` and `!filter`.
+  * `false`: everything typed in a filter field is text to find.
+
 ```lua
-config.set("tablePlus.enterKey", "moveDown")
-config.set("tablePlus.smartFilters", false)
-config.set("tablePlus.autoFormat", false)
-config.set("tablePlus.ctrlEnterAddsRow", false)
 config.set("tablePlus.metadata", true)
 config.set("tablePlus.maxHeight", 400)
+config.set("tablePlus.autoFormat", false)
+config.set("tablePlus.enterKey", "moveDown")
+config.set("tablePlus.ctrlEnterAddsRow", false)
+config.set("tablePlus.smartFilters", false)
 ```
 
 ## Table metadata
@@ -198,42 +198,42 @@ config.define("tablePlus", {
   description = "Table Plus settings",
   type = "object",
   properties = {
-    enterKey = {
-      type = "string",
-      enum = { "save", "moveDown" },
-      default = "save",
-      description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: the cell above).",
-      ui = { category = "Table Plus", label = "Enter in a cell editor", priority = 1 },
-    },
-    smartFilters = {
-      type = "boolean",
-      default = true,
-      description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell) and !filter (not). Off: everything typed is text to find.",
-      ui = { category = "Table Plus", label = "Smart filters", priority = 0 },
-    },
     metadata = {
       type = "boolean",
       default = false,
       description = "Store table settings (sorting, pinned rows and columns) in a hidden last row <meta …> of the table, and offer pinning. Off: sorting is a view only and tables are not changed by it; a <meta> row already in a table is still hidden, used and kept.",
-      ui = { category = "Table Plus", label = "Store table metadata", priority = 0.25 },
-    },
-    ctrlEnterAddsRow = {
-      type = "boolean",
-      default = true,
-      description = "Ctrl+Enter in a cell editor saves the cell, adds an empty row below and edits it. Off: Ctrl+Enter works like Enter.",
-      ui = { category = "Table Plus", label = "Ctrl+Enter adds a row", priority = 0.5 },
-    },
-    autoFormat = {
-      type = "boolean",
-      default = true,
-      description = "Write tables edited with Table Plus with aligned pipes. Off: each table keeps its own style (aligned or compact).",
-      ui = { category = "Table Plus", label = "Format tables", priority = -0.5 },
+      ui = { category = "Table Plus", label = "Store table metadata", priority = 6 },
     },
     maxHeight = {
       type = "number",
       default = 0,
       description = "Maximum table height in pixels; a taller table gets its own vertical scrollbar. 0: no limit.",
-      ui = { category = "Table Plus", label = "Maximum table height (px)", priority = -1 },
+      ui = { category = "Table Plus", label = "Maximum table height (px)", priority = 5 },
+    },
+    autoFormat = {
+      type = "boolean",
+      default = true,
+      description = "Write tables edited with Table Plus with aligned pipes. Off: each table keeps its own style (aligned or compact).",
+      ui = { category = "Table Plus", label = "Format tables", priority = 4 },
+    },
+    enterKey = {
+      type = "string",
+      enum = { "save", "moveDown" },
+      default = "save",
+      description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: the cell above).",
+      ui = { category = "Table Plus", label = "Enter in a cell editor", priority = 3 },
+    },
+    ctrlEnterAddsRow = {
+      type = "boolean",
+      default = true,
+      description = "Ctrl+Enter in a cell editor saves the cell, adds an empty row below and edits it. Off: Ctrl+Enter works like Enter.",
+      ui = { category = "Table Plus", label = "Ctrl+Enter adds a row", priority = 2 },
+    },
+    smartFilters = {
+      type = "boolean",
+      default = true,
+      description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell) and !filter (not). Off: everything typed is text to find.",
+      ui = { category = "Table Plus", label = "Smart filters", priority = 1 },
     },
   },
 })
