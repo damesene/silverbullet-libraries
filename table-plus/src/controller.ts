@@ -35,6 +35,7 @@ import {
   referenceSlot,
   references,
   shiftReferences,
+  withCalculatedCells,
   withoutFormulas,
 } from "./formula/index.ts";
 import { ICONS } from "./icons.ts";
@@ -2269,7 +2270,8 @@ export class Controller {
       widget,
       (t) => {
         const prepared = prepare(t);
-        return prepared && insertRow(prepared, insert.at);
+        // Columns that compute every row with the same formula compute the new row too
+        return prepared && withCalculatedCells(insertRow(prepared, insert.at), insert.at);
       },
       { row: insert.at, column },
       undefined,

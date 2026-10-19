@@ -102,6 +102,7 @@ Type a formula into a body cell, starting with `=`: `=B1*2`, `=SUM(B1:B3)`, `=SU
 
 * SilverBullet and browsers show only the result, other renderers (GitHub, Obsidian) drop the tag. Queries over the table (`index.tag "table"`) see the cell's text with the tag, e.g. `13 <meta f="=SUM([Qty])">`.
 * Saving a formula fixes mistakes that have only one possible fix, and says what it changed: missing `)` at the end are added (`=SUM(A1:A3` becomes `=SUM(A1:A3)`), a text in quotes or a `[column]` left open at the end is closed, and extra `)` at the very end are dropped. Anything else stays as typed and shows `#ERROR!`.
+* **Calculated columns**: when every row of a column holds the same formula, such as `=[@Qty]*[@Price]`, a new row (*+ Row*, Ctrl+Enter, Tab on the last cell, *Insert row*) gets it too. Total rows (with a formula over a whole column, such as `=SUM([Qty])`) do not count.
 * Click the cell to edit its formula. Typing a plain value removes the formula. To type a text that starts with `=`, start it with `'=`; such a text opens with the `'` again, so it stays text.
 * Results are written whenever Table Plus edits the table, in the same edit (one Ctrl+Z undoes both). Viewing a table never changes it: when the table was changed outside Table Plus (by typing in the markdown), the toolbar shows *Recalculate*.
 * A formula's result has a dotted underline; hover it to see its formula, or why it shows an error.

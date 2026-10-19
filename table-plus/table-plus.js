@@ -1482,6 +1482,32 @@ function recalculate(table) {
   });
   return result;
 }
+function calculatedFormula(table, column, except) {
+  let formula;
+  for (let r = 1; r < table.rows.length; r++) {
+    if (r === except || isTotalRow(table.rows[r].cells)) continue;
+    const stored = formulaOf(table.rows[r].cells[column] ?? "");
+    if (!stored || formula !== void 0 && formula !== stored.formula) return void 0;
+    formula = stored.formula;
+  }
+  return formula;
+}
+function isTotalRow(cells) {
+  return cells.some((cell) => {
+    const stored = formulaOf(cell);
+    const tree = stored && parse(stored.formula);
+    return !!tree && !isError(tree) && wholeColumnNames(tree, /* @__PURE__ */ new Set()).size > 0;
+  });
+}
+function withCalculatedCells(table, row) {
+  let result = table;
+  table.rows[row]?.cells.forEach((cell, column) => {
+    if (cell.trim() !== "") return;
+    const formula = calculatedFormula(table, column, row);
+    if (formula) result = setCell(result, row, column, formulaCell("", formula));
+  });
+  return result;
+}
 function formulaCount(table) {
   return table.rows.reduce((n, row, r) => n + (r === 0 ? 0 : row.cells.filter((cell) => formulaOf(cell)).length), 0);
 }
@@ -3741,7 +3767,7 @@ ${error}` : stored.formula;
       widget,
       (t) => {
         const prepared = prepare(t);
-        return prepared && insertRow(prepared, insert.at);
+        return prepared && withCalculatedCells(insertRow(prepared, insert.at), insert.at);
       },
       { row: insert.at, column },
       void 0,

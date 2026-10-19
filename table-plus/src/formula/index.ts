@@ -693,6 +693,43 @@ export function recalculate(table: Table): Table {
   return result;
 }
 
+/**
+ * The formula a column computes row by row, as a spreadsheet's calculated
+ * column: every body cell of the column (but `except`, a row of the markdown)
+ * holds the same formula. Total rows (rows with a formula that refers to a
+ * whole column) do not count. Undefined when the column holds anything else.
+ */
+export function calculatedFormula(table: Table, column: number, except?: number): string | undefined {
+  let formula: string | undefined;
+  for (let r = 1; r < table.rows.length; r++) {
+    if (r === except || isTotalRow(table.rows[r]!.cells)) continue;
+    const stored = formulaOf(table.rows[r]!.cells[column] ?? "");
+    if (!stored || (formula !== undefined && formula !== stored.formula)) return undefined;
+    formula = stored.formula;
+  }
+  return formula;
+}
+
+/** Whether a row holds a formula that refers to a whole column, such as =SUM([Qty]) */
+function isTotalRow(cells: readonly string[]): boolean {
+  return cells.some((cell) => {
+    const stored = formulaOf(cell);
+    const tree = stored && parse(stored.formula);
+    return !!tree && !isError(tree) && wholeColumnNames(tree, new Set()).size > 0;
+  });
+}
+
+/** The table with the empty cells of row `row` (of the markdown) filled with their columns' calculated formulas */
+export function withCalculatedCells(table: Table, row: number): Table {
+  let result = table;
+  table.rows[row]?.cells.forEach((cell, column) => {
+    if (cell.trim() !== "") return;
+    const formula = calculatedFormula(table, column, row);
+    if (formula) result = setCell(result, row, column, formulaCell("", formula));
+  });
+  return result;
+}
+
 /** How many cells of the table hold a formula */
 export function formulaCount(table: Table): number {
   return table.rows.reduce((n, row, r) => n + (r === 0 ? 0 : row.cells.filter((cell) => formulaOf(cell)).length), 0);

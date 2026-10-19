@@ -925,6 +925,24 @@ describe("Controller", () => {
       expect(text).toContain("| Total | 7 |");
     });
 
+    it("computes a new row with the formula its columns compute every row with", async () => {
+      await setup(
+        '| Item | Qty | Price | Amount |\n|---|---|---|---|\n| a | 2 | 3 | 6 <meta f="=[@Qty]*[@Price]"> |\n',
+      );
+      clickOn(cell(1, 0));
+      key(field(), "Enter", { ctrlKey: true });
+      await flush();
+      await controller.scan();
+      expect(text).toContain('<meta f="=[@Qty]*[@Price]"> |\n| ');
+      for (const [value, next] of [["b", "Tab"], ["5", "Tab"], ["2", "Enter"]] as const) {
+        field().value = value;
+        key(field(), next);
+        await flush();
+        await controller.scan();
+      }
+      expect(text.split("\n").slice(-2)).toEqual(['| b | 5 | 2 | 10 <meta f="=[@Qty]*[@Price]"> |', ""]);
+    });
+
     it("fixes a missing ) when the formula is saved, and says so", async () => {
       await setup(TOTAL);
       clickOn(cell(3, 1));

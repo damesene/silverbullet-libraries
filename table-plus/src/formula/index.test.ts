@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   areaText,
   autofixFormula,
+  calculatedFormula,
   columnLetters,
   formulaCell,
   formulaErrors,
@@ -14,6 +15,7 @@ import {
   REFERENCE_HELP,
   referenceSlot,
   shiftReferences,
+  withCalculatedCells,
 } from "./index.ts";
 import { parseMetaRow, parseTable, serializeTable, splitRow } from "../markdown.ts";
 import { deleteColumn, deleteRow, insertRow, moveColumn, moveRow, reorderRows, setCell } from "../ops.ts";
@@ -261,6 +263,33 @@ describe("references", () => {
     expect(columnLetters(26)).toBe("AA");
     expect(areaText({ top: 0, left: 1, bottom: 0, right: 1 })).toBe("B1");
     expect(areaText({ top: 0, left: 1, bottom: 4, right: 2 })).toBe("B1:C5");
+  });
+});
+
+describe("calculated columns", () => {
+  const ROWS = [
+    "| Item | Qty | Price | Amount |",
+    "|---|---|---|---|",
+    '| a | 2 | 3 | 6 <meta f="=[@Qty]*[@Price]"> |',
+    '| b | 1 | 4 | 4 <meta f="=[@Qty]*[@Price]"> |',
+    "| new | | | |",
+    '| Total | 3 <meta f="=SUM([Qty])"> | | |',
+  ].join("\n");
+
+  it("fills a new row's empty cells with the formula its column computes every row with", () => {
+    const filled = withCalculatedCells(parseTable(ROWS), 3);
+    expect(filled.rows[3]!.cells).toEqual(["new", "", "", '<meta f="=[@Qty]*[@Price]">']);
+    expect(formulaOf(recalculate(filled).rows[4]!.cells[1]!)!.value).toBe("3");
+  });
+
+  it("knows a column as calculated only when all its rows hold the same formula, total rows aside", () => {
+    const table = parseTable(ROWS);
+    expect(calculatedFormula(table, 3, 3)).toBe("=[@Qty]*[@Price]");
+    expect(calculatedFormula(table, 1, 3)).toBeUndefined();
+    const mixed = setCell(table, 2, 3, "5");
+    expect(calculatedFormula(mixed, 3, 3)).toBeUndefined();
+    const other = setCell(table, 2, 3, formulaCell("", "=[@Qty]+1"));
+    expect(calculatedFormula(other, 3, 3)).toBeUndefined();
   });
 });
 
