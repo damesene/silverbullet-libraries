@@ -85,6 +85,59 @@ describe("formulas in cells", () => {
 });
 
 describe("evaluation", () => {
+  it("computes with times and lengths of time, and writes them as times", () => {
+    const SHIFTS = ["| From | To | Hours |", "|---|---|---|", "| 9:00 | 17:30 | 14:00 |", "| 22:15 | 23:00 | 20:00 |", "| | | |", ""].join("\n");
+    const last = { row: 3, column: 2 };
+    expect(evaluate(SHIFTS, "=B1-A1", last)).toBe("08:30");
+    expect(evaluate(SHIFTS, "=SUM(C1:C2)", last)).toBe("34:00");
+    expect(evaluate(SHIFTS, "=SUM(B1:B2)-SUM(A1:A2)", last)).toBe("09:15");
+    expect(evaluate(SHIFTS, "=AVERAGE(C1:C2)", last)).toBe("17:00");
+    expect(evaluate(SHIFTS, "=MAX(A1:A2)", last)).toBe("22:15");
+    expect(evaluate(SHIFTS, "=C1*3", last)).toBe("42:00");
+    expect(evaluate(SHIFTS, "=C1/4", last)).toBe("03:30");
+    expect(evaluate(SHIFTS, "=C1/1E-320", last)).toBe("#NUM!");
+    expect(evaluate(SHIFTS, "=C1/C2", last)).toBe("0.7");
+    expect(evaluate(SHIFTS, "=A1-B1", last)).toBe("-08:30");
+    expect(evaluate(SHIFTS, '="17:30"-"9:00"', last)).toBe("08:30");
+    // Compared by length, not as text
+    expect(evaluate(SHIFTS, "=A1<A2", last)).toBe("TRUE");
+    expect(evaluate(SHIFTS, '="9:05"<"14:30"', last)).toBe("TRUE");
+    // A fraction of a day where a number is expected; as text, as written
+    expect(evaluate(SHIFTS, "=ROUND(C1, 3)", last)).toBe("0.583");
+    // Hours (minutes) of a time as a number: the time divided by an hour (a minute)
+    expect(evaluate(SHIFTS, '=C1/"1:00"', last)).toBe("14");
+    expect(evaluate(SHIFTS, '=B1/"0:01"-A1/"0:01"', last)).toBe("510");
+    expect(evaluate(SHIFTS, "=A1&\"-\"&B1", last)).toBe("9:00-17:30");
+    expect(evaluate(SHIFTS, "=A1", last)).toBe("9:00");
+    // Days and hours of a length of time
+    expect(evaluate(SHIFTS, '=INT(SUM(C1:C2)) & " d " & HOUR(SUM(C1:C2)) & " h"', last)).toBe("1 d 10 h");
+    expect(evaluate(SHIFTS, '=TEXT(SUM(C1:C2), "[h]:mm")', last)).toBe("34:00");
+    // A sum of times and numbers is a number
+    expect(evaluate(SHIFTS, "=SUM(C1, 1)", last)).toBe("1.5833333333333");
+  });
+
+  it("adds days to dates and subtracts dates, as spreadsheets do", () => {
+    const TRIP = ["| Start | End | Result |", "|---|---|---|", "| 2025-11-06 | 2025-11-09 18:00 | |", ""].join("\n");
+    expect(evaluate(TRIP, "=A1+7")).toBe("2025-11-13");
+    expect(evaluate(TRIP, "=7+A1")).toBe("2025-11-13");
+    expect(evaluate(TRIP, "=A1-1")).toBe("2025-11-05");
+    expect(evaluate(TRIP, "=A1+0.25")).toBe("2025-11-06 06:00");
+    expect(evaluate(TRIP, "=B1-A1")).toBe("3.75");
+    expect(evaluate(TRIP, '="2025-12-24"-A1')).toBe("48");
+    expect(evaluate(TRIP, "=A1+C1")).toBe("2025-11-06"); // an empty cell is 0 days
+    // A time of day added to a date: the date at that time
+    expect(evaluate(TRIP, "=DATE(2025, 11, 6) + TIME(14, 30)")).toBe("2025-11-06 14:30");
+    expect(evaluate(TRIP, '=A1+"9:05"')).toBe("2025-11-06 09:05");
+    expect(evaluate(TRIP, '=B1-"18:00"')).toBe("2025-11-09 00:00"); // a date with a time keeps one
+    expect(evaluate(TRIP, "=A1+B1")).toBe("#VALUE!");
+    expect(evaluate(TRIP, '=A1+"x"')).toBe("#VALUE!");
+    // Dates compare in order, and a date a formula gave is a date for the next one
+    expect(evaluate(TRIP, "=B1>A1")).toBe("TRUE");
+    expect(evaluate(TRIP, '=A1="2025-11-06 00:00"')).toBe("TRUE");
+    expect(evaluate(TRIP, '="2025-11-06T08:00"<"2025-11-06 09:00"')).toBe("TRUE");
+    expect(evaluate(TRIP, '=DATEADD(DATEADD(A1, 1, "m"), 1, "d")')).toBe("2025-12-07");
+  });
+
   it("does arithmetic with the usual precedence", () => {
     expect(evaluate(FRUIT, "=1+2*3^2")).toBe("19");
     expect(evaluate(FRUIT, "=(1+2)*3")).toBe("9");

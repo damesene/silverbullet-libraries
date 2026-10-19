@@ -159,17 +159,30 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * Numbers with a decimal point (`1.5`), text in double quotes (`"a ""quoted"" word"`), `TRUE`, `FALSE`.
 * Function arguments are separated by `,` or `;`. Function names may be in any case.
 
+### Dates
+
+* A date is written as cells write it: `2025-11-06`, with a time `2025-11-06 14:30` (or `14:30:15`). Formulas read dates written so, in cells and in quotes (`"2025-11-06"`), and write the dates they give the same way, so the markdown stays readable and a `#date` column shows them as the locale writes dates (see [[#Column types]]).
+* As in a spreadsheet, a number added to a date is days, a fraction of a day a time: `=[@start]+7` is a week later, `=[@start]+0.5` twelve hours later. A date minus a date is the days between them, with a fraction for the time: `=[@end]-[@start]`.
+* A time is written `14:30` (or `9:05:30`), a length of time the same way with as many hours as it has (`40:00`). Formulas compute with times and write time results so: `=[@end]-[@start]` of `17:30` and `9:00` is `08:30`, `=SUM([hours])` of `14:00` and `20:00` is `34:00`, a time times or divided by a number is a time. Times compare by length (`9:05` is before `14:30`). Where a number is expected, a time is a fraction of a day, as in spreadsheets (`12:00` is 0.5). The hours of a time as a number are the time divided by an hour, `=[@total]/"1:00"` (minutes: `/"0:01"`); unlike in a spreadsheet, `*24` gives a time 24 times as long. So a text such as `3:15` is a time in formulas too.
+* A time added to a date gives the date at that time: `=DATE(2025, 11, 6) + TIME(14, 30)` or `=[@day] + [@at]` is `2025-11-06 14:30`. A `#time` column shows times of day as the locale writes them.
+* `TEXT` writes a date or a time in another format: `=TEXT([@due], "dd.mm.yyyy")`, `=TEXT([@total], "[h]:mm")`. For days and hours of a length of time: `=INT([@total]) & " d " & HOUR([@total]) & " h"` gives `1 d 10 h` for `34:00`.
+* `DATEADD` adds seconds, minutes, hours, days, weeks, months or years: `=DATEADD([@start], 90, "min")`, `=DATEADD(A1, -1, "y")`. Months and years go by the calendar: a month after January 31 is February 28 (29 in a leap year).
+* `DATEDIF` counts whole units between two dates: `=DATEDIF([@born], TODAY(), "y")` is an age in years.
+* Dates and times are taken as written, with no time zone: an hour added across the change to summer time is an hour on the clock.
+* `TODAY()` and `NOW()` give the date (and time) when the table is calculated, and the result is written into the cell. It does not change by itself: when it is out of date, the toolbar shows *Recalculate*.
+
 ### Functions
 
 | Function | Description |
 |---|---|
-| `SUM(number1, [number2], …)` | Adds numbers, cells and ranges. |
-| `AVERAGE(number1, [number2], …)` | The arithmetic mean of the numbers. |
-| `MIN(number1, [number2], …)` | The smallest of the numbers (0 if there are none). |
-| `MAX(number1, [number2], …)` | The largest of the numbers (0 if there are none). |
+| `SUM(number1, [number2], …)` | Adds numbers, cells and ranges; times add up to a time (14:00 and 20:00 are 34:00). |
+| `AVERAGE(number1, [number2], …)` | The arithmetic mean of the numbers, or of the times. |
+| `MIN(number1, [number2], …)` | The smallest of the numbers (0 if there are none), the shortest of the times, or the earliest of the dates. |
+| `MAX(number1, [number2], …)` | The largest of the numbers (0 if there are none), the longest of the times, or the latest of the dates. |
 | `PRODUCT(number1, [number2], …)` | Multiplies the numbers. |
 | `COUNT(value1, [value2], …)` | How many of the values are numbers. |
 | `COUNTA(value1, [value2], …)` | How many of the values are not empty. |
+| `INT(number)` | The number rounded down to a whole number; for a time, its whole days (INT(SUM(A1:A2)) of 14:00 and 20:00 is 1). |
 | `ROUND(number, [digits])` | Rounds to the given number of decimal places (default 0), halves away from zero. |
 | `ABS(number)` | The number without its sign. |
 | `IF(condition, value_if_true, [value_if_false])` | One value if the condition is true, another if it is false (default FALSE). |
@@ -178,6 +191,20 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 | `OR(logical1, [logical2], …)` | TRUE if any of the values is true. |
 | `NOT(logical)` | TRUE if the value is false, FALSE if it is true. |
 | `CONCAT(text1, [text2], …)` | Joins the values into one text. |
+| `TEXT(value, format)` | A date or a time as text in a format: TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is. |
+| `TODAY()` | Today's date, e.g. 2025-11-06. The result is written when the table is calculated: the next day, Recalculate updates it. |
+| `NOW()` | The date and time now, e.g. 2025-11-06 14:30:15. The result is written when the table is calculated: Recalculate updates it. |
+| `DATE(year, month, day)` | The date of a year, month and day; a month or day past its end carries over (DATE(2025, 13, 1) is 2026-01-01). |
+| `TIME(hour, [minute], [second])` | A time of day, e.g. 14:30; past midnight it starts again (TIME(25, 0) is 01:00). Added to a date it gives the date with that time: DATE(2025, 11, 6) + TIME(14, 30) is 2025-11-06 14:30. |
+| `DATEADD(date, amount, unit)` | The date plus an amount of a unit: "s", "min", "h", "d", "w", "m" (months) or "y" (or their names, "hours"). A negative amount goes back. Months and years keep the day or take the month's last. |
+| `DATEDIF(start, end, unit)` | How many whole units lie from one date to another, in "s", "min", "h", "d", "w", "m" (months) or "y"; negative when the end is earlier. For days with a fraction, subtract the dates: end - start. |
+| `YEAR(date)` | The year of a date. |
+| `MONTH(date)` | The month of a date, 1 to 12. |
+| `DAY(date)` | The day of a date's month, 1 to 31. |
+| `HOUR(time)` | The hour of a time, or of a date's time, 0 to 23 (0 for a date without a time). |
+| `MINUTE(time)` | The minute of a time, or of a date's time, 0 to 59. |
+| `SECOND(time)` | The second of a time, or of a date's time, 0 to 59. |
+| `WEEKDAY(date, [type])` | The day of the week as a number: Sunday 1 to Saturday 7 (type 1, the default), or Monday 1 to Sunday 7 (type 2). |
 
 In ranges, empty cells and text that is not a number are skipped by the number functions.
 
@@ -222,6 +249,7 @@ shows `$12.99`, `★★★★☆` and `✅`.
 | `#stars, #stars-10` | A rating as stars: a whole number from 0 to the most stars after the dash (default 5). |
 | `#check` | Yes or no as a check mark: yes, true, x, ✅ or a number above 0 shows ✅; no, false, ❌, 0 or a number below it shows ❌. |
 | `#date, #date-long` | A date written as 2025-11-06 (with a time: 2025-11-06 14:30), shown as the locale writes it: short, medium (default) or long after the dash. |
+| `#time` | A time of day written as 14:30 or 14:30:15 (or as a fraction of a day, 0.5 is 12:00), shown as the locale writes times. |
 | `#trend` | A trend as an arrow: + or a number above 0 shows 🔼, - or one below 0 shows 🔽, = or 0 shows ➡️. |
 | `#progress, #progress-10` | Progress as a bar: a number from 0 to the maximum after the dash (default 100). |
 | `#link` | A web address as a link, shown without its https://. |

@@ -13,16 +13,21 @@
 // formula's own row. Columns are named as columns.ts names them: of several
 // columns named Qty, [Qty:2] is the second.
 import { type ColumnId, columnIdOf, columnKey, findColumn, followColumn, sameColumnId } from "../columns.ts";
+import { dateArithmetic, parseDate } from "./dates.ts";
 import { FUNCTIONS } from "./functions/index.ts";
 import { escapeCell, escapeMetaValue, type Table, unescapeCell, unescapeMetaValue } from "../markdown.ts";
 import { setCell } from "../ops.ts";
 import {
+  asTime,
   ERROR_CODES,
   FormulaError,
   isError,
   isRange,
+  parseClock,
   type Scalar,
   single,
+  timeArithmetic,
+  TimeValue,
   toNumber,
   toText,
   type Value,
@@ -546,7 +551,8 @@ class Sheet {
     if (!stored) {
       const text = unescapeCell(cell).trim();
       if (text === "") return null;
-      return asNumber(text) ?? text;
+      // A number, a time (14:30, 40:00), or text
+      return asNumber(text) ?? parseClock(text) ?? text;
     }
     return this.result(row, column, stored.formula);
   }
@@ -564,7 +570,7 @@ class Sheet {
     try {
       const tree = parse(formula);
       result = isError(tree) ? tree : single(this.evaluate(tree, row, column));
-      if (typeof result === "number" && !Number.isFinite(result)) {
+      if ((typeof result === "number" && !Number.isFinite(result)) || (result instanceof TimeValue && !Number.isFinite(result.seconds))) {
         result = new FormulaError("#NUM!", "the result is not a finite number");
       }
     } finally {
@@ -632,7 +638,10 @@ class Sheet {
         );
       }
       case "unary": {
-        const n = toNumber(this.evaluate(node.arg, row, column));
+        const arg = this.evaluate(node.arg, row, column);
+        const time = isRange(arg) ? undefined : asTime(arg);
+        if (time && node.op !== "%") return node.op === "-" ? new TimeValue(-time.seconds) : time;
+        const n = toNumber(arg);
         if (isError(n)) return n;
         return node.op === "-" ? -n : node.op === "%" ? n / 100 : n;
       }
@@ -649,6 +658,12 @@ class Sheet {
     if (op === "&") return (toText(left) as string) + (toText(right) as string);
     const comparison = COMPARISONS[op];
     if (comparison) return comparison(compare(left, right));
+    // A date and days (or two dates) add and subtract as dates
+    const dated = op === "+" || op === "-" ? dateArithmetic(op, left, right) : undefined;
+    if (dated !== undefined) return dated;
+    // A time and a time or a number: a time where one makes sense (17:30 - 9:00 is 08:30)
+    const timed = timeArithmetic(op, left, right);
+    if (timed !== undefined) return timed;
     const a = toNumber(left);
     const b = toNumber(right);
     if (isError(a)) return a;
@@ -677,8 +692,12 @@ const COMPARISONS: Readonly<Record<string, (order: number) => boolean>> = {
   ">=": (o) => o >= 0,
 };
 
-/** Compares two values: as numbers if both read as numbers, else as text ignoring case */
+/** Compares two values: as dates if both are dates, as numbers if both read as numbers, else as text ignoring case */
 function compare(a: Scalar, b: Scalar): number {
+  // 2025-11-06 is 2025-11-06 00:00, and 2025-11-06T08:00 is before 2025-11-06 09:00
+  const da = typeof a === "string" ? parseDate(a) : undefined;
+  const db = da && typeof b === "string" ? parseDate(b) : undefined;
+  if (da && db) return da.ms - db.ms;
   const na = a === null ? 0 : toNumber(a);
   const nb = b === null ? 0 : toNumber(b);
   if (!isError(na) && !isError(nb) && typeof a !== "boolean" && typeof b !== "boolean") return na - nb;

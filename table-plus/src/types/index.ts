@@ -12,13 +12,14 @@ import number from "./number.ts";
 import percent from "./percent.ts";
 import progress from "./progress.ts";
 import stars from "./stars.ts";
+import time from "./time.ts";
 import trend from "./trend.ts";
 import type { ColumnType } from "./types.ts";
 import unit from "./unit.ts";
 
 export type { Choice, ColumnType, Shown } from "./types.ts";
 
-const ALL: readonly ColumnType[] = [currency, number, percent, unit, stars, check, date, trend, progress, link];
+const ALL: readonly ColumnType[] = [currency, number, percent, unit, stars, check, date, time, trend, progress, link];
 
 /** The column types by name */
 export const TYPES: ReadonlyMap<string, ColumnType> = new Map(ALL.map((t) => [t.name, t]));

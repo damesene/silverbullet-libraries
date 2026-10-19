@@ -239,13 +239,13 @@ function serializeTable(table) {
       widths[c] = Math.max(widths[c] ?? 3, charLength(cell));
     });
   }
-  const pad = (cell, c) => {
+  const pad2 = (cell, c) => {
     const gap = (widths[c] ?? 3) - charLength(cell);
     const align = table.align[c] ?? "";
     const left = align === "right" ? gap : align === "center" ? Math.floor(gap / 2) : 0;
     return " ".repeat(left) + cell + " ".repeat(gap - left);
   };
-  const cellText2 = (cell, c) => table.padded ? ` ${pad(cell, c)} ` : cell === "" ? " " : ` ${cell} `;
+  const cellText2 = (cell, c) => table.padded ? ` ${pad2(cell, c)} ` : cell === "" ? " " : ` ${cell} `;
   const rowText = (row) => !table.padded && row.source !== void 0 && sameCells(row.cells, row.sourceCells) ? row.source : `${table.indent}|${row.cells.map(cellText2).join("|")}|`;
   const delimiterCell = (align, c) => {
     if (!table.padded) return DELIMITER_CELL[align];
@@ -1347,6 +1347,33 @@ var FormulaError = class {
   code;
   detail;
 };
+var TimeValue = class {
+  constructor(seconds, text) {
+    this.seconds = seconds;
+    this.text = text;
+  }
+  seconds;
+  text;
+};
+var DAY_SECONDS = 86400;
+var CLOCK_RE = /^(-)?(\d+):([0-5]\d)(?::([0-5]\d))?$/;
+function parseClock(text) {
+  const m = CLOCK_RE.exec(text.trim());
+  if (!m) return void 0;
+  const seconds = Number(m[2]) * 3600 + Number(m[3]) * 60 + Number(m[4] ?? 0);
+  return new TimeValue(m[1] ? -seconds : seconds, text.trim());
+}
+function formatClock(seconds) {
+  const total = Math.round(Math.abs(seconds));
+  const two = (n) => String(n).padStart(2, "0");
+  const rest = total % 60;
+  const text = `${two(Math.floor(total / 3600))}:${two(Math.floor(total / 60) % 60)}${rest ? `:${two(rest)}` : ""}`;
+  return seconds < 0 && total > 0 ? `-${text}` : text;
+}
+function asTime(value) {
+  if (value instanceof TimeValue) return value;
+  return typeof value === "string" ? parseClock(value) : void 0;
+}
 function isError(value) {
   return value instanceof FormulaError;
 }
@@ -1370,8 +1397,10 @@ function toNumber(value) {
   if (isError(v) || typeof v === "number") return v;
   if (v === null) return 0;
   if (typeof v === "boolean") return v ? 1 : 0;
+  if (v instanceof TimeValue) return v.seconds / DAY_SECONDS;
   if (v.trim() === "") return 0;
-  return asNumber(v) ?? new FormulaError("#VALUE!", `"${v}" is not a number`);
+  const time = parseClock(v);
+  return asNumber(v) ?? (time ? time.seconds / DAY_SECONDS : new FormulaError("#VALUE!", `"${v}" is not a number`));
 }
 function toText(value) {
   const v = single(value);
@@ -1379,6 +1408,7 @@ function toText(value) {
   if (v === null) return "";
   if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
   if (typeof v === "number") return formatNumber(v);
+  if (v instanceof TimeValue) return v.text ?? formatClock(v.seconds);
   return v;
 }
 function toBoolean(value) {
@@ -1386,6 +1416,7 @@ function toBoolean(value) {
   if (isError(v) || typeof v === "boolean") return v;
   if (v === null) return false;
   if (typeof v === "number") return v !== 0;
+  if (v instanceof TimeValue) return v.seconds !== 0;
   const upper = v.trim().toUpperCase();
   if (upper === "TRUE") return true;
   if (upper === "FALSE") return false;
@@ -1399,6 +1430,7 @@ function numbers(args) {
       for (const item of arg) {
         if (isError(item)) return item;
         if (typeof item === "number") result.push(item);
+        else if (item instanceof TimeValue) result.push(item.seconds / DAY_SECONDS);
         else if (typeof item === "string") {
           const n = asNumber(item);
           if (n !== void 0) result.push(n);
@@ -1412,6 +1444,41 @@ function numbers(args) {
   }
   return result;
 }
+function allTimes(args) {
+  let times = 0;
+  for (const arg of args) {
+    for (const item of isRange(arg) ? arg : [arg]) {
+      if (asTime(item)) times++;
+      else if (typeof item === "number" || typeof item === "string" && asNumber(item) !== void 0) return false;
+      else if (!isRange(arg) && typeof item === "boolean") return false;
+    }
+  }
+  return times > 0;
+}
+function timeArithmetic(op, left, right) {
+  const a = asTime(left);
+  const b = asTime(right);
+  if (!a && !b) return void 0;
+  const days = (v) => toNumber(v);
+  if (op === "+" || op === "-") {
+    if (a && b) return new TimeValue(op === "+" ? a.seconds + b.seconds : a.seconds - b.seconds);
+    const d = days(a ? right : left);
+    if (isError(d)) return d;
+    const s = d * DAY_SECONDS;
+    if (op === "+") return new TimeValue(Math.round((a ?? b).seconds + s));
+    return new TimeValue(Math.round(a ? a.seconds - s : s - b.seconds));
+  }
+  if (op === "*" && !(a && b)) {
+    const k = days(a ? right : left);
+    return isError(k) ? k : new TimeValue(Math.round((a ?? b).seconds * k));
+  }
+  if (op === "/" && a && !b) {
+    const k = days(right);
+    if (isError(k)) return k;
+    return k === 0 ? new FormulaError("#DIV/0!", "division by zero") : new TimeValue(Math.round(a.seconds / k));
+  }
+  return void 0;
+}
 function flatten(args) {
   return args.flatMap((arg) => isRange(arg) ? [...arg] : [arg]);
 }
@@ -1419,10 +1486,161 @@ function formatNumber(n) {
   return formatLuaNumber(n);
 }
 
+// table-plus/src/formula/dates.ts
+var DAY = 864e5;
+function timeOfDay(ms) {
+  return (ms % DAY + DAY) % DAY;
+}
+function utc(year, month, day, ms = 0) {
+  const date = new Date(Date.UTC(2e3, month, day) + ms);
+  date.setUTCFullYear(date.getUTCFullYear() - 2e3 + year);
+  return date.getTime();
+}
+var DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/;
+function parseDate(text) {
+  const m = DATE_RE.exec(text.trim());
+  if (!m) return void 0;
+  const [y, mo, d, h = 0, mi = 0, s = 0] = m.slice(1).map((part) => part === void 0 ? void 0 : Number(part));
+  if (h > 23 || mi > 59 || s > 59) return void 0;
+  const ms = utc(y, mo - 1, d, ((h * 60 + mi) * 60 + s) * 1e3);
+  const date = new Date(ms);
+  if (date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return void 0;
+  return { ms, time: m[4] !== void 0 };
+}
+function formatDate({ ms, time }) {
+  const year = new Date(ms).getUTCFullYear();
+  if (!(year >= 0 && year <= 9999)) return new FormulaError("#NUM!", "the date is not in the years 0 to 9999");
+  const iso = new Date(ms).toISOString();
+  const date = iso.slice(0, 10);
+  if (!time && timeOfDay(ms) === 0) return date;
+  const seconds = iso.slice(17, 19);
+  return `${date} ${iso.slice(11, 16)}${seconds === "00" ? "" : `:${seconds}`}`;
+}
+function toClock(value) {
+  const v = single(value);
+  const time = asTime(v);
+  if (time) return { ms: time.seconds * 1e3, time: true };
+  return typeof v === "number" ? { ms: Math.round(v * DAY_SECONDS) * 1e3, time: true } : toDate(value);
+}
+function now(time) {
+  const d = /* @__PURE__ */ new Date();
+  const ms = time ? Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()) : Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  return { ms, time };
+}
+function toDate(value) {
+  const v = single(value);
+  if (isError(v)) return v;
+  const date = typeof v === "string" ? parseDate(v) : void 0;
+  return date ?? new FormulaError("#VALUE!", `${v === null ? "an empty cell" : `"${toText(v)}"`} is not a date written as 2025-11-06`);
+}
+var UNIT_NAMES = {
+  s: "s",
+  sec: "s",
+  second: "s",
+  seconds: "s",
+  min: "min",
+  minute: "min",
+  minutes: "min",
+  h: "h",
+  hour: "h",
+  hours: "h",
+  d: "d",
+  day: "d",
+  days: "d",
+  w: "w",
+  week: "w",
+  weeks: "w",
+  m: "m",
+  month: "m",
+  months: "m",
+  y: "y",
+  year: "y",
+  years: "y"
+};
+var UNITS_HELP = `"s", "min", "h", "d", "w", "m" (months) or "y"`;
+function toUnit(value) {
+  const v = single(value);
+  if (isError(v)) return v;
+  const unit = typeof v === "string" ? UNIT_NAMES[v.trim().toLowerCase()] : void 0;
+  return unit ?? new FormulaError("#VALUE!", `"${toText(v)}" is not a unit of time: ${UNITS_HELP}`);
+}
+var UNIT_MS = { s: 1e3, min: 6e4, h: 36e5, d: DAY, w: 7 * DAY };
+function addUnits(date, amount, unit) {
+  const ms = UNIT_MS[unit];
+  if (ms !== void 0) {
+    const added = date.ms + Math.round(amount * ms);
+    return { ms: added, time: date.time || timeOfDay(added) !== 0 };
+  }
+  const months = Math.trunc(amount) * (unit === "y" ? 12 : 1);
+  const d = new Date(date.ms);
+  const target = d.getUTCMonth() + months;
+  const year = d.getUTCFullYear() + Math.floor(target / 12);
+  const month = (target % 12 + 12) % 12;
+  const lastDay = new Date(utc(year, month + 1, 1) - DAY).getUTCDate();
+  const day = Math.min(d.getUTCDate(), lastDay);
+  return { ms: utc(year, month, day, timeOfDay(date.ms)), time: date.time };
+}
+function unitsBetween(from, to, unit) {
+  const ms = UNIT_MS[unit];
+  if (ms !== void 0) return Math.trunc((to.ms - from.ms) / ms);
+  const a = new Date(from.ms);
+  const b = new Date(to.ms);
+  let months = (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
+  if (months > 0 && addUnits(from, months, "m").ms > to.ms) months--;
+  if (months < 0 && addUnits(from, months, "m").ms < to.ms) months++;
+  return unit === "y" ? Math.trunc(months / 12) : months;
+}
+function dateArithmetic(op, left, right) {
+  const a = typeof left === "string" ? parseDate(left) : void 0;
+  const b = typeof right === "string" ? parseDate(right) : void 0;
+  if (!a && !b) return void 0;
+  if (a && b) {
+    return op === "-" ? (a.ms - b.ms) / DAY : new FormulaError("#VALUE!", "two dates cannot be added: subtract them for the days between");
+  }
+  if (b && op === "-") return new FormulaError("#VALUE!", "a date cannot be subtracted from a number");
+  const other = a ? right : left;
+  const time = asTime(other);
+  const days = other === null ? 0 : typeof other === "number" ? other : time ? time.seconds / DAY_SECONDS : void 0;
+  if (days === void 0) return new FormulaError("#VALUE!", `"${typeof other === "string" ? other : String(other)}" is not a number of days or a time to add to a date`);
+  return formatDate(addUnits(a ?? b, op === "-" ? -days : days, "d"));
+}
+function partOf(date, part) {
+  const d = new Date(date.ms);
+  switch (part) {
+    case "year":
+      return d.getUTCFullYear();
+    case "month":
+      return d.getUTCMonth() + 1;
+    case "day":
+      return d.getUTCDate();
+    case "hour":
+      return d.getUTCHours();
+    case "minute":
+      return d.getUTCMinutes();
+    case "second":
+      return d.getUTCSeconds();
+    case "weekday":
+      return d.getUTCDay();
+  }
+}
+
 // table-plus/src/formula/functions/helpers.ts
-function withNumbers(args, f) {
+function withNumbers(args, f, keepTime = false) {
   const ns = numbers(args);
-  return isError(ns) ? ns : f(ns);
+  if (isError(ns)) return ns;
+  const result = f(ns);
+  return keepTime && typeof result === "number" && allTimes(args) ? new TimeValue(Math.round(result * DAY_SECONDS)) : result;
+}
+function extremeDate(args, latest) {
+  let best;
+  for (const item of flatten(args)) {
+    if (item === null) continue;
+    if (isError(item)) return item;
+    const date = typeof item === "string" ? parseDate(item) : void 0;
+    if (!date) return void 0;
+    if (!best || (latest ? date.ms > best.ms : date.ms < best.ms)) best = { ms: date.ms, text: item.trim() };
+  }
+  return best?.text;
 }
 function booleans(args) {
   const result = [];
@@ -1441,20 +1659,21 @@ function booleans(args) {
 var sum_default = {
   name: "SUM",
   syntax: "SUM(number1, [number2], \u2026)",
-  description: "Adds numbers, cells and ranges.",
+  description: "Adds numbers, cells and ranges; times add up to a time (14:00 and 20:00 are 34:00).",
   minArgs: 1,
-  call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a + b, 0))
+  call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a + b, 0), true)
 };
 
 // table-plus/src/formula/functions/average.ts
 var average_default = {
   name: "AVERAGE",
   syntax: "AVERAGE(number1, [number2], \u2026)",
-  description: "The arithmetic mean of the numbers.",
+  description: "The arithmetic mean of the numbers, or of the times.",
   minArgs: 1,
   call: (args) => withNumbers(
     args,
-    (ns) => ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : new FormulaError("#DIV/0!", "no numbers to average")
+    (ns) => ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : new FormulaError("#DIV/0!", "no numbers to average"),
+    true
   )
 };
 
@@ -1462,18 +1681,18 @@ var average_default = {
 var min_default = {
   name: "MIN",
   syntax: "MIN(number1, [number2], \u2026)",
-  description: "The smallest of the numbers (0 if there are none).",
+  description: "The smallest of the numbers (0 if there are none), the shortest of the times, or the earliest of the dates.",
   minArgs: 1,
-  call: (args) => withNumbers(args, (ns) => ns.length ? Math.min(...ns) : 0)
+  call: (args) => extremeDate(args, false) ?? withNumbers(args, (ns) => ns.length ? Math.min(...ns) : 0, true)
 };
 
 // table-plus/src/formula/functions/max.ts
 var max_default = {
   name: "MAX",
   syntax: "MAX(number1, [number2], \u2026)",
-  description: "The largest of the numbers (0 if there are none).",
+  description: "The largest of the numbers (0 if there are none), the longest of the times, or the latest of the dates.",
   minArgs: 1,
-  call: (args) => withNumbers(args, (ns) => ns.length ? Math.max(...ns) : 0)
+  call: (args) => extremeDate(args, true) ?? withNumbers(args, (ns) => ns.length ? Math.max(...ns) : 0, true)
 };
 
 // table-plus/src/formula/functions/product.ts
@@ -1619,8 +1838,353 @@ var concat_default = {
   }
 };
 
+// table-plus/src/formula/functions/today.ts
+var today_default = {
+  name: "TODAY",
+  syntax: "TODAY()",
+  description: "Today's date, e.g. 2025-11-06. The result is written when the table is calculated: the next day, Recalculate updates it.",
+  minArgs: 0,
+  maxArgs: 0,
+  call: () => formatDate(now(false))
+};
+
+// table-plus/src/formula/functions/now.ts
+var now_default = {
+  name: "NOW",
+  syntax: "NOW()",
+  description: "The date and time now, e.g. 2025-11-06 14:30:15. The result is written when the table is calculated: Recalculate updates it.",
+  minArgs: 0,
+  maxArgs: 0,
+  call: () => formatDate(now(true))
+};
+
+// table-plus/src/formula/functions/date.ts
+var date_default = {
+  name: "DATE",
+  syntax: "DATE(year, month, day)",
+  description: "The date of a year, month and day; a month or day past its end carries over (DATE(2025, 13, 1) is 2026-01-01).",
+  minArgs: 3,
+  maxArgs: 3,
+  call: ([year, month, day]) => {
+    const parts = [toNumber(year), toNumber(month), toNumber(day)];
+    const error = parts.find(isError);
+    if (error) return error;
+    const [y, m, d] = parts.map((n) => Math.trunc(n));
+    if (y < 0 || y > 9999) return new FormulaError("#NUM!", `${y} is not a year from 0 to 9999`);
+    const ms = Date.UTC(y, m - 1, d);
+    return Number.isNaN(ms) ? new FormulaError("#NUM!", "not a date") : formatDate({ ms, time: false });
+  }
+};
+
+// table-plus/src/formula/functions/time.ts
+var time_default = {
+  name: "TIME",
+  syntax: "TIME(hour, [minute], [second])",
+  description: "A time of day, e.g. 14:30; past midnight it starts again (TIME(25, 0) is 01:00). Added to a date it gives the date with that time: DATE(2025, 11, 6) + TIME(14, 30) is 2025-11-06 14:30.",
+  minArgs: 1,
+  maxArgs: 3,
+  call: ([hour, minute = 0, second = 0]) => {
+    const parts = [toNumber(hour), toNumber(minute), toNumber(second)];
+    const error = parts.find(isError);
+    if (error) return error;
+    const [h, m, s] = parts;
+    const total = Math.round(h * 3600 + m * 60 + s);
+    return total < 0 ? new FormulaError("#NUM!", "a time before midnight") : new TimeValue(total % DAY_SECONDS);
+  }
+};
+
+// table-plus/src/formula/functions/int.ts
+var int_default = {
+  name: "INT",
+  syntax: "INT(number)",
+  description: "The number rounded down to a whole number; for a time, its whole days (INT(SUM(A1:A2)) of 14:00 and 20:00 is 1).",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([number]) => {
+    const time = asTime(single(number));
+    if (time) return Math.floor(time.seconds / DAY_SECONDS);
+    const n = toNumber(number);
+    return isError(n) ? n : Math.floor(n);
+  }
+};
+
+// table-plus/src/formula/functions/text.ts
+function parseFormat(format) {
+  const parts = [];
+  let i = 0;
+  while (i < format.length) {
+    const c = format[i];
+    if (c === '"') {
+      const close = format.indexOf('"', i + 1);
+      if (close < 0) return new FormulaError("#VALUE!", "a text in the format is missing its closing quote");
+      parts.push({ text: format.slice(i + 1, close) });
+      i = close + 1;
+    } else if (c === "\\") {
+      parts.push({ text: format[i + 1] ?? "" });
+      i += 2;
+    } else if (c === "[") {
+      const close = format.indexOf("]", i);
+      const inner = close < 0 ? "" : format.slice(i + 1, close).toLowerCase();
+      const unit = /^(h+|m+|s+)$/.exec(inner)?.[1]?.[0];
+      if (!unit) return new FormulaError("#VALUE!", `"${format.slice(i, close + 1 || void 0)}" is not a code of TEXT: [h], [m] or [s]`);
+      parts.push({ code: `[${unit}]`, length: inner.length });
+      i = close + 1;
+    } else if (/[ymdhs]/i.test(c)) {
+      let j = i;
+      while (j < format.length && format[j].toLowerCase() === c.toLowerCase()) j++;
+      parts.push({ code: c.toLowerCase(), length: j - i });
+      i = j;
+    } else {
+      parts.push({ text: c });
+      i++;
+    }
+  }
+  const codes = parts.filter((p) => "code" in p);
+  return parts.map((part) => {
+    if (!("code" in part) || part.code !== "m") return part;
+    const at = codes.indexOf(part);
+    const before = codes[at - 1]?.code;
+    const after = codes[at + 1]?.code;
+    return before === "h" || before === "[h]" || after === "s" || after === "[s]" ? { code: "min", length: part.length } : part;
+  });
+}
+var pad = (n, length) => String(n).padStart(Math.min(length, 2), "0");
+var text_default = {
+  name: "TEXT",
+  syntax: "TEXT(value, format)",
+  description: 'A date or a time as text in a format: TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is.',
+  minArgs: 2,
+  maxArgs: 2,
+  call: ([value, format]) => {
+    const v = single(value);
+    const f = toText(format);
+    if (isError(v)) return v;
+    if (isError(f)) return f;
+    const parts = parseFormat(f);
+    if (isError(parts)) return parts;
+    if (!parts.some((part) => "code" in part)) {
+      return new FormulaError("#VALUE!", `"${f}" has no date or time code: yyyy, mm, dd, hh, mm, ss, [h], [m] or [s]`);
+    }
+    const date = typeof v === "string" ? parseDate(v) : void 0;
+    const time = date ? void 0 : asTime(v);
+    const seconds = time ? time.seconds : typeof v === "number" && !date ? Math.round(v * DAY_SECONDS) : void 0;
+    if (!date && seconds === void 0) return new FormulaError("#VALUE!", `"${toText(v)}" is not a date or a time`);
+    const d = date && new Date(date.ms);
+    const ofDay = d ? d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds() : (seconds % DAY_SECONDS + DAY_SECONDS) % DAY_SECONDS;
+    let out = "";
+    for (const part of parts) {
+      if ("text" in part) {
+        out += part.text;
+        continue;
+      }
+      const { code, length } = part;
+      if ((code === "y" || code === "m" || code === "d") && !d) {
+        return new FormulaError("#VALUE!", "a time has no year, month or day: INT gives its whole days");
+      }
+      if ((code === "[h]" || code === "[m]" || code === "[s]") && d) {
+        return new FormulaError("#VALUE!", `${code} is for a length of time, not a date: use hh, mm or ss`);
+      }
+      if ((code === "m" || code === "d") && length > 2) return new FormulaError("#VALUE!", "names of months and days are not supported");
+      switch (code) {
+        case "y":
+          out += length <= 2 ? pad(d.getUTCFullYear() % 100, 2) : String(d.getUTCFullYear());
+          break;
+        case "m":
+          out += pad(d.getUTCMonth() + 1, length);
+          break;
+        case "d":
+          out += pad(d.getUTCDate(), length);
+          break;
+        case "h":
+          out += pad(Math.floor(ofDay / 3600), length);
+          break;
+        case "min":
+          out += pad(Math.floor(ofDay / 60) % 60, length);
+          break;
+        case "s":
+          out += pad(ofDay % 60, length);
+          break;
+        case "[h]":
+          out += pad(Math.trunc(seconds / 3600), length);
+          break;
+        case "[m]":
+          out += pad(Math.trunc(seconds / 60), length);
+          break;
+        case "[s]":
+          out += pad(seconds, length);
+          break;
+      }
+    }
+    return out;
+  }
+};
+
+// table-plus/src/formula/functions/dateadd.ts
+var dateadd_default = {
+  name: "DATEADD",
+  syntax: "DATEADD(date, amount, unit)",
+  description: `The date plus an amount of a unit: "s", "min", "h", "d", "w", "m" (months) or "y" (or their names, "hours"). A negative amount goes back. Months and years keep the day or take the month's last.`,
+  minArgs: 3,
+  maxArgs: 3,
+  call: ([date, amount, unit]) => {
+    const d = toDate(date);
+    const n = toNumber(amount);
+    const u = toUnit(unit);
+    if (isError(d)) return d;
+    if (isError(n)) return n;
+    if (isError(u)) return u;
+    return formatDate(addUnits(d, n, u));
+  }
+};
+
+// table-plus/src/formula/functions/datedif.ts
+var datedif_default = {
+  name: "DATEDIF",
+  syntax: "DATEDIF(start, end, unit)",
+  description: 'How many whole units lie from one date to another, in "s", "min", "h", "d", "w", "m" (months) or "y"; negative when the end is earlier. For days with a fraction, subtract the dates: end - start.',
+  minArgs: 3,
+  maxArgs: 3,
+  call: ([start, end, unit]) => {
+    const a = toDate(start);
+    const b = toDate(end);
+    const u = toUnit(unit);
+    if (isError(a)) return a;
+    if (isError(b)) return b;
+    if (isError(u)) return u;
+    return unitsBetween(a, b, u);
+  }
+};
+
+// table-plus/src/formula/functions/year.ts
+var year_default = {
+  name: "YEAR",
+  syntax: "YEAR(date)",
+  description: "The year of a date.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toDate(date);
+    return isError(d) ? d : partOf(d, "year");
+  }
+};
+
+// table-plus/src/formula/functions/month.ts
+var month_default = {
+  name: "MONTH",
+  syntax: "MONTH(date)",
+  description: "The month of a date, 1 to 12.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toDate(date);
+    return isError(d) ? d : partOf(d, "month");
+  }
+};
+
+// table-plus/src/formula/functions/day.ts
+var day_default = {
+  name: "DAY",
+  syntax: "DAY(date)",
+  description: "The day of a date's month, 1 to 31.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toDate(date);
+    return isError(d) ? d : partOf(d, "day");
+  }
+};
+
+// table-plus/src/formula/functions/hour.ts
+var hour_default = {
+  name: "HOUR",
+  syntax: "HOUR(time)",
+  description: "The hour of a time, or of a date's time, 0 to 23 (0 for a date without a time).",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toClock(date);
+    return isError(d) ? d : partOf(d, "hour");
+  }
+};
+
+// table-plus/src/formula/functions/minute.ts
+var minute_default = {
+  name: "MINUTE",
+  syntax: "MINUTE(time)",
+  description: "The minute of a time, or of a date's time, 0 to 59.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toClock(date);
+    return isError(d) ? d : partOf(d, "minute");
+  }
+};
+
+// table-plus/src/formula/functions/second.ts
+var second_default = {
+  name: "SECOND",
+  syntax: "SECOND(time)",
+  description: "The second of a time, or of a date's time, 0 to 59.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toClock(date);
+    return isError(d) ? d : partOf(d, "second");
+  }
+};
+
+// table-plus/src/formula/functions/weekday.ts
+var weekday_default = {
+  name: "WEEKDAY",
+  syntax: "WEEKDAY(date, [type])",
+  description: "The day of the week as a number: Sunday 1 to Saturday 7 (type 1, the default), or Monday 1 to Sunday 7 (type 2).",
+  minArgs: 1,
+  maxArgs: 2,
+  call: ([date, type = 1]) => {
+    const d = toDate(date);
+    const t = toNumber(type);
+    if (isError(d)) return d;
+    if (isError(t)) return t;
+    const day = partOf(d, "weekday");
+    if (t === 1) return day + 1;
+    if (t === 2) return day === 0 ? 7 : day;
+    return new FormulaError("#NUM!", `${t} is not a type of WEEKDAY: 1 or 2`);
+  }
+};
+
 // table-plus/src/formula/functions/index.ts
-var ALL = [sum_default, average_default, min_default, max_default, product_default, count_default, counta_default, round_default, abs_default, if_default, iferror_default, and_default, or_default, not_default, concat_default];
+var ALL = [
+  sum_default,
+  average_default,
+  min_default,
+  max_default,
+  product_default,
+  count_default,
+  counta_default,
+  round_default,
+  abs_default,
+  if_default,
+  iferror_default,
+  and_default,
+  or_default,
+  not_default,
+  concat_default,
+  today_default,
+  now_default,
+  date_default,
+  time_default,
+  dateadd_default,
+  datedif_default,
+  year_default,
+  month_default,
+  day_default,
+  hour_default,
+  minute_default,
+  second_default,
+  weekday_default,
+  int_default,
+  text_default
+];
 var FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
 
 // table-plus/src/formula/index.ts
@@ -2017,7 +2581,7 @@ var Sheet = class {
     if (!stored) {
       const text = unescapeCell(cell).trim();
       if (text === "") return null;
-      return asNumber(text) ?? text;
+      return asNumber(text) ?? parseClock(text) ?? text;
     }
     return this.result(row, column, stored.formula);
   }
@@ -2034,7 +2598,7 @@ var Sheet = class {
     try {
       const tree = parse(formula);
       result = isError(tree) ? tree : single(this.evaluate(tree, row, column));
-      if (typeof result === "number" && !Number.isFinite(result)) {
+      if (typeof result === "number" && !Number.isFinite(result) || result instanceof TimeValue && !Number.isFinite(result.seconds)) {
         result = new FormulaError("#NUM!", "the result is not a finite number");
       }
     } finally {
@@ -2097,7 +2661,10 @@ var Sheet = class {
         );
       }
       case "unary": {
-        const n = toNumber(this.evaluate(node.arg, row, column));
+        const arg = this.evaluate(node.arg, row, column);
+        const time = isRange(arg) ? void 0 : asTime(arg);
+        if (time && node.op !== "%") return node.op === "-" ? new TimeValue(-time.seconds) : time;
+        const n = toNumber(arg);
         if (isError(n)) return n;
         return node.op === "-" ? -n : node.op === "%" ? n / 100 : n;
       }
@@ -2113,6 +2680,10 @@ var Sheet = class {
     if (op === "&") return toText(left) + toText(right);
     const comparison = COMPARISONS[op];
     if (comparison) return comparison(compare(left, right));
+    const dated = op === "+" || op === "-" ? dateArithmetic(op, left, right) : void 0;
+    if (dated !== void 0) return dated;
+    const timed = timeArithmetic(op, left, right);
+    if (timed !== void 0) return timed;
     const a = toNumber(left);
     const b = toNumber(right);
     if (isError(a)) return a;
@@ -2140,6 +2711,9 @@ var COMPARISONS = {
   ">=": (o) => o >= 0
 };
 function compare(a, b) {
+  const da = typeof a === "string" ? parseDate(a) : void 0;
+  const db = da && typeof b === "string" ? parseDate(b) : void 0;
+  if (da && db) return da.ms - db.ms;
   const na = a === null ? 0 : toNumber(a);
   const nb = b === null ? 0 : toNumber(b);
   if (!isError(na) && !isError(nb) && typeof a !== "boolean" && typeof b !== "boolean") return na - nb;
@@ -2421,25 +2995,19 @@ var currency_default = {
 };
 
 // table-plus/src/types/date.ts
-var DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/;
-function dateOf(text) {
-  const m = DATE_RE.exec(text.trim());
-  if (!m) return void 0;
-  const [y, mo, d, h, mi] = m.slice(1).map((part) => part === void 0 ? void 0 : Number(part));
-  const date = new Date(y, mo - 1, d, h ?? 0, mi ?? 0);
-  return date.getMonth() === mo - 1 && date.getDate() === d ? { date, time: h !== void 0 } : void 0;
-}
-var date_default = {
+var date_default2 = {
   name: "date",
   syntax: "#date, #date-long",
   description: "A date written as 2025-11-06 (with a time: 2025-11-06 14:30), shown as the locale writes it: short, medium (default) or long after the dash.",
   icon: lineIcon('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
   param: /^(short|medium|long)$/i,
-  check: (text) => dateOf(text) ? void 0 : `"${text}" is not a date written as 2025-11-06`,
+  // Read as formulas read dates
+  check: (text) => parseDate(text) ? void 0 : `"${text}" is not a date written as 2025-11-06`,
   format: (text, param, locale) => {
-    const { date, time } = dateOf(text);
+    const { ms, time } = parseDate(text);
     const dateStyle = param?.toLowerCase() ?? "medium";
-    return new Intl.DateTimeFormat(locale, { dateStyle, ...time ? { timeStyle: "short" } : {} }).format(date);
+    const timeStyle = ms % 6e4 !== 0 ? "medium" : "short";
+    return new Intl.DateTimeFormat(locale, { dateStyle, ...time ? { timeStyle } : {}, timeZone: "UTC" }).format(new Date(ms));
   }
 };
 
@@ -2533,6 +3101,31 @@ var stars_default = {
   }))
 };
 
+// table-plus/src/types/time.ts
+function secondsOf(text) {
+  const seconds = parseClock(text)?.seconds ?? fractionSeconds(text);
+  return seconds !== void 0 && seconds >= 0 && seconds < DAY_SECONDS ? seconds : void 0;
+}
+function fractionSeconds(text) {
+  const fraction2 = numberOf(text);
+  return fraction2 === void 0 ? void 0 : Math.round(fraction2 * DAY_SECONDS);
+}
+var time_default2 = {
+  name: "time",
+  syntax: "#time",
+  description: "A time of day written as 14:30 or 14:30:15 (or as a fraction of a day, 0.5 is 12:00), shown as the locale writes times.",
+  icon: lineIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+  check: (text) => secondsOf(text) !== void 0 ? void 0 : `"${text}" is not a time written as 14:30`,
+  format: (text, _param, locale) => {
+    const seconds = secondsOf(text);
+    return new Intl.DateTimeFormat(locale, { timeStyle: seconds % 60 ? "medium" : "short", timeZone: "UTC" }).format(
+      new Date(seconds * 1e3)
+    );
+  },
+  // The time written in full (09:05, 12:00 for 0.5): sorts by the time, and filters and copies still find 9:05
+  sortValue: (text) => formatClock(secondsOf(text))
+};
+
 // table-plus/src/types/trend.ts
 var ARROWS = { "+": "\u{1F53C}", "-": "\u{1F53D}", "=": "\u27A1\uFE0F" };
 function arrowOf(text) {
@@ -2564,7 +3157,7 @@ var unit_default = {
 };
 
 // table-plus/src/types/index.ts
-var ALL2 = [currency_default, number_default, percent_default, unit_default, stars_default, check_default, date_default, trend_default, progress_default, link_default];
+var ALL2 = [currency_default, number_default, percent_default, unit_default, stars_default, check_default, date_default2, time_default2, trend_default, progress_default, link_default];
 var TYPES = new Map(ALL2.map((t) => [t.name, t]));
 var ALIASES = new Map(
   ALL2.flatMap((t) => Object.entries(t.aliases ?? {}).map(([alias, param]) => [alias, { type: t, param: param || void 0 }]))
@@ -4768,9 +5361,9 @@ var Controller = class {
    * it, so controls made for the earlier rendering look it up when used
    */
   current(widget, info) {
-    const now = this.widgetForKey(info.key);
-    const nowInfo = now && this.infos.get(now);
-    return now && nowInfo ? [now, nowInfo] : [widget, info];
+    const now2 = this.widgetForKey(info.key);
+    const nowInfo = now2 && this.infos.get(now2);
+    return now2 && nowInfo ? [now2, nowInfo] : [widget, info];
   }
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   async refreshSettings() {
@@ -5585,8 +6178,8 @@ var Controller = class {
       "Show or hide the filter row",
       () => {
         const [w, i] = this.current(widget, info);
-        const now = this.viewOf(i);
-        this.setView(w, i, now.showFilters ? { ...now, filters: [], showFilters: false } : { ...now, showFilters: true });
+        const now2 = this.viewOf(i);
+        this.setView(w, i, now2.showFilters ? { ...now2, filters: [], showFilters: false } : { ...now2, showFilters: true });
       },
       view.showFilters
     );

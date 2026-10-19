@@ -93,6 +93,20 @@ describe("the types", () => {
     expect(show("date", "2025-11-06")).toBe("Nov 6, 2025");
     expect(show("date", "2025-11-06", "short", "cs-CZ")).toBe("06.11.25");
     expect(show("date", "2025-11-06 14:30")).toBe("Nov 6, 2025, 2:30 PM");
+    expect(show("date", "2025-11-06 14:30:15")).toBe("Nov 6, 2025, 2:30:15 PM");
+    // As written, also where the clock jumps from 2:00 to 3:00 that night
+    expect(show("date", "2025-03-30 02:30")).toBe("Mar 30, 2025, 2:30 AM");
+  });
+
+  it("shows times of day as the locale writes them, and sorts them by the time", () => {
+    expect(show("time", "14:30")).toBe("2:30 PM");
+    expect(show("time", "14:30", undefined, "cs-CZ")).toBe("14:30");
+    expect(show("time", "9:05:30")).toBe("9:05:30 AM");
+    expect(show("time", "0.5")).toBe("12:00 PM"); // a fraction of a day, as spreadsheets keep times
+    expect(check("time", "24:00")).toBe('"24:00" is not a time written as 14:30');
+    expect(check("time", "1.5")).toBeDefined();
+    // Written in full, so it sorts by the time and a filter for 9:05 still finds it
+    expect(["9:05", "14:30:15", "0.5"].map((t) => type("time").sortValue!(t, undefined))).toEqual(["09:05", "14:30:15", "12:00"]);
     expect(check("date", "2025-02-30")).toBe('"2025-02-30" is not a date written as 2025-11-06');
     expect(check("date", "6.11.2025")).toBeDefined();
   });
