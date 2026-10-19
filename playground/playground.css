@@ -35,14 +35,17 @@ body {
 body {
   display: grid;
   grid-template-rows: auto auto 1fr;
+  /* Never wider than the window: the header and settings wrap instead */
+  grid-template-columns: minmax(0, 1fr);
   color: var(--root-color);
   background: var(--root-background-color);
   font-family: var(--ui-font);
 }
 header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
@@ -193,4 +196,42 @@ main {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr 2fr;
   }
+  body.no-markdown main {
+    grid-template-rows: 1fr;
+  }
+  header .hint,
+  header .long,
+  header button .label {
+    display: none;
+  }
+  header {
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+}
+
+/* The markdown hidden: the page takes the whole width */
+body.no-markdown main {
+  grid-template-columns: minmax(0, 1fr);
+}
+body.no-markdown .markdown-pane {
+  display: none;
+}
+#markdown[aria-pressed="true"],
+#settings-toggle[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--ui-accent-color, #4a7cc7) 18%, var(--root-background-color));
+}
+
+header button .icon {
+  display: none;
+}
+@media (max-width: 800px) {
+  header button .icon {
+    display: inline;
+  }
+}
+/* The settings hidden */
+body.no-settings #settings {
+  display: none;
 }

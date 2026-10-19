@@ -8,15 +8,18 @@
   </head>
   <body>
     <header>
-      <strong>Table Plus playground</strong>
+      <strong>Table Plus<span class="long"> playground</span></strong>
       <span class="hint">Mock SilverBullet: markdown on the left, rendered page on the right</span>
       <span class="spacer"></span>
-      <button id="reset" type="button">Reset sample</button>
-      <button id="theme" type="button">Dark / light</button>
+      <!-- On a narrow screen the buttons show their icon alone -->
+      <button id="settings-toggle" type="button" aria-pressed="true" title="Show or hide the settings"><span class="icon">⚙</span><span class="label">Settings</span></button>
+      <button id="markdown" type="button" aria-pressed="true" title="Show or hide the markdown"><span class="icon">M↓</span><span class="label">Markdown</span></button>
+      <button id="reset" type="button" title="Reset sample"><span class="icon">↺</span><span class="label">Reset sample</span></button>
+      <button id="theme" type="button" title="Dark / light"><span class="icon">◐</span><span class="label">Dark / light</span></button>
     </header>
     <aside id="settings"></aside>
     <main>
-      <section class="pane">
+      <section class="pane markdown-pane">
         <h2>Markdown</h2>
         <textarea id="source" spellcheck="false"></textarea>
       </section>

@@ -10,6 +10,8 @@ import sample from "./sample.md";
 const TEXT_KEY = "tablePlusPlayground.text";
 const SETTINGS_KEY = "tablePlusPlayground.settings";
 const THEME_KEY = "tablePlusPlayground.theme";
+const MARKDOWN_KEY = "tablePlusPlayground.markdown";
+const SETTINGS_SHOWN_KEY = "tablePlusPlayground.settingsShown";
 
 const source = document.querySelector<HTMLTextAreaElement>("#source")!;
 const page = document.querySelector<HTMLElement>("#page")!;
@@ -298,6 +300,22 @@ function flash(message: string, type: "info" | "error" = "info"): void {
 }
 
 document.querySelector("#reset")!.addEventListener("click", () => setText(sample, 0));
+
+// The markdown pane and the settings, each shown or hidden by its button; hidden
+// at first on a narrow screen (a phone), then as last chosen
+function paneToggle(button: string, hiddenClass: string, key: string): void {
+  const toggle = document.querySelector<HTMLButtonElement>(button)!;
+  const show = (shown: boolean) => {
+    document.body.classList.toggle(hiddenClass, !shown);
+    toggle.setAttribute("aria-pressed", String(shown));
+    save(key, shown ? "shown" : "hidden");
+  };
+  const saved = load(key);
+  show(saved ? saved === "shown" : matchMedia("(min-width: 700px)").matches);
+  toggle.addEventListener("click", () => show(document.body.classList.contains(hiddenClass)));
+}
+paneToggle("#markdown", "no-markdown", MARKDOWN_KEY);
+paneToggle("#settings-toggle", "no-settings", SETTINGS_SHOWN_KEY);
 
 function applyTheme(theme: string): void {
   document.documentElement.dataset.theme = theme;
