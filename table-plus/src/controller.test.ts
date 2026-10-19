@@ -925,6 +925,14 @@ describe("Controller", () => {
       expect(text).toContain("| Total | 7 |");
     });
 
+    it("fixes a missing ) when the formula is saved, and says so", async () => {
+      await setup(TOTAL);
+      clickOn(cell(3, 1));
+      await type("=SUM(B1:B2");
+      expect(text).toContain('| Total | 13 <meta f="=SUM(B1:B2)"> |');
+      expect(flashes).toEqual(["Table Plus: formula fixed: added )"]);
+    });
+
     it("keeps a text that starts with = when typed as '=, and when it is edited again", async () => {
       await setup(TOTAL);
       clickOn(cell(3, 1));

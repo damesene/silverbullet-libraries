@@ -1218,6 +1218,53 @@ function parse(formula) {
   parsed.set(formula, result);
   return result;
 }
+function autofixFormula(formula) {
+  const unchanged = { formula, fixes: [] };
+  if (!isError(parse(formula))) return unchanged;
+  let depth = 0;
+  let quote = false;
+  let bracket = false;
+  const extra = [];
+  for (let i = formula.startsWith("=") ? 1 : 0; i < formula.length; i++) {
+    const ch = formula[i];
+    if (quote) {
+      if (ch === '"') {
+        if (formula[i + 1] === '"') i++;
+        else quote = false;
+      }
+    } else if (bracket) {
+      if (ch === "]") bracket = false;
+    } else if (ch === '"') quote = true;
+    else if (ch === "[") bracket = true;
+    else if (ch === "(") depth++;
+    else if (ch === ")") {
+      if (depth > 0) depth--;
+      else extra.push(i);
+    }
+  }
+  let fixed = formula;
+  const fixes = [];
+  if (extra.length) {
+    const end = formula.trimEnd();
+    if (!end.endsWith(")".repeat(extra.length)) || extra[0] !== end.length - extra.length) return unchanged;
+    fixed = end.slice(0, extra[0]);
+    fixes.push(`removed ${")".repeat(extra.length)}`);
+  }
+  if (quote) {
+    fixed += '"';
+    fixes.push('closed the text with "');
+  }
+  if (bracket) {
+    fixed = `${fixed.trimEnd()}]`;
+    fixes.push("closed the column name with ]");
+  }
+  if (depth > 0) {
+    fixed = `${quote ? fixed : fixed.trimEnd()}${")".repeat(depth)}`;
+    fixes.push(`added ${")".repeat(depth)}`);
+  }
+  if (fixes.length === 0 || isError(parse(fixed))) return unchanged;
+  return { formula: fixed, fixes };
+}
 function wholeColumnNames(node, names) {
   switch (node.kind) {
     case "column":
@@ -3053,7 +3100,11 @@ ${error}` : stored.formula;
   cellValue(active) {
     const typed = active.field.value;
     if (typed === active.initial) return active.original;
-    if (active.row > 0 && isFormulaInput(typed)) return formulaCell("", typed.trim());
+    if (active.row > 0 && isFormulaInput(typed)) {
+      const { formula, fixes } = autofixFormula(typed.trim());
+      if (fixes.length) void this.bridge.flash(`Table Plus: formula fixed: ${fixes.join(", ")}`, "info");
+      return formulaCell("", formula);
+    }
     return escapeCell(active.row > 0 && typed.startsWith("'=") ? typed.slice(1) : typed);
   }
   /**

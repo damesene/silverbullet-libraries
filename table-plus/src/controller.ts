@@ -17,6 +17,7 @@ import { formatLuaNumber } from "./format.ts";
 import {
   type Area,
   areaText,
+  autofixFormula,
   columnByName,
   columnName,
   columnRefText,
@@ -1529,7 +1530,12 @@ export class Controller {
   private cellValue(active: ActiveEditor): string {
     const typed = active.field.value;
     if (typed === active.initial) return active.original;
-    if (active.row > 0 && isFormulaInput(typed)) return formulaCell("", typed.trim());
+    if (active.row > 0 && isFormulaInput(typed)) {
+      // Mistakes with only one possible fix (a missing ")") are fixed, and said so
+      const { formula, fixes } = autofixFormula(typed.trim());
+      if (fixes.length) void this.bridge.flash(`Table Plus: formula fixed: ${fixes.join(", ")}`, "info");
+      return formulaCell("", formula);
+    }
     return escapeCell(active.row > 0 && typed.startsWith("'=") ? typed.slice(1) : typed);
   }
 

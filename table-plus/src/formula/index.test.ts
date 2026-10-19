@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   areaText,
+  autofixFormula,
   columnLetters,
   formulaCell,
   formulaErrors,
@@ -260,6 +261,33 @@ describe("references", () => {
     expect(columnLetters(26)).toBe("AA");
     expect(areaText({ top: 0, left: 1, bottom: 0, right: 1 })).toBe("B1");
     expect(areaText({ top: 0, left: 1, bottom: 4, right: 2 })).toBe("B1:C5");
+  });
+});
+
+describe("autofixFormula", () => {
+  const fix = (formula: string) => autofixFormula(formula);
+
+  it("closes parentheses left open at the end", () => {
+    expect(fix("=SUM(A1:A3")).toEqual({ formula: "=SUM(A1:A3)", fixes: ["added )"] });
+    expect(fix("=ROUND(AVERAGE(B1:B3), 2")).toEqual({ formula: "=ROUND(AVERAGE(B1:B3), 2)", fixes: ["added )"] });
+    expect(fix("=ROUND(SUM(A1 ")).toEqual({ formula: "=ROUND(SUM(A1))", fixes: ["added ))"] });
+  });
+
+  it("closes a text in quotes or a column name left open at the end", () => {
+    expect(fix('=CONCAT(A1, " kg')).toEqual({ formula: '=CONCAT(A1, " kg")', fixes: ['closed the text with "', "added )"] });
+    expect(fix("=SUM([Qty")).toEqual({ formula: "=SUM([Qty])", fixes: ["closed the column name with ]", "added )"] });
+  });
+
+  it("drops unmatched ) at the very end", () => {
+    expect(fix("=SUM(A1:A3))")).toEqual({ formula: "=SUM(A1:A3)", fixes: ["removed )"] });
+  });
+
+  it("leaves formulas that read, and those whose fix is not clear", () => {
+    expect(fix("=SUM(A1)")).toEqual({ formula: "=SUM(A1)", fixes: [] });
+    expect(fix("=SUM(A1,")).toEqual({ formula: "=SUM(A1,", fixes: [] });
+    expect(fix("=A1+")).toEqual({ formula: "=A1+", fixes: [] });
+    expect(fix("=A1)+(B1")).toEqual({ formula: "=A1)+(B1", fixes: [] });
+    expect(fix("=NOPE(A1")).toEqual({ formula: "=NOPE(A1)", fixes: ["added )"] });
   });
 });
 
