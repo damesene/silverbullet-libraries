@@ -229,6 +229,7 @@ const MODULE_LABELS: Record<FeatureName, string> = {
   filters: "Filters",
   columnTypes: "Column types",
   selection: "Cell selection",
+  export: "Export",
   paste: "Paste",
   handles: "Handles",
   sticky: "Sticky header",

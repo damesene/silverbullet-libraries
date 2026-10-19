@@ -2127,6 +2127,43 @@ ${error}` : error;
   }
 };
 
+// table-plus/src/features/export.ts
+function csvText(values) {
+  const quote = (v) => /[",\r\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+  return values.map((row) => `${row.map(quote).join(",")}\r
+`).join("");
+}
+var Export = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  /** Copy as CSV in the toolbar's menu */
+  toolbarButtons(widget, info) {
+    return [
+      {
+        label: "Copy as CSV",
+        title: "Copy the table as CSV: its rows as shown (sorted, filtered), cells as Ctrl+C copies them",
+        icon: ICONS.duplicate,
+        run: () => void this.copyCsv(widget, info)
+      }
+    ];
+  }
+  async copyCsv(shownWidget, shownInfo) {
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    const info = this.host.infoOf(widget) ?? shownInfo;
+    const rows = this.host.shownRows(info);
+    const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.host.cellValue(cell)));
+    try {
+      await this.host.doc.defaultView.navigator.clipboard.writeText(csvText(values));
+      const body = rows.length - 1;
+      void this.host.bridge.flash(`Table Plus: copied ${body} row${body === 1 ? "" : "s"} as CSV`, "info");
+    } catch (e) {
+      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
+    }
+  }
+};
+
 // table-plus/src/features/expressions.ts
 var Expressions = class {
   constructor(host) {
@@ -6535,11 +6572,6 @@ function clipboardText(values) {
   const quote = (v) => /[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
   return values.map((row) => row.map(quote).join("	")).join("\n");
 }
-function csvText(values) {
-  const quote = (v) => /[",\r\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
-  return values.map((row) => `${row.map(quote).join(",")}\r
-`).join("");
-}
 function clipboardHtml(values) {
   const escape = (v) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
@@ -6559,30 +6591,6 @@ var Selection = class {
   stop() {
     this.host.doc.defaultView.removeEventListener("copy", this.onCopy, true);
     this.stopSelecting?.();
-  }
-  /** Copy as CSV in the toolbar's menu: the table as shown (sorted, filtered), its header first */
-  toolbarButtons(widget, info) {
-    return [
-      {
-        label: "Copy as CSV",
-        title: "Copy the table as CSV: its rows as shown (sorted, filtered), cells as Ctrl+C copies them",
-        icon: ICONS.duplicate,
-        run: () => void this.copyCsv(widget, info)
-      }
-    ];
-  }
-  async copyCsv(shownWidget, shownInfo) {
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    const info = this.host.infoOf(widget) ?? shownInfo;
-    const rows = this.host.shownRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.host.cellValue(cell)));
-    try {
-      await this.host.doc.defaultView.navigator.clipboard.writeText(csvText(values));
-      const body = rows.length - 1;
-      void this.host.bridge.flash(`Table Plus: copied ${body} row${body === 1 ? "" : "s"} as CSV`, "info");
-    } catch (e) {
-      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
-    }
   }
   // Any click ends a selection (one on Table Plus' own controls aside)
   beforeMouseDown(e) {
@@ -6885,6 +6893,7 @@ var Controller = class {
       always(() => this.metadata),
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
+      optional("export", () => new Export(this)),
       always(() => new Expressions(this)),
       always(() => new History(this))
     ];

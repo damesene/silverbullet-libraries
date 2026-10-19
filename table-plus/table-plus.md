@@ -64,7 +64,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
 * **Delete** empties the selected cells, formulas included, as one edit (Ctrl+Z brings them back). Header cells keep their names: a column needs one. Names of rows and cells stay with their cells.
 * Esc or a click elsewhere ends the selection.
-* **Copy as CSV** in the ⋯ menu of the table's toolbar copies the whole table as CSV (commas between cells, quotes where a cell needs them): its header and its rows as shown, sorted and filtered, cells as Ctrl+C copies them.
+* **Copy as CSV** in the ⋯ menu of the table's toolbar (the `export` module) copies the whole table as CSV (commas between cells, quotes where a cell needs them): its header and its rows as shown, sorted and filtered, cells as Ctrl+C copies them.
 
 ## Pasting from a spreadsheet
 
@@ -421,7 +421,8 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `pageLinks` | Formulas can refer to tables and named cells on other pages (`[[Prices]]fruit!B2`), which Table Plus reads for them. Off: it reads no other page; formulas that refer to one keep the results they have (the formulas using them too), a new one shows `#REF!`. It needs the `formulas` module. See [[#Tables on other pages]]. |
 | `filters` | Rows can be filtered: the toolbar's filter icon shows a filter field under each header, *Filter* in a column menu opens that column's filter; with *Store table metadata* the filters are stored in the table. Its setting `smart` (default `true`): fields understand `>10`, `/pattern/`, `=text`, `a\|b` and `!filter`; `false`: everything typed is text to find. Off: no filtering; filters stored in a table are kept but not used. See [[#Filtering]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
-| `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them; *Copy as CSV* in the table's ⋯ menu. |
+| `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them. |
+| `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and *+ Row* and *+* still add them. |
 | `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
@@ -564,7 +565,7 @@ config.define("tablePlus", {
               type = "boolean",
               default = true,
               description = "Formulas in cells (=SUM(B1:B3)): typing them, their help and references, Recalculate, and recalculating every table edited and the tables referring to it. Off: nothing is recalculated, results stay as written; a typed formula is saved as text, a formula cell edited keeps its formula for when formulas are on again.",
-              ui = { category = "Table Plus: Modules", label = "Formulas", priority = 10 },
+              ui = { category = "Table Plus: Modules", label = "Formulas", priority = 13 },
             },
           },
         },
@@ -576,7 +577,7 @@ config.define("tablePlus", {
               type = "boolean",
               default = true,
               description = "Naming tables (Name table in the toolbar's ⋯ menu), columns (Name column in the column menu), rows and cells (Name row, Name cell in the row menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
-              ui = { category = "Table Plus: Modules", label = "Names", priority = 9 },
+              ui = { category = "Table Plus: Modules", label = "Names", priority = 12 },
             },
           },
         },
@@ -588,7 +589,7 @@ config.define("tablePlus", {
               type = "boolean",
               default = true,
               description = "Formulas referring to tables and named cells on other pages ([[Prices]]fruit!B2), which Table Plus reads for them. Off: no other page is read; formulas referring to one keep the results they have, a new one shows #REF!.",
-              ui = { category = "Table Plus: Modules", label = "Links to other pages", priority = 8 },
+              ui = { category = "Table Plus: Modules", label = "Links to other pages", priority = 11 },
             },
           },
         },
@@ -600,13 +601,13 @@ config.define("tablePlus", {
               type = "boolean",
               default = true,
               description = "Filtering rows: the filter row (the toolbar's filter icon), a column's filter (Filter in its menu), filters stored in the table with the metadata setting. Off: no filtering; filters stored in a table are kept but not used.",
-              ui = { category = "Table Plus: Modules", label = "Filters", priority = 7 },
+              ui = { category = "Table Plus: Modules", label = "Filters", priority = 10 },
             },
             smart = {
               type = "boolean",
               default = true,
               description = "Filter fields understand >10 <10 >=10 <=10 (numbers), /pattern/ (regular expressions), =text (whole cell), a|b (either) and !filter (not). Off: everything typed is text to find.",
-              ui = { category = "Table Plus: Modules", label = "Smart filters", priority = 6 },
+              ui = { category = "Table Plus: Modules", label = "Smart filters", priority = 9 },
             },
           },
         },
@@ -618,7 +619,7 @@ config.define("tablePlus", {
               type = "boolean",
               default = true,
               description = "Column types from a header's hashtag (#currency, #stars, #date…): cells shown as the type, the type's values in the cell editor, Type in the column menu. Off: cells show as written.",
-              ui = { category = "Table Plus: Modules", label = "Column types", priority = 7 },
+              ui = { category = "Table Plus: Modules", label = "Column types", priority = 8 },
             },
           },
         },
@@ -630,7 +631,7 @@ config.define("tablePlus", {
               type = "boolean",
               default = true,
               description = "Dragging across cells selects them; Ctrl+C copies them for a spreadsheet, Delete empties them.",
-              ui = { category = "Table Plus: Modules", label = "Cell selection", priority = 6 },
+              ui = { category = "Table Plus: Modules", label = "Cell selection", priority = 7 },
             },
           },
         },
@@ -642,7 +643,19 @@ config.define("tablePlus", {
               type = "boolean",
               default = true,
               description = "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text.",
-              ui = { category = "Table Plus: Modules", label = "Paste from spreadsheets", priority = 5 },
+              ui = { category = "Table Plus: Modules", label = "Paste from spreadsheets", priority = 6 },
+            },
+          },
+        },
+        export = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Copy as CSV in a table's ⋯ menu: the whole table, its rows as shown.",
+              ui = { category = "Table Plus: Modules", label = "Export", priority = 5 },
             },
           },
         },

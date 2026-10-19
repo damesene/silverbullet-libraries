@@ -1,9 +1,7 @@
 // Selecting cells by dragging across them, to copy them for a spreadsheet
-// (Ctrl+C) or empty them (Delete); and the whole table copied as CSV (Copy as
-// CSV in the toolbar's menu).
-import type { CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+// (Ctrl+C) or empty them (Delete).
+import type { CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellValue } from "../dom.ts";
-import { ICONS } from "../icons.ts";
 import type { Table } from "../markdown.ts";
 import { setCell } from "../ops.ts";
 
@@ -11,12 +9,6 @@ import { setCell } from "../ops.ts";
 export function clipboardText(values: readonly (readonly string[])[]): string {
   const quote = (v: string) => (/[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
   return values.map((row) => row.map(quote).join("\t")).join("\n");
-}
-
-/** Cells as CSV (RFC 4180): commas between, line breaks after rows; a cell with a comma, a quote or a line break in quotes */
-export function csvText(values: readonly (readonly string[])[]): string {
-  const quote = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
-  return values.map((row) => `${row.map(quote).join(",")}\r\n`).join("");
 }
 
 export function clipboardHtml(values: readonly (readonly string[])[]): string {
@@ -39,32 +31,6 @@ export class Selection implements Feature {
   stop(): void {
     this.host.doc.defaultView!.removeEventListener("copy", this.onCopy, true);
     this.stopSelecting?.();
-  }
-
-  /** Copy as CSV in the toolbar's menu: the table as shown (sorted, filtered), its header first */
-  toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
-    return [
-      {
-        label: "Copy as CSV",
-        title: "Copy the table as CSV: its rows as shown (sorted, filtered), cells as Ctrl+C copies them",
-        icon: ICONS.duplicate,
-        run: () => void this.copyCsv(widget, info),
-      },
-    ];
-  }
-
-  private async copyCsv(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    const info = this.host.infoOf(widget) ?? shownInfo;
-    const rows = this.host.shownRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.host.cellValue(cell)));
-    try {
-      await this.host.doc.defaultView!.navigator.clipboard.writeText(csvText(values));
-      const body = rows.length - 1;
-      void this.host.bridge.flash(`Table Plus: copied ${body} row${body === 1 ? "" : "s"} as CSV`, "info");
-    } catch (e) {
-      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
-    }
   }
 
   // Any click ends a selection (one on Table Plus' own controls aside)

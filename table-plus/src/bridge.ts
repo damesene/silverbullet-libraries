@@ -41,6 +41,7 @@ export const FEATURE_NAMES = [
   "filters",
   "columnTypes",
   "selection",
+  "export",
   "paste",
   "handles",
   "sticky",

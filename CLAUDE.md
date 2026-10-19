@@ -44,6 +44,7 @@ table-plus/
       pagelinks.ts     the pageLinks module: reads the other pages formulas refer to (otherPages)
       types.ts         column types in the table: formatting, hidden type hashtags, invalid marks, editor choices, Type menu
       selection.ts     drag-select cells, Ctrl+C (text + HTML table), Delete
+      export.ts        the export module: Copy as CSV in the table's menu
       paste.ts         paste from spreadsheets (Ctrl+V overwrite, Ctrl+Shift+V new rows)
       grips.ts         row/column grips, drag to move, row and column menus (with submenus and a back arrow)
       metadata.ts      Remove metadata (toolbar and the page command)

@@ -20,6 +20,7 @@ import { CellEditing } from "./core/editor.ts";
 import { insertColumnWith, insertRowWith } from "./core/structure.ts";
 import { Autoscroll } from "./features/autoscroll.ts";
 import { ColumnTypes } from "./features/types.ts";
+import { Export } from "./features/export.ts";
 import { Expressions } from "./features/expressions.ts";
 import { PageLinks } from "./features/pagelinks.ts";
 import { Filters } from "./features/filters.ts";
@@ -244,6 +245,7 @@ export class Controller implements TableHost {
       always(() => this.metadata),
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
+      optional("export", () => new Export(this)),
       always(() => new Expressions(this)),
       always(() => new History(this)),
     ];
