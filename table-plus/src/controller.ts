@@ -13,8 +13,10 @@ import type {
   WriteResult,
   WriteStep,
 } from "./core/feature.ts";
+import { Autoscroll } from "./features/autoscroll.ts";
 import { Expressions } from "./features/expressions.ts";
 import { Formulas } from "./features/formulas.ts";
+import { History } from "./features/history.ts";
 import { Metadata } from "./features/metadata.ts";
 import { Paste } from "./features/paste.ts";
 import { Selection } from "./features/selection.ts";
@@ -146,8 +148,6 @@ const BAR_GAP = 10;
 const STORE_SORT_DELAY_MS = 400;
 
 
-// Middle-button autoscroll: no movement within this distance of the start point
-const AUTOSCROLL_DEAD_ZONE = 12;
 
 // Ctrl+Alt + these keys move the edited cell's row or column
 const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
@@ -203,8 +203,6 @@ export class Controller implements TableHost {
   private readonly scrollLefts = new Map<string, number>();
   // The same for tables taller than the maximum height setting, scrolled inside
   private readonly scrollTops = new Map<string, number>();
-  // Editor cursor positions set before table edits (see placeHistoryMarker)
-  private readonly historyMarkers = new Set<number>();
   private editor: ActiveEditor | undefined;
   private pendingFocus: (FocusTarget & { key: string; until: number }) | undefined;
   private hoverWidget: HTMLElement | undefined;
@@ -212,7 +210,6 @@ export class Controller implements TableHost {
   private handleTarget: HandleTarget | undefined;
   private menu: { element: HTMLElement; axis: Axis; widget: HTMLElement; anchor: HTMLElement } | undefined;
   private dragging = false;
-  private stopAutoscroll: (() => void) | undefined;
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
   private scanQueued = false;
   // Set by stop(): work already scheduled then does nothing
@@ -243,7 +240,15 @@ export class Controller implements TableHost {
   ) {
     this.metadata = new Metadata(this);
     this.expressions = new Expressions(this);
-    this.features = [new Formulas(this), this.metadata, new Paste(this), new Selection(this), this.expressions];
+    this.features = [
+      new Autoscroll(this),
+      new Formulas(this),
+      this.metadata,
+      new Paste(this),
+      new Selection(this),
+      this.expressions,
+      new History(this),
+    ];
     this.bar = this.floating("div", "tp-bar");
     this.rowGrip = this.floatingButton("tp-handle tp-grip", "Row: click for actions, drag to move", ICONS.grip);
     this.columnGrip = this.floatingButton(
@@ -299,7 +304,6 @@ export class Controller implements TableHost {
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
-    this.stopAutoscroll?.();
     this.closeMenu(false);
     for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
   }
@@ -830,18 +834,10 @@ export class Controller implements TableHost {
 
   private onMouseDown = (e: MouseEvent): void => {
     const target = e.target instanceof Node ? e.target : null;
-    if (this.stopAutoscroll) {
-      // Any click ends the autoscroll and does nothing else
-      e.preventDefault();
-      e.stopPropagation();
-      this.stopAutoscroll();
-      this.swallowNextClick();
-      return;
-    }
+    for (const feature of this.features) if (feature.mouseDown?.(e)) return;
     if (this.menu && target && !this.isFloating(target)) this.closeMenu(false);
-    if (e.button === 0) for (const feature of this.features) feature.beforeMouseDown?.(e);
-    if (e.button === 1) this.onMiddleMouseDown(e);
     if (e.button !== 0) return;
+    for (const feature of this.features) feature.beforeMouseDown?.(e);
     if (e.altKey) {
       this.onAltMouseDown(e);
       return;
@@ -872,104 +868,6 @@ export class Controller implements TableHost {
     else this.openEditor(widget, info, cell, select);
     for (const feature of this.features) feature.afterCellPress?.(info, ref, e);
   };
-
-  /**
-   * Middle-button autoscroll over a table that scrolls sideways. The browser's
-   * own autoscroll locks onto one scrolling box, so it moves either the table
-   * sideways or the page up and down; this one moves both. Hold and drag, or
-   * click and move; the next click, key or wheel turn ends it.
-   */
-  private onMiddleMouseDown(e: MouseEvent): void {
-    const hit = this.enhancedWidgetOf(e.target);
-    const widget = hit?.[0];
-    // A middle click on a link opens it in a new tab
-    const scrollsSideways = !!widget && widget.scrollWidth > widget.clientWidth;
-    if (!widget || (e.target as Element).closest("a") || (!scrollsSideways && !this.scrollsInside(widget))) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const win = this.doc.defaultView!;
-    const page = this.scrollParentOf(widget) ?? this.doc.scrollingElement;
-    const origin = { x: e.clientX, y: e.clientY };
-    const pointer = { ...origin };
-    let held = false;
-    let carry = { x: 0, y: 0 };
-    const marker = this.floating("div", "tp-autoscroll tp-visible");
-    marker.style.left = `${origin.x - 12}px`;
-    marker.style.top = `${origin.y - 12}px`;
-    this.doc.body.classList.add("tp-autoscrolling");
-
-    // Pixels per frame: grows with the distance from the start point
-    const speed = (d: number) => {
-      const beyond = Math.abs(d) - AUTOSCROLL_DEAD_ZONE;
-      return beyond > 0 ? Math.sign(d) * (beyond / 16) ** 1.3 : 0;
-    };
-    let frame = 0;
-    const tick = () => {
-      carry = { x: carry.x + speed(pointer.x - origin.x), y: carry.y + speed(pointer.y - origin.y) };
-      const dx = Math.trunc(carry.x);
-      const dy = Math.trunc(carry.y);
-      carry = { x: carry.x - dx, y: carry.y - dy };
-      if (dx) widget.scrollLeft += dx;
-      if (dy) {
-        // A table scrolled inside its box takes the vertical movement first
-        const before = widget.scrollTop;
-        widget.scrollTop += dy;
-        const rest = dy - (widget.scrollTop - before);
-        if (rest && page) page.scrollTop += rest;
-      }
-      frame = win.requestAnimationFrame(tick);
-    };
-    const move = (ev: MouseEvent) => {
-      pointer.x = ev.clientX;
-      pointer.y = ev.clientY;
-      if (Math.hypot(pointer.x - origin.x, pointer.y - origin.y) > AUTOSCROLL_DEAD_ZONE) held = true;
-    };
-    const up = (ev: MouseEvent) => {
-      // Released after dragging: hold-and-drag ends here; a plain click keeps it going
-      if (ev.button === 1 && held) stop();
-    };
-    const end = (ev: Event) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      stop();
-    };
-    const stop = () => {
-      win.cancelAnimationFrame(frame);
-      win.removeEventListener("mousemove", move, true);
-      win.removeEventListener("mouseup", up, true);
-      win.removeEventListener("keydown", end, true);
-      win.removeEventListener("wheel", end, true);
-      marker.remove();
-      this.doc.body.classList.remove("tp-autoscrolling");
-      this.stopAutoscroll = undefined;
-    };
-    this.stopAutoscroll = stop;
-    // Listeners start after this press, so it does not end the autoscroll at once
-    setTimeout(() => {
-      if (this.stopAutoscroll !== stop) return;
-      win.addEventListener("mousemove", move, true);
-      win.addEventListener("mouseup", up, true);
-      win.addEventListener("keydown", end, true);
-      win.addEventListener("wheel", end, { capture: true, passive: false });
-    }, 0);
-    frame = win.requestAnimationFrame(tick);
-  }
-
-  private swallowNextClick(): void {
-    const win = this.doc.defaultView!;
-    const swallow = (e: Event) => {
-      e.preventDefault();
-      e.stopPropagation();
-      clear();
-    };
-    const clear = () => {
-      win.removeEventListener("click", swallow, true);
-      win.removeEventListener("auxclick", swallow, true);
-    };
-    win.addEventListener("click", swallow, true);
-    win.addEventListener("auxclick", swallow, true);
-    setTimeout(clear, 500);
-  }
 
   /**
    * Alt+click shows the markdown, as in SilverBullet, but with the cursor in
@@ -1140,11 +1038,11 @@ export class Controller implements TableHost {
   }
 
   /** Whether a table is taller than its box (the maximum height setting) and scrolls inside it */
-  private scrollsInside(widget: HTMLElement): boolean {
+  scrollsInside(widget: HTMLElement): boolean {
     return widget.scrollHeight > widget.clientHeight + 1;
   }
 
-  private scrollParentOf(element: HTMLElement): HTMLElement | undefined {
+  scrollParentOf(element: HTMLElement): HTMLElement | undefined {
     const win = this.doc.defaultView!;
     for (let el = element.parentElement; el; el = el.parentElement) {
       if (/(auto|scroll)/.test(win.getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight) return el;
@@ -1153,62 +1051,14 @@ export class Controller implements TableHost {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
-    for (const feature of this.features) if (feature.keyDown?.(e)) return;
     if (e.key === "Escape" && this.menu) {
       e.preventDefault();
       e.stopPropagation();
       this.closeMenu(true);
       return;
     }
-    const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
-    const key = e.key.toLowerCase();
-    const step = mod && key === "z" ? (e.shiftKey ? "redo" : "undo") : mod && key === "y" && !e.shiftKey ? "redo" : undefined;
-    const inEditor = e.target instanceof Element && !!e.target.closest(EDITOR_SELECTOR);
-    if (step && inEditor && this.bridge[step] && this.bridge.getCursor) {
-      e.preventDefault();
-      e.stopPropagation();
-      void this.historyStep(step);
-    }
+    for (const feature of this.features) if (feature.keyDown?.(e)) return;
   };
-
-  // ---- undo / redo of table edits ----------------------------------------
-
-  /**
-   * Undo moves the editor's cursor back to where it was before an edit and
-   * scrolls to it. Table Plus edits away from that cursor, so before each edit
-   * it puts the cursor right after the table (outside it, so the table stays
-   * rendered) and remembers that position: an undo or redo that lands there
-   * undid a table edit, and the page is scrolled back to where it was.
-   */
-  private async placeHistoryMarker(text: string, from: number, to: number): Promise<number | undefined> {
-    if (!this.bridge.setSelection) return undefined;
-    const marker = to < text.length ? to + 1 : from > 0 ? from - 1 : undefined;
-    if (marker === undefined) return undefined;
-    await this.bridge.setSelection(marker, marker);
-    this.historyMarkers.add(marker);
-    if (this.historyMarkers.size > 500) this.historyMarkers.delete(this.historyMarkers.values().next().value!);
-    return marker;
-  }
-
-  private async historyStep(step: "undo" | "redo"): Promise<void> {
-    const editor = this.doc.querySelector<HTMLElement>(EDITOR_SELECTOR);
-    const scroller = editor && this.scrollParentOf(editor);
-    const top = scroller?.scrollTop;
-    await this.bridge[step]!();
-    const cursor = await this.bridge.getCursor!();
-    if (!scroller || top === undefined || !this.historyMarkers.has(cursor)) return;
-    // After the editor's own scroll, which runs in the next animation frame
-    const restore = () => {
-      scroller.scrollTop = top;
-    };
-    const win = this.doc.defaultView!;
-    restore();
-    if (!win.requestAnimationFrame) return;
-    win.requestAnimationFrame(() => {
-      restore();
-      win.requestAnimationFrame(restore);
-    });
-  }
 
   private onKeyUp = (e: KeyboardEvent): void => {
     if (e.key === "Control") this.setNavigating(false);
@@ -1675,12 +1525,13 @@ export class Controller implements TableHost {
       this.scrollLefts.set(info.key, widget.scrollLeft);
       this.scrollTops.set(info.key, widget.scrollTop);
       const edit = minimalEdit(range.text, markdown);
-      const marker = await this.placeHistoryMarker(text, range.from, range.to);
-      await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
-      if (marker !== undefined) {
-        // Redo restores the cursor where the edit left it: the marker, moved by the edit
-        this.historyMarkers.add(marker + (marker > range.from + edit.from ? markdown.length - range.text.length : 0));
+      const after: ((editFrom: number, lengthChange: number) => void)[] = [];
+      for (const feature of this.features) {
+        const then = await feature.beforeWrite?.(text, range.from, range.to);
+        if (then) after.push(then);
       }
+      await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
+      for (const then of after) then(range.from + edit.from, markdown.length - range.text.length);
       return "written";
     } catch (e) {
       this.pendingFocus = undefined;

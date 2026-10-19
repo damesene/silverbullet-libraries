@@ -111,12 +111,18 @@ export interface TableHost {
   cellAt(info: WidgetInfo, cell: CellRef, includeHidden?: boolean): HTMLTableCellElement | undefined;
   /** Shows a table's rows again as sorted and filtered, e.g. after cells changed their text */
   applyView(widget: HTMLElement, info: WidgetInfo): void;
+  /** Whether a table is taller than its box (the maximum height setting) and scrolls inside it */
+  scrollsInside(widget: HTMLElement): boolean;
+  /** The element the page scrolls in, around an element */
+  scrollParentOf(element: HTMLElement): HTMLElement | undefined;
 }
 
 /** A feature: every hook is optional */
 export interface Feature {
   start?(): void;
   stop?(): void;
+  /** Any press (any button), before anything else; true: taken, nothing else happens */
+  mouseDown?(e: MouseEvent): boolean;
   /** Any left press, before Table Plus handles it */
   beforeMouseDown?(e: MouseEvent): void;
   /** A press on a cell, before Table Plus edits it; true: taken (e.g. pointing in a formula) */
@@ -131,6 +137,12 @@ export interface Feature {
   decorate?(widget: HTMLElement, info: WidgetInfo): void;
   /** Buttons for the table's toolbar, shown while the pointer is over the table */
   toolbarButtons?(widget: HTMLElement, info: WidgetInfo): ToolbarButton[];
+  /**
+   * Before a write replaces a table (from..to of the page's text); may return
+   * what to do after it, given where the change started and how much longer
+   * the text got
+   */
+  beforeWrite?(text: string, from: number, to: number): Promise<((editFrom: number, lengthChange: number) => void) | undefined>;
   /** The page or a table scrolled, or tables moved: floating elements follow */
   layoutChanged?(): void;
   /** What the cell editor shows for a cell's markdown; undefined: its text */

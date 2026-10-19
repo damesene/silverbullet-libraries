@@ -55,6 +55,114 @@ function missingBridgeFunctions(bridge) {
   return REQUIRED.filter((name) => typeof bridge?.[name] !== "function");
 }
 
+// table-plus/src/features/autoscroll.ts
+var DEAD_ZONE = 12;
+var Autoscroll = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  stopScrolling;
+  stop() {
+    this.stopScrolling?.();
+  }
+  mouseDown(e) {
+    if (this.stopScrolling) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.stopScrolling();
+      this.swallowNextClick();
+      return true;
+    }
+    return e.button === 1 && this.begin(e);
+  }
+  begin(e) {
+    const { doc } = this.host;
+    const widget = this.host.enhancedWidgetOf(e.target)?.[0];
+    const scrollsSideways = !!widget && widget.scrollWidth > widget.clientWidth;
+    if (!widget || e.target.closest("a") || !scrollsSideways && !this.host.scrollsInside(widget)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    const win = doc.defaultView;
+    const page = this.host.scrollParentOf(widget) ?? doc.scrollingElement;
+    const origin = { x: e.clientX, y: e.clientY };
+    const pointer = { ...origin };
+    let held = false;
+    let carry = { x: 0, y: 0 };
+    const marker = this.host.floating("div", "tp-autoscroll tp-visible");
+    marker.style.left = `${origin.x - 12}px`;
+    marker.style.top = `${origin.y - 12}px`;
+    doc.body.classList.add("tp-autoscrolling");
+    const speed = (d) => {
+      const beyond = Math.abs(d) - DEAD_ZONE;
+      return beyond > 0 ? Math.sign(d) * (beyond / 16) ** 1.3 : 0;
+    };
+    let frame = 0;
+    const tick = () => {
+      carry = { x: carry.x + speed(pointer.x - origin.x), y: carry.y + speed(pointer.y - origin.y) };
+      const dx = Math.trunc(carry.x);
+      const dy = Math.trunc(carry.y);
+      carry = { x: carry.x - dx, y: carry.y - dy };
+      if (dx) widget.scrollLeft += dx;
+      if (dy) {
+        const before = widget.scrollTop;
+        widget.scrollTop += dy;
+        const rest = dy - (widget.scrollTop - before);
+        if (rest && page) page.scrollTop += rest;
+      }
+      frame = win.requestAnimationFrame(tick);
+    };
+    const move = (ev) => {
+      pointer.x = ev.clientX;
+      pointer.y = ev.clientY;
+      if (Math.hypot(pointer.x - origin.x, pointer.y - origin.y) > DEAD_ZONE) held = true;
+    };
+    const up = (ev) => {
+      if (ev.button === 1 && held) stop();
+    };
+    const end = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      stop();
+    };
+    const stop = () => {
+      win.cancelAnimationFrame(frame);
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", up, true);
+      win.removeEventListener("keydown", end, true);
+      win.removeEventListener("wheel", end, true);
+      marker.remove();
+      doc.body.classList.remove("tp-autoscrolling");
+      this.stopScrolling = void 0;
+    };
+    this.stopScrolling = stop;
+    setTimeout(() => {
+      if (this.stopScrolling !== stop) return;
+      win.addEventListener("mousemove", move, true);
+      win.addEventListener("mouseup", up, true);
+      win.addEventListener("keydown", end, true);
+      win.addEventListener("wheel", end, { capture: true, passive: false });
+    }, 0);
+    frame = win.requestAnimationFrame(tick);
+    return true;
+  }
+  swallowNextClick() {
+    const win = this.host.doc.defaultView;
+    const swallow = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clear();
+    };
+    const clear = () => {
+      win.removeEventListener("click", swallow, true);
+      win.removeEventListener("auxclick", swallow, true);
+    };
+    win.addEventListener("click", swallow, true);
+    win.addEventListener("auxclick", swallow, true);
+    setTimeout(clear, 500);
+  }
+};
+
 // table-plus/src/dom.ts
 var WIDGET_SELECTOR = ".sb-table-widget";
 var EDITOR_SELECTOR = ".cm-content";
@@ -2231,6 +2339,60 @@ ${error}` : stored.formula;
   }
 };
 
+// table-plus/src/features/history.ts
+var History = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // Editor cursor positions set before table edits
+  markers = /* @__PURE__ */ new Set();
+  async beforeWrite(text, from, to) {
+    const { bridge } = this.host;
+    if (!bridge.setSelection) return void 0;
+    const marker = to < text.length ? to + 1 : from > 0 ? from - 1 : void 0;
+    if (marker === void 0) return void 0;
+    await bridge.setSelection(marker, marker);
+    this.remember(marker);
+    return (editFrom, lengthChange) => this.remember(marker + (marker > editFrom ? lengthChange : 0));
+  }
+  keyDown(e) {
+    const { bridge } = this.host;
+    const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
+    const key = e.key.toLowerCase();
+    const step = mod && key === "z" ? e.shiftKey ? "redo" : "undo" : mod && key === "y" && !e.shiftKey ? "redo" : void 0;
+    const inEditor = e.target instanceof Element && !!e.target.closest(EDITOR_SELECTOR);
+    if (!step || !inEditor || !bridge[step] || !bridge.getCursor) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    void this.step(step);
+    return true;
+  }
+  remember(marker) {
+    this.markers.add(marker);
+    if (this.markers.size > 500) this.markers.delete(this.markers.values().next().value);
+  }
+  async step(step) {
+    const { bridge, doc } = this.host;
+    const editor = doc.querySelector(EDITOR_SELECTOR);
+    const scroller = editor && this.host.scrollParentOf(editor);
+    const top = scroller?.scrollTop;
+    await bridge[step]();
+    const cursor = await bridge.getCursor();
+    if (!scroller || top === void 0 || !this.markers.has(cursor)) return;
+    const restore = () => {
+      scroller.scrollTop = top;
+    };
+    const win = doc.defaultView;
+    restore();
+    if (!win.requestAnimationFrame) return;
+    win.requestAnimationFrame(() => {
+      restore();
+      win.requestAnimationFrame(restore);
+    });
+  }
+};
+
 // table-plus/src/meta.ts
 function withMeta(table, name, value) {
   const current = table.meta ?? {};
@@ -2941,7 +3103,6 @@ var DRAG_THRESHOLD = 4;
 var STICKY_GAP = 38;
 var BAR_GAP = 10;
 var STORE_SORT_DELAY_MS = 400;
-var AUTOSCROLL_DEAD_ZONE = 12;
 var MOVE_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 var NAVIGATION_KEYS = /* @__PURE__ */ new Set([
   "ArrowLeft",
@@ -2972,7 +3133,15 @@ var Controller = class {
     this.bridge = bridge;
     this.metadata = new Metadata(this);
     this.expressions = new Expressions(this);
-    this.features = [new Formulas(this), this.metadata, new Paste(this), new Selection(this), this.expressions];
+    this.features = [
+      new Autoscroll(this),
+      new Formulas(this),
+      this.metadata,
+      new Paste(this),
+      new Selection(this),
+      this.expressions,
+      new History(this)
+    ];
     this.bar = this.floating("div", "tp-bar");
     this.rowGrip = this.floatingButton("tp-handle tp-grip", "Row: click for actions, drag to move", ICONS.grip);
     this.columnGrip = this.floatingButton(
@@ -3000,8 +3169,6 @@ var Controller = class {
   scrollLefts = /* @__PURE__ */ new Map();
   // The same for tables taller than the maximum height setting, scrolled inside
   scrollTops = /* @__PURE__ */ new Map();
-  // Editor cursor positions set before table edits (see placeHistoryMarker)
-  historyMarkers = /* @__PURE__ */ new Set();
   editor;
   pendingFocus;
   hoverWidget;
@@ -3009,7 +3176,6 @@ var Controller = class {
   handleTarget;
   menu;
   dragging = false;
-  stopAutoscroll;
   hideTimer;
   scanQueued = false;
   // Set by stop(): work already scheduled then does nothing
@@ -3072,7 +3238,6 @@ var Controller = class {
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
-    this.stopAutoscroll?.();
     this.closeMenu(false);
     for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn]) el.remove();
   }
@@ -3543,17 +3708,10 @@ var Controller = class {
   }
   onMouseDown = (e) => {
     const target = e.target instanceof Node ? e.target : null;
-    if (this.stopAutoscroll) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.stopAutoscroll();
-      this.swallowNextClick();
-      return;
-    }
+    for (const feature of this.features) if (feature.mouseDown?.(e)) return;
     if (this.menu && target && !this.isFloating(target)) this.closeMenu(false);
-    if (e.button === 0) for (const feature of this.features) feature.beforeMouseDown?.(e);
-    if (e.button === 1) this.onMiddleMouseDown(e);
     if (e.button !== 0) return;
+    for (const feature of this.features) feature.beforeMouseDown?.(e);
     if (e.altKey) {
       this.onAltMouseDown(e);
       return;
@@ -3582,96 +3740,6 @@ var Controller = class {
     else this.openEditor(widget, info, cell, select);
     for (const feature of this.features) feature.afterCellPress?.(info, ref, e);
   };
-  /**
-   * Middle-button autoscroll over a table that scrolls sideways. The browser's
-   * own autoscroll locks onto one scrolling box, so it moves either the table
-   * sideways or the page up and down; this one moves both. Hold and drag, or
-   * click and move; the next click, key or wheel turn ends it.
-   */
-  onMiddleMouseDown(e) {
-    const hit = this.enhancedWidgetOf(e.target);
-    const widget = hit?.[0];
-    const scrollsSideways = !!widget && widget.scrollWidth > widget.clientWidth;
-    if (!widget || e.target.closest("a") || !scrollsSideways && !this.scrollsInside(widget)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const win = this.doc.defaultView;
-    const page = this.scrollParentOf(widget) ?? this.doc.scrollingElement;
-    const origin = { x: e.clientX, y: e.clientY };
-    const pointer = { ...origin };
-    let held = false;
-    let carry = { x: 0, y: 0 };
-    const marker = this.floating("div", "tp-autoscroll tp-visible");
-    marker.style.left = `${origin.x - 12}px`;
-    marker.style.top = `${origin.y - 12}px`;
-    this.doc.body.classList.add("tp-autoscrolling");
-    const speed = (d) => {
-      const beyond = Math.abs(d) - AUTOSCROLL_DEAD_ZONE;
-      return beyond > 0 ? Math.sign(d) * (beyond / 16) ** 1.3 : 0;
-    };
-    let frame = 0;
-    const tick = () => {
-      carry = { x: carry.x + speed(pointer.x - origin.x), y: carry.y + speed(pointer.y - origin.y) };
-      const dx = Math.trunc(carry.x);
-      const dy = Math.trunc(carry.y);
-      carry = { x: carry.x - dx, y: carry.y - dy };
-      if (dx) widget.scrollLeft += dx;
-      if (dy) {
-        const before = widget.scrollTop;
-        widget.scrollTop += dy;
-        const rest = dy - (widget.scrollTop - before);
-        if (rest && page) page.scrollTop += rest;
-      }
-      frame = win.requestAnimationFrame(tick);
-    };
-    const move = (ev) => {
-      pointer.x = ev.clientX;
-      pointer.y = ev.clientY;
-      if (Math.hypot(pointer.x - origin.x, pointer.y - origin.y) > AUTOSCROLL_DEAD_ZONE) held = true;
-    };
-    const up = (ev) => {
-      if (ev.button === 1 && held) stop();
-    };
-    const end = (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      stop();
-    };
-    const stop = () => {
-      win.cancelAnimationFrame(frame);
-      win.removeEventListener("mousemove", move, true);
-      win.removeEventListener("mouseup", up, true);
-      win.removeEventListener("keydown", end, true);
-      win.removeEventListener("wheel", end, true);
-      marker.remove();
-      this.doc.body.classList.remove("tp-autoscrolling");
-      this.stopAutoscroll = void 0;
-    };
-    this.stopAutoscroll = stop;
-    setTimeout(() => {
-      if (this.stopAutoscroll !== stop) return;
-      win.addEventListener("mousemove", move, true);
-      win.addEventListener("mouseup", up, true);
-      win.addEventListener("keydown", end, true);
-      win.addEventListener("wheel", end, { capture: true, passive: false });
-    }, 0);
-    frame = win.requestAnimationFrame(tick);
-  }
-  swallowNextClick() {
-    const win = this.doc.defaultView;
-    const swallow = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      clear();
-    };
-    const clear = () => {
-      win.removeEventListener("click", swallow, true);
-      win.removeEventListener("auxclick", swallow, true);
-    };
-    win.addEventListener("click", swallow, true);
-    win.addEventListener("auxclick", swallow, true);
-    setTimeout(clear, 500);
-  }
   /**
    * Alt+click shows the markdown, as in SilverBullet, but with the cursor in
    * the clicked cell instead of at the start of the table
@@ -3831,58 +3899,14 @@ var Controller = class {
     return void 0;
   }
   onKeyDown = (e) => {
-    for (const feature of this.features) if (feature.keyDown?.(e)) return;
     if (e.key === "Escape" && this.menu) {
       e.preventDefault();
       e.stopPropagation();
       this.closeMenu(true);
       return;
     }
-    const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
-    const key = e.key.toLowerCase();
-    const step = mod && key === "z" ? e.shiftKey ? "redo" : "undo" : mod && key === "y" && !e.shiftKey ? "redo" : void 0;
-    const inEditor = e.target instanceof Element && !!e.target.closest(EDITOR_SELECTOR);
-    if (step && inEditor && this.bridge[step] && this.bridge.getCursor) {
-      e.preventDefault();
-      e.stopPropagation();
-      void this.historyStep(step);
-    }
+    for (const feature of this.features) if (feature.keyDown?.(e)) return;
   };
-  // ---- undo / redo of table edits ----------------------------------------
-  /**
-   * Undo moves the editor's cursor back to where it was before an edit and
-   * scrolls to it. Table Plus edits away from that cursor, so before each edit
-   * it puts the cursor right after the table (outside it, so the table stays
-   * rendered) and remembers that position: an undo or redo that lands there
-   * undid a table edit, and the page is scrolled back to where it was.
-   */
-  async placeHistoryMarker(text, from, to) {
-    if (!this.bridge.setSelection) return void 0;
-    const marker = to < text.length ? to + 1 : from > 0 ? from - 1 : void 0;
-    if (marker === void 0) return void 0;
-    await this.bridge.setSelection(marker, marker);
-    this.historyMarkers.add(marker);
-    if (this.historyMarkers.size > 500) this.historyMarkers.delete(this.historyMarkers.values().next().value);
-    return marker;
-  }
-  async historyStep(step) {
-    const editor = this.doc.querySelector(EDITOR_SELECTOR);
-    const scroller = editor && this.scrollParentOf(editor);
-    const top = scroller?.scrollTop;
-    await this.bridge[step]();
-    const cursor = await this.bridge.getCursor();
-    if (!scroller || top === void 0 || !this.historyMarkers.has(cursor)) return;
-    const restore = () => {
-      scroller.scrollTop = top;
-    };
-    const win = this.doc.defaultView;
-    restore();
-    if (!win.requestAnimationFrame) return;
-    win.requestAnimationFrame(() => {
-      restore();
-      win.requestAnimationFrame(restore);
-    });
-  }
   onKeyUp = (e) => {
     if (e.key === "Control") this.setNavigating(false);
   };
@@ -4274,11 +4298,13 @@ var Controller = class {
       this.scrollLefts.set(info.key, widget.scrollLeft);
       this.scrollTops.set(info.key, widget.scrollTop);
       const edit = minimalEdit(range.text, markdown);
-      const marker = await this.placeHistoryMarker(text, range.from, range.to);
-      await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
-      if (marker !== void 0) {
-        this.historyMarkers.add(marker + (marker > range.from + edit.from ? markdown.length - range.text.length : 0));
+      const after = [];
+      for (const feature of this.features) {
+        const then = await feature.beforeWrite?.(text, range.from, range.to);
+        if (then) after.push(then);
       }
+      await this.bridge.replaceRange(range.from + edit.from, range.from + edit.to, edit.insert);
+      for (const then of after) then(range.from + edit.from, markdown.length - range.text.length);
       return "written";
     } catch (e) {
       this.pendingFocus = void 0;
