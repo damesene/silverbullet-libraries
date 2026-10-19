@@ -94,7 +94,7 @@ Dates are written as 2026-10-19, times as 14:30. Times add up past a day: `[h]:m
 | Build | 2026-10-15 | 31 | 2026-11-15 <meta f="=DATEADD([@start], [@days], &quot;d&quot;)"> | 7 <meta f="=WEEKDAY([@end], 2)"> | 4 <meta f="=DATEDIF([@start], [@end], &quot;w&quot;)"> | 6:00 | 20:00 | 14:00 <meta f="=[@to]-[@from]"> |
 | Review | 2026-11-30 | 1 | 2026-12-30 <meta f="=DATEADD([@start], 1, &quot;m&quot;)"> | 3 <meta f="=WEEKDAY([@end], 2)"> | 4 <meta f="=DATEDIF([@start], [@end], &quot;w&quot;)"> | 9:15 | 15:45 | 06:30 <meta f="=[@to]-[@from]"> |
 | Total | 2026-10-05 <meta f="=MIN(B1:B3)"> | 42 <meta f="=SUM([days])"> | 2026-12-30 <meta f="=MAX(D1:D3)"> | | | | | 34:30 <meta f="=SUM([hours])"> |
-| As text | 05.10.2026 <meta f="=TEXT(B4, &quot;dd.mm.yyyy&quot;)"> | | 2026-12-24 18:30 <meta f="=DATE(2026, 12, 24) + TIME(18, 30)"> | 2026 <meta f="=YEAR(D4)"> | 12 <meta f="=MONTH(D4)"> | | | |
+| As text | | | 2026-12-24 18:30 <meta f="=DATE(2026, 12, 24) + TIME(18, 30)"> | 05.10.2026 <meta f="=TEXT(B4, &quot;dd.mm.yyyy&quot;)"> | 2026 <meta f="=YEAR(D4)"> | | | |
 
 | Shift | Length |
 |---|--:|
