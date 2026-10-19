@@ -127,10 +127,15 @@ describe("Cell editor", () => {
     // Shift+click again: on from the selection's first cell
     click(cell(3, 0), true);
     expect(marked()).toEqual([cell(1, 0), cell(2, 0), cell(3, 0)]);
-    // Nothing edited or selected: just that cell
+    // Esc drops the edit and leaves the cell selected; a second Esc ends that
     click(cell(0, 1), false);
     key(editor.querySelector(".tp-cell-editor")!, "Escape");
     await flush();
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+    expect(marked()).toEqual([cell(0, 1)]);
+    key(editor, "Escape");
+    expect(marked()).toEqual([]);
+    // Nothing edited or selected: just that cell
     click(cell(2, 1), true);
     expect(marked()).toEqual([cell(2, 1)]);
 
@@ -332,6 +337,15 @@ describe("Cell editor", () => {
     await go("Enter", { shiftKey: true });
     expect(at()).toEqual([2, 0]);
     expect(selected()).toBe(false);
+    // Enter, Tab and Ctrl+arrows follow the setting
+    await go("Enter", {});
+    expect(at()).toEqual([3, 0]);
+    expect(selected()).toBe(true);
+    await go("Tab", {});
+    expect(selected()).toBe(true);
+    await go("ArrowUp", { ctrlKey: true });
+    expect(at()).toEqual([2, 1]);
+    expect(selected()).toBe(true);
 
     // Without the selection module, Ctrl+Shift+arrows open the cell with its text selected
     controller.stop();

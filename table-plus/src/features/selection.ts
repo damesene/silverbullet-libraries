@@ -6,6 +6,7 @@
 // cells selected.
 import type { CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellValue } from "../dom.ts";
+import { PAGE_ROWS } from "../core/editor.ts";
 import { deleteColumnsAt, deleteRowsAt } from "../core/structure.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
@@ -124,12 +125,12 @@ export class Selection implements Feature {
     }
     // Delete empties the selected cells; in a field (a cell editor, a filter) it deletes text as usual
     const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
-    // Shift+arrows (Ctrl+Shift+arrows too) move the selection's last cell
-    const step = STEPS[e.key];
-    if (step && e.shiftKey && !e.altKey && !e.metaKey && !inField) {
+    // Keys that move the selection's last cell: Shift extends to it, else the selection is that cell
+    const target = !inField && !e.altKey && !e.metaKey ? this.keyTarget(e) : undefined;
+    if (target) {
       e.preventDefault();
       e.stopPropagation();
-      this.extendBy(step[0], step[1]);
+      this.moveTo(target, e.shiftKey);
       return true;
     }
     if (e.key === "Delete" && !inField && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -160,19 +161,54 @@ export class Selection implements Feature {
     this.show();
   }
 
-  /** Moves the selection's last cell by rows (as shown) and columns, within the table */
-  private extendBy(rows: number, columns: number): void {
+  /**
+   * Where a key takes the selection's last cell (rows as shown): Ctrl+arrows
+   * and Shift+arrows a cell, Home / End the row's first / last cell, Ctrl+Home
+   * / End the table's first / last cell, PageUp / PageDown 10 rows (PageUp
+   * stops at the first body row, as in the cell editor); undefined: not such a key
+   */
+  private keyTarget(e: KeyboardEvent): CellRef | undefined {
     const selection = this.selection;
     const widget = selection && this.host.widgetForKey(selection.key);
     const info = widget && this.host.infoOf(widget);
-    if (!selection || !info) return;
+    if (!selection || !info) return undefined;
     const shown = this.host.shownRows(info);
-    const at = shown.findIndex((tr) => (selection.focus.row === 0 ? tr === info.table.rows[0] : tr.dataset.tpRow === String(selection.focus.row)));
-    const tr = shown[Math.max(0, Math.min(shown.length - 1, at + rows))];
-    if (at < 0 || !tr) return;
-    const column = Math.max(0, Math.min(info.columns - 1, selection.focus.column + columns));
-    selection.focus = { row: tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow), column };
+    const rowOf = (tr: HTMLTableRowElement) => (tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow));
+    const at = shown.findIndex((tr) => rowOf(tr) === selection.focus.row);
+    if (at < 0) return undefined;
+    const ctrl = e.ctrlKey;
+    let r = at;
+    let column = selection.focus.column;
+    const step = STEPS[e.key];
+    if (step) {
+      // Plain arrows stay with SilverBullet's editor
+      if (!e.shiftKey && !ctrl) return undefined;
+      r += step[0];
+      column += step[1];
+    } else if (e.key === "Home") {
+      column = 0;
+      if (ctrl) r = 0;
+    } else if (e.key === "End") {
+      column = info.columns - 1;
+      if (ctrl) r = shown.length - 1;
+    } else if (e.key === "PageUp" && !ctrl) r = r === 0 ? 0 : Math.max(1, r - PAGE_ROWS);
+    else if (e.key === "PageDown" && !ctrl) r = r + PAGE_ROWS;
+    else return undefined;
+    const tr = shown[Math.max(0, Math.min(shown.length - 1, r))]!;
+    return { row: rowOf(tr), column: Math.max(0, Math.min(info.columns - 1, column)) };
+  }
+
+  /** The selection's last cell to `to`; without `extend` the selection is just that cell */
+  private moveTo(to: CellRef, extend: boolean): void {
+    const selection = this.selection;
+    if (!selection) return;
+    this.selection = { key: selection.key, anchor: extend ? selection.anchor : to, focus: to };
     this.show();
+    // Out of view (a page down): scrolled to
+    const widget = this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    const cell = info && this.host.cellAt(info, to);
+    cell?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }
 
   selected(info: WidgetInfo): readonly CellRef[] | undefined {

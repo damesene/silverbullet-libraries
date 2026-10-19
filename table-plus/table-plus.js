@@ -16,7 +16,7 @@ var SETTINGS = {
     default: false,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
-  // A click on a cell selects its text (Shift+Enter does not); off: the reverse
+  // A click, Enter, Tab and Ctrl+arrows open a cell with its text selected (Shift+Enter does not); off: the reverse
   selectOnClick: {
     path: "tablePlus.editor.selectOnClick",
     default: false,
@@ -783,7 +783,7 @@ var CellEditing = class {
   editor;
   // A cell to edit once its table is rendered again (after a write)
   pending;
-  // The selectOnClick setting: a plain click selects the cell's text
+  // The selectOnClick setting: a plain click, Enter, Tab and Ctrl+arrows select the cell's text
   selectOnClick = false;
   get active() {
     return this.editor;
@@ -796,7 +796,7 @@ var CellEditing = class {
   dropPending() {
     this.pending = void 0;
   }
-  open(widget, info, cell, select = false) {
+  open(widget, info, cell, select = this.selectOnClick) {
     const ref = this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
     this.context.holdRow(widget, info, ref.row);
@@ -845,7 +845,7 @@ var CellEditing = class {
         void this.navigate(e.key, e.shiftKey);
       } else if (e.key === "Escape") {
         e.preventDefault();
-        void this.finish(false);
+        void this.cancel();
       } else if (e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
         e.preventDefault();
         void this.ctrlEnter();
@@ -940,11 +940,20 @@ var CellEditing = class {
   }
   /**
    * Whether a cell reached with the keyboard opens with its text selected:
-   * with Shift (Shift+Enter; the selectOnClick setting swaps that),
-   * without it with the cursor at the end
+   * as the selectOnClick setting says, with Shift (Shift+Enter) the reverse
    */
   selectsWith(shift) {
-    return shift && !this.selectOnClick;
+    return shift !== this.selectOnClick;
+  }
+  /** Esc: the edit is dropped, the cell stays selected (marked) where a feature selects; a second Esc ends that */
+  async cancel() {
+    const active = this.editor;
+    const info = active && this.host.infoOf(active.widget);
+    await this.finish(false);
+    if (active && info && this.host.selectsCells()) {
+      const at = { row: active.row, column: active.column };
+      this.host.selectCells(info, at, at);
+    }
   }
   /** Enter: save; with the moveDown setting also edit the cell below (Shift: as on a Shift+click) */
   async enter(shift) {
@@ -6946,11 +6955,11 @@ var Selection = class {
       return true;
     }
     const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
-    const step = STEPS[e.key];
-    if (step && e.shiftKey && !e.altKey && !e.metaKey && !inField) {
+    const target = !inField && !e.altKey && !e.metaKey ? this.keyTarget(e) : void 0;
+    if (target) {
       e.preventDefault();
       e.stopPropagation();
-      this.extendBy(step[0], step[1]);
+      this.moveTo(target, e.shiftKey);
       return true;
     }
     if (e.key === "Delete" && !inField && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -6977,19 +6986,51 @@ var Selection = class {
     this.selection = { key: info.key, anchor, focus };
     this.show();
   }
-  /** Moves the selection's last cell by rows (as shown) and columns, within the table */
-  extendBy(rows, columns) {
+  /**
+   * Where a key takes the selection's last cell (rows as shown): Ctrl+arrows
+   * and Shift+arrows a cell, Home / End the row's first / last cell, Ctrl+Home
+   * / End the table's first / last cell, PageUp / PageDown 10 rows (PageUp
+   * stops at the first body row, as in the cell editor); undefined: not such a key
+   */
+  keyTarget(e) {
     const selection = this.selection;
     const widget = selection && this.host.widgetForKey(selection.key);
     const info = widget && this.host.infoOf(widget);
-    if (!selection || !info) return;
+    if (!selection || !info) return void 0;
     const shown = this.host.shownRows(info);
-    const at = shown.findIndex((tr2) => selection.focus.row === 0 ? tr2 === info.table.rows[0] : tr2.dataset.tpRow === String(selection.focus.row));
-    const tr = shown[Math.max(0, Math.min(shown.length - 1, at + rows))];
-    if (at < 0 || !tr) return;
-    const column = Math.max(0, Math.min(info.columns - 1, selection.focus.column + columns));
-    selection.focus = { row: tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow), column };
+    const rowOf = (tr2) => tr2 === info.table.rows[0] ? 0 : Number(tr2.dataset.tpRow);
+    const at = shown.findIndex((tr2) => rowOf(tr2) === selection.focus.row);
+    if (at < 0) return void 0;
+    const ctrl = e.ctrlKey;
+    let r = at;
+    let column = selection.focus.column;
+    const step = STEPS[e.key];
+    if (step) {
+      if (!e.shiftKey && !ctrl) return void 0;
+      r += step[0];
+      column += step[1];
+    } else if (e.key === "Home") {
+      column = 0;
+      if (ctrl) r = 0;
+    } else if (e.key === "End") {
+      column = info.columns - 1;
+      if (ctrl) r = shown.length - 1;
+    } else if (e.key === "PageUp" && !ctrl) r = r === 0 ? 0 : Math.max(1, r - PAGE_ROWS);
+    else if (e.key === "PageDown" && !ctrl) r = r + PAGE_ROWS;
+    else return void 0;
+    const tr = shown[Math.max(0, Math.min(shown.length - 1, r))];
+    return { row: rowOf(tr), column: Math.max(0, Math.min(info.columns - 1, column)) };
+  }
+  /** The selection's last cell to `to`; without `extend` the selection is just that cell */
+  moveTo(to, extend) {
+    const selection = this.selection;
+    if (!selection) return;
+    this.selection = { key: selection.key, anchor: extend ? selection.anchor : to, focus: to };
     this.show();
+    const widget = this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    const cell = info && this.host.cellAt(info, to);
+    cell?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }
   selected(info) {
     return this.selection?.key === info.key ? this.refs(info) : void 0;

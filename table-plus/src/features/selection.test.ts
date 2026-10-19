@@ -74,6 +74,42 @@ describe("Selecting cells", () => {
     expect(text).toContain("| Plum | 5 |");
   });
 
+  it("moves a selected cell with Home, End, PageUp and PageDown, and extends to there with Shift", async () => {
+    const rows = Array.from({ length: 13 }, (_, i) => `| r${i + 1} | ${i + 1} | x |`).join("\n");
+    await setup(`| A | B | C |\n|---|---|---|\n${rows}\n`);
+    const marked = () => Array.from(editor.querySelectorAll(".tp-selected"));
+    // A cell left selected by Esc in its editor
+    clickOn(cell(2, 1));
+    key(editor.querySelector(".tp-cell-editor")!, "Escape");
+    await flush();
+    expect(marked()).toEqual([cell(2, 1)]);
+    key(editor, "End");
+    expect(marked()).toEqual([cell(2, 2)]);
+    key(editor, "Home", { shiftKey: true });
+    expect(marked()).toEqual([cell(2, 0), cell(2, 1), cell(2, 2)]);
+    key(editor, "PageDown");
+    expect(marked()).toEqual([cell(12, 0)]);
+    key(editor, "PageDown"); // stops at the last row
+    expect(marked()).toEqual([cell(13, 0)]);
+    key(editor, "PageUp", { shiftKey: true });
+    expect(marked().length).toBe(11);
+    key(editor, "PageUp");
+    expect(marked()).toEqual([cell(1, 0)]); // the first body row, not the header
+    key(editor, "End", { ctrlKey: true });
+    expect(marked()).toEqual([cell(13, 2)]);
+    key(editor, "Home", { ctrlKey: true, shiftKey: true });
+    expect(marked().length).toBe(14 * 3);
+    // Plain arrows stay with SilverBullet's editor; Ctrl+arrows move the cell, with Shift extend
+    key(editor, "ArrowDown");
+    expect(marked().length).toBe(14 * 3);
+    key(editor, "ArrowDown", { ctrlKey: true });
+    expect(marked()).toEqual([cell(1, 0)]);
+    key(editor, "ArrowRight", { ctrlKey: true });
+    expect(marked()).toEqual([cell(1, 1)]);
+    key(editor, "ArrowDown", { ctrlKey: true, shiftKey: true });
+    expect(marked()).toEqual([cell(1, 1), cell(2, 1)]);
+  });
+
   it("leaves a click on a cell to the cell editor", async () => {
     await setup(PAGE);
     clickOn(cell(1, 1));

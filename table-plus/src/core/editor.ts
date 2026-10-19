@@ -26,8 +26,8 @@ const NAVIGATION_KEYS = new Set([
   "PageDown",
 ]);
 
-// Rows a PageUp / PageDown jumps (Ctrl) or moves a row (Ctrl+Alt)
-const PAGE_ROWS = 10;
+// Rows a PageUp / PageDown jumps (Ctrl; in a selection without Ctrl) or moves a row (Ctrl+Alt)
+export const PAGE_ROWS = 10;
 
 // The cell editor as features see it, and what it takes to put the cell back
 type ActiveEditor = CellEditor & {
@@ -56,7 +56,7 @@ export class CellEditing {
   private editor: ActiveEditor | undefined;
   // A cell to edit once its table is rendered again (after a write)
   private pending: (FocusTarget & { key: string; until: number }) | undefined;
-  // The selectOnClick setting: a plain click selects the cell's text
+  // The selectOnClick setting: a plain click, Enter, Tab and Ctrl+arrows select the cell's text
   selectOnClick = false;
 
   constructor(
@@ -82,7 +82,8 @@ export class CellEditing {
     widget: HTMLElement,
     info: WidgetInfo,
     cell: HTMLTableCellElement,
-    select = false,
+    // Opened with the keyboard (or after a write): as the setting says
+    select = this.selectOnClick,
   ): void {
     const ref = this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
@@ -140,7 +141,7 @@ export class CellEditing {
         void this.navigate(e.key, e.shiftKey);
       } else if (e.key === "Escape") {
         e.preventDefault();
-        void this.finish(false);
+        void this.cancel();
       } else if (e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
         e.preventDefault();
         void this.ctrlEnter();
@@ -252,11 +253,21 @@ export class CellEditing {
 
   /**
    * Whether a cell reached with the keyboard opens with its text selected:
-   * with Shift (Shift+Enter; the selectOnClick setting swaps that),
-   * without it with the cursor at the end
+   * as the selectOnClick setting says, with Shift (Shift+Enter) the reverse
    */
   private selectsWith(shift: boolean): boolean {
-    return shift && !this.selectOnClick;
+    return shift !== this.selectOnClick;
+  }
+
+  /** Esc: the edit is dropped, the cell stays selected (marked) where a feature selects; a second Esc ends that */
+  private async cancel(): Promise<void> {
+    const active = this.editor;
+    const info = active && this.host.infoOf(active.widget);
+    await this.finish(false);
+    if (active && info && this.host.selectsCells()) {
+      const at = { row: active.row, column: active.column };
+      this.host.selectCells(info, at, at);
+    }
   }
 
   /** Enter: save; with the moveDown setting also edit the cell below (Shift: as on a Shift+click) */

@@ -27,7 +27,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 ## Editing cells
 
 * Click a cell to edit it in place. Enter or clicking elsewhere saves, Esc cancels.
-* A click puts the cursor at the end of the cell's text; with the *Click selects the cell's text* setting it selects the whole text, to type over it. See [[#Settings]].
+* A click puts the cursor at the end of the cell's text; with the *Click selects the cell's text* setting it selects the whole text, to type over it, and so do Enter, Tab and Ctrl+arrows moving to the next cell. See [[#Settings]].
 * Shift+click selects cells, as in a spreadsheet: see [[#Copying cells]].
 * Links, tasks and buttons in cells work as before: clicking them does not start editing.
 * A column always needs a name: emptying a header cell keeps the old name.
@@ -38,7 +38,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 |---|---|
 | Enter | Save, edit the cell below (with the `save` setting: only save) |
 | Ctrl+Enter | Save, add a row below, edit it |
-| Esc | Cancel |
+| Esc | Cancel; the cell stays selected (marked) for the keys of [[#Copying cells]], a second Esc ends that |
 | Tab | Save, edit the next cell |
 | Shift+Tab | Save, edit the previous cell |
 | Ctrl+arrows | Save, edit the cell beside |
@@ -52,7 +52,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Ctrl+Alt+PageUp / PageDown | Move the row 10 places up / down |
 
 * Tab on the last cell adds a row.
-* Shift+Enter opens the cell below with its whole text selected, or with the cursor at the end when the *Click selects the cell's text* setting is on. See [[#Settings]].
+* Shift+Enter opens the cell below the other way round: with its whole text selected, or with the cursor at the end when the *Click selects the cell's text* setting is on. See [[#Settings]].
 * Ctrl+Alt+arrows save the cell and move it with its row or column, and keep editing it. Rows cannot move while sorted or filtered, nor the header row.
 * Enter (and Shift+Enter) also moves to the cell below; with the `save` setting it only saves. See [[#Settings]].
 * Browsers use Ctrl+PageUp / PageDown to switch tabs and do not pass them to the page. They work where SilverBullet runs without tabs (installed as an app).
@@ -63,6 +63,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * Press on a cell and drag across others, the header included if you like: the cells in between are selected. A plain click still edits the cell.
 * **Shift+click** a cell: the cells from the one being edited (it is saved) to this one are selected; with cells selected already, from the first of them; else just this cell.
 * **Shift+arrows** (Ctrl+Shift+arrows too) move the selection's far corner by a cell; in a cell editor, Ctrl+Shift+arrows start a selection there.
+* With cells selected, **Ctrl+arrows** go to the cell beside, **Home / End** to the row's first / last cell, **Ctrl+Home / End** to the table's first / last cell, **PageUp / PageDown** 10 rows up / down (PageUp stops at the first row under the header). The selection is then that cell; with Shift it extends to it.
 * **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows).
 * Cells copy what they show: a formula's result, a link's text.
 * The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
@@ -421,8 +422,8 @@ Setting a part replaces what an earlier `config.set` of the same part set: set e
   * `save`: Enter saves the cell.
   * `moveDown`: Enter saves and edits the cell below; Shift+Enter too, opening it with its text selected (with *Click selects the cell's text*: with the cursor at the end).
 * **Click selects the cell's text** (`selectOnClick`), default `false`
-  * `false`: a click puts the cursor at the end of the cell's text; Shift+Enter opens the cell below with its whole text selected.
-  * `true`: a click selects the whole text; Shift+Enter opens the cell below with the cursor at the end. Enter, Tab and Ctrl+arrows put the cursor at the end either way.
+  * `false`: a click, Enter, Tab and Ctrl+arrows open a cell with the cursor at the end of its text; Shift+Enter opens the cell below with its whole text selected.
+  * `true`: they open it with its whole text selected; Shift+Enter with the cursor at the end.
   * Without the `selection` module, Shift+click and Ctrl+Shift+arrows open the cell as Shift+Enter does.
 * **Ctrl+Enter adds a row** (`ctrlEnterAddsRow`), default `true`
   * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
@@ -553,7 +554,7 @@ config.define("tablePlus", {
         selectOnClick = {
           type = "boolean",
           default = false,
-          description = "A click on a cell opens its editor with all its text selected, Shift+Enter with the cursor at the end. Off: the reverse (a click puts the cursor at the end, Shift+Enter selects the text).",
+          description = "A click on a cell, Enter, Tab and Ctrl+arrows open its editor with all its text selected, Shift+Enter with the cursor at the end. Off: the reverse.",
           ui = { category = "Table Plus", label = "Click selects the cell's text", priority = 2.5 },
         },
         ctrlEnterAddsRow = {
