@@ -72,6 +72,7 @@ describe("Controller", () => {
     const menu = document.querySelector(".tp-menu")!;
     expect(Array.from(menu.querySelectorAll(".tp-menu-item, .tp-menu-separator")).map((e) => e.textContent || "—")).toEqual([
       "Name table: prices",
+      "Format table",
       "Edit markdown",
       "—",
       "Remove metadata",
@@ -163,6 +164,15 @@ describe("Controller", () => {
       await flush();
       expect(order()).toEqual(["2", "3", "1"]);
     });
+  });
+
+  it("formats the table's markdown from the toolbar's menu, offered only when it is not aligned", async () => {
+    await setup("| A | Long |\n|---|---|\n| 1 | x |\n", { "tablePlus.autoFormat": false });
+    tableMenuItem(/^Format table$/)!.click();
+    await flush();
+    expect(text).toBe("| A   | Long |\n| --- | ---- |\n| 1   | x    |\n");
+    await controller.scan();
+    expect(tableMenuItem(/^Format table$/)).toBeUndefined();
   });
 
   it("unpins all rows and columns from the toolbar's menu, leaving them where they are", async () => {

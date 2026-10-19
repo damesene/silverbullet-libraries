@@ -390,6 +390,7 @@ Setting a part replaces what an earlier `config.set` of the same part set: set e
 * **Format tables** (`tablePlus.autoFormat`), default `true`
   * `true`: a table edited with Table Plus is written with aligned pipes, padded to the widest cell of each column and aligned as its delimiter row says.
   * `false`: each table keeps its own style: aligned tables stay aligned, compact tables stay compact, untouched rows are kept byte for byte.
+  * Either way, *Format table* in the ⋯ menu of a table's toolbar aligns that table now; it shows when the table is not aligned (e.g. typed by hand).
 
 ### Cell editor (`tablePlus.editor`)
 

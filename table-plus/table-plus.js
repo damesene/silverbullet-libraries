@@ -1219,6 +1219,7 @@ var ICONS = {
   // A padlock: a name that stays
   fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
   columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
+  format: svg('<path d="M4 6h16M4 12h16M4 18h16M9 4v16M15 4v16"/>'),
   alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
   alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
   alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
@@ -7939,6 +7940,18 @@ var Controller = class {
           run: () => {
             const [w] = this.current(widget, info);
             void this.write(w, (t) => t, { pins: NO_PINS });
+          }
+        }
+      ] : [],
+      // Its markdown not aligned (typed by hand, or the Format tables setting off)
+      ...serializeTable({ ...parseTable(info.source), padded: true }) !== info.source ? [
+        {
+          label: "Format table",
+          title: "Align the table's markdown: its columns padded to one width",
+          icon: ICONS.format,
+          run: () => {
+            const [w] = this.current(widget, info);
+            void this.write(w, (t) => ({ ...t, padded: true }));
           }
         }
       ] : [],
