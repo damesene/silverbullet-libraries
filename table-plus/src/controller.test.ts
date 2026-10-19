@@ -33,7 +33,7 @@ describe("Controller", () => {
   });
 
   it("leaves out naming with the names module off, the names still working in formulas", async () => {
-    const NAMED = '| Price <meta n="price"> | Total |\n|---|---|\n| 2 | 0.5 <meta n="vat"> |\n| 3 | 4.5 <meta f="=[@price]*(1+vat)"> |\n| <meta name="prices"> |\n';
+    const NAMED = '| Price <meta n="price"> | Total |\n|---|---|\n| 2 | 0.5 <meta cn="vat"> |\n| 3 | 4.5 <meta f="=[@price]*(1+vat)"> |\n| <meta name="prices"> |\n';
     await setup(NAMED, { "tablePlus.metadata": true, "tablePlus.editor.enterKey": "save", "tablePlus.modules.names.enabled": false });
     expect(document.querySelector(".tp-named")).toBeNull();
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
@@ -43,7 +43,7 @@ describe("Controller", () => {
     editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "1";
     key(editor.querySelector(".tp-cell-editor")!, "Enter");
     await flush();
-    expect(text).toContain('| 2 | 1 <meta n="vat"> |\n| 3 | 6 <meta f="=[@price]*(1+vat)"> |');
+    expect(text).toContain('| 2 | 1 <meta cn="vat"> |\n| 3 | 6 <meta f="=[@price]*(1+vat)"> |');
     // On: the fixed name's mark in the header, and the named cell's
     controller.stop();
     document.body.replaceChildren();

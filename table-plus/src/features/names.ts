@@ -16,7 +16,7 @@ import { ICONS } from "../icons.ts";
 import { findTables, locateBySource, parseTable } from "../markdown.ts";
 import { metaName, sameTableName, tableNameProblem, withMetaName } from "../meta.ts";
 import type { MenuEntry } from "../menu.ts";
-import { namedRows, nameOf, nameProblem, rowNameIn, withName, withRowName } from "../names.ts";
+import { cellNameOf, namedRows, nameOf, nameProblem, rowNameIn, withCellName, withName } from "../names.ts";
 import { setCell } from "../ops.ts";
 
 export class Names implements Feature {
@@ -36,7 +36,7 @@ export class Names implements Feature {
     for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
       const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
       cells.forEach((raw, column) => {
-        const name = nameOf(raw);
+        const name = cellNameOf(raw);
         const cell = tr.cells[column];
         if (!name || !cell) return;
         cell.classList.add("tp-named");
@@ -107,7 +107,7 @@ export class Names implements Feature {
   /** "Name row" and "Name cell" in a row's menu, the cell being the one in `column` */
   rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
     const cells = parseTable(info.source).rows[row]?.cells ?? [];
-    const name = nameOf(cells[column] ?? "");
+    const name = cellNameOf(cells[column] ?? "");
     const allowed = this.host.metadataEnabled || name !== undefined;
     const rowName = rowNameIn(cells)?.name;
     const rowAllowed = this.host.metadataEnabled || rowName !== undefined;
@@ -162,13 +162,13 @@ export class Names implements Feature {
     // Renamed where the name is (a column inserted or moved may have taken it out of the first cell)
     await this.host.write(widget, (t) => {
       const column = rowNameIn(t.rows[row]?.cells ?? [])?.column ?? 0;
-      return setCell(t, row, column, withRowName(t.rows[row]?.cells[column] ?? "", name || undefined));
+      return setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || undefined));
     });
     this.host.focusEditor(widget);
   }
 
   private async nameCell(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number, column: number): Promise<void> {
-    const current = nameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
+    const current = cellNameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
     const answer = await this.host.promptText("Name of the cell (letters, digits and _; empty: none)", current);
     if (answer === undefined) return;
     const name = answer.trim();
@@ -181,7 +181,7 @@ export class Names implements Feature {
       const own = locateBySource(text, shownInfo.hint, shownInfo.source);
       const taken = findTables(text).some((range) =>
         parseTable(range.text).rows.some((r, ri) =>
-          ri > 0 && r.cells.some((cell, ci) => nameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column)),
+          ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column)),
         ),
       );
       if (taken) problem = `another cell on this page is named ${name}`;
@@ -191,7 +191,7 @@ export class Names implements Feature {
       return;
     }
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    await this.host.write(widget, (t) => setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || undefined)));
+    await this.host.write(widget, (t) => setCell(t, row, column, withCellName(t.rows[row]?.cells[column] ?? "", name || undefined)));
     this.host.focusEditor(widget);
   }
 

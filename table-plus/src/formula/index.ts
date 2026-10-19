@@ -18,7 +18,7 @@ import { type ColumnId, columnIdOf, columnKey, findColumn, followColumn, sameCol
 import { dateArithmetic, parseDate } from "./dates.ts";
 import { FUNCTIONS } from "./functions/index.ts";
 import { escapeCell, escapeMetaValue, type Table, unescapeCell, unescapeMetaValue } from "../markdown.ts";
-import { CELL_RE, keepNames, namedCells, namedRows, nameOf, withName, withoutName } from "../names.ts";
+import { CELL_RE, cellNameOf, keepNames, namedCells, namedRows, withCellName, withoutName } from "../names.ts";
 import { setCell } from "../ops.ts";
 import {
   asTime,
@@ -57,7 +57,7 @@ export function formulaOf(cell: string): StoredFormula | undefined {
   if (!match) return undefined;
   const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
   const rest = cell.slice(0, match.index) + cell.slice(match.index + match[0].length);
-  const name = nameOf(rest);
+  const name = cellNameOf(rest);
   return { formula: formula.startsWith("=") ? formula : `=${formula}`, value: withoutName(rest), ...(name ? { name } : {}) };
 }
 
@@ -65,7 +65,7 @@ export function formulaOf(cell: string): StoredFormula | undefined {
 export function formulaCell(value: string, formula: string, name?: string): string {
   const tag = `<meta f="${escapeMetaValue(formula)}">`;
   const shown = escapeCell(value);
-  return withName(shown === "" ? tag : `${shown} ${tag}`, name);
+  return withCellName(shown === "" ? tag : `${shown} ${tag}`, name);
 }
 
 /** Whether text typed into a cell is a formula: "=" and something after it */

@@ -325,11 +325,11 @@ describe("Formulas", () => {
     });
 
     it("keeps a cell's name when the cell is edited", async () => {
-      await setup('| A |\n|---|\n| 1 <meta n="one"> |\n', { "tablePlus.editor.enterKey": "save" });
+      await setup('| A |\n|---|\n| 1 <meta cn="one"> |\n', { "tablePlus.editor.enterKey": "save" });
       clickOn(cell(1, 0));
       expect(field().value).toBe("1");
       await type("2");
-      expect(text).toBe('| A |\n|---|\n| 2 <meta n="one"> |\n');
+      expect(text).toBe('| A |\n|---|\n| 2 <meta cn="one"> |\n');
     });
   });
 
@@ -362,7 +362,7 @@ describe("Formulas", () => {
       item(/^Name cell/).click();
       await flush();
       await controller.scan();
-      expect(text).toContain('| VAT | 0.21 <meta n="vat"> |');
+      expect(text).toContain('| VAT | 0.21 <meta cn="vat"> |');
       expect(text).toContain('| Pear | 100 | 121 <meta f="=[@price]*(1+vat)"> |');
       expect(cell(1, 1).classList.contains("tp-named")).toBe(true);
       expect(cell(1, 1).title).toBe("Name: vat");
@@ -370,12 +370,12 @@ describe("Formulas", () => {
       clickOn(cell(1, 1));
       expect(field().value).toBe("0.21");
       await type("0.1");
-      expect(text).toContain('| VAT | 0.1 <meta n="vat"> |');
+      expect(text).toContain('| VAT | 0.1 <meta cn="vat"> |');
       expect(text).toContain('| Pear | 100 | 110 <meta f="=[@price]*(1+vat)"> |');
     });
 
     it("names a row from its menu, refusing a name another row of the table has", async () => {
-      await setup('| Name | Price |\n|---|---|\n| Pear <meta r="pear"> | 12 |\n| Fig | 3 |\n', { "tablePlus.editor.enterKey": "save" });
+      await setup('| Name | Price |\n|---|---|\n| Pear <meta n="pear"> | 12 |\n| Fig | 3 |\n', { "tablePlus.editor.enterKey": "save" });
       const prompt = vi.spyOn(window, "prompt");
       prompt.mockReturnValue("PEAR");
       openRowMenu(2, 1);
@@ -387,18 +387,18 @@ describe("Formulas", () => {
       item(/^Name row/).click();
       await flush();
       await controller.scan();
-      expect(text).toBe('| Name | Price |\n|---|---|\n| Pear <meta r="pear"> | 12 |\n| Fig <meta r="fig"> | 3 |\n');
+      expect(text).toBe('| Name | Price |\n|---|---|\n| Pear <meta n="pear"> | 12 |\n| Fig <meta n="fig"> | 3 |\n');
       expect(cell(2, 0).classList.contains("tp-row-named")).toBe(true);
       expect(cell(2, 0).title).toBe("Row name: fig");
       // Editing the first cell keeps the row's name
       clickOn(cell(2, 0));
       expect(field().value).toBe("Fig");
       await type("Figs");
-      expect(text).toContain('| Figs <meta r="fig"> | 3 |');
+      expect(text).toContain('| Figs <meta n="fig"> | 3 |');
     });
 
     it("asks before deleting a column that holds names of rows or cells", async () => {
-      const NAMED = '| Name | Price | Note |\n|---|---|---|\n| Pear <meta r="pear"> | 12 | a |\n| Fig <meta r="fig"> | 3 <meta n="fig_price"> | b |\n';
+      const NAMED = '| Name | Price | Note |\n|---|---|---|\n| Pear <meta n="pear"> | 12 | a |\n| Fig <meta n="fig"> | 3 <meta cn="fig_price"> | b |\n';
       await setup(NAMED);
       const confirm = vi.spyOn(window, "confirm");
       const deleteColumn = async (column: number) => {
@@ -426,15 +426,15 @@ describe("Formulas", () => {
       confirm.mockClear();
       await deleteColumn(2);
       expect(confirm).not.toHaveBeenCalled();
-      expect(text).toBe('| Name | Price |\n|---|---|\n| Pear <meta r="pear"> | 12 |\n| Fig <meta r="fig"> | 3 <meta n="fig_price"> |\n');
+      expect(text).toBe('| Name | Price |\n|---|---|\n| Pear <meta n="pear"> | 12 |\n| Fig <meta n="fig"> | 3 <meta cn="fig_price"> |\n');
       await controller.scan();
       confirm.mockReturnValue(true);
       await deleteColumn(0);
-      expect(text).toBe('| Price |\n|---|\n| 12 |\n| 3 <meta n="fig_price"> |\n');
+      expect(text).toBe('| Price |\n|---|\n| 12 |\n| 3 <meta cn="fig_price"> |\n');
     });
 
     it("refuses a name another cell on the page has, or a function's", async () => {
-      await setup('| A | B |\n|---|---|\n| 1 <meta n="one"> | 2 |\n');
+      await setup('| A | B |\n|---|---|\n| 1 <meta cn="one"> | 2 |\n');
       const prompt = vi.spyOn(window, "prompt");
       prompt.mockReturnValue("ONE");
       openRowMenu(1, 1);
@@ -446,15 +446,15 @@ describe("Formulas", () => {
       item(/^Name cell/).click();
       await flush();
       expect(flashes.pop()).toBe("Table Plus: sum is a function's name");
-      expect(text).toBe('| A | B |\n|---|---|\n| 1 <meta n="one"> | 2 |\n');
+      expect(text).toBe('| A | B |\n|---|---|\n| 1 <meta cn="one"> | 2 |\n');
     });
 
     it("leaves the names out of a duplicated row: a name is the page's", async () => {
-      await setup('| A | B |\n|---|---|\n| 1 <meta n="one"> | 2 |\n');
+      await setup('| A | B |\n|---|---|\n| 1 <meta cn="one"> | 2 |\n');
       openRowMenu(1, 1);
       item(/^Duplicate row/).click();
       await flush();
-      expect(text).toBe('| A | B |\n|---|---|\n| 1 <meta n="one"> | 2 |\n| 1 | 2 |\n');
+      expect(text).toBe('| A | B |\n|---|---|\n| 1 <meta cn="one"> | 2 |\n| 1 | 2 |\n');
     });
   });
 

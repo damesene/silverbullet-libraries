@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { columnIdOf, columnKey, findColumn } from "./columns.ts";
 import { formulaCell, formulaOf, recalculate, referencedColumn } from "./formula/index.ts";
 import { parseMetaRow, parseTable } from "./markdown.ts";
-import { nameOf, nameProblem, withName, withoutName } from "./names.ts";
+import { nameOf, nameProblem, withCellName, withName, withoutName } from "./names.ts";
 
 describe("names in cells", () => {
   it("reads, writes and removes a cell's name, keeping its text", () => {
@@ -11,7 +11,7 @@ describe("names in cells", () => {
     expect(withName("Unit price", "price")).toBe('Unit price <meta n="price">');
     expect(withName('Unit price <meta n="price">', "cost")).toBe('Unit price <meta n="cost">');
     expect(withName('Unit price <meta n="price">', undefined)).toBe("Unit price");
-    expect(withName("", "vat")).toBe('<meta n="vat">');
+    expect(withCellName("", "vat")).toBe('<meta cn="vat">');
     expect(nameOf("Unit price")).toBeUndefined();
   });
 
@@ -22,7 +22,8 @@ describe("names in cells", () => {
   });
 
   it("is not a metadata row when a last row holds only a named empty cell", () => {
-    expect(parseMetaRow('| <meta n="vat"> | |')).toBeUndefined();
+    expect(parseMetaRow('| <meta cn="vat"> | |')).toBeUndefined();
+    expect(parseMetaRow('| <meta n="pear"> | |')).toBeUndefined();
   });
 });
 
@@ -51,7 +52,7 @@ describe("a column's fixed name", () => {
   it("keeps a formula cell's name when its result is written again", () => {
     const table = parseTable(`| A |\n|---|\n| 2 |\n| ${formulaCell("0", "=A1*2", "double")} |`);
     const cell = recalculate(table).rows[2]!.cells[0]!;
-    expect(cell).toBe('4 <meta f="=A1*2"> <meta n="double">');
+    expect(cell).toBe('4 <meta f="=A1*2"> <meta cn="double">');
     expect(formulaOf(cell)).toEqual({ formula: "=A1*2", value: "4", name: "double" });
   });
 

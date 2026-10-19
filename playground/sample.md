@@ -110,10 +110,10 @@ The next table is named `prices` (*Name* in its toolbar, stored in its metadata 
 
 | Fruit | Price <meta n="price"> |
 |---|--:|
-| Pear <meta r="pear"> | 12 |
-| Fig <meta r="fig"> | 25 |
+| Pear <meta n="pear"> | 12 |
+| Fig <meta n="fig"> | 25 |
 | Kiwi | 6 |
-| VAT rate | 0.21 <meta n="vat"> |
+| VAT rate | 0.21 <meta cn="vat"> |
 | <meta name="prices"> |
 
 The order refers to it: `prices!B1` by position, `prices![price]` by column, `prices!pear[price]` by row name, `XLOOKUP` by a value, and `vat` by the cell's name. Change a price above: these follow.

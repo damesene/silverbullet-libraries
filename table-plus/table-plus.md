@@ -166,7 +166,7 @@ A column can have a fixed name, by which formulas and the stored sorting name it
 
 A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)`, or on another page `[[Prices]]vat`. The name stays with the cell wherever it is moved (also in the markdown), so such references never need to change. Open the row's menu (the ⠿ grip left of the row, for the cell under the pointer or being edited), click *Name cell* and type the name (letters, digits and `_`); an empty name removes it.
 
-* It is stored in the cell as a hidden `<meta n="vat">`: `| VAT | 0.21 <meta n="vat"> |`. A named cell has a mark in its corner; hover it for the name.
+* It is stored in the cell as a hidden `<meta cn="vat">`: `| VAT | 0.21 <meta cn="vat"> |`. A named cell has a mark in its corner; hover it for the name.
 * A name is the page's: two cells on a page cannot have the same one, and it cannot be a function's name or read as a cell (`A1`). A formula looks for it in its own table first, then in the page's other tables.
 * When a table with named cells is edited, the tables that use them get their new results in the same edit. When the cell is changed in the markdown, *Recalculate* is highlighted.
 * Editing the cell changes its value only: the name stays. It needs the *Store table metadata* setting; *Remove metadata* removes it.
@@ -175,7 +175,7 @@ A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)
 
 A row can have a name, by which formulas use its cells: `pear[price]` is the Price cell of the row named pear, `prices!pear[price]` of the table named prices, `[[Shop]]prices!pear[price]` on another page. The name stays with the row wherever it is moved or sorted (also in the markdown), and does not depend on what the row's cells say. Open the row's menu (the ⠿ grip left of the row), click *Name row* and type the name; an empty name removes it.
 
-* It is stored in the row's first cell as a hidden `<meta r="pear">`: `| Pear <meta r="pear"> | 12 |`. A named row has a bar at the left edge of its first cell; hover it for the name.
+* It is stored in the row's first cell as a hidden `<meta n="pear">`: `| Pear <meta n="pear"> | 12 |`, as a column's fixed name is in its header. A named row has a bar at the left edge of its first cell; hover it for the name. A first cell that is also a named cell holds both in one tag: `<meta n="pear" cn="first">`.
 * A row's name is its table's: two rows of a table cannot have the same one. The column after it is written as any column reference (`[price]`, a fixed name, `[price:2]`) and follows the column when it is renamed or moved.
 * `XLOOKUP("Pear", prices![name], prices![price])` does the same by a key column's value; a row's name works without one, and is not changed by editing the row's cells.
 * Deleting the column that holds rows' or cells' names removes the names with it: Table Plus says which and asks first, as the formulas that use them then show `#REF!` or `#NAME?`.

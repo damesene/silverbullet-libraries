@@ -4,7 +4,7 @@
 // sorting follow through the write steps (rowMap, columnMap).
 import type { IndexMap } from "../formula/index.ts";
 import { parseTable, type Table } from "../markdown.ts";
-import { nameOf, rowNameIn, rowNameOf, withoutName } from "../names.ts";
+import { cellNameOf, rowNameIn, withoutName } from "../names.ts";
 import { columnAfterMove, deleteColumn, deleteRow, insertColumn, insertRow, moveColumn, moveRow } from "../ops.ts";
 import {
   clampColumnMove,
@@ -54,7 +54,7 @@ export function duplicateRowAt(host: TableHost, widget: HTMLElement, info: Widge
     widget,
     (t) => {
       // A cell's name is the page's and a row's the table's: the copy takes neither
-      const cells = t.rows[row]?.cells.map((cell) => (nameOf(cell) === undefined && rowNameOf(cell) === undefined ? cell : withoutName(cell)));
+      const cells = t.rows[row]?.cells.map((cell) => (withoutName(cell) === cell.trim() ? cell : withoutName(cell)));
       return cells ? insertRow(t, insert.at, cells) : undefined;
     },
     { pins: insert.pins, rowMap: rowAfterInsert(insert.at) },
@@ -104,7 +104,7 @@ export async function deleteColumnAt(host: TableHost, widget: HTMLElement, info:
     return named && named.column === column ? [named.name] : [];
   });
   const cells = body.flatMap((r) => {
-    const name = nameOf(r.cells[column] ?? "");
+    const name = cellNameOf(r.cells[column] ?? "");
     return name ? [name] : [];
   });
   if (rows.length || cells.length) {

@@ -212,7 +212,7 @@ function parseMetaRow(line) {
   for (const match of tag[1].matchAll(META_ATTRIBUTE_RE)) {
     meta[match[1]] = unescapeMetaValue(match[2] ?? match[3] ?? "");
   }
-  if ("f" in meta || "n" in meta || "r" in meta) return void 0;
+  if ("f" in meta || "n" in meta || "cn" in meta) return void 0;
   return meta;
 }
 function unescapeMetaValue(value) {
@@ -470,8 +470,8 @@ function columnAfterMove(c, from, to) {
 }
 
 // table-plus/src/names.ts
-var NAME_TAG_RE = /\s*<meta\s+n\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
-var ROW_TAG_RE = /\s*<meta\s+r\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
+var NAMES_TAG_RE = /\s*<meta((?:\s+c?n\s*=\s*(?:"[^"]*"|'[^']*'))+)\s*\/?>/gi;
+var NAMES_ATTRIBUTE_RE = /(c?n)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 var CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
 var NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 function nameProblem(name, what) {
@@ -479,39 +479,40 @@ function nameProblem(name, what) {
   if (CELL_RE.test(name) || /^(true|false)$/i.test(name)) return `"${name}" would read as a cell or a value`;
   return void 0;
 }
-function tagValue(cell, re) {
-  const match = Array.from(cell.matchAll(re)).pop();
-  const value = match && unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
-  return value || void 0;
+function namesOf(cell) {
+  const tag = Array.from(cell.matchAll(NAMES_TAG_RE)).pop();
+  const names = {};
+  for (const match of tag?.[1]?.matchAll(NAMES_ATTRIBUTE_RE) ?? []) {
+    const value = unescapeMetaValue(match[2] ?? match[3] ?? "").trim();
+    names[match[1].toLowerCase()] = value || void 0;
+  }
+  return names;
 }
 function nameOf(cell) {
-  return tagValue(cell, NAME_TAG_RE);
+  return namesOf(cell).n;
 }
-function rowNameOf(cell) {
-  return tagValue(cell, ROW_TAG_RE);
+function cellNameOf(cell) {
+  return namesOf(cell).cn;
 }
 function withoutName(cell) {
-  return cell.replace(NAME_TAG_RE, "").replace(ROW_TAG_RE, "").trim();
+  return cell.replace(NAMES_TAG_RE, "").trim();
 }
-function named(text, name, row) {
-  const tags = [
-    ...name ? [`<meta n="${escapeMetaValue(name)}">`] : [],
-    ...row ? [`<meta r="${escapeMetaValue(row)}">`] : []
-  ];
-  return [text, ...tags].filter((part) => part !== "").join(" ");
+function named(text, { n, cn }) {
+  const attributes = [...n ? [`n="${escapeMetaValue(n)}"`] : [], ...cn ? [`cn="${escapeMetaValue(cn)}"`] : []];
+  return [text, ...attributes.length ? [`<meta ${attributes.join(" ")}>`] : []].filter((part) => part !== "").join(" ");
 }
 function withName(cell, name) {
-  return named(withoutName(cell), name, rowNameOf(cell));
+  return named(withoutName(cell), { n: name, cn: cellNameOf(cell) });
 }
-function withRowName(cell, row) {
-  return named(withoutName(cell), nameOf(cell), row);
+function withCellName(cell, name) {
+  return named(withoutName(cell), { n: nameOf(cell), cn: name });
 }
 function keepNames(cell, from) {
-  return named(withoutName(cell), nameOf(from), rowNameOf(from));
+  return named(withoutName(cell), namesOf(from));
 }
 function rowNameIn(cells) {
   for (let column = 0; column < cells.length; column++) {
-    const name = rowNameOf(cells[column]);
+    const name = nameOf(cells[column]);
     if (name) return { name, column };
   }
   return void 0;
@@ -529,14 +530,14 @@ function namedCells(table) {
   table.rows.forEach((r, row) => {
     if (row === 0) return;
     r.cells.forEach((cell, column) => {
-      const name = nameOf(cell)?.toLowerCase();
+      const name = cellNameOf(cell)?.toLowerCase();
       if (name && !cells.has(name)) cells.set(name, { row, column });
     });
   });
   return cells;
 }
 function hasNames(table) {
-  return table.rows.some((row) => row.cells.some((cell) => nameOf(cell) !== void 0 || rowNameOf(cell) !== void 0));
+  return table.rows.some((row) => row.cells.some((cell) => withoutName(cell) !== cell.trim()));
 }
 function withoutNames(table) {
   let result = table;
@@ -740,7 +741,7 @@ function duplicateRowAt(host, widget, info, row) {
   return host.write(
     widget,
     (t) => {
-      const cells = t.rows[row]?.cells.map((cell) => nameOf(cell) === void 0 && rowNameOf(cell) === void 0 ? cell : withoutName(cell));
+      const cells = t.rows[row]?.cells.map((cell) => withoutName(cell) === cell.trim() ? cell : withoutName(cell));
       return cells ? insertRow(t, insert.at, cells) : void 0;
     },
     { pins: insert.pins, rowMap: rowAfterInsert(insert.at) }
@@ -778,7 +779,7 @@ async function deleteColumnAt(host, widget, info, column) {
     return named2 && named2.column === column ? [named2.name] : [];
   });
   const cells = body.flatMap((r) => {
-    const name = nameOf(r.cells[column] ?? "");
+    const name = cellNameOf(r.cells[column] ?? "");
     return name ? [name] : [];
   });
   if (rows.length || cells.length) {
@@ -2376,13 +2377,13 @@ function formulaOf(cell) {
   if (!match) return void 0;
   const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
   const rest = cell.slice(0, match.index) + cell.slice(match.index + match[0].length);
-  const name = nameOf(rest);
+  const name = cellNameOf(rest);
   return { formula: formula.startsWith("=") ? formula : `=${formula}`, value: withoutName(rest), ...name ? { name } : {} };
 }
 function formulaCell(value, formula, name) {
   const tag = `<meta f="${escapeMetaValue(formula)}">`;
   const shown = escapeCell(value);
-  return withName(shown === "" ? tag : `${shown} ${tag}`, name);
+  return withCellName(shown === "" ? tag : `${shown} ${tag}`, name);
 }
 function isFormulaInput(text) {
   const trimmed = text.trim();
@@ -5319,7 +5320,7 @@ Fixed name: ${name}` : `Fixed name: ${name}`;
     for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
       const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
       cells.forEach((raw, column) => {
-        const name = nameOf(raw);
+        const name = cellNameOf(raw);
         const cell = tr.cells[column];
         if (!name || !cell) return;
         cell.classList.add("tp-named");
@@ -5383,7 +5384,7 @@ Row name: ${row}` : `Row name: ${row}`;
   /** "Name row" and "Name cell" in a row's menu, the cell being the one in `column` */
   rowMenuEntries(widget, info, row, column) {
     const cells = parseTable(info.source).rows[row]?.cells ?? [];
-    const name = nameOf(cells[column] ?? "");
+    const name = cellNameOf(cells[column] ?? "");
     const allowed = this.host.metadataEnabled || name !== void 0;
     const rowName = rowNameIn(cells)?.name;
     const rowAllowed = this.host.metadataEnabled || rowName !== void 0;
@@ -5427,12 +5428,12 @@ Row name: ${row}` : `Row name: ${row}`;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     await this.host.write(widget, (t) => {
       const column = rowNameIn(t.rows[row]?.cells ?? [])?.column ?? 0;
-      return setCell(t, row, column, withRowName(t.rows[row]?.cells[column] ?? "", name || void 0));
+      return setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || void 0));
     });
     this.host.focusEditor(widget);
   }
   async nameCell(shownWidget, shownInfo, row, column) {
-    const current = nameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
+    const current = cellNameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
     const answer = await this.host.promptText("Name of the cell (letters, digits and _; empty: none)", current);
     if (answer === void 0) return;
     const name = answer.trim();
@@ -5444,7 +5445,7 @@ Row name: ${row}` : `Row name: ${row}`;
       const own = locateBySource(text, shownInfo.hint, shownInfo.source);
       const taken = findTables(text).some(
         (range) => parseTable(range.text).rows.some(
-          (r, ri) => ri > 0 && r.cells.some((cell, ci) => nameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column))
+          (r, ri) => ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column))
         )
       );
       if (taken) problem = `another cell on this page is named ${name}`;
@@ -5454,7 +5455,7 @@ Row name: ${row}` : `Row name: ${row}`;
       return;
     }
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    await this.host.write(widget, (t) => setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || void 0)));
+    await this.host.write(widget, (t) => setCell(t, row, column, withCellName(t.rows[row]?.cells[column] ?? "", name || void 0)));
     this.host.focusEditor(widget);
   }
   /** "Fixed name" in a column's menu */
@@ -5900,7 +5901,7 @@ function pageTablesOf(text) {
 }
 function pageTables(tables, replace, others) {
   const pages = /* @__PURE__ */ new Map();
-  const namesOf = (page) => {
+  const namesOf2 = (page) => {
     const here = page === void 0 || page === others?.here;
     const key = here ? "" : page;
     let names = pages.get(key);
@@ -5918,8 +5919,8 @@ function pageTables(tables, replace, others) {
     }
     return names;
   };
-  return Object.assign((name, page) => namesOf(page)?.tables.get(name.toLowerCase()), {
-    cell: (name, page) => namesOf(page)?.cells.get(name.toLowerCase())
+  return Object.assign((name, page) => namesOf2(page)?.tables.get(name.toLowerCase()), {
+    cell: (name, page) => namesOf2(page)?.cells.get(name.toLowerCase())
   });
 }
 function affectedBy(...tables) {
