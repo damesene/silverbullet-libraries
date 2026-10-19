@@ -51,7 +51,7 @@ export type FeatureName = (typeof FEATURE_NAMES)[number];
 export const SETTINGS = {
   enterKey: {
     path: "tablePlus.editor.enterKey",
-    default: "save",
+    default: "moveDown",
     parse: (v) => (v === "save" || v === "moveDown" ? v : undefined),
   } satisfies Setting<"save" | "moveDown">,
   smartFilters: {

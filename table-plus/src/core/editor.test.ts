@@ -49,13 +49,26 @@ describe("Cell editor", () => {
     expect(editing()).toBeNull();
   });
 
-  it("only saves on Enter by default and with an unknown setting", async () => {
+  it("moves down on Enter by default and with an unknown setting, only saves with save", async () => {
+    const at = () => {
+      const td = editor.querySelector(".tp-cell-editor")?.closest("td");
+      return td ? [(td.parentElement as HTMLTableRowElement).rowIndex, td.cellIndex] : null;
+    };
     await setup(PAGE, { "tablePlus.editor.enterKey": "nonsense" });
     clickOn(cell(1, 1));
     key(editor.querySelector(".tp-cell-editor")!, "Enter");
     await flush();
     await flush();
-    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+    expect(at()).toEqual([2, 1]);
+
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
+    clickOn(cell(1, 1));
+    key(editor.querySelector(".tp-cell-editor")!, "Enter");
+    await flush();
+    await flush();
+    expect(at()).toBeNull();
   });
 
   it("writes edited tables aligned with the autoFormat setting", async () => {

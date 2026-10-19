@@ -35,7 +35,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 
 | Key | While editing a cell |
 |---|---|
-| Enter | Save |
+| Enter | Save, edit the cell below (with the `save` setting: only save) |
 | Ctrl+Enter | Save, add a row below, edit it |
 | Esc | Cancel |
 | Tab | Save, edit the next cell |
@@ -52,7 +52,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * Tab on the last cell adds a row.
 * With Shift, Enter and the Ctrl keys open the next cell as Shift+click does: with its whole text selected, or with the cursor at the end when the *Click selects the cell's text* setting is on. See [[#Settings]].
 * Ctrl+Alt+arrows save the cell and move it with its row or column, and keep editing it. Rows cannot move while sorted or filtered, nor the header row.
-* With the `moveDown` setting, Enter (and Shift+Enter) also moves to the cell below. See [[#Settings]].
+* Enter (and Shift+Enter) also moves to the cell below; with the `save` setting it only saves. See [[#Settings]].
 * Browsers use Ctrl+PageUp / PageDown to switch tabs and do not pass them to the page. They work where SilverBullet runs without tabs (installed as an app).
 * While Ctrl is held, the pointer shows a move cursor. Without Ctrl, arrows, Home and End move within the cell's text as usual.
 
@@ -314,7 +314,7 @@ Setting a part replaces what an earlier `config.set` of the same part set: set e
 
 ### Cell editor (`tablePlus.editor`)
 
-* **Enter in a cell editor** (`enterKey`), default `save`
+* **Enter in a cell editor** (`enterKey`), default `moveDown`
   * `save`: Enter saves the cell.
   * `moveDown`: Enter saves and edits the cell below; Shift+Enter too, opening it as Shift+click does.
 * **Click selects the cell's text** (`selectOnClick`), default `false`
@@ -434,7 +434,7 @@ config.define("tablePlus", {
         enterKey = {
           type = "string",
           enum = { "save", "moveDown" },
-          default = "save",
+          default = "moveDown",
           description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: opened as on a Shift+click).",
           ui = { category = "Table Plus", label = "Enter in a cell editor", priority = 3 },
         },

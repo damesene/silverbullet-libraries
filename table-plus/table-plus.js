@@ -2,7 +2,7 @@
 var SETTINGS = {
   enterKey: {
     path: "tablePlus.editor.enterKey",
-    default: "save",
+    default: "moveDown",
     parse: (v) => v === "save" || v === "moveDown" ? v : void 0
   },
   smartFilters: {
