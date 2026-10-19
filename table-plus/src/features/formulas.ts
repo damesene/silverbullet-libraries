@@ -35,6 +35,7 @@ import {
 import { ICONS } from "../icons.ts";
 import { escapeCell, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import { namedRows } from "../names.ts";
+import { withoutTags } from "../tags.ts";
 
 // New formulas are stored in the table (a <meta f> tag), as other metadata
 export const FORMULAS_NEED_METADATA =
@@ -67,12 +68,22 @@ export class Formulas implements Feature {
 
   // ---- the cell editor ----------------------------------------------------------
 
+  /** The formula tag (<meta f>) is the module's: edited, it is what editorValue writes */
+  takesTags(): readonly string[] {
+    return ["f"];
+  }
+
+  /** A formula cell's value is its formula's: pasting leaves it */
+  keepsCell(cell: string): string | undefined {
+    return formulaOf(cell) ? "formula cell" : undefined;
+  }
+
   /** A formula cell is edited as its formula; a text starting with "=" as '=…, so it stays text */
   editorText(_info: WidgetInfo, cell: CellRef, original: string): string | undefined {
     if (cell.row === 0) return undefined;
     const stored = formulaOf(original);
     if (stored) return stored.formula;
-    const text = unescapeCell(original);
+    const text = unescapeCell(withoutTags(original));
     return text.startsWith("=") ? `'${text}` : undefined;
   }
 

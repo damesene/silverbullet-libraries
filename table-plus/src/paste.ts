@@ -1,9 +1,7 @@
 // Pasting cells copied from a spreadsheet (Excel, Google Sheets, LibreOffice).
 // Their text on the clipboard has a tab between cells and a line break between
 // rows; a cell holding a tab, a line break or a quote is quoted as in CSV.
-import { formulaOf, withCalculatedCells } from "./formula/index.ts";
 import { escapeCell, type Table } from "./markdown.ts";
-import { keepNames } from "./names.ts";
 import { insertColumn, insertRow, setCell } from "./ops.ts";
 import { insertRowAt } from "./pins.ts";
 import type { Pins } from "./view.ts";
@@ -141,34 +139,41 @@ export function planPaste(
 
 export type Pasted = {
   readonly table: Table;
-  // Values not pasted because their cells hold formulas
-  readonly skipped: number;
+  // Values not pasted because a feature computes their cells, by why ("formula cell")
+  readonly skipped: ReadonlyMap<string, number>;
+};
+
+/** How pasting treats the cells already there (the features' rules, TableHost) */
+export type PasteRules = {
+  // Why a cell's value is a feature's, so it is left as it is; undefined: pasted over
+  readonly keptBy: (cell: string) => string | undefined;
+  // The pasted value with the hidden tags the cell had (names, formulas …), as when it is edited
+  readonly keepTags: (value: string, from: string) => string;
 };
 
 /**
- * The table with `data` pasted as planned. Cells holding a formula keep it
- * (also those of calculated columns in new rows); a header keeps its name
- * where the pasted one is empty.
+ * The table with `data` pasted as planned. A cell a feature computes (a
+ * formula's) is left; a header keeps its name where the pasted one is empty.
+ * New rows get what features give new rows (calculated columns) in the write.
  */
-export function pasteCells(table: Table, plan: PastePlan, data: readonly (readonly string[])[]): Pasted {
+export function pasteCells(table: Table, plan: PastePlan, data: readonly (readonly string[])[], rules: PasteRules): Pasted {
   let result = table;
   for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
   for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
-  for (let k = 0; k < plan.newRows.count; k++) result = withCalculatedCells(result, plan.newRows.at + k);
-  let skipped = 0;
+  const skipped = new Map<string, number>();
   data.forEach((values, i) => {
     const row = plan.rows[i]!;
     values.forEach((value, j) => {
       const column = plan.columns[j]!;
       const current = result.rows[row]?.cells[column] ?? "";
       const cell = escapeCell(value);
-      if (formulaOf(current)) {
-        if (cell !== "") skipped++;
+      const kept = rules.keptBy(current);
+      if (kept) {
+        if (cell !== "") skipped.set(kept, (skipped.get(kept) ?? 0) + 1);
         return;
       }
       if (row === 0 && cell === "") return;
-      // A cell's name (a column's fixed name) is kept, as when the cell is edited
-      result = setCell(result, row, column, keepNames(cell, current));
+      result = setCell(result, row, column, rules.keepTags(cell, current));
     });
   });
   return { table: result, skipped };

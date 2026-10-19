@@ -153,6 +153,14 @@ export interface TableHost {
    * anew, the row being edited placed with the others and held there
    */
   viewChanged(widget: HTMLElement, info: WidgetInfo): void;
+  /**
+   * A cell's new markdown with the hidden tags the cell had, but those the
+   * features that manage them take (Feature.takesTags): editing, pasting or
+   * clearing a cell keeps the data modules keep in it
+   */
+  keepTags(value: string, from: string): string;
+  /** Why a cell's value is a feature's (Feature.keepsCell): pasting leaves it */
+  cellKeptBy(cell: string): string | undefined;
   /** Keyboard and input events from a field of a feature must not reach SilverBullet's editor */
   isolate(element: HTMLElement): void;
   /** A cell's value as sorting and filtering see it: a type's value, the edited cell's typed text */
@@ -264,12 +272,23 @@ export interface Feature {
   tablesChanged?(): void;
   /** The page or a table scrolled, or tables moved: floating elements follow */
   layoutChanged?(): void;
-  /** What the cell editor shows for a cell's markdown; undefined: its text */
+  /** What the cell editor shows for a cell's markdown (hidden tags and all); undefined: its text */
   editorText?(info: WidgetInfo, cell: CellRef, original: string): string | undefined;
   editorOpened?(editor: CellEditor): void;
   /** A key in the cell editor, before Table Plus handles it; true: handled (its default is prevented) */
   editorKeyDown?(e: KeyboardEvent, editor: CellEditor): boolean;
   /** The markdown to save for what was typed; undefined: the text */
   editorValue?(editor: CellEditor, typed: string): string | undefined;
+  /**
+   * Attributes of the hidden tags in cells (tags.ts) the feature manages: when
+   * a cell's text is edited, pasted over or cleared, its tags with them are not
+   * kept but what the feature wrote (formulas: f). Others' tags are kept.
+   */
+  takesTags?(): readonly string[];
+  /**
+   * Why a cell's value is the feature's, so pasting leaves the cell as it is
+   * (formulas: "formula cell", the formula computes it); undefined: it is not
+   */
+  keepsCell?(cell: string): string | undefined;
   editorClosed?(editor: CellEditor): void;
 }

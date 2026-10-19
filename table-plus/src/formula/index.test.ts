@@ -27,7 +27,7 @@ import {
 } from "./index.ts";
 import { parseMetaRow, parseTable, serializeTable, splitRow } from "../markdown.ts";
 import { withMeta } from "../meta.ts";
-import { cellNameOf, keepNames, namedRows, nameOf, rowNameIn, withCellName, withName, withoutName } from "../names.ts";
+import { cellNameOf, namedRows, nameOf, rowNameIn, withCellName, withName, withoutName } from "../names.ts";
 import { deleteColumn, deleteRow, insertRow, moveColumn, moveRow, reorderRows, setCell } from "../ops.ts";
 
 // A table whose cell `at` holds `formula`; returns what that cell shows after recalculating
@@ -366,12 +366,12 @@ describe("calculated columns", () => {
 
   it("knows a column as calculated only when all its rows hold the same formula, total rows aside", () => {
     const table = parseTable(ROWS);
-    expect(calculatedFormula(table, 3, 3)).toBe("=[@Qty]*[@Price]");
-    expect(calculatedFormula(table, 1, 3)).toBeUndefined();
+    expect(calculatedFormula(table, 3, new Set([3]))).toBe("=[@Qty]*[@Price]");
+    expect(calculatedFormula(table, 1, new Set([3]))).toBeUndefined();
     const mixed = setCell(table, 2, 3, "5");
-    expect(calculatedFormula(mixed, 3, 3)).toBeUndefined();
+    expect(calculatedFormula(mixed, 3, new Set([3]))).toBeUndefined();
     const other = setCell(table, 2, 3, formulaCell("", "=[@Qty]+1"));
-    expect(calculatedFormula(other, 3, 3)).toBeUndefined();
+    expect(calculatedFormula(other, 3, new Set([3]))).toBeUndefined();
   });
 });
 
@@ -704,7 +704,6 @@ describe("named rows", () => {
     expect(cell).toBe('Pear <meta n="pear" cn="first">');
     expect([nameOf(cell), cellNameOf(cell), withoutName(cell)]).toEqual(["pear", "first", "Pear"]);
     expect(withCellName(cell, undefined)).toBe('Pear <meta n="pear">');
-    expect(keepNames("Apple", cell)).toBe('Apple <meta n="pear" cn="first">');
     // In any order, with single quotes; a formula's tag is another one
     expect([nameOf("1 <meta cn='x' n='y'>"), cellNameOf("1 <meta cn='x' n='y'>")]).toEqual(["y", "x"]);
     expect(withoutName('2 <meta f="=1+1"> <meta n="a" cn="b">')).toBe('2 <meta f="=1+1">');

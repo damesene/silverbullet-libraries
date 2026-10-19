@@ -71,7 +71,7 @@ Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table and p
 
 * **Ctrl+V** pastes them from that cell to the right and down, over the cells there. Where the table ends, rows and columns are added (before the rows and columns pinned to the bottom and right).
 * **Ctrl+Shift+V** overwrites nothing: the pasted rows are added as new rows at the cell's row (under the header when pasted there). Columns are added where the rows are wider than the table.
-* Cells with a formula keep it; the values pasted onto them are left out (the message says how many). New rows get the formulas of calculated columns, see [[#Formulas]].
+* Cells with a formula keep it; the values pasted onto them are left out (the message says how many). In new rows, a calculated column's cell gets its formula unless a value is pasted into it, see [[#Formulas]]. Names of rows and cells stay with their cells.
 * Pasted onto the header, the first row names the columns; an empty value keeps the old name.
 * Spreadsheets copy values as they show them (`1 234,50 Kč`), not their formulas. A line break inside a cell becomes a space, as a markdown table cell has one line.
 * A single value (no tab, no line break) is pasted into the cell's editor as usual.

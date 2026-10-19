@@ -73,11 +73,6 @@ export function withCellName(cell: string, name: string | undefined): string {
   return named(withoutName(cell), { n: nameOf(cell), cn: name });
 }
 
-/** `cell` with the names `from` has: a new value for a cell keeps its names */
-export function keepNames(cell: string, from: string): string {
-  return named(withoutName(cell), namesOf(from));
-}
-
 /**
  * A row's name and the column of the cell holding it. Written in the first
  * cell, but a column inserted before it or the column moved takes the tag

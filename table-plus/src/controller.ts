@@ -69,6 +69,7 @@ import { focusMenu, type MenuEntry, renderMenu } from "./menu.ts";
 import { metadataAfterEdit, metaName, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { namedCells } from "./names.ts";
 import { appendColumnAt, appendRowAt } from "./pins.ts";
+import { keepTags } from "./tags.ts";
 import { nameEmptyHeaders, reorderRows } from "./ops.ts";
 import {
   cycleSort,
@@ -772,6 +773,18 @@ export class Controller implements TableHost {
 
   viewOf(info: WidgetInfo): ViewState {
     return this.views.get(info.key) ?? DEFAULT_VIEW;
+  }
+
+  keepTags(value: string, from: string): string {
+    return keepTags(value, from, new Set(this.features.flatMap((f) => f.takesTags?.() ?? [])));
+  }
+
+  cellKeptBy(cell: string): string | undefined {
+    for (const feature of this.features) {
+      const reason = feature.keepsCell?.(cell);
+      if (reason) return reason;
+    }
+    return undefined;
   }
 
   viewChanged(widget: HTMLElement, info: WidgetInfo): void {

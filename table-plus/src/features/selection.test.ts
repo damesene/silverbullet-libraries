@@ -48,6 +48,16 @@ describe("Selecting cells", () => {
     expect(editor.querySelectorAll(".tp-selected").length).toBe(0);
   });
 
+  it("keeps the hidden tags the formulas module would take when it is off", async () => {
+    const TAGGED = '| Name | Qty |\n|---|---|\n| Pear <meta n="pear"> | 3 |\n| Fig | 2 <meta f="=1+1"> |\n';
+    await setup(TAGGED, { "tablePlus.modules.formulas.enabled": false });
+    drag(cell(1, 0), cell(2, 1));
+    key(editor, "Delete");
+    await flush();
+    expect(text).toContain('| <meta n="pear"> | |');
+    expect(text).toContain('<meta f="=1+1"> |');
+  });
+
   it("empties the selected cells with Delete, formulas included, keeping the header", async () => {
     await setup('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f="=1+1"> |\n| Plum | 5 |\n');
     drag(cell(0, 1), cell(2, 1));

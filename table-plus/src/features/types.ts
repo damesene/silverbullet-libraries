@@ -7,9 +7,8 @@ import { cellText, TYPE_TAG_CLASS, UI_CLASS } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import type { MenuDetail, MenuEntry } from "../menu.ts";
 import { setCell } from "../ops.ts";
-import { formulaOf } from "../formula/index.ts";
 import { escapeCell, parseTable, unescapeCell } from "../markdown.ts";
-import { withoutName } from "../names.ts";
+import { withoutTags } from "../tags.ts";
 import {
   type Choice,
   type ColumnType,
@@ -141,7 +140,7 @@ export class ColumnTypes implements Feature {
   /** A header is edited as the column's name: its type's hashtag is the menu's business */
   editorText(info: WidgetInfo, cell: CellRef, original: string): string | undefined {
     if (cell.row !== 0 || !columnTypeOf(unescapeCell(original))) return undefined;
-    return unescapeCell(withColumnType(original, undefined));
+    return unescapeCell(withoutTags(withColumnType(original, undefined)));
   }
 
   /** The type of the edited cell's column, if any (header cells have none) */
@@ -291,8 +290,8 @@ export class ColumnTypes implements Feature {
         const raw = model.rows[Number(tr.dataset.tpRow)]?.cells[column];
         const cell = tr.cells[column];
         if (raw === undefined || !cell) continue;
-        // A formula's result, else the cell's text
-        const text = unescapeCell(formulaOf(raw)?.value ?? withoutName(raw)).trim();
+        // The cell's text: a formula's result, without the hidden tags
+        const text = unescapeCell(withoutTags(raw)).trim();
         // Only plain values: a cell with markup (a link, emphasis) is left as it is
         if (text === "" || cellText(cell) !== text) continue;
         const { type, param } = typed;

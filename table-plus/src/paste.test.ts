@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseTable, serializeTable } from "./markdown.ts";
 import { parseClipboardCells, pasteCells, planPaste } from "./paste.ts";
+import { formulaOf } from "./formula/index.ts";
+import { keepTags } from "./tags.ts";
 import { NO_PINS } from "./view.ts";
 
 describe("parseClipboardCells", () => {
@@ -33,8 +35,12 @@ const TABLE = parseTable(
 function paste(data: string[][], at: { row: number; column: number }, insert = false, pins = NO_PINS) {
   const plan = planPaste(TABLE, pins, at, data, insert);
   if ("error" in plan) return plan;
-  const pasted = pasteCells(TABLE, plan, data);
-  return { markdown: serializeTable(pasted.table), skipped: pasted.skipped, plan };
+  // As with the formulas module on: formula cells are its
+  const pasted = pasteCells(TABLE, plan, data, {
+    keptBy: (cell) => (formulaOf(cell) ? "formula cell" : undefined),
+    keepTags: (value, from) => keepTags(value, from, new Set(["f"])),
+  });
+  return { markdown: serializeTable(pasted.table), skipped: pasted.skipped.get("formula cell") ?? 0, plan };
 }
 
 describe("pasting cells", () => {

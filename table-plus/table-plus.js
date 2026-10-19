@@ -469,86 +469,6 @@ function columnAfterMove(c, from, to) {
   return c;
 }
 
-// table-plus/src/names.ts
-var NAMES_TAG_RE = /\s*<meta((?:\s+c?n\s*=\s*(?:"[^"]*"|'[^']*'))+)\s*\/?>/gi;
-var NAMES_ATTRIBUTE_RE = /(c?n)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
-var CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
-var NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-function nameProblem(name, what) {
-  if (!NAME_RE.test(name)) return `"${name}" is not a ${what} name: letters, digits and _, not starting with a digit`;
-  if (CELL_RE.test(name) || /^(true|false)$/i.test(name)) return `"${name}" would read as a cell or a value`;
-  return void 0;
-}
-function namesOf(cell) {
-  const tag = Array.from(cell.matchAll(NAMES_TAG_RE)).pop();
-  const names = {};
-  for (const match of tag?.[1]?.matchAll(NAMES_ATTRIBUTE_RE) ?? []) {
-    const value = unescapeMetaValue(match[2] ?? match[3] ?? "").trim();
-    names[match[1].toLowerCase()] = value || void 0;
-  }
-  return names;
-}
-function nameOf(cell) {
-  return namesOf(cell).n;
-}
-function cellNameOf(cell) {
-  return namesOf(cell).cn;
-}
-function withoutName(cell) {
-  return cell.replace(NAMES_TAG_RE, "").trim();
-}
-function named(text, { n, cn }) {
-  const attributes = [...n ? [`n="${escapeMetaValue(n)}"`] : [], ...cn ? [`cn="${escapeMetaValue(cn)}"`] : []];
-  return [text, ...attributes.length ? [`<meta ${attributes.join(" ")}>`] : []].filter((part) => part !== "").join(" ");
-}
-function withName(cell, name) {
-  return named(withoutName(cell), { n: name, cn: cellNameOf(cell) });
-}
-function withCellName(cell, name) {
-  return named(withoutName(cell), { n: nameOf(cell), cn: name });
-}
-function keepNames(cell, from) {
-  return named(withoutName(cell), namesOf(from));
-}
-function rowNameIn(cells) {
-  for (let column = 0; column < cells.length; column++) {
-    const name = nameOf(cells[column]);
-    if (name) return { name, column };
-  }
-  return void 0;
-}
-function namedRows(table) {
-  const rows = /* @__PURE__ */ new Map();
-  table.rows.forEach((r, row) => {
-    const name = row === 0 ? void 0 : rowNameIn(r.cells)?.name.toLowerCase();
-    if (name && !rows.has(name)) rows.set(name, row);
-  });
-  return rows;
-}
-function namedCells(table) {
-  const cells = /* @__PURE__ */ new Map();
-  table.rows.forEach((r, row) => {
-    if (row === 0) return;
-    r.cells.forEach((cell, column) => {
-      const name = cellNameOf(cell)?.toLowerCase();
-      if (name && !cells.has(name)) cells.set(name, { row, column });
-    });
-  });
-  return cells;
-}
-function hasNames(table) {
-  return table.rows.some((row) => row.cells.some((cell) => withoutName(cell) !== cell.trim()));
-}
-function withoutNames(table) {
-  let result = table;
-  table.rows.forEach(
-    (row, r) => row.cells.forEach((cell, c) => {
-      if (withoutName(cell) !== cell.trim()) result = setCell(result, r, c, withoutName(cell));
-    })
-  );
-  return result;
-}
-
 // table-plus/src/pins.ts
 function rowZone(pins, rows, row) {
   if (row >= 1 && row <= pins.top) return "top";
@@ -720,6 +640,83 @@ function caretTextOffset(cell, x, y) {
 // table-plus/src/core/layout.ts
 var STICKY_GAP = 38;
 
+// table-plus/src/names.ts
+var NAMES_TAG_RE = /\s*<meta((?:\s+c?n\s*=\s*(?:"[^"]*"|'[^']*'))+)\s*\/?>/gi;
+var NAMES_ATTRIBUTE_RE = /(c?n)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+var CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
+var NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function nameProblem(name, what) {
+  if (!NAME_RE.test(name)) return `"${name}" is not a ${what} name: letters, digits and _, not starting with a digit`;
+  if (CELL_RE.test(name) || /^(true|false)$/i.test(name)) return `"${name}" would read as a cell or a value`;
+  return void 0;
+}
+function namesOf(cell) {
+  const tag = Array.from(cell.matchAll(NAMES_TAG_RE)).pop();
+  const names = {};
+  for (const match of tag?.[1]?.matchAll(NAMES_ATTRIBUTE_RE) ?? []) {
+    const value = unescapeMetaValue(match[2] ?? match[3] ?? "").trim();
+    names[match[1].toLowerCase()] = value || void 0;
+  }
+  return names;
+}
+function nameOf(cell) {
+  return namesOf(cell).n;
+}
+function cellNameOf(cell) {
+  return namesOf(cell).cn;
+}
+function withoutName(cell) {
+  return cell.replace(NAMES_TAG_RE, "").trim();
+}
+function named(text, { n, cn }) {
+  const attributes = [...n ? [`n="${escapeMetaValue(n)}"`] : [], ...cn ? [`cn="${escapeMetaValue(cn)}"`] : []];
+  return [text, ...attributes.length ? [`<meta ${attributes.join(" ")}>`] : []].filter((part) => part !== "").join(" ");
+}
+function withName(cell, name) {
+  return named(withoutName(cell), { n: name, cn: cellNameOf(cell) });
+}
+function withCellName(cell, name) {
+  return named(withoutName(cell), { n: nameOf(cell), cn: name });
+}
+function rowNameIn(cells) {
+  for (let column = 0; column < cells.length; column++) {
+    const name = nameOf(cells[column]);
+    if (name) return { name, column };
+  }
+  return void 0;
+}
+function namedRows(table) {
+  const rows = /* @__PURE__ */ new Map();
+  table.rows.forEach((r, row) => {
+    const name = row === 0 ? void 0 : rowNameIn(r.cells)?.name.toLowerCase();
+    if (name && !rows.has(name)) rows.set(name, row);
+  });
+  return rows;
+}
+function namedCells(table) {
+  const cells = /* @__PURE__ */ new Map();
+  table.rows.forEach((r, row) => {
+    if (row === 0) return;
+    r.cells.forEach((cell, column) => {
+      const name = cellNameOf(cell)?.toLowerCase();
+      if (name && !cells.has(name)) cells.set(name, { row, column });
+    });
+  });
+  return cells;
+}
+function hasNames(table) {
+  return table.rows.some((row) => row.cells.some((cell) => withoutName(cell) !== cell.trim()));
+}
+function withoutNames(table) {
+  let result = table;
+  table.rows.forEach(
+    (row, r) => row.cells.forEach((cell, c) => {
+      if (withoutName(cell) !== cell.trim()) result = setCell(result, r, c, withoutName(cell));
+    })
+  );
+  return result;
+}
+
 // table-plus/src/core/structure.ts
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
 function rowAfterInsert(at) {
@@ -816,6 +813,24 @@ async function pinColumnAt(host, widget, info, column, pin) {
   await host.write(widget, (t) => moveColumn(t, column, to), { columnMap: (c) => columnAfterMove(c, column, to), pins });
 }
 
+// table-plus/src/tags.ts
+var TAG_RE = /\s*<meta\b[^>]*>/gi;
+var ATTRIBUTE_RE = /([\w.:-]+)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g;
+function cellTags(cell) {
+  return Array.from(cell.matchAll(TAG_RE), (match) => match[0].trim());
+}
+function withoutTags(cell) {
+  return cell.replace(TAG_RE, "").trim();
+}
+function attributesOf(tag) {
+  return Array.from(tag.matchAll(ATTRIBUTE_RE), (match) => match[1].toLowerCase());
+}
+function keepTags(value, from, taken = /* @__PURE__ */ new Set()) {
+  const own = new Set(cellTags(value).flatMap(attributesOf));
+  const kept = cellTags(from).filter((tag) => !attributesOf(tag).some((name) => own.has(name) || taken.has(name)));
+  return [value.trim(), ...kept].filter((part) => part !== "").join(" ");
+}
+
 // table-plus/src/core/editor.ts
 var MOVE_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 var NAVIGATION_KEYS = /* @__PURE__ */ new Set([
@@ -857,7 +872,7 @@ var CellEditing = class {
     if (!ref || this.editor) return;
     this.context.holdRow(widget, info, ref.row);
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
-    const bare2 = withoutName(original);
+    const bare2 = withoutTags(original);
     const cellStyle = cell.getAttribute("style");
     const rect = cell.getBoundingClientRect();
     if (rect.width > 0) {
@@ -872,7 +887,7 @@ var CellEditing = class {
     field.className = `${UI_CLASS} tp-cell-editor`;
     field.size = 1;
     field.spellcheck = true;
-    field.value = this.context.features.reduce((text, f) => text ?? f.editorText?.(info, ref, bare2), void 0) ?? unescapeCell(bare2);
+    field.value = this.context.features.reduce((text, f) => text ?? f.editorText?.(info, ref, original), void 0) ?? unescapeCell(bare2);
     const kept = this.host.doc.createDocumentFragment();
     while (cell.firstChild) kept.append(cell.firstChild);
     cell.classList.add("tp-editing");
@@ -926,7 +941,7 @@ var CellEditing = class {
     this.editor = void 0;
     for (const feature of this.context.features) feature.editorClosed?.(active);
     let value = this.cellValue(active);
-    if (active.row === 0 && withoutName(value) === "" && active.original !== "") {
+    if (active.row === 0 && withoutTags(value) === "" && active.original !== "") {
       value = active.original;
       void this.host.bridge.flash("Table Plus: a column needs a name; the old name was kept", "info");
     }
@@ -946,7 +961,7 @@ var CellEditing = class {
     const typed = active.field.value;
     if (typed === active.initial) return active.original;
     const value = this.context.features.reduce((v, f) => v ?? f.editorValue?.(active, typed), void 0) ?? escapeCell(typed);
-    return keepNames(value, active.original);
+    return this.host.keepTags(value, active.original);
   }
   /**
    * Ends editing, saving the cell if asked and changed, then opens `next`
@@ -1298,68 +1313,6 @@ var ICONS = {
   pinRight: PIN_POINT_RIGHT
 };
 
-// table-plus/src/columns.ts
-var HASHTAG_RE = /(^|\s)#[^\s#]+/g;
-function columnName(header) {
-  return unescapeCell(header).replace(/<meta\b[^>]*>/gi, "").replace(HASHTAG_RE, "$1").trim().replace(/^[*_`]+|[*_`]+$/g, "").trim();
-}
-function columnKey(name) {
-  return columnName(name).replace(/[\W_]+/g, "_").toLowerCase();
-}
-function findColumn(headers, id) {
-  const fixed = fixedColumn(headers, id.name);
-  if (fixed >= 0 && id.nth === 1) return fixed;
-  const wanted = columnKey(id.name);
-  let seen = fixed >= 0 ? 1 : 0;
-  const index = headers.findIndex((header, c) => c !== fixed && columnKey(header) === wanted && ++seen === id.nth);
-  return index < 0 ? void 0 : index;
-}
-function fixedColumn(headers, name) {
-  const wanted = name.toLowerCase();
-  return headers.findIndex((header) => nameOf(header)?.toLowerCase() === wanted);
-}
-function columnIdOf(headers, column) {
-  const header = headers[column];
-  if (header === void 0) return void 0;
-  const fixed = nameOf(header);
-  if (fixed) return { name: fixed, nth: 1, shared: false };
-  const wanted = columnKey(header);
-  const fixedOther = fixedColumn(headers, wanted);
-  const counted = (h, c) => c !== fixedOther && columnKey(h) === wanted;
-  const before = fixedOther >= 0 ? 1 : 0;
-  const same = before + headers.filter(counted).length;
-  const nth = before + headers.slice(0, column + 1).filter(counted).length;
-  return { name: wanted, nth, shared: same > 1 };
-}
-function followColumn(before, after, id, map = (c) => c) {
-  const column = findColumn(before, id);
-  if (column === void 0) return void 0;
-  const moved2 = map(column);
-  if (moved2 === void 0) return null;
-  return columnIdOf(after, moved2) ?? null;
-}
-function sameColumnId(a, b) {
-  return columnKey(a.name) === columnKey(b.name) && a.nth === b.nth;
-}
-
-// table-plus/src/format.ts
-function formatLuaNumber(n) {
-  if (Number.isInteger(n)) return String(n);
-  if (Number.isNaN(n)) return "-nan";
-  if (n === Infinity) return "inf";
-  if (n === -Infinity) return "-inf";
-  const [mantissa, exp] = n.toExponential(13).split("e");
-  const exponent = Number(exp);
-  if (exponent < -4 || exponent >= 14) {
-    const digits = Math.abs(exponent) < 10 ? `0${Math.abs(exponent)}` : String(Math.abs(exponent));
-    return `${trimZeros(mantissa)}e${exponent < 0 ? "-" : "+"}${digits}`;
-  }
-  return trimZeros(n.toFixed(13 - exponent));
-}
-function trimZeros(s) {
-  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
-}
-
 // table-plus/src/view.ts
 var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
 var DEFAULT_VIEW = {};
@@ -1417,6 +1370,91 @@ function visibleRows(values, view, hidden = /* @__PURE__ */ new Set()) {
     if (ea !== eb) return ea ? 1 : -1;
     return sign * compareValues(va, vb) || a - b;
   });
+}
+
+// table-plus/src/types/helpers.ts
+function numberOf(text) {
+  return asNumber(text);
+}
+function notANumber(text) {
+  return numberOf(text) === void 0 ? `"${text}" is not a number` : void 0;
+}
+function formatNumber(n, locale, options = {}) {
+  return new Intl.NumberFormat(locale, options).format(n);
+}
+
+// table-plus/src/types/check.ts
+var YES = /* @__PURE__ */ new Set(["yes", "y", "true", "x", "\u2713", "\u2714", "\u2705", "done", "ok"]);
+var NO = /* @__PURE__ */ new Set(["no", "n", "false", "\u2717", "\u274C", "-"]);
+function yesOrNo(text) {
+  const t = text.trim().toLowerCase();
+  if (YES.has(t)) return true;
+  if (NO.has(t)) return false;
+  const n = numberOf(t);
+  return n === void 0 ? void 0 : n > 0;
+}
+var check_default = {
+  name: "check",
+  syntax: "#check",
+  description: "Yes or no as a check mark: yes, true, x, \u2705 or a number above 0 shows \u2705; no, false, \u274C, 0 or a number below it shows \u274C.",
+  icon: lineIcon('<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/>'),
+  aliases: { logical: "" },
+  check: (text) => yesOrNo(text) === void 0 ? `"${text}" is not yes, no or a number` : void 0,
+  format: (text) => yesOrNo(text) ? "\u2705" : "\u274C",
+  sortValue: (text) => yesOrNo(text) ? "1" : "0",
+  choices: () => [
+    { value: "yes", label: "\u2705 yes" },
+    { value: "no", label: "\u274C no" }
+  ]
+};
+
+// table-plus/src/types/currency.ts
+function homeOf(code) {
+  if (code === "EUR") return "de";
+  try {
+    return new Intl.Locale("und", { region: code.slice(0, 2) }).maximize().baseName;
+  } catch {
+    return "en";
+  }
+}
+function formatMoney(n, code, locale) {
+  const options = { style: "currency", currency: code, currencyDisplay: "narrowSymbol" };
+  const own = new Intl.NumberFormat(locale, options).formatToParts(n);
+  const home = new Intl.NumberFormat(homeOf(code), options).formatToParts(n);
+  const symbol = own.find((p) => p.type === "currency")?.value ?? code;
+  const sign = own.filter((p) => p.type === "minusSign" || p.type === "plusSign").map((p) => p.value).join("");
+  const digits = own.filter((p) => !["currency", "minusSign", "plusSign", "literal"].includes(p.type)).map((p) => p.value).join("");
+  const symbolFirst = home.findIndex((p) => p.type === "currency") < home.findIndex((p) => p.type === "integer");
+  const gap = home.find((p) => p.type === "literal" && /^\s+$/.test(p.value))?.value ?? "";
+  return symbolFirst ? `${sign}${symbol}${gap}${digits}` : `${sign}${digits}${gap}${symbol}`;
+}
+var currency_default = {
+  name: "currency",
+  syntax: "#currency, #currency-usd",
+  description: "An amount of money: the currency's three-letter code after the dash (default EUR). Its sign goes where the currency's country writes it: $12.99, 12.99 \u20AC, 12.99 K\u010D.",
+  icon: lineIcon('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>'),
+  param: /^[a-z]{3}$/i,
+  aliases: { euro: "eur", eur: "eur", usd: "usd", czk: "czk", gbp: "gbp" },
+  check: notANumber,
+  format: (text, param, locale) => formatMoney(numberOf(text), (param ?? "eur").toUpperCase(), locale)
+};
+
+// table-plus/src/format.ts
+function formatLuaNumber(n) {
+  if (Number.isInteger(n)) return String(n);
+  if (Number.isNaN(n)) return "-nan";
+  if (n === Infinity) return "inf";
+  if (n === -Infinity) return "-inf";
+  const [mantissa, exp] = n.toExponential(13).split("e");
+  const exponent = Number(exp);
+  if (exponent < -4 || exponent >= 14) {
+    const digits = Math.abs(exponent) < 10 ? `0${Math.abs(exponent)}` : String(Math.abs(exponent));
+    return `${trimZeros(mantissa)}e${exponent < 0 ? "-" : "+"}${digits}`;
+  }
+  return trimZeros(n.toFixed(13 - exponent));
+}
+function trimZeros(s) {
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
 }
 
 // table-plus/src/formula/values.ts
@@ -1489,7 +1527,7 @@ function toText(value) {
   if (isError(v)) return v;
   if (v === null) return "";
   if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
-  if (typeof v === "number") return formatNumber(v);
+  if (typeof v === "number") return formatNumber2(v);
   if (v instanceof TimeValue) return v.text ?? formatClock(v.seconds);
   return v;
 }
@@ -1564,7 +1602,7 @@ function timeArithmetic(op, left, right) {
 function flatten(args) {
   return args.flatMap((arg) => isRange(arg) ? [...arg] : [arg]);
 }
-function formatNumber(n) {
+function formatNumber2(n) {
   return formatLuaNumber(n);
 }
 function sameValue(a, b) {
@@ -1718,1684 +1756,8 @@ function partOf(date, part) {
   }
 }
 
-// table-plus/src/formula/functions/helpers.ts
-function withNumbers(args, f, keepTime = false) {
-  const ns = numbers(args);
-  if (isError(ns)) return ns;
-  const result = f(ns);
-  return keepTime && typeof result === "number" && allTimes(args) ? new TimeValue(Math.round(result * DAY_SECONDS)) : result;
-}
-function extremeDate(args, latest) {
-  let best;
-  for (const item of flatten(args)) {
-    if (item === null) continue;
-    if (isError(item)) return item;
-    const date = typeof item === "string" ? parseDate(item) : void 0;
-    if (!date) return void 0;
-    if (!best || (latest ? date.ms > best.ms : date.ms < best.ms)) best = { ms: date.ms, text: item.trim() };
-  }
-  return best?.text;
-}
-function booleans(args) {
-  const result = [];
-  for (const arg of args) {
-    for (const item of isRange(arg) ? arg : [arg]) {
-      if (item === null || isRange(arg) && typeof item === "string") continue;
-      const b = toBoolean(item);
-      if (isError(b)) return b;
-      result.push(b);
-    }
-  }
-  return result;
-}
-
-// table-plus/src/formula/functions/sum.ts
-var sum_default = {
-  name: "SUM",
-  syntax: "SUM(number1, [number2], \u2026)",
-  description: "Adds numbers, cells and ranges; times add up to a time (14:00 and 20:00 are 34:00).",
-  minArgs: 1,
-  call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a + b, 0), true)
-};
-
-// table-plus/src/formula/functions/average.ts
-var average_default = {
-  name: "AVERAGE",
-  syntax: "AVERAGE(number1, [number2], \u2026)",
-  description: "The arithmetic mean of the numbers, or of the times.",
-  minArgs: 1,
-  call: (args) => withNumbers(
-    args,
-    (ns) => ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : new FormulaError("#DIV/0!", "no numbers to average"),
-    true
-  )
-};
-
-// table-plus/src/formula/functions/min.ts
-var min_default = {
-  name: "MIN",
-  syntax: "MIN(number1, [number2], \u2026)",
-  description: "The smallest of the numbers (0 if there are none), the shortest of the times, or the earliest of the dates.",
-  minArgs: 1,
-  call: (args) => extremeDate(args, false) ?? withNumbers(args, (ns) => ns.length ? Math.min(...ns) : 0, true)
-};
-
-// table-plus/src/formula/functions/max.ts
-var max_default = {
-  name: "MAX",
-  syntax: "MAX(number1, [number2], \u2026)",
-  description: "The largest of the numbers (0 if there are none), the longest of the times, or the latest of the dates.",
-  minArgs: 1,
-  call: (args) => extremeDate(args, true) ?? withNumbers(args, (ns) => ns.length ? Math.max(...ns) : 0, true)
-};
-
-// table-plus/src/formula/functions/product.ts
-var product_default = {
-  name: "PRODUCT",
-  syntax: "PRODUCT(number1, [number2], \u2026)",
-  description: "Multiplies the numbers.",
-  minArgs: 1,
-  call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a * b, 1))
-};
-
-// table-plus/src/formula/functions/count.ts
-var count_default = {
-  name: "COUNT",
-  syntax: "COUNT(value1, [value2], \u2026)",
-  description: "How many of the values are numbers.",
-  minArgs: 1,
-  call: (args) => {
-    let count = 0;
-    for (const arg of args) {
-      for (const item of isRange(arg) ? arg : [arg]) {
-        if (item === null || isError(item) || typeof item === "boolean") continue;
-        if (!isError(toNumber(item))) count++;
-      }
-    }
-    return count;
-  }
-};
-
-// table-plus/src/formula/functions/counta.ts
-var counta_default = {
-  name: "COUNTA",
-  syntax: "COUNTA(value1, [value2], \u2026)",
-  description: "How many of the values are not empty.",
-  minArgs: 1,
-  call: (args) => flatten(args).filter((v) => v !== null && v !== "").length
-};
-
-// table-plus/src/formula/functions/round.ts
-var round_default = {
-  name: "ROUND",
-  syntax: "ROUND(number, [digits])",
-  description: "Rounds to the given number of decimal places (default 0), halves away from zero.",
-  minArgs: 1,
-  maxArgs: 2,
-  call: ([number, digits = 0]) => {
-    const n = toNumber(number);
-    const d = toNumber(digits);
-    if (isError(n)) return n;
-    if (isError(d)) return d;
-    const factor = 10 ** Math.trunc(d);
-    return Math.sign(n) * Math.round(Math.abs(n) * factor * (1 + Number.EPSILON)) / factor;
-  }
-};
-
-// table-plus/src/formula/functions/abs.ts
-var abs_default = {
-  name: "ABS",
-  syntax: "ABS(number)",
-  description: "The number without its sign.",
-  minArgs: 1,
-  maxArgs: 1,
-  call: ([number]) => {
-    const n = toNumber(number);
-    return isError(n) ? n : Math.abs(n);
-  }
-};
-
-// table-plus/src/formula/functions/if.ts
-var if_default = {
-  name: "IF",
-  syntax: "IF(condition, value_if_true, [value_if_false])",
-  description: "One value if the condition is true, another if it is false (default FALSE).",
-  minArgs: 2,
-  maxArgs: 3,
-  call: ([condition, ifTrue, ifFalse = false]) => {
-    const c = toBoolean(condition);
-    if (isError(c)) return c;
-    return single(c ? ifTrue : ifFalse);
-  }
-};
-
-// table-plus/src/formula/functions/iferror.ts
-var iferror_default = {
-  name: "IFERROR",
-  syntax: "IFERROR(value, value_if_error)",
-  description: "The value, or the second value if the first is an error.",
-  minArgs: 2,
-  maxArgs: 2,
-  call: ([value, ifError]) => {
-    const v = single(value);
-    return isError(v) ? single(ifError) : v;
-  }
-};
-
-// table-plus/src/formula/functions/and.ts
-var and_default = {
-  name: "AND",
-  syntax: "AND(logical1, [logical2], \u2026)",
-  description: "TRUE if all of the values are true.",
-  minArgs: 1,
-  call: (args) => {
-    const bs = booleans(args);
-    return isError(bs) ? bs : bs.every(Boolean);
-  }
-};
-
-// table-plus/src/formula/functions/or.ts
-var or_default = {
-  name: "OR",
-  syntax: "OR(logical1, [logical2], \u2026)",
-  description: "TRUE if any of the values is true.",
-  minArgs: 1,
-  call: (args) => {
-    const bs = booleans(args);
-    return isError(bs) ? bs : bs.some(Boolean);
-  }
-};
-
-// table-plus/src/formula/functions/not.ts
-var not_default = {
-  name: "NOT",
-  syntax: "NOT(logical)",
-  description: "TRUE if the value is false, FALSE if it is true.",
-  minArgs: 1,
-  maxArgs: 1,
-  call: ([value]) => {
-    const b = toBoolean(value);
-    return isError(b) ? b : !b;
-  }
-};
-
-// table-plus/src/formula/functions/concat.ts
-var concat_default = {
-  name: "CONCAT",
-  syntax: "CONCAT(text1, [text2], \u2026)",
-  description: "Joins the values into one text.",
-  minArgs: 1,
-  call: (args) => {
-    const error = firstError(args);
-    if (error) return error;
-    return flatten(args).map((v) => toText(v)).join("");
-  }
-};
-
-// table-plus/src/formula/functions/today.ts
-var today_default = {
-  name: "TODAY",
-  syntax: "TODAY()",
-  description: "Today's date, e.g. 2025-11-06. The result is written when the table is calculated: the next day, Recalculate updates it.",
-  minArgs: 0,
-  maxArgs: 0,
-  call: () => formatDate(now(false))
-};
-
-// table-plus/src/formula/functions/now.ts
-var now_default = {
-  name: "NOW",
-  syntax: "NOW()",
-  description: "The date and time now, e.g. 2025-11-06 14:30:15. The result is written when the table is calculated: Recalculate updates it.",
-  minArgs: 0,
-  maxArgs: 0,
-  call: () => formatDate(now(true))
-};
-
-// table-plus/src/formula/functions/date.ts
-var date_default = {
-  name: "DATE",
-  syntax: "DATE(year, month, day)",
-  description: "The date of a year, month and day; a month or day past its end carries over (DATE(2025, 13, 1) is 2026-01-01).",
-  minArgs: 3,
-  maxArgs: 3,
-  call: ([year, month, day]) => {
-    const parts = [toNumber(year), toNumber(month), toNumber(day)];
-    const error = parts.find(isError);
-    if (error) return error;
-    const [y, m, d] = parts.map((n) => Math.trunc(n));
-    if (y < 0 || y > 9999) return new FormulaError("#NUM!", `${y} is not a year from 0 to 9999`);
-    const ms = Date.UTC(y, m - 1, d);
-    return Number.isNaN(ms) ? new FormulaError("#NUM!", "not a date") : formatDate({ ms, time: false });
-  }
-};
-
-// table-plus/src/formula/functions/time.ts
-var time_default = {
-  name: "TIME",
-  syntax: "TIME(hour, [minute], [second])",
-  description: "A time of day, e.g. 14:30; past midnight it starts again (TIME(25, 0) is 01:00). Added to a date it gives the date with that time: DATE(2025, 11, 6) + TIME(14, 30) is 2025-11-06 14:30.",
-  minArgs: 1,
-  maxArgs: 3,
-  call: ([hour, minute = 0, second = 0]) => {
-    const parts = [toNumber(hour), toNumber(minute), toNumber(second)];
-    const error = parts.find(isError);
-    if (error) return error;
-    const [h, m, s] = parts;
-    const total = Math.round(h * 3600 + m * 60 + s);
-    return total < 0 ? new FormulaError("#NUM!", "a time before midnight") : new TimeValue(total % DAY_SECONDS);
-  }
-};
-
-// table-plus/src/formula/functions/int.ts
-var int_default = {
-  name: "INT",
-  syntax: "INT(number)",
-  description: "The number rounded down to a whole number; for a time, its whole days (INT(SUM(A1:A2)) of 14:00 and 20:00 is 1).",
-  minArgs: 1,
-  maxArgs: 1,
-  call: ([number]) => {
-    const time = asTime(single(number));
-    if (time) return Math.floor(time.seconds / DAY_SECONDS);
-    const n = toNumber(number);
-    return isError(n) ? n : Math.floor(n);
-  }
-};
-
-// table-plus/src/formula/functions/text.ts
-function parseFormat(format) {
-  const parts = [];
-  let i = 0;
-  while (i < format.length) {
-    const c = format[i];
-    if (c === '"') {
-      const close = format.indexOf('"', i + 1);
-      if (close < 0) return new FormulaError("#VALUE!", "a text in the format is missing its closing quote");
-      parts.push({ text: format.slice(i + 1, close) });
-      i = close + 1;
-    } else if (c === "\\") {
-      parts.push({ text: format[i + 1] ?? "" });
-      i += 2;
-    } else if (c === "[") {
-      const close = format.indexOf("]", i);
-      const inner = close < 0 ? "" : format.slice(i + 1, close).toLowerCase();
-      const unit = /^(h+|m+|s+)$/.exec(inner)?.[1]?.[0];
-      if (!unit) return new FormulaError("#VALUE!", `"${format.slice(i, close + 1 || void 0)}" is not a code of TEXT: [h], [m] or [s]`);
-      parts.push({ code: `[${unit}]`, length: inner.length });
-      i = close + 1;
-    } else if (/[ymdhs]/i.test(c)) {
-      let j = i;
-      while (j < format.length && format[j].toLowerCase() === c.toLowerCase()) j++;
-      parts.push({ code: c.toLowerCase(), length: j - i });
-      i = j;
-    } else {
-      parts.push({ text: c });
-      i++;
-    }
-  }
-  const codes = parts.filter((p) => "code" in p);
-  return parts.map((part) => {
-    if (!("code" in part) || part.code !== "m") return part;
-    const at = codes.indexOf(part);
-    const before = codes[at - 1]?.code;
-    const after = codes[at + 1]?.code;
-    return before === "h" || before === "[h]" || after === "s" || after === "[s]" ? { code: "min", length: part.length } : part;
-  });
-}
-var pad = (n, length) => String(n).padStart(Math.min(length, 2), "0");
-var text_default = {
-  name: "TEXT",
-  syntax: "TEXT(value, format)",
-  description: 'A date or a time as text in a format: TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is.',
-  minArgs: 2,
-  maxArgs: 2,
-  call: ([value, format]) => {
-    const v = single(value);
-    const f = toText(format);
-    if (isError(v)) return v;
-    if (isError(f)) return f;
-    const parts = parseFormat(f);
-    if (isError(parts)) return parts;
-    if (!parts.some((part) => "code" in part)) {
-      return new FormulaError("#VALUE!", `"${f}" has no date or time code: yyyy, mm, dd, hh, mm, ss, [h], [m] or [s]`);
-    }
-    const date = typeof v === "string" ? parseDate(v) : void 0;
-    const time = date ? void 0 : asTime(v);
-    const seconds = time ? time.seconds : typeof v === "number" && !date ? Math.round(v * DAY_SECONDS) : void 0;
-    if (!date && seconds === void 0) return new FormulaError("#VALUE!", `"${toText(v)}" is not a date or a time`);
-    const d = date && new Date(date.ms);
-    const ofDay = d ? d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds() : (seconds % DAY_SECONDS + DAY_SECONDS) % DAY_SECONDS;
-    let out = "";
-    for (const part of parts) {
-      if ("text" in part) {
-        out += part.text;
-        continue;
-      }
-      const { code, length } = part;
-      if ((code === "y" || code === "m" || code === "d") && !d) {
-        return new FormulaError("#VALUE!", "a time has no year, month or day: INT gives its whole days");
-      }
-      if ((code === "[h]" || code === "[m]" || code === "[s]") && d) {
-        return new FormulaError("#VALUE!", `${code} is for a length of time, not a date: use hh, mm or ss`);
-      }
-      if ((code === "m" || code === "d") && length > 2) return new FormulaError("#VALUE!", "names of months and days are not supported");
-      switch (code) {
-        case "y":
-          out += length <= 2 ? pad(d.getUTCFullYear() % 100, 2) : String(d.getUTCFullYear());
-          break;
-        case "m":
-          out += pad(d.getUTCMonth() + 1, length);
-          break;
-        case "d":
-          out += pad(d.getUTCDate(), length);
-          break;
-        case "h":
-          out += pad(Math.floor(ofDay / 3600), length);
-          break;
-        case "min":
-          out += pad(Math.floor(ofDay / 60) % 60, length);
-          break;
-        case "s":
-          out += pad(ofDay % 60, length);
-          break;
-        case "[h]":
-          out += pad(Math.trunc(seconds / 3600), length);
-          break;
-        case "[m]":
-          out += pad(Math.trunc(seconds / 60), length);
-          break;
-        case "[s]":
-          out += pad(seconds, length);
-          break;
-      }
-    }
-    return out;
-  }
-};
-
-// table-plus/src/formula/functions/xlookup.ts
-var xlookup_default = {
-  name: "XLOOKUP",
-  syntax: "XLOOKUP(value, lookup_range, result_range, [if_not_found])",
-  description: 'Finds the value in one range or column and gives the value in the same place of another, e.g. XLOOKUP("Pear", prices![Name], prices![Price]); text is found ignoring case. Not found: if_not_found, else #N/A.',
-  minArgs: 3,
-  maxArgs: 4,
-  call: ([value, lookIn, results, notFound]) => {
-    const v = single(value);
-    if (isError(v)) return v;
-    if (isError(lookIn)) return lookIn;
-    if (isError(results)) return results;
-    const keys = isRange(lookIn) ? lookIn : [lookIn];
-    const found = isRange(results) ? results : [results];
-    if (keys.length !== found.length) {
-      return new FormulaError("#VALUE!", `the ranges are not the same size (${keys.length} and ${found.length} cells)`);
-    }
-    const index = keys.findIndex((key) => sameValue(v, key));
-    if (index < 0) return notFound === void 0 ? new FormulaError("#N/A", `"${toText(v)}" is not in the range`) : single(notFound);
-    return found[index] ?? null;
-  }
-};
-
-// table-plus/src/formula/functions/dateadd.ts
-var dateadd_default = {
-  name: "DATEADD",
-  syntax: "DATEADD(date, amount, unit)",
-  description: `The date plus an amount of a unit: "s", "min", "h", "d", "w", "m" (months) or "y" (or their names, "hours"). A negative amount goes back. Months and years keep the day or take the month's last.`,
-  minArgs: 3,
-  maxArgs: 3,
-  call: ([date, amount, unit]) => {
-    const d = toDate(date);
-    const n = toNumber(amount);
-    const u = toUnit(unit);
-    if (isError(d)) return d;
-    if (isError(n)) return n;
-    if (isError(u)) return u;
-    return formatDate(addUnits(d, n, u));
-  }
-};
-
-// table-plus/src/formula/functions/datedif.ts
-var datedif_default = {
-  name: "DATEDIF",
-  syntax: "DATEDIF(start, end, unit)",
-  description: 'How many whole units lie from one date to another, in "s", "min", "h", "d", "w", "m" (months) or "y"; negative when the end is earlier. For days with a fraction, subtract the dates: end - start.',
-  minArgs: 3,
-  maxArgs: 3,
-  call: ([start, end, unit]) => {
-    const a = toDate(start);
-    const b = toDate(end);
-    const u = toUnit(unit);
-    if (isError(a)) return a;
-    if (isError(b)) return b;
-    if (isError(u)) return u;
-    return unitsBetween(a, b, u);
-  }
-};
-
-// table-plus/src/formula/functions/year.ts
-var year_default = {
-  name: "YEAR",
-  syntax: "YEAR(date)",
-  description: "The year of a date.",
-  minArgs: 1,
-  maxArgs: 1,
-  call: ([date]) => {
-    const d = toDate(date);
-    return isError(d) ? d : partOf(d, "year");
-  }
-};
-
-// table-plus/src/formula/functions/month.ts
-var month_default = {
-  name: "MONTH",
-  syntax: "MONTH(date)",
-  description: "The month of a date, 1 to 12.",
-  minArgs: 1,
-  maxArgs: 1,
-  call: ([date]) => {
-    const d = toDate(date);
-    return isError(d) ? d : partOf(d, "month");
-  }
-};
-
-// table-plus/src/formula/functions/day.ts
-var day_default = {
-  name: "DAY",
-  syntax: "DAY(date)",
-  description: "The day of a date's month, 1 to 31.",
-  minArgs: 1,
-  maxArgs: 1,
-  call: ([date]) => {
-    const d = toDate(date);
-    return isError(d) ? d : partOf(d, "day");
-  }
-};
-
-// table-plus/src/formula/functions/hour.ts
-var hour_default = {
-  name: "HOUR",
-  syntax: "HOUR(time)",
-  description: "The hour of a time, or of a date's time, 0 to 23 (0 for a date without a time).",
-  minArgs: 1,
-  maxArgs: 1,
-  call: ([date]) => {
-    const d = toClock(date);
-    return isError(d) ? d : partOf(d, "hour");
-  }
-};
-
-// table-plus/src/formula/functions/minute.ts
-var minute_default = {
-  name: "MINUTE",
-  syntax: "MINUTE(time)",
-  description: "The minute of a time, or of a date's time, 0 to 59.",
-  minArgs: 1,
-  maxArgs: 1,
-  call: ([date]) => {
-    const d = toClock(date);
-    return isError(d) ? d : partOf(d, "minute");
-  }
-};
-
-// table-plus/src/formula/functions/second.ts
-var second_default = {
-  name: "SECOND",
-  syntax: "SECOND(time)",
-  description: "The second of a time, or of a date's time, 0 to 59.",
-  minArgs: 1,
-  maxArgs: 1,
-  call: ([date]) => {
-    const d = toClock(date);
-    return isError(d) ? d : partOf(d, "second");
-  }
-};
-
-// table-plus/src/formula/functions/weekday.ts
-var weekday_default = {
-  name: "WEEKDAY",
-  syntax: "WEEKDAY(date, [type])",
-  description: "The day of the week as a number: Sunday 1 to Saturday 7 (type 1, the default), or Monday 1 to Sunday 7 (type 2).",
-  minArgs: 1,
-  maxArgs: 2,
-  call: ([date, type = 1]) => {
-    const d = toDate(date);
-    const t = toNumber(type);
-    if (isError(d)) return d;
-    if (isError(t)) return t;
-    const day = partOf(d, "weekday");
-    if (t === 1) return day + 1;
-    if (t === 2) return day === 0 ? 7 : day;
-    return new FormulaError("#NUM!", `${t} is not a type of WEEKDAY: 1 or 2`);
-  }
-};
-
-// table-plus/src/formula/functions/index.ts
-var ALL = [
-  sum_default,
-  average_default,
-  min_default,
-  max_default,
-  product_default,
-  count_default,
-  counta_default,
-  round_default,
-  abs_default,
-  if_default,
-  iferror_default,
-  and_default,
-  or_default,
-  not_default,
-  concat_default,
-  today_default,
-  now_default,
-  date_default,
-  time_default,
-  dateadd_default,
-  datedif_default,
-  year_default,
-  month_default,
-  day_default,
-  hour_default,
-  minute_default,
-  second_default,
-  weekday_default,
-  int_default,
-  text_default,
-  xlookup_default
-];
-var FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
-
-// table-plus/src/formula/index.ts
-var FORMULA_TAG_RE = /<meta\s+f\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
-function formulaOf(cell) {
-  const match = Array.from(cell.matchAll(FORMULA_TAG_RE)).pop();
-  if (!match) return void 0;
-  const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
-  const rest = cell.slice(0, match.index) + cell.slice(match.index + match[0].length);
-  const name = cellNameOf(rest);
-  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value: withoutName(rest), ...name ? { name } : {} };
-}
-function formulaCell(value, formula, name) {
-  const tag = `<meta f="${escapeMetaValue(formula)}">`;
-  const shown = escapeCell(value);
-  return withCellName(shown === "" ? tag : `${shown} ${tag}`, name);
-}
-function isFormulaInput(text) {
-  const trimmed = text.trim();
-  return trimmed.startsWith("=") && trimmed.length > 1;
-}
-function isErrorText(text) {
-  return ERROR_CODES.includes(text.trim());
-}
-function columnLetters(column) {
-  let s = "";
-  for (let n = column + 1; n > 0; n = Math.floor((n - 1) / 26)) {
-    s = String.fromCharCode(65 + (n - 1) % 26) + s;
-  }
-  return s;
-}
-function columnIndex(letters) {
-  let n = 0;
-  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
-  return n - 1;
-}
-function cellName(row, column) {
-  return `${columnLetters(column)}${row + 1}`;
-}
-function areaText(area) {
-  const start = cellName(area.top, area.left);
-  return area.top === area.bottom && area.left === area.right ? start : `${start}:${cellName(area.bottom, area.right)}`;
-}
-function columnRefText(id, thisRow) {
-  const name = id && columnKey(id.name);
-  if (!id || !name) return void 0;
-  return `[${thisRow ? "@" : ""}${name}${id.nth > 1 ? `:${id.nth}` : ""}]`;
-}
-function withColumnKeys(formula, headers) {
-  let result = formula;
-  for (const ref of references(formula).reverse()) {
-    if (ref.kind !== "column" || ref.table) continue;
-    const column = referencedColumn(headers, ref.name);
-    const text = column === void 0 ? void 0 : columnRefText(columnIdOf(headers, column), ref.thisRow);
-    if (text) result = result.slice(0, ref.from) + text + result.slice(ref.to);
-  }
-  return result;
-}
-function referencedColumnId(headers, written) {
-  const exact = { name: written, nth: 1 };
-  if (findColumn(headers, exact) !== void 0) return exact;
-  const match = /^(.*\S)\s*:\s*([1-9]\d*)$/.exec(written);
-  return match ? { name: match[1], nth: Number(match[2]) } : exact;
-}
-function referencedColumn(headers, written) {
-  return findColumn(headers, referencedColumnId(headers, written));
-}
-function parseCellName(text) {
-  const m = CELL_RE.exec(text);
-  return m ? { row: Number(m[2]) - 1, column: columnIndex(m[1]) } : void 0;
-}
-var REF_ERROR = "#REF!";
-var OPERATORS = ["<=", ">=", "<>", "+", "-", "*", "/", "^", "&", "=", "<", ">", "(", ")", ",", ";", ":", "%"];
-function tokenize(formula) {
-  const tokens = [];
-  let i = formula.startsWith("=") ? 1 : 0;
-  const fail = (detail) => ({ tokens, error: new FormulaError("#ERROR!", detail) });
-  while (i < formula.length) {
-    const ch = formula[i];
-    if (/\s/.test(ch)) {
-      i++;
-      continue;
-    }
-    const number = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/.exec(formula.slice(i));
-    if (number) {
-      tokens.push({ kind: "number", value: Number(number[0]), from: i, to: i + number[0].length });
-      i += number[0].length;
-      continue;
-    }
-    if (formula.startsWith("[[", i)) {
-      const close = formula.indexOf("]]", i + 2);
-      const after = close < 0 ? null : /^([A-Za-z_][A-Za-z0-9_]*)(!?)/.exec(formula.slice(close + 2));
-      if (close < 0) return fail("a page name is missing its closing ]]");
-      if (!after || !after[2] && (CELL_RE.test(after[1]) || /^(true|false)$/i.test(after[1]))) {
-        return fail("[[Page]] is followed by a table's name and !, as in [[Page]]prices!A1, or a cell's name");
-      }
-      const page = formula.slice(i + 2, close).trim();
-      const to = close + 2 + after[0].length;
-      tokens.push(after[2] ? { kind: "table", name: after[1], page, from: i, to } : { kind: "named", name: after[1], page, from: i, to });
-      i = to;
-      continue;
-    }
-    const table = /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(i));
-    if (table) {
-      tokens.push({ kind: "table", name: table[1], from: i, to: i + table[0].length });
-      i += table[0].length;
-      continue;
-    }
-    const name = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(formula.slice(i));
-    if (name) {
-      tokens.push({ kind: "name", text: name[0], from: i, to: i + name[0].length });
-      i += name[0].length;
-      continue;
-    }
-    if (ch === '"') {
-      let value = "";
-      let j = i + 1;
-      for (; ; ) {
-        if (j >= formula.length) return fail("a text is missing its closing quote");
-        if (formula[j] === '"') {
-          if (formula[j + 1] !== '"') break;
-          value += '"';
-          j += 2;
-        } else value += formula[j++];
-      }
-      tokens.push({ kind: "string", value, from: i, to: j + 1 });
-      i = j + 1;
-      continue;
-    }
-    if (formula.startsWith(REF_ERROR, i)) {
-      tokens.push({ kind: "ref-error", from: i, to: i + REF_ERROR.length });
-      i += REF_ERROR.length;
-      continue;
-    }
-    if (ch === "[") {
-      const end = formula.indexOf("]", i);
-      if (end < 0) return fail("a column name is missing its closing ]");
-      const inner = formula.slice(i + 1, end);
-      const thisRow = inner.startsWith("@");
-      tokens.push({ kind: "column", name: (thisRow ? inner.slice(1) : inner).trim(), thisRow, from: i, to: end + 1 });
-      i = end + 1;
-      continue;
-    }
-    const op = OPERATORS.find((o) => formula.startsWith(o, i));
-    if (!op) return fail(`unexpected "${ch}"`);
-    tokens.push({ kind: "op", text: op, from: i, to: i + op.length });
-    i += op.length;
-  }
-  return { tokens };
-}
-function references(formula) {
-  const { tokens } = tokenize(formula);
-  const result = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    const previous = tokens[i - 1];
-    const table = previous?.kind === "table" ? { table: tableRefOf(previous) } : {};
-    if (token.kind === "column") {
-      const row = previous?.kind === "name" && isRowName(tokens, i - 1) ? previous.text : void 0;
-      const rowTable = row && tokens[i - 2]?.kind === "table" ? { table: tableRefOf(tokens[i - 2]) } : {};
-      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to, ...row ? { row, ...rowTable } : table });
-      continue;
-    }
-    if (token.kind !== "name") continue;
-    const next = tokens[i + 1];
-    if (next?.kind === "op" && next.text === "(") continue;
-    const start = parseCellName(token.text);
-    if (!start) continue;
-    const colon = tokens[i + 1];
-    const endToken = tokens[i + 2];
-    const end = colon?.kind === "op" && colon.text === ":" && endToken?.kind === "name" ? parseCellName(endToken.text) : void 0;
-    const area = end ? {
-      top: Math.min(start.row, end.row),
-      left: Math.min(start.column, end.column),
-      bottom: Math.max(start.row, end.row),
-      right: Math.max(start.column, end.column)
-    } : { top: start.row, left: start.column, bottom: start.row, right: start.column };
-    result.push({ kind: "area", area, from: token.from, to: end ? endToken.to : token.to, ...table });
-    if (end) i += 2;
-  }
-  return result;
-}
-function isRowName(tokens, i) {
-  const token = tokens[i];
-  return token?.kind === "name" && tokens[i + 1]?.kind === "column" && !parseCellName(token.text) && !/^(true|false)$/i.test(token.text);
-}
-function tableRefOf(token) {
-  return token.page === void 0 ? { name: token.name } : { name: token.name, page: token.page };
-}
-var Parser = class {
-  constructor(formula, tokens) {
-    this.formula = formula;
-    this.tokens = tokens;
-  }
-  formula;
-  tokens;
-  at = 0;
-  parse() {
-    const node = this.comparison();
-    const rest = this.tokens[this.at];
-    if (rest) throw new FormulaError("#ERROR!", `unexpected "${this.text(rest)}"`);
-    return node;
-  }
-  text(token) {
-    return this.formula.slice(token.from, token.to);
-  }
-  peekOp(...ops) {
-    const token = this.tokens[this.at];
-    return token?.kind === "op" && ops.includes(token.text) ? token.text : void 0;
-  }
-  binary(next, ...ops) {
-    let left = next();
-    for (let op = this.peekOp(...ops); op; op = this.peekOp(...ops)) {
-      this.at++;
-      left = { kind: "binary", op, left, right: next() };
-    }
-    return left;
-  }
-  comparison = () => this.binary(this.concat, "=", "<>", "<", ">", "<=", ">=");
-  concat = () => this.binary(this.additive, "&");
-  additive = () => this.binary(this.multiplicative, "+", "-");
-  multiplicative = () => this.binary(this.power, "*", "/");
-  power = () => this.binary(this.unary, "^");
-  unary = () => {
-    const op = this.peekOp("-", "+");
-    if (op) {
-      this.at++;
-      return { kind: "unary", op, arg: this.unary() };
-    }
-    let node = this.primary();
-    while (this.peekOp("%")) {
-      this.at++;
-      node = { kind: "unary", op: "%", arg: node };
-    }
-    return node;
-  };
-  primary() {
-    const token = this.tokens[this.at++];
-    if (!token) throw new FormulaError("#ERROR!", "the formula ends too early");
-    switch (token.kind) {
-      case "number":
-        return { kind: "literal", value: token.value };
-      case "string":
-        return { kind: "literal", value: token.value };
-      case "column":
-        return { kind: "column", name: token.name, thisRow: token.thisRow };
-      case "ref-error":
-        return { kind: "literal", value: new FormulaError("#REF!", "a reference to deleted cells") };
-      case "named":
-        return { kind: "named", name: token.name, page: token.page };
-      case "table": {
-        const next = this.tokens[this.at];
-        const prefix = this.text(token);
-        if (next?.kind === "ref-error") {
-          this.at++;
-          return { kind: "literal", value: new FormulaError("#REF!", `a reference to deleted cells of ${token.name}`) };
-        }
-        if (next?.kind === "column") {
-          this.at++;
-          if (next.thisRow) {
-            throw new FormulaError("#ERROR!", `[@${next.name}] is a cell of the formula's own row: ${prefix}[${next.name}] is the other table's column`);
-          }
-          return { kind: "column", name: next.name, thisRow: false, table: tableRefOf(token) };
-        }
-        if (next?.kind === "name" && isRowName(this.tokens, this.at)) {
-          this.at++;
-          return { ...this.rowCell(next.text), table: tableRefOf(token) };
-        }
-        if (next?.kind === "name" && parseCellName(next.text) && !(this.tokens[this.at + 1]?.kind === "op" && this.text(this.tokens[this.at + 1]) === "(")) {
-          this.at++;
-          const area = this.name(next.text);
-          if (area.kind === "area") return { ...area, table: tableRefOf(token) };
-        }
-        throw new FormulaError("#ERROR!", `${prefix} is followed by a cell, a range or a [column], as in ${prefix}A1`);
-      }
-      case "op":
-        if (token.text === "(") {
-          const inner = this.comparison();
-          if (!this.peekOp(")")) throw new FormulaError("#ERROR!", "a ( is missing its )");
-          this.at++;
-          return inner;
-        }
-        throw new FormulaError("#ERROR!", `unexpected "${this.text(token)}"`);
-      case "name":
-        return this.name(token.text);
-    }
-  }
-  /** The named row `row`'s cell in the [column] that follows (the token at `at`) */
-  rowCell(row) {
-    const column = this.tokens[this.at++];
-    if (column.thisRow) throw new FormulaError("#ERROR!", `${row}[@${column.name}]: a row's cell is written ${row}[${column.name}]`);
-    return { kind: "rowCell", row, column: column.name };
-  }
-  name(text) {
-    if (this.peekOp("(")) {
-      this.at++;
-      const args = [];
-      if (this.peekOp(")")) this.at++;
-      else {
-        for (; ; ) {
-          args.push(this.comparison());
-          if (this.peekOp(",", ";")) {
-            this.at++;
-            continue;
-          }
-          if (!this.peekOp(")")) throw new FormulaError("#ERROR!", `${text}( is missing its )`);
-          this.at++;
-          break;
-        }
-      }
-      return { kind: "call", name: text.toUpperCase(), args };
-    }
-    const upper = text.toUpperCase();
-    if (upper === "TRUE" || upper === "FALSE") return { kind: "literal", value: upper === "TRUE" };
-    const start = parseCellName(text);
-    if (isRowName(this.tokens, this.at - 1)) return this.rowCell(text);
-    if (!start) return { kind: "named", name: text };
-    if (!this.peekOp(":")) {
-      return { kind: "area", area: { top: start.row, left: start.column, bottom: start.row, right: start.column }, range: false };
-    }
-    this.at++;
-    const endToken = this.tokens[this.at++];
-    const end = endToken?.kind === "name" ? parseCellName(endToken.text) : void 0;
-    if (!end) throw new FormulaError("#ERROR!", `${text}: must be followed by a cell, as in ${text}:B3`);
-    return {
-      kind: "area",
-      area: {
-        top: Math.min(start.row, end.row),
-        left: Math.min(start.column, end.column),
-        bottom: Math.max(start.row, end.row),
-        right: Math.max(start.column, end.column)
-      },
-      range: true
-    };
-  }
-};
-var parsed = /* @__PURE__ */ new Map();
-function parse(formula) {
-  let result = parsed.get(formula);
-  if (result) return result;
-  const { tokens, error } = tokenize(formula);
-  if (error) result = error;
-  else if (tokens.length === 0) result = new FormulaError("#ERROR!", "the formula is empty");
-  else {
-    try {
-      result = new Parser(formula, tokens).parse();
-    } catch (e) {
-      if (!(e instanceof FormulaError)) throw e;
-      result = e;
-    }
-  }
-  if (parsed.size > 500) parsed.clear();
-  parsed.set(formula, result);
-  return result;
-}
-function autofixFormula(formula) {
-  const unchanged = { formula, fixes: [] };
-  if (!isError(parse(formula))) return unchanged;
-  let depth = 0;
-  let quote = false;
-  let bracket = false;
-  const extra = [];
-  for (let i = formula.startsWith("=") ? 1 : 0; i < formula.length; i++) {
-    const ch = formula[i];
-    if (quote) {
-      if (ch === '"') {
-        if (formula[i + 1] === '"') i++;
-        else quote = false;
-      }
-    } else if (bracket) {
-      if (ch === "]") bracket = false;
-    } else if (ch === '"') quote = true;
-    else if (ch === "[") bracket = true;
-    else if (ch === "(") depth++;
-    else if (ch === ")") {
-      if (depth > 0) depth--;
-      else extra.push(i);
-    }
-  }
-  let fixed = formula;
-  const fixes = [];
-  if (extra.length) {
-    const end = formula.trimEnd();
-    if (!end.endsWith(")".repeat(extra.length)) || extra[0] !== end.length - extra.length) return unchanged;
-    fixed = end.slice(0, extra[0]);
-    fixes.push(`removed ${")".repeat(extra.length)}`);
-  }
-  if (quote) {
-    fixed += '"';
-    fixes.push('closed the text with "');
-  }
-  if (bracket) {
-    fixed = `${fixed.trimEnd()}]`;
-    fixes.push("closed the column name with ]");
-  }
-  if (depth > 0) {
-    fixed = `${quote ? fixed : fixed.trimEnd()}${")".repeat(depth)}`;
-    fixes.push(`added ${")".repeat(depth)}`);
-  }
-  if (fixes.length === 0 || isError(parse(fixed))) return unchanged;
-  return { formula: fixed, fixes };
-}
-function wholeColumnNames(node, names) {
-  switch (node.kind) {
-    case "column":
-      if (!node.thisRow && !node.table) names.add(node.name);
-      break;
-    case "call":
-      for (const arg of node.args) wholeColumnNames(arg, names);
-      break;
-    case "unary":
-      wholeColumnNames(node.arg, names);
-      break;
-    case "binary":
-      wholeColumnNames(node.left, names);
-      wholeColumnNames(node.right, names);
-      break;
-  }
-  return names;
-}
-var DECIMAL_COMMA_RE = /\d,\d/;
-var Book = class {
-  constructor(source) {
-    this.source = source;
-  }
-  source;
-  sheets = /* @__PURE__ */ new Map();
-  // The sheets by table, whether reached by the table's name or a named cell's
-  tableSheets = /* @__PURE__ */ new Map();
-  /** Whether a formula refers to a page formulas may not read: it keeps its stored result */
-  keepsResult(formula) {
-    const unread = this.source?.unread;
-    return !!unread && formulaPages(formula).some(unread);
-  }
-  /** The cell named so on `page` (undefined: the formulas' page), in its table's sheet */
-  cell(name, page) {
-    const found = this.source?.cell?.(name, page);
-    if (!found || found.row < 1) return void 0;
-    return { sheet: this.sheetOf(found.table, page), row: found.row - 1, column: found.column };
-  }
-  /** The table's sheet, made on its first use (by its name or by a named cell's) */
-  sheetOf(table, page) {
-    let sheet = this.tableSheets.get(table);
-    if (!sheet) {
-      sheet = new Sheet(table, this, page);
-      this.tableSheets.set(table, sheet);
-    }
-    return sheet;
-  }
-  /** The sheet a reference from `from` is to: the other table, or `from` itself when it is named so */
-  sheet(ref, from) {
-    const page = ref.page ?? from.page;
-    if (page === from.page && from.name !== void 0 && from.name.toLowerCase() === ref.name.toLowerCase()) return from;
-    const key = `${page ?? ""}\0${ref.name.toLowerCase()}`;
-    let sheet = this.sheets.get(key);
-    if (!sheet) {
-      const table = this.source?.(ref.name, page);
-      if (!table) return new FormulaError("#REF!", `there is no table named ${ref.name}${page === void 0 ? " on this page" : ` on ${page}`}`);
-      sheet = this.sheetOf(table, page);
-      this.sheets.set(key, sheet);
-    }
-    return sheet;
-  }
-};
-var Sheet = class {
-  /** `page`: the page the table is on, when it is not the formulas' own (its unnamed references are to tables there) */
-  constructor(table, book = new Book(void 0), page) {
-    this.table = table;
-    this.book = book;
-    this.page = page;
-    this.name = table.meta?.name?.trim() || void 0;
-    this.headers = table.rows[0]?.cells ?? [];
-    this.body = table.rows.slice(1).map((r) => r.cells);
-    let comma = 0;
-    let point = 0;
-    for (const cells of this.body) {
-      for (const cell of cells) {
-        if (formulaOf(cell)) continue;
-        const text = unescapeCell(cell).trim();
-        if (asNumber(text) === void 0) continue;
-        if (DECIMAL_COMMA_RE.test(text)) comma++;
-        else if (/\d\.\d/.test(text)) point++;
-      }
-    }
-    this.decimalComma = comma > point;
-  }
-  table;
-  book;
-  page;
-  headers;
-  body;
-  results = /* @__PURE__ */ new Map();
-  evaluating = /* @__PURE__ */ new Set();
-  // Numbers in the table are written with a decimal comma: results are too
-  decimalComma;
-  // The table's name, by which formulas refer to it
-  name;
-  totals;
-  cellNames;
-  rowNames;
-  get rows() {
-    return this.body.length;
-  }
-  get columns() {
-    return this.headers.length;
-  }
-  /** A cell's value: a plain cell's text (a number if it reads as one), a formula cell's result */
-  value(row, column) {
-    const cell = this.body[row]?.[column];
-    if (cell === void 0 || column >= this.columns) {
-      return new FormulaError("#REF!", `${cellName(row, column)} is outside the table`);
-    }
-    const stored = formulaOf(cell);
-    if (!stored) {
-      const text = unescapeCell(withoutName(cell)).trim();
-      if (text === "") return null;
-      return asNumber(text) ?? parseClock(text) ?? text;
-    }
-    return this.result(row, column, stored.formula);
-  }
-  /** The result of the formula in a cell */
-  result(row, column, formula) {
-    const key = `${row},${column}`;
-    const known = this.results.get(key);
-    if (known !== void 0) return known;
-    if (this.evaluating.has(key)) {
-      return new FormulaError("#CYCLE!", `${cellName(row, column)} depends on its own result`);
-    }
-    if (this.book.keepsResult(formula)) {
-      const shown = unescapeCell(formulaOf(this.body[row]?.[column] ?? "")?.value ?? "").trim();
-      const code = shown === "" ? "#REF!" : ERROR_CODES.find((c) => c === shown);
-      const kept = code ? new FormulaError(code, "links to other pages are turned off") : asNumber(shown) ?? parseClock(shown) ?? shown;
-      this.results.set(key, kept);
-      return kept;
-    }
-    this.evaluating.add(key);
-    let result;
-    try {
-      const tree = parse(formula);
-      result = isError(tree) ? tree : single(this.evaluate(tree, row, column));
-      if (typeof result === "number" && !Number.isFinite(result) || result instanceof TimeValue && !Number.isFinite(result.seconds)) {
-        result = new FormulaError("#NUM!", "the result is not a finite number");
-      }
-    } finally {
-      this.evaluating.delete(key);
-    }
-    this.results.set(key, result);
-    return result;
-  }
-  /** The text a formula cell shows for its result */
-  text(row, column, formula) {
-    const result = this.result(row, column, formula);
-    if (isError(result)) return result.code;
-    const text = toText(result);
-    return typeof result === "number" && this.decimalComma ? text.replace(".", ",") : text;
-  }
-  /** Whether the cell holds a formula that refers to the whole column `target` */
-  refersToColumn(row, column, target) {
-    const stored = formulaOf(this.body[row]?.[column] ?? "");
-    const tree = stored && parse(stored.formula);
-    if (!tree || isError(tree)) return false;
-    return Array.from(wholeColumnNames(tree, /* @__PURE__ */ new Set())).some((name) => referencedColumn(this.headers, name) === target);
-  }
-  /** The cell of the row named `row` in the column `column` */
-  rowCellValue(row, column, prefix = "") {
-    this.rowNames ??= namedRows(this.table);
-    const r = this.rowNames.get(row.toLowerCase());
-    if (r === void 0) return new FormulaError("#REF!", `there is no row named ${row}${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
-    const c = referencedColumn(this.headers, column);
-    if (c === void 0) return new FormulaError("#REF!", `there is no column named "${column}"${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
-    return this.value(r - 1, c);
-  }
-  /** The values of an area: one cell's value, or a range's (`range`) */
-  areaValue(area, range, prefix = "") {
-    const { top, left, bottom, right } = area;
-    if (bottom >= this.rows || right >= this.columns) {
-      return new FormulaError("#REF!", `${prefix}${areaText(area)} is outside the table`);
-    }
-    const values = [];
-    for (let r = top; r <= bottom; r++) {
-      for (let c = left; c <= right; c++) values.push(this.value(r, c));
-    }
-    return range ? values : values[0];
-  }
-  /**
-   * A column's values, without the table's total rows (see totalRows), so the
-   * columns of a table line up: XLOOKUP over one gives the value beside it in another
-   */
-  columnValue(name, prefix = "") {
-    const index = referencedColumn(this.headers, name);
-    if (index === void 0) return new FormulaError("#REF!", `there is no column named "${name}"${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
-    const totals = this.totalRows();
-    const values = [];
-    for (let r = 0; r < this.rows; r++) {
-      if (!totals.has(r)) values.push(this.value(r, index));
-    }
-    return values;
-  }
-  /**
-   * The total rows: those with a cell that refers to its own whole column, as
-   * =SUM([qty]) under Qty. A cell that refers to another column ([@qty] /
-   * SUM([qty]) in a Share column) does not make its row one.
-   */
-  totalRows() {
-    if (this.totals) return this.totals;
-    const totals = /* @__PURE__ */ new Set();
-    for (let r = 0; r < this.rows; r++) {
-      for (let c = 0; c < this.columns; c++) if (this.refersToColumn(r, c, c)) totals.add(r);
-    }
-    this.totals = totals;
-    return totals;
-  }
-  /** A named cell's value: in this table, else on this table's page (or `page`) */
-  named(name, page) {
-    if (page === void 0 || page === this.page) {
-      const own = this.cellNamed(name);
-      if (own) return this.value(own.row, own.column);
-    }
-    const found = this.book.cell(name, page ?? this.page);
-    if (!found) return new FormulaError("#NAME?", `there is no cell named ${name}${page ? ` on ${page}` : " on this page"}`);
-    return found.sheet.value(found.row, found.column);
-  }
-  /** The body cell of this table named so (ignoring case), if any */
-  cellNamed(name) {
-    this.cellNames ??= namedCells(this.table);
-    const found = this.cellNames.get(name.toLowerCase());
-    return found && { row: found.row - 1, column: found.column };
-  }
-  /** The sheet a reference's table is: this one, or another the book has */
-  sheetOf(table) {
-    return table ? this.book.sheet(table, this) : this;
-  }
-  evaluate(node, row, column) {
-    switch (node.kind) {
-      case "literal":
-        return node.value;
-      case "area": {
-        const sheet = this.sheetOf(node.table);
-        if (isError(sheet)) return sheet;
-        return sheet.areaValue(node.area, node.range, node.table ? `${node.table.name}!` : "");
-      }
-      case "column": {
-        const sheet = this.sheetOf(node.table);
-        if (isError(sheet)) return sheet;
-        if (node.thisRow) {
-          const index = referencedColumn(this.headers, node.name);
-          return index === void 0 ? new FormulaError("#REF!", `there is no column named "${node.name}"`) : this.value(row, index);
-        }
-        return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
-      }
-      case "named":
-        return this.named(node.name, node.page);
-      case "rowCell": {
-        const sheet = this.sheetOf(node.table);
-        if (isError(sheet)) return sheet;
-        return sheet.rowCellValue(node.row, node.column, node.table ? `${node.table.name}!` : "");
-      }
-      case "call": {
-        const f = FUNCTIONS[node.name];
-        if (!f) return new FormulaError("#NAME?", `there is no function ${node.name}`);
-        if (node.args.length < f.minArgs || f.maxArgs !== void 0 && node.args.length > f.maxArgs) {
-          return new FormulaError("#VALUE!", `wrong number of arguments: ${f.syntax}`);
-        }
-        return f.call(
-          node.args.map((arg) => {
-            const value = this.evaluate(arg, row, column);
-            const reference = arg.kind === "area" || arg.kind === "column" && arg.thisRow;
-            return reference && !isRange(value) && !isError(value) ? [value] : value;
-          })
-        );
-      }
-      case "unary": {
-        const arg = this.evaluate(node.arg, row, column);
-        const time = isRange(arg) ? void 0 : asTime(arg);
-        if (time && node.op !== "%") return node.op === "-" ? new TimeValue(-time.seconds) : time;
-        const n = toNumber(arg);
-        if (isError(n)) return n;
-        return node.op === "-" ? -n : node.op === "%" ? n / 100 : n;
-      }
-      case "binary":
-        return this.binary(node.op, this.evaluate(node.left, row, column), this.evaluate(node.right, row, column));
-    }
-  }
-  binary(op, leftValue, rightValue) {
-    const left = single(leftValue);
-    const right = single(rightValue);
-    if (isError(left)) return left;
-    if (isError(right)) return right;
-    if (op === "&") return toText(left) + toText(right);
-    const comparison = COMPARISONS[op];
-    if (comparison) return comparison(compare(left, right));
-    const dated = op === "+" || op === "-" ? dateArithmetic(op, left, right) : void 0;
-    if (dated !== void 0) return dated;
-    const timed = timeArithmetic(op, left, right);
-    if (timed !== void 0) return timed;
-    const a = toNumber(left);
-    const b = toNumber(right);
-    if (isError(a)) return a;
-    if (isError(b)) return b;
-    switch (op) {
-      case "+":
-        return a + b;
-      case "-":
-        return a - b;
-      case "*":
-        return a * b;
-      case "/":
-        return b === 0 ? new FormulaError("#DIV/0!", "division by zero") : a / b;
-      default:
-        return a ** b;
-    }
-  }
-};
-var COMPARISONS = {
-  "=": (o) => o === 0,
-  "<>": (o) => o !== 0,
-  "<": (o) => o < 0,
-  ">": (o) => o > 0,
-  "<=": (o) => o <= 0,
-  ">=": (o) => o >= 0
-};
-function compare(a, b) {
-  const da = typeof a === "string" ? parseDate(a) : void 0;
-  const db = da && typeof b === "string" ? parseDate(b) : void 0;
-  if (da && db) return da.ms - db.ms;
-  const na = a === null ? 0 : toNumber(a);
-  const nb = b === null ? 0 : toNumber(b);
-  if (!isError(na) && !isError(nb) && typeof a !== "boolean" && typeof b !== "boolean") return na - nb;
-  const ta = toText(a).toLowerCase();
-  const tb = toText(b).toLowerCase();
-  return ta < tb ? -1 : ta > tb ? 1 : 0;
-}
-function hasFormulas(table) {
-  return table.rows.some((row, r) => r > 0 && row.cells.some((cell) => formulaOf(cell) !== void 0));
-}
-function recalculate(table, tables) {
-  if (!hasFormulas(table)) return table;
-  const book = new Book(tables);
-  const sheet = new Sheet(table, book);
-  let result = table;
-  table.rows.forEach((row, r) => {
-    if (r === 0) return;
-    row.cells.forEach((cell, c) => {
-      const stored = formulaOf(cell);
-      if (!stored || book.keepsResult(stored.formula) && stored.value.trim() !== "") return;
-      const updated = keepNames(formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula), cell);
-      if (updated !== cell) result = setCell(result, r, c, updated);
-    });
-  });
-  return result;
-}
-function calculatedFormula(table, column, except) {
-  let formula;
-  for (let r = 1; r < table.rows.length; r++) {
-    if (r === except || isTotalRow(table.rows[r].cells)) continue;
-    const stored = formulaOf(table.rows[r].cells[column] ?? "");
-    if (!stored || formula !== void 0 && formula !== stored.formula) return void 0;
-    formula = stored.formula;
-  }
-  return formula;
-}
-function isTotalRow(cells) {
-  return cells.some((cell) => {
-    const stored = formulaOf(cell);
-    const tree = stored && parse(stored.formula);
-    return !!tree && !isError(tree) && wholeColumnNames(tree, /* @__PURE__ */ new Set()).size > 0;
-  });
-}
-function withCalculatedCells(table, row) {
-  let result = table;
-  table.rows[row]?.cells.forEach((cell, column) => {
-    if (cell.trim() !== "") return;
-    const formula = calculatedFormula(table, column, row);
-    if (formula) result = setCell(result, row, column, formulaCell("", formula));
-  });
-  return result;
-}
-function formulaCount(table) {
-  return table.rows.reduce((n, row, r) => n + (r === 0 ? 0 : row.cells.filter((cell) => formulaOf(cell)).length), 0);
-}
-function withoutFormulas(table) {
-  let result = table;
-  table.rows.forEach((row, r) => {
-    if (r === 0) return;
-    row.cells.forEach((cell, c) => {
-      const stored = formulaOf(cell);
-      if (stored) result = setCell(result, r, c, keepNames(stored.value, cell));
-    });
-  });
-  return result;
-}
-function formulasAfterEdit(before, after, edit) {
-  let table = after;
-  if (edit.rowMap) {
-    const kept = /* @__PURE__ */ new Set();
-    for (let r = 0; r < before.rows.length; r++) {
-      const moved2 = edit.rowMap(r);
-      if (moved2 !== void 0) kept.add(moved2);
-    }
-    for (let r = 1; r < after.rows.length; r++) if (!kept.has(r)) table = withCalculatedCells(table, r);
-  }
-  return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap), edit.tables);
-}
-function namedReferences(formula) {
-  const { tokens } = tokenize(formula);
-  const result = [];
-  tokens.forEach((token, i) => {
-    if (token.kind === "named") {
-      result.push({ name: token.name, page: token.page });
-      return;
-    }
-    if (token.kind !== "name" || parseCellName(token.text) || /^(true|false)$/i.test(token.text)) return;
-    const next = tokens[i + 1];
-    if (next?.kind === "op" && next.text === "(" || next?.kind === "column") return;
-    const previous = tokens[i - 1];
-    if (previous?.kind === "table" || previous?.kind === "op" && previous.text === ":") return;
-    result.push({ name: token.text });
-  });
-  return result;
-}
-function referredCellNames(table) {
-  const names = /* @__PURE__ */ new Set();
-  forFormulas(table, (formula) => {
-    for (const ref of namedReferences(formula)) if (ref.page === void 0) names.add(ref.name.toLowerCase());
-  });
-  return names;
-}
-function cellNamesOf(table) {
-  return new Set(namedCells(table).keys());
-}
-function forFormulas(table, each) {
-  table.rows.forEach((row, r) => {
-    if (r === 0) return;
-    for (const cell of row.cells) {
-      const stored = formulaOf(cell);
-      if (stored) each(stored.formula);
-    }
-  });
-}
-function referredPages(table) {
-  const pages = /* @__PURE__ */ new Set();
-  forFormulas(table, (formula) => {
-    for (const page of formulaPages(formula)) pages.add(page);
-  });
-  return pages;
-}
-function formulaPages(formula) {
-  return [
-    ...references(formula).flatMap((ref) => ref.table?.page ? [ref.table.page] : []),
-    ...namedReferences(formula).flatMap((ref) => ref.page ? [ref.page] : [])
-  ];
-}
-function referredTableNames(table) {
-  const names = /* @__PURE__ */ new Set();
-  forFormulas(table, (formula) => {
-    for (const token of tokenize(formula).tokens) {
-      if (token.kind === "table" && token.page === void 0) names.add(token.name.toLowerCase());
-    }
-  });
-  return names;
-}
-function formulaErrors(table, tables) {
-  const errors = /* @__PURE__ */ new Map();
-  if (!hasFormulas(table)) return errors;
-  const sheet = new Sheet(table, new Book(tables));
-  table.rows.forEach((row, r) => {
-    if (r === 0) return;
-    row.cells.forEach((cell, c) => {
-      const stored = formulaOf(cell);
-      const result = stored && sheet.result(r - 1, c, stored.formula);
-      if (isError(result)) errors.set(`${r},${c}`, `${result.code} ${result.detail}`);
-    });
-  });
-  return errors;
-}
-function mapSpan(a, b, map) {
-  const mapped = [];
-  for (let i = a; i <= b; i++) {
-    const m = map(i);
-    if (m !== void 0) mapped.push(m);
-  }
-  if (mapped.length === 0) return void 0;
-  const lo = Math.min(...mapped);
-  const hi = Math.max(...mapped);
-  const ordered = mapped.every((m, i) => i === 0 || m > mapped[i - 1]);
-  if (ordered || hi - lo + 1 === mapped.length) return [lo, hi];
-  const sorted = [...mapped].sort((x, y) => x - y);
-  let best = [sorted[0], sorted[0]];
-  let start = sorted[0];
-  for (let i = 1; i <= sorted.length; i++) {
-    if (i < sorted.length && sorted[i] === sorted[i - 1] + 1) continue;
-    const end = sorted[i - 1];
-    if (end - start > best[1] - best[0]) best = [start, end];
-    if (i < sorted.length) start = sorted[i];
-  }
-  return best;
-}
-function followedReference(formula, ref, edit) {
-  const { rowMap, columnMap } = edit;
-  if (ref.kind === "area") {
-    if (!rowMap && !columnMap) return void 0;
-    const bodyMap = (b) => {
-      const r = rowMap ? rowMap(b + 1) : b + 1;
-      return r === void 0 || r < 1 ? void 0 : r - 1;
-    };
-    const rows = mapSpan(ref.area.top, ref.area.bottom, bodyMap);
-    const cols = mapSpan(ref.area.left, ref.area.right, columnMap ?? ((c) => c));
-    const written = formula.slice(ref.from, ref.to);
-    const text = rows && cols ? written.includes(":") ? `${cellName(rows[0], cols[0])}:${cellName(rows[1], cols[1])}` : cellName(rows[0], cols[0]) : REF_ERROR;
-    return text === written.toUpperCase() ? void 0 : text;
-  }
-  const headersBefore = edit.before.rows[0]?.cells ?? [];
-  const id = referencedColumnId(headersBefore, ref.name);
-  const followed = followColumn(headersBefore, edit.after.rows[0]?.cells ?? [], id, columnMap ?? ((c) => c));
-  if (followed === void 0) return void 0;
-  if (followed === null) return REF_ERROR;
-  return sameColumnId(followed, id) ? void 0 : columnRefText(followed, ref.thisRow);
-}
-function withFormulas(table, rewrite) {
-  let result = table;
-  table.rows.forEach((row, r) => {
-    if (r === 0) return;
-    row.cells.forEach((cell, c) => {
-      const stored = formulaOf(cell);
-      if (!stored) return;
-      const formula = rewrite(stored.formula);
-      if (formula !== stored.formula) result = setCell(result, r, c, keepNames(formulaCell(stored.value, formula), cell));
-    });
-  });
-  return result;
-}
-function rewriteReferences(formula, follows, edit) {
-  let result = formula;
-  for (const ref of references(formula).reverse()) {
-    if (!follows(ref)) continue;
-    const text = followedReference(formula, ref, edit);
-    if (text !== void 0) result = result.slice(0, ref.from) + text + result.slice(ref.to);
-  }
-  return result;
-}
-function newName(edit) {
-  const from = edit.before.meta?.name?.trim();
-  const to = edit.after.meta?.name?.trim();
-  return from && to && from.toLowerCase() !== to.toLowerCase() ? to : void 0;
-}
-function isTo(ref, name) {
-  return !!ref.table && ref.table.page === void 0 && !!name && ref.table.name.toLowerCase() === name.toLowerCase();
-}
-function shiftReferences(before, after, rowMap, columnMap) {
-  if (!hasFormulas(after)) return after;
-  const edit = { before, after, rowMap, columnMap };
-  const own = before.meta?.name?.trim();
-  const renamed = newName(edit);
-  return withFormulas(after, (formula) => renameIn(rewriteReferences(formula, (ref) => !ref.table || isTo(ref, own), edit), own, renamed));
-}
-function renameIn(formula, own, renamed) {
-  if (!renamed || !own) return formula;
-  let result = formula;
-  for (const token of tokenize(formula).tokens.reverse()) {
-    if (token.kind === "table" && token.page === void 0 && token.name.toLowerCase() === own.toLowerCase()) {
-      result = `${result.slice(0, token.from)}${renamed}!${result.slice(token.to)}`;
-    }
-  }
-  return result;
-}
-function followTable(table, before, after, rowMap, columnMap) {
-  const name = before.meta?.name?.trim();
-  if (!name || !hasFormulas(table)) return table;
-  const edit = { before, after, rowMap, columnMap };
-  const renamed = newName(edit);
-  return withFormulas(table, (formula) => renameIn(rewriteReferences(formula, (ref) => isTo(ref, name), edit), name, renamed));
-}
-var REFERENCE_HELP = {
-  syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column] \xB7 table!A1 \xB7 table![Column] \xB7 cell_name",
-  description: "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell. Click or drag in the table to insert one, click a header for its column."
-};
-var BEFORE_OPERAND = /* @__PURE__ */ new Set(["=", "(", ",", ";", "+", "-", "*", "/", "^", "&", "<", ">"]);
-function referenceSlot(formula, start, end, pointed) {
-  if (!formula.trimStart().startsWith("=")) return void 0;
-  if (pointed && start === pointed.to && end === pointed.to && formula.slice(pointed.from, pointed.to) === pointed.text) {
-    return { from: pointed.from, to: pointed.to };
-  }
-  if (tokenize(formula.slice(0, start)).error) return void 0;
-  const before = formula.slice(0, start).trimEnd();
-  const after = formula.slice(end).trimStart();
-  if (/^[A-Za-z0-9_.["#(]/.test(after)) return void 0;
-  return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : void 0;
-}
-function completeFunction(text, start, end) {
-  if (start !== end || !text.trimStart().startsWith("=")) return void 0;
-  const before = text.slice(0, start);
-  const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
-  if (!typing || /[0-9]/.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return void 0;
-  if (tokenize(before).error) return void 0;
-  const prefix = typing.toUpperCase();
-  const names = Object.keys(FUNCTIONS).filter((name2) => name2.startsWith(prefix));
-  const name = names.length === 1 ? names[0] : names.find((n) => n === prefix);
-  return name ? { from: start - typing.length, to: start, text: `${name}(` } : void 0;
-}
-function formulaHelp(text, caret) {
-  if (!text.trimStart().startsWith("=")) return [];
-  const before = text.slice(0, caret);
-  const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
-  if (typing && !/[0-9]/.test(typing) && text[caret] !== "(") {
-    const prefix = typing.toUpperCase();
-    const matches = Object.entries(FUNCTIONS).filter(([name]) => name.startsWith(prefix));
-    if (matches.length) return matches.map(([, f]) => ({ syntax: f.syntax, description: f.description }));
-  }
-  const { tokens } = tokenize(before);
-  const open = [];
-  tokens.forEach((token, i) => {
-    if (token.kind !== "op") return;
-    if (token.text === "(") {
-      const previous = tokens[i - 1];
-      open.push(previous?.kind === "name" ? previous.text.toUpperCase() : void 0);
-    } else if (token.text === ")") open.pop();
-  });
-  for (let i = open.length - 1; i >= 0; i--) {
-    const f = open[i] && FUNCTIONS[open[i]];
-    if (f) return [{ syntax: f.syntax, description: f.description }];
-  }
-  return [REFERENCE_HELP];
-}
-
-// table-plus/src/types/helpers.ts
-function numberOf(text) {
-  return asNumber(text);
-}
-function notANumber(text) {
-  return numberOf(text) === void 0 ? `"${text}" is not a number` : void 0;
-}
-function formatNumber2(n, locale, options = {}) {
-  return new Intl.NumberFormat(locale, options).format(n);
-}
-
-// table-plus/src/types/check.ts
-var YES = /* @__PURE__ */ new Set(["yes", "y", "true", "x", "\u2713", "\u2714", "\u2705", "done", "ok"]);
-var NO = /* @__PURE__ */ new Set(["no", "n", "false", "\u2717", "\u274C", "-"]);
-function yesOrNo(text) {
-  const t = text.trim().toLowerCase();
-  if (YES.has(t)) return true;
-  if (NO.has(t)) return false;
-  const n = numberOf(t);
-  return n === void 0 ? void 0 : n > 0;
-}
-var check_default = {
-  name: "check",
-  syntax: "#check",
-  description: "Yes or no as a check mark: yes, true, x, \u2705 or a number above 0 shows \u2705; no, false, \u274C, 0 or a number below it shows \u274C.",
-  icon: lineIcon('<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/>'),
-  aliases: { logical: "" },
-  check: (text) => yesOrNo(text) === void 0 ? `"${text}" is not yes, no or a number` : void 0,
-  format: (text) => yesOrNo(text) ? "\u2705" : "\u274C",
-  sortValue: (text) => yesOrNo(text) ? "1" : "0",
-  choices: () => [
-    { value: "yes", label: "\u2705 yes" },
-    { value: "no", label: "\u274C no" }
-  ]
-};
-
-// table-plus/src/types/currency.ts
-function homeOf(code) {
-  if (code === "EUR") return "de";
-  try {
-    return new Intl.Locale("und", { region: code.slice(0, 2) }).maximize().baseName;
-  } catch {
-    return "en";
-  }
-}
-function formatMoney(n, code, locale) {
-  const options = { style: "currency", currency: code, currencyDisplay: "narrowSymbol" };
-  const own = new Intl.NumberFormat(locale, options).formatToParts(n);
-  const home = new Intl.NumberFormat(homeOf(code), options).formatToParts(n);
-  const symbol = own.find((p) => p.type === "currency")?.value ?? code;
-  const sign = own.filter((p) => p.type === "minusSign" || p.type === "plusSign").map((p) => p.value).join("");
-  const digits = own.filter((p) => !["currency", "minusSign", "plusSign", "literal"].includes(p.type)).map((p) => p.value).join("");
-  const symbolFirst = home.findIndex((p) => p.type === "currency") < home.findIndex((p) => p.type === "integer");
-  const gap = home.find((p) => p.type === "literal" && /^\s+$/.test(p.value))?.value ?? "";
-  return symbolFirst ? `${sign}${symbol}${gap}${digits}` : `${sign}${digits}${gap}${symbol}`;
-}
-var currency_default = {
-  name: "currency",
-  syntax: "#currency, #currency-usd",
-  description: "An amount of money: the currency's three-letter code after the dash (default EUR). Its sign goes where the currency's country writes it: $12.99, 12.99 \u20AC, 12.99 K\u010D.",
-  icon: lineIcon('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>'),
-  param: /^[a-z]{3}$/i,
-  aliases: { euro: "eur", eur: "eur", usd: "usd", czk: "czk", gbp: "gbp" },
-  check: notANumber,
-  format: (text, param, locale) => formatMoney(numberOf(text), (param ?? "eur").toUpperCase(), locale)
-};
-
 // table-plus/src/types/date.ts
-var date_default2 = {
+var date_default = {
   name: "date",
   syntax: "#date, #date-long",
   description: "A date written as 2025-11-06 (with a time: 2025-11-06 14:30), shown as the locale writes it: short, medium (default) or long after the dash.",
@@ -3432,7 +1794,7 @@ var number_default = {
   check: notANumber,
   format: (text, param, locale) => {
     const digits = param === void 0 ? void 0 : Number(param);
-    return formatNumber2(numberOf(text), locale, {
+    return formatNumber(numberOf(text), locale, {
       minimumFractionDigits: digits,
       maximumFractionDigits: digits ?? 10
     });
@@ -3453,7 +1815,7 @@ var percent_default = {
   check: notANumber,
   format: (text, param, locale) => {
     const digits = Number(param ?? 0);
-    return formatNumber2(fraction(text), locale, { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits });
+    return formatNumber(fraction(text), locale, { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits });
   },
   sortValue: (text) => String(fraction(text))
 };
@@ -3474,7 +1836,7 @@ var progress_default = {
   format: (text, param, locale) => {
     const share = numberOf(text) / most(param);
     const filled = Math.round(share * 10);
-    return `${"\u25B0".repeat(filled)}${"\u25B1".repeat(10 - filled)} ${formatNumber2(share, locale, { style: "percent" })}`;
+    return `${"\u25B0".repeat(filled)}${"\u25B1".repeat(10 - filled)} ${formatNumber(share, locale, { style: "percent" })}`;
   }
 };
 
@@ -3510,7 +1872,7 @@ function fractionSeconds(text) {
   const fraction2 = numberOf(text);
   return fraction2 === void 0 ? void 0 : Math.round(fraction2 * DAY_SECONDS);
 }
-var time_default2 = {
+var time_default = {
   name: "time",
   syntax: "#time",
   description: "A time of day written as 14:30 or 14:30:15 (or as a fraction of a day, 0.5 is 12:00), shown as the locale writes times.",
@@ -3553,16 +1915,16 @@ var unit_default = {
   param: /^[^\s#]+$/,
   aliases: { kg: "kg", km: "km", watt: "W" },
   check: (text, param) => param === void 0 ? "#unit needs a unit, e.g. #unit-kg" : notANumber(text),
-  format: (text, param, locale) => `${formatNumber2(numberOf(text), locale, { maximumFractionDigits: 10 })} ${param}`
+  format: (text, param, locale) => `${formatNumber(numberOf(text), locale, { maximumFractionDigits: 10 })} ${param}`
 };
 
 // table-plus/src/types/index.ts
-var ALL2 = [currency_default, number_default, percent_default, unit_default, stars_default, check_default, date_default2, time_default2, trend_default, progress_default, link_default];
-var TYPES = new Map(ALL2.map((t) => [t.name, t]));
+var ALL = [currency_default, number_default, percent_default, unit_default, stars_default, check_default, date_default, time_default, trend_default, progress_default, link_default];
+var TYPES = new Map(ALL.map((t) => [t.name, t]));
 var ALIASES = new Map(
-  ALL2.flatMap((t) => Object.entries(t.aliases ?? {}).map(([alias, param]) => [alias, { type: t, param: param || void 0 }]))
+  ALL.flatMap((t) => Object.entries(t.aliases ?? {}).map(([alias, param]) => [alias, { type: t, param: param || void 0 }]))
 );
-var HASHTAG_RE2 = /(^|\s)#([^\s#]+)/g;
+var HASHTAG_RE = /(^|\s)#([^\s#]+)/g;
 function typeOfTag(tag) {
   const lower = tag.toLowerCase();
   const alias = ALIASES.get(lower);
@@ -3574,21 +1936,21 @@ function typeOfTag(tag) {
   return { type, param, tag };
 }
 function columnTypeOf(header) {
-  for (const match of header.matchAll(HASHTAG_RE2)) {
+  for (const match of header.matchAll(HASHTAG_RE)) {
     const typed = typeOfTag(match[2]);
     if (typed) return typed;
   }
   return void 0;
 }
 function withColumnType(header, tag) {
-  const rest = header.replace(HASHTAG_RE2, (all, space, name2) => typeOfTag(name2) ? space : all);
+  const rest = header.replace(HASHTAG_RE, (all, space, name2) => typeOfTag(name2) ? space : all);
   const name = rest.replace(/\s+/g, " ").trim();
   return tag ? `${name} #${tag}` : name;
 }
 function typeTagPatterns() {
   return {
-    exact: [...ALL2.map((t) => t.name), ...ALIASES.keys()],
-    prefixes: ALL2.filter((t) => t.param).map((t) => `${t.name}-`)
+    exact: [...ALL.map((t) => t.name), ...ALIASES.keys()],
+    prefixes: ALL.filter((t) => t.param).map((t) => `${t.name}-`)
   };
 }
 
@@ -3682,7 +2044,7 @@ var ColumnTypes = class {
   /** A header is edited as the column's name: its type's hashtag is the menu's business */
   editorText(info, cell, original) {
     if (cell.row !== 0 || !columnTypeOf(unescapeCell(original))) return void 0;
-    return unescapeCell(withColumnType(original, void 0));
+    return unescapeCell(withoutTags(withColumnType(original, void 0)));
   }
   /** The type of the edited cell's column, if any (header cells have none) */
   typeOfEdited(editor) {
@@ -3814,7 +2176,7 @@ var ColumnTypes = class {
         const raw = model.rows[Number(tr.dataset.tpRow)]?.cells[column];
         const cell = tr.cells[column];
         if (raw === void 0 || !cell) continue;
-        const text = unescapeCell(formulaOf(raw)?.value ?? withoutName(raw)).trim();
+        const text = unescapeCell(withoutTags(raw)).trim();
         if (text === "" || cellText(cell) !== text) continue;
         const { type, param } = typed;
         const error = type.check(text, param);
@@ -3966,6 +2328,50 @@ function parseRegex(pattern, flags) {
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+// table-plus/src/columns.ts
+var HASHTAG_RE2 = /(^|\s)#[^\s#]+/g;
+function columnName(header) {
+  return unescapeCell(header).replace(/<meta\b[^>]*>/gi, "").replace(HASHTAG_RE2, "$1").trim().replace(/^[*_`]+|[*_`]+$/g, "").trim();
+}
+function columnKey(name) {
+  return columnName(name).replace(/[\W_]+/g, "_").toLowerCase();
+}
+function findColumn(headers, id) {
+  const fixed = fixedColumn(headers, id.name);
+  if (fixed >= 0 && id.nth === 1) return fixed;
+  const wanted = columnKey(id.name);
+  let seen = fixed >= 0 ? 1 : 0;
+  const index = headers.findIndex((header, c) => c !== fixed && columnKey(header) === wanted && ++seen === id.nth);
+  return index < 0 ? void 0 : index;
+}
+function fixedColumn(headers, name) {
+  const wanted = name.toLowerCase();
+  return headers.findIndex((header) => nameOf(header)?.toLowerCase() === wanted);
+}
+function columnIdOf(headers, column) {
+  const header = headers[column];
+  if (header === void 0) return void 0;
+  const fixed = nameOf(header);
+  if (fixed) return { name: fixed, nth: 1, shared: false };
+  const wanted = columnKey(header);
+  const fixedOther = fixedColumn(headers, wanted);
+  const counted = (h, c) => c !== fixedOther && columnKey(h) === wanted;
+  const before = fixedOther >= 0 ? 1 : 0;
+  const same = before + headers.filter(counted).length;
+  const nth = before + headers.slice(0, column + 1).filter(counted).length;
+  return { name: wanted, nth, shared: same > 1 };
+}
+function followColumn(before, after, id, map = (c) => c) {
+  const column = findColumn(before, id);
+  if (column === void 0) return void 0;
+  const moved2 = map(column);
+  if (moved2 === void 0) return null;
+  return columnIdOf(after, moved2) ?? null;
+}
+function sameColumnId(a, b) {
+  return columnKey(a.name) === columnKey(b.name) && a.nth === b.nth;
 }
 
 // table-plus/src/meta.ts
@@ -4601,6 +3007,1617 @@ var Filters = class {
   }
 };
 
+// table-plus/src/formula/functions/helpers.ts
+function withNumbers(args, f, keepTime = false) {
+  const ns = numbers(args);
+  if (isError(ns)) return ns;
+  const result = f(ns);
+  return keepTime && typeof result === "number" && allTimes(args) ? new TimeValue(Math.round(result * DAY_SECONDS)) : result;
+}
+function extremeDate(args, latest) {
+  let best;
+  for (const item of flatten(args)) {
+    if (item === null) continue;
+    if (isError(item)) return item;
+    const date = typeof item === "string" ? parseDate(item) : void 0;
+    if (!date) return void 0;
+    if (!best || (latest ? date.ms > best.ms : date.ms < best.ms)) best = { ms: date.ms, text: item.trim() };
+  }
+  return best?.text;
+}
+function booleans(args) {
+  const result = [];
+  for (const arg of args) {
+    for (const item of isRange(arg) ? arg : [arg]) {
+      if (item === null || isRange(arg) && typeof item === "string") continue;
+      const b = toBoolean(item);
+      if (isError(b)) return b;
+      result.push(b);
+    }
+  }
+  return result;
+}
+
+// table-plus/src/formula/functions/sum.ts
+var sum_default = {
+  name: "SUM",
+  syntax: "SUM(number1, [number2], \u2026)",
+  description: "Adds numbers, cells and ranges; times add up to a time (14:00 and 20:00 are 34:00).",
+  minArgs: 1,
+  call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a + b, 0), true)
+};
+
+// table-plus/src/formula/functions/average.ts
+var average_default = {
+  name: "AVERAGE",
+  syntax: "AVERAGE(number1, [number2], \u2026)",
+  description: "The arithmetic mean of the numbers, or of the times.",
+  minArgs: 1,
+  call: (args) => withNumbers(
+    args,
+    (ns) => ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : new FormulaError("#DIV/0!", "no numbers to average"),
+    true
+  )
+};
+
+// table-plus/src/formula/functions/min.ts
+var min_default = {
+  name: "MIN",
+  syntax: "MIN(number1, [number2], \u2026)",
+  description: "The smallest of the numbers (0 if there are none), the shortest of the times, or the earliest of the dates.",
+  minArgs: 1,
+  call: (args) => extremeDate(args, false) ?? withNumbers(args, (ns) => ns.length ? Math.min(...ns) : 0, true)
+};
+
+// table-plus/src/formula/functions/max.ts
+var max_default = {
+  name: "MAX",
+  syntax: "MAX(number1, [number2], \u2026)",
+  description: "The largest of the numbers (0 if there are none), the longest of the times, or the latest of the dates.",
+  minArgs: 1,
+  call: (args) => extremeDate(args, true) ?? withNumbers(args, (ns) => ns.length ? Math.max(...ns) : 0, true)
+};
+
+// table-plus/src/formula/functions/product.ts
+var product_default = {
+  name: "PRODUCT",
+  syntax: "PRODUCT(number1, [number2], \u2026)",
+  description: "Multiplies the numbers.",
+  minArgs: 1,
+  call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a * b, 1))
+};
+
+// table-plus/src/formula/functions/count.ts
+var count_default = {
+  name: "COUNT",
+  syntax: "COUNT(value1, [value2], \u2026)",
+  description: "How many of the values are numbers.",
+  minArgs: 1,
+  call: (args) => {
+    let count = 0;
+    for (const arg of args) {
+      for (const item of isRange(arg) ? arg : [arg]) {
+        if (item === null || isError(item) || typeof item === "boolean") continue;
+        if (!isError(toNumber(item))) count++;
+      }
+    }
+    return count;
+  }
+};
+
+// table-plus/src/formula/functions/counta.ts
+var counta_default = {
+  name: "COUNTA",
+  syntax: "COUNTA(value1, [value2], \u2026)",
+  description: "How many of the values are not empty.",
+  minArgs: 1,
+  call: (args) => flatten(args).filter((v) => v !== null && v !== "").length
+};
+
+// table-plus/src/formula/functions/round.ts
+var round_default = {
+  name: "ROUND",
+  syntax: "ROUND(number, [digits])",
+  description: "Rounds to the given number of decimal places (default 0), halves away from zero.",
+  minArgs: 1,
+  maxArgs: 2,
+  call: ([number, digits = 0]) => {
+    const n = toNumber(number);
+    const d = toNumber(digits);
+    if (isError(n)) return n;
+    if (isError(d)) return d;
+    const factor = 10 ** Math.trunc(d);
+    return Math.sign(n) * Math.round(Math.abs(n) * factor * (1 + Number.EPSILON)) / factor;
+  }
+};
+
+// table-plus/src/formula/functions/abs.ts
+var abs_default = {
+  name: "ABS",
+  syntax: "ABS(number)",
+  description: "The number without its sign.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([number]) => {
+    const n = toNumber(number);
+    return isError(n) ? n : Math.abs(n);
+  }
+};
+
+// table-plus/src/formula/functions/if.ts
+var if_default = {
+  name: "IF",
+  syntax: "IF(condition, value_if_true, [value_if_false])",
+  description: "One value if the condition is true, another if it is false (default FALSE).",
+  minArgs: 2,
+  maxArgs: 3,
+  call: ([condition, ifTrue, ifFalse = false]) => {
+    const c = toBoolean(condition);
+    if (isError(c)) return c;
+    return single(c ? ifTrue : ifFalse);
+  }
+};
+
+// table-plus/src/formula/functions/iferror.ts
+var iferror_default = {
+  name: "IFERROR",
+  syntax: "IFERROR(value, value_if_error)",
+  description: "The value, or the second value if the first is an error.",
+  minArgs: 2,
+  maxArgs: 2,
+  call: ([value, ifError]) => {
+    const v = single(value);
+    return isError(v) ? single(ifError) : v;
+  }
+};
+
+// table-plus/src/formula/functions/and.ts
+var and_default = {
+  name: "AND",
+  syntax: "AND(logical1, [logical2], \u2026)",
+  description: "TRUE if all of the values are true.",
+  minArgs: 1,
+  call: (args) => {
+    const bs = booleans(args);
+    return isError(bs) ? bs : bs.every(Boolean);
+  }
+};
+
+// table-plus/src/formula/functions/or.ts
+var or_default = {
+  name: "OR",
+  syntax: "OR(logical1, [logical2], \u2026)",
+  description: "TRUE if any of the values is true.",
+  minArgs: 1,
+  call: (args) => {
+    const bs = booleans(args);
+    return isError(bs) ? bs : bs.some(Boolean);
+  }
+};
+
+// table-plus/src/formula/functions/not.ts
+var not_default = {
+  name: "NOT",
+  syntax: "NOT(logical)",
+  description: "TRUE if the value is false, FALSE if it is true.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([value]) => {
+    const b = toBoolean(value);
+    return isError(b) ? b : !b;
+  }
+};
+
+// table-plus/src/formula/functions/concat.ts
+var concat_default = {
+  name: "CONCAT",
+  syntax: "CONCAT(text1, [text2], \u2026)",
+  description: "Joins the values into one text.",
+  minArgs: 1,
+  call: (args) => {
+    const error = firstError(args);
+    if (error) return error;
+    return flatten(args).map((v) => toText(v)).join("");
+  }
+};
+
+// table-plus/src/formula/functions/today.ts
+var today_default = {
+  name: "TODAY",
+  syntax: "TODAY()",
+  description: "Today's date, e.g. 2025-11-06. The result is written when the table is calculated: the next day, Recalculate updates it.",
+  minArgs: 0,
+  maxArgs: 0,
+  call: () => formatDate(now(false))
+};
+
+// table-plus/src/formula/functions/now.ts
+var now_default = {
+  name: "NOW",
+  syntax: "NOW()",
+  description: "The date and time now, e.g. 2025-11-06 14:30:15. The result is written when the table is calculated: Recalculate updates it.",
+  minArgs: 0,
+  maxArgs: 0,
+  call: () => formatDate(now(true))
+};
+
+// table-plus/src/formula/functions/date.ts
+var date_default2 = {
+  name: "DATE",
+  syntax: "DATE(year, month, day)",
+  description: "The date of a year, month and day; a month or day past its end carries over (DATE(2025, 13, 1) is 2026-01-01).",
+  minArgs: 3,
+  maxArgs: 3,
+  call: ([year, month, day]) => {
+    const parts = [toNumber(year), toNumber(month), toNumber(day)];
+    const error = parts.find(isError);
+    if (error) return error;
+    const [y, m, d] = parts.map((n) => Math.trunc(n));
+    if (y < 0 || y > 9999) return new FormulaError("#NUM!", `${y} is not a year from 0 to 9999`);
+    const ms = Date.UTC(y, m - 1, d);
+    return Number.isNaN(ms) ? new FormulaError("#NUM!", "not a date") : formatDate({ ms, time: false });
+  }
+};
+
+// table-plus/src/formula/functions/time.ts
+var time_default2 = {
+  name: "TIME",
+  syntax: "TIME(hour, [minute], [second])",
+  description: "A time of day, e.g. 14:30; past midnight it starts again (TIME(25, 0) is 01:00). Added to a date it gives the date with that time: DATE(2025, 11, 6) + TIME(14, 30) is 2025-11-06 14:30.",
+  minArgs: 1,
+  maxArgs: 3,
+  call: ([hour, minute = 0, second = 0]) => {
+    const parts = [toNumber(hour), toNumber(minute), toNumber(second)];
+    const error = parts.find(isError);
+    if (error) return error;
+    const [h, m, s] = parts;
+    const total = Math.round(h * 3600 + m * 60 + s);
+    return total < 0 ? new FormulaError("#NUM!", "a time before midnight") : new TimeValue(total % DAY_SECONDS);
+  }
+};
+
+// table-plus/src/formula/functions/int.ts
+var int_default = {
+  name: "INT",
+  syntax: "INT(number)",
+  description: "The number rounded down to a whole number; for a time, its whole days (INT(SUM(A1:A2)) of 14:00 and 20:00 is 1).",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([number]) => {
+    const time = asTime(single(number));
+    if (time) return Math.floor(time.seconds / DAY_SECONDS);
+    const n = toNumber(number);
+    return isError(n) ? n : Math.floor(n);
+  }
+};
+
+// table-plus/src/formula/functions/text.ts
+function parseFormat(format) {
+  const parts = [];
+  let i = 0;
+  while (i < format.length) {
+    const c = format[i];
+    if (c === '"') {
+      const close = format.indexOf('"', i + 1);
+      if (close < 0) return new FormulaError("#VALUE!", "a text in the format is missing its closing quote");
+      parts.push({ text: format.slice(i + 1, close) });
+      i = close + 1;
+    } else if (c === "\\") {
+      parts.push({ text: format[i + 1] ?? "" });
+      i += 2;
+    } else if (c === "[") {
+      const close = format.indexOf("]", i);
+      const inner = close < 0 ? "" : format.slice(i + 1, close).toLowerCase();
+      const unit = /^(h+|m+|s+)$/.exec(inner)?.[1]?.[0];
+      if (!unit) return new FormulaError("#VALUE!", `"${format.slice(i, close + 1 || void 0)}" is not a code of TEXT: [h], [m] or [s]`);
+      parts.push({ code: `[${unit}]`, length: inner.length });
+      i = close + 1;
+    } else if (/[ymdhs]/i.test(c)) {
+      let j = i;
+      while (j < format.length && format[j].toLowerCase() === c.toLowerCase()) j++;
+      parts.push({ code: c.toLowerCase(), length: j - i });
+      i = j;
+    } else {
+      parts.push({ text: c });
+      i++;
+    }
+  }
+  const codes = parts.filter((p) => "code" in p);
+  return parts.map((part) => {
+    if (!("code" in part) || part.code !== "m") return part;
+    const at = codes.indexOf(part);
+    const before = codes[at - 1]?.code;
+    const after = codes[at + 1]?.code;
+    return before === "h" || before === "[h]" || after === "s" || after === "[s]" ? { code: "min", length: part.length } : part;
+  });
+}
+var pad = (n, length) => String(n).padStart(Math.min(length, 2), "0");
+var text_default = {
+  name: "TEXT",
+  syntax: "TEXT(value, format)",
+  description: 'A date or a time as text in a format: TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is.',
+  minArgs: 2,
+  maxArgs: 2,
+  call: ([value, format]) => {
+    const v = single(value);
+    const f = toText(format);
+    if (isError(v)) return v;
+    if (isError(f)) return f;
+    const parts = parseFormat(f);
+    if (isError(parts)) return parts;
+    if (!parts.some((part) => "code" in part)) {
+      return new FormulaError("#VALUE!", `"${f}" has no date or time code: yyyy, mm, dd, hh, mm, ss, [h], [m] or [s]`);
+    }
+    const date = typeof v === "string" ? parseDate(v) : void 0;
+    const time = date ? void 0 : asTime(v);
+    const seconds = time ? time.seconds : typeof v === "number" && !date ? Math.round(v * DAY_SECONDS) : void 0;
+    if (!date && seconds === void 0) return new FormulaError("#VALUE!", `"${toText(v)}" is not a date or a time`);
+    const d = date && new Date(date.ms);
+    const ofDay = d ? d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds() : (seconds % DAY_SECONDS + DAY_SECONDS) % DAY_SECONDS;
+    let out = "";
+    for (const part of parts) {
+      if ("text" in part) {
+        out += part.text;
+        continue;
+      }
+      const { code, length } = part;
+      if ((code === "y" || code === "m" || code === "d") && !d) {
+        return new FormulaError("#VALUE!", "a time has no year, month or day: INT gives its whole days");
+      }
+      if ((code === "[h]" || code === "[m]" || code === "[s]") && d) {
+        return new FormulaError("#VALUE!", `${code} is for a length of time, not a date: use hh, mm or ss`);
+      }
+      if ((code === "m" || code === "d") && length > 2) return new FormulaError("#VALUE!", "names of months and days are not supported");
+      switch (code) {
+        case "y":
+          out += length <= 2 ? pad(d.getUTCFullYear() % 100, 2) : String(d.getUTCFullYear());
+          break;
+        case "m":
+          out += pad(d.getUTCMonth() + 1, length);
+          break;
+        case "d":
+          out += pad(d.getUTCDate(), length);
+          break;
+        case "h":
+          out += pad(Math.floor(ofDay / 3600), length);
+          break;
+        case "min":
+          out += pad(Math.floor(ofDay / 60) % 60, length);
+          break;
+        case "s":
+          out += pad(ofDay % 60, length);
+          break;
+        case "[h]":
+          out += pad(Math.trunc(seconds / 3600), length);
+          break;
+        case "[m]":
+          out += pad(Math.trunc(seconds / 60), length);
+          break;
+        case "[s]":
+          out += pad(seconds, length);
+          break;
+      }
+    }
+    return out;
+  }
+};
+
+// table-plus/src/formula/functions/xlookup.ts
+var xlookup_default = {
+  name: "XLOOKUP",
+  syntax: "XLOOKUP(value, lookup_range, result_range, [if_not_found])",
+  description: 'Finds the value in one range or column and gives the value in the same place of another, e.g. XLOOKUP("Pear", prices![Name], prices![Price]); text is found ignoring case. Not found: if_not_found, else #N/A.',
+  minArgs: 3,
+  maxArgs: 4,
+  call: ([value, lookIn, results, notFound]) => {
+    const v = single(value);
+    if (isError(v)) return v;
+    if (isError(lookIn)) return lookIn;
+    if (isError(results)) return results;
+    const keys = isRange(lookIn) ? lookIn : [lookIn];
+    const found = isRange(results) ? results : [results];
+    if (keys.length !== found.length) {
+      return new FormulaError("#VALUE!", `the ranges are not the same size (${keys.length} and ${found.length} cells)`);
+    }
+    const index = keys.findIndex((key) => sameValue(v, key));
+    if (index < 0) return notFound === void 0 ? new FormulaError("#N/A", `"${toText(v)}" is not in the range`) : single(notFound);
+    return found[index] ?? null;
+  }
+};
+
+// table-plus/src/formula/functions/dateadd.ts
+var dateadd_default = {
+  name: "DATEADD",
+  syntax: "DATEADD(date, amount, unit)",
+  description: `The date plus an amount of a unit: "s", "min", "h", "d", "w", "m" (months) or "y" (or their names, "hours"). A negative amount goes back. Months and years keep the day or take the month's last.`,
+  minArgs: 3,
+  maxArgs: 3,
+  call: ([date, amount, unit]) => {
+    const d = toDate(date);
+    const n = toNumber(amount);
+    const u = toUnit(unit);
+    if (isError(d)) return d;
+    if (isError(n)) return n;
+    if (isError(u)) return u;
+    return formatDate(addUnits(d, n, u));
+  }
+};
+
+// table-plus/src/formula/functions/datedif.ts
+var datedif_default = {
+  name: "DATEDIF",
+  syntax: "DATEDIF(start, end, unit)",
+  description: 'How many whole units lie from one date to another, in "s", "min", "h", "d", "w", "m" (months) or "y"; negative when the end is earlier. For days with a fraction, subtract the dates: end - start.',
+  minArgs: 3,
+  maxArgs: 3,
+  call: ([start, end, unit]) => {
+    const a = toDate(start);
+    const b = toDate(end);
+    const u = toUnit(unit);
+    if (isError(a)) return a;
+    if (isError(b)) return b;
+    if (isError(u)) return u;
+    return unitsBetween(a, b, u);
+  }
+};
+
+// table-plus/src/formula/functions/year.ts
+var year_default = {
+  name: "YEAR",
+  syntax: "YEAR(date)",
+  description: "The year of a date.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toDate(date);
+    return isError(d) ? d : partOf(d, "year");
+  }
+};
+
+// table-plus/src/formula/functions/month.ts
+var month_default = {
+  name: "MONTH",
+  syntax: "MONTH(date)",
+  description: "The month of a date, 1 to 12.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toDate(date);
+    return isError(d) ? d : partOf(d, "month");
+  }
+};
+
+// table-plus/src/formula/functions/day.ts
+var day_default = {
+  name: "DAY",
+  syntax: "DAY(date)",
+  description: "The day of a date's month, 1 to 31.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toDate(date);
+    return isError(d) ? d : partOf(d, "day");
+  }
+};
+
+// table-plus/src/formula/functions/hour.ts
+var hour_default = {
+  name: "HOUR",
+  syntax: "HOUR(time)",
+  description: "The hour of a time, or of a date's time, 0 to 23 (0 for a date without a time).",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toClock(date);
+    return isError(d) ? d : partOf(d, "hour");
+  }
+};
+
+// table-plus/src/formula/functions/minute.ts
+var minute_default = {
+  name: "MINUTE",
+  syntax: "MINUTE(time)",
+  description: "The minute of a time, or of a date's time, 0 to 59.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toClock(date);
+    return isError(d) ? d : partOf(d, "minute");
+  }
+};
+
+// table-plus/src/formula/functions/second.ts
+var second_default = {
+  name: "SECOND",
+  syntax: "SECOND(time)",
+  description: "The second of a time, or of a date's time, 0 to 59.",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toClock(date);
+    return isError(d) ? d : partOf(d, "second");
+  }
+};
+
+// table-plus/src/formula/functions/weekday.ts
+var weekday_default = {
+  name: "WEEKDAY",
+  syntax: "WEEKDAY(date, [type])",
+  description: "The day of the week as a number: Sunday 1 to Saturday 7 (type 1, the default), or Monday 1 to Sunday 7 (type 2).",
+  minArgs: 1,
+  maxArgs: 2,
+  call: ([date, type = 1]) => {
+    const d = toDate(date);
+    const t = toNumber(type);
+    if (isError(d)) return d;
+    if (isError(t)) return t;
+    const day = partOf(d, "weekday");
+    if (t === 1) return day + 1;
+    if (t === 2) return day === 0 ? 7 : day;
+    return new FormulaError("#NUM!", `${t} is not a type of WEEKDAY: 1 or 2`);
+  }
+};
+
+// table-plus/src/formula/functions/index.ts
+var ALL2 = [
+  sum_default,
+  average_default,
+  min_default,
+  max_default,
+  product_default,
+  count_default,
+  counta_default,
+  round_default,
+  abs_default,
+  if_default,
+  iferror_default,
+  and_default,
+  or_default,
+  not_default,
+  concat_default,
+  today_default,
+  now_default,
+  date_default2,
+  time_default2,
+  dateadd_default,
+  datedif_default,
+  year_default,
+  month_default,
+  day_default,
+  hour_default,
+  minute_default,
+  second_default,
+  weekday_default,
+  int_default,
+  text_default,
+  xlookup_default
+];
+var FUNCTIONS = Object.fromEntries(ALL2.map((f) => [f.name, f]));
+
+// table-plus/src/formula/index.ts
+var FORMULA_TAG_RE = /<meta\s+f\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
+function formulaOf(cell) {
+  const match = Array.from(cell.matchAll(FORMULA_TAG_RE)).pop();
+  if (!match) return void 0;
+  const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
+  const rest = cell.slice(0, match.index) + cell.slice(match.index + match[0].length);
+  const name = cellNameOf(rest);
+  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value: withoutTags(rest), ...name ? { name } : {} };
+}
+function formulaCell(value, formula, name) {
+  const tag = `<meta f="${escapeMetaValue(formula)}">`;
+  const shown = escapeCell(value);
+  return withCellName(shown === "" ? tag : `${shown} ${tag}`, name);
+}
+function isFormulaInput(text) {
+  const trimmed = text.trim();
+  return trimmed.startsWith("=") && trimmed.length > 1;
+}
+function isErrorText(text) {
+  return ERROR_CODES.includes(text.trim());
+}
+function columnLetters(column) {
+  let s = "";
+  for (let n = column + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+    s = String.fromCharCode(65 + (n - 1) % 26) + s;
+  }
+  return s;
+}
+function columnIndex(letters) {
+  let n = 0;
+  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+function cellName(row, column) {
+  return `${columnLetters(column)}${row + 1}`;
+}
+function areaText(area) {
+  const start = cellName(area.top, area.left);
+  return area.top === area.bottom && area.left === area.right ? start : `${start}:${cellName(area.bottom, area.right)}`;
+}
+function columnRefText(id, thisRow) {
+  const name = id && columnKey(id.name);
+  if (!id || !name) return void 0;
+  return `[${thisRow ? "@" : ""}${name}${id.nth > 1 ? `:${id.nth}` : ""}]`;
+}
+function withColumnKeys(formula, headers) {
+  let result = formula;
+  for (const ref of references(formula).reverse()) {
+    if (ref.kind !== "column" || ref.table) continue;
+    const column = referencedColumn(headers, ref.name);
+    const text = column === void 0 ? void 0 : columnRefText(columnIdOf(headers, column), ref.thisRow);
+    if (text) result = result.slice(0, ref.from) + text + result.slice(ref.to);
+  }
+  return result;
+}
+function referencedColumnId(headers, written) {
+  const exact = { name: written, nth: 1 };
+  if (findColumn(headers, exact) !== void 0) return exact;
+  const match = /^(.*\S)\s*:\s*([1-9]\d*)$/.exec(written);
+  return match ? { name: match[1], nth: Number(match[2]) } : exact;
+}
+function referencedColumn(headers, written) {
+  return findColumn(headers, referencedColumnId(headers, written));
+}
+function parseCellName(text) {
+  const m = CELL_RE.exec(text);
+  return m ? { row: Number(m[2]) - 1, column: columnIndex(m[1]) } : void 0;
+}
+var REF_ERROR = "#REF!";
+var OPERATORS = ["<=", ">=", "<>", "+", "-", "*", "/", "^", "&", "=", "<", ">", "(", ")", ",", ";", ":", "%"];
+function tokenize(formula) {
+  const tokens = [];
+  let i = formula.startsWith("=") ? 1 : 0;
+  const fail = (detail) => ({ tokens, error: new FormulaError("#ERROR!", detail) });
+  while (i < formula.length) {
+    const ch = formula[i];
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    const number = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/.exec(formula.slice(i));
+    if (number) {
+      tokens.push({ kind: "number", value: Number(number[0]), from: i, to: i + number[0].length });
+      i += number[0].length;
+      continue;
+    }
+    if (formula.startsWith("[[", i)) {
+      const close = formula.indexOf("]]", i + 2);
+      const after = close < 0 ? null : /^([A-Za-z_][A-Za-z0-9_]*)(!?)/.exec(formula.slice(close + 2));
+      if (close < 0) return fail("a page name is missing its closing ]]");
+      if (!after || !after[2] && (CELL_RE.test(after[1]) || /^(true|false)$/i.test(after[1]))) {
+        return fail("[[Page]] is followed by a table's name and !, as in [[Page]]prices!A1, or a cell's name");
+      }
+      const page = formula.slice(i + 2, close).trim();
+      const to = close + 2 + after[0].length;
+      tokens.push(after[2] ? { kind: "table", name: after[1], page, from: i, to } : { kind: "named", name: after[1], page, from: i, to });
+      i = to;
+      continue;
+    }
+    const table = /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(i));
+    if (table) {
+      tokens.push({ kind: "table", name: table[1], from: i, to: i + table[0].length });
+      i += table[0].length;
+      continue;
+    }
+    const name = /^[A-Za-z_][A-Za-z0-9_.]*/.exec(formula.slice(i));
+    if (name) {
+      tokens.push({ kind: "name", text: name[0], from: i, to: i + name[0].length });
+      i += name[0].length;
+      continue;
+    }
+    if (ch === '"') {
+      let value = "";
+      let j = i + 1;
+      for (; ; ) {
+        if (j >= formula.length) return fail("a text is missing its closing quote");
+        if (formula[j] === '"') {
+          if (formula[j + 1] !== '"') break;
+          value += '"';
+          j += 2;
+        } else value += formula[j++];
+      }
+      tokens.push({ kind: "string", value, from: i, to: j + 1 });
+      i = j + 1;
+      continue;
+    }
+    if (formula.startsWith(REF_ERROR, i)) {
+      tokens.push({ kind: "ref-error", from: i, to: i + REF_ERROR.length });
+      i += REF_ERROR.length;
+      continue;
+    }
+    if (ch === "[") {
+      const end = formula.indexOf("]", i);
+      if (end < 0) return fail("a column name is missing its closing ]");
+      const inner = formula.slice(i + 1, end);
+      const thisRow = inner.startsWith("@");
+      tokens.push({ kind: "column", name: (thisRow ? inner.slice(1) : inner).trim(), thisRow, from: i, to: end + 1 });
+      i = end + 1;
+      continue;
+    }
+    const op = OPERATORS.find((o) => formula.startsWith(o, i));
+    if (!op) return fail(`unexpected "${ch}"`);
+    tokens.push({ kind: "op", text: op, from: i, to: i + op.length });
+    i += op.length;
+  }
+  return { tokens };
+}
+function references(formula) {
+  const { tokens } = tokenize(formula);
+  const result = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const previous = tokens[i - 1];
+    const table = previous?.kind === "table" ? { table: tableRefOf(previous) } : {};
+    if (token.kind === "column") {
+      const row = previous?.kind === "name" && isRowName(tokens, i - 1) ? previous.text : void 0;
+      const rowTable = row && tokens[i - 2]?.kind === "table" ? { table: tableRefOf(tokens[i - 2]) } : {};
+      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to, ...row ? { row, ...rowTable } : table });
+      continue;
+    }
+    if (token.kind !== "name") continue;
+    const next = tokens[i + 1];
+    if (next?.kind === "op" && next.text === "(") continue;
+    const start = parseCellName(token.text);
+    if (!start) continue;
+    const colon = tokens[i + 1];
+    const endToken = tokens[i + 2];
+    const end = colon?.kind === "op" && colon.text === ":" && endToken?.kind === "name" ? parseCellName(endToken.text) : void 0;
+    const area = end ? {
+      top: Math.min(start.row, end.row),
+      left: Math.min(start.column, end.column),
+      bottom: Math.max(start.row, end.row),
+      right: Math.max(start.column, end.column)
+    } : { top: start.row, left: start.column, bottom: start.row, right: start.column };
+    result.push({ kind: "area", area, from: token.from, to: end ? endToken.to : token.to, ...table });
+    if (end) i += 2;
+  }
+  return result;
+}
+function isRowName(tokens, i) {
+  const token = tokens[i];
+  return token?.kind === "name" && tokens[i + 1]?.kind === "column" && !parseCellName(token.text) && !/^(true|false)$/i.test(token.text);
+}
+function tableRefOf(token) {
+  return token.page === void 0 ? { name: token.name } : { name: token.name, page: token.page };
+}
+var Parser = class {
+  constructor(formula, tokens) {
+    this.formula = formula;
+    this.tokens = tokens;
+  }
+  formula;
+  tokens;
+  at = 0;
+  parse() {
+    const node = this.comparison();
+    const rest = this.tokens[this.at];
+    if (rest) throw new FormulaError("#ERROR!", `unexpected "${this.text(rest)}"`);
+    return node;
+  }
+  text(token) {
+    return this.formula.slice(token.from, token.to);
+  }
+  peekOp(...ops) {
+    const token = this.tokens[this.at];
+    return token?.kind === "op" && ops.includes(token.text) ? token.text : void 0;
+  }
+  binary(next, ...ops) {
+    let left = next();
+    for (let op = this.peekOp(...ops); op; op = this.peekOp(...ops)) {
+      this.at++;
+      left = { kind: "binary", op, left, right: next() };
+    }
+    return left;
+  }
+  comparison = () => this.binary(this.concat, "=", "<>", "<", ">", "<=", ">=");
+  concat = () => this.binary(this.additive, "&");
+  additive = () => this.binary(this.multiplicative, "+", "-");
+  multiplicative = () => this.binary(this.power, "*", "/");
+  power = () => this.binary(this.unary, "^");
+  unary = () => {
+    const op = this.peekOp("-", "+");
+    if (op) {
+      this.at++;
+      return { kind: "unary", op, arg: this.unary() };
+    }
+    let node = this.primary();
+    while (this.peekOp("%")) {
+      this.at++;
+      node = { kind: "unary", op: "%", arg: node };
+    }
+    return node;
+  };
+  primary() {
+    const token = this.tokens[this.at++];
+    if (!token) throw new FormulaError("#ERROR!", "the formula ends too early");
+    switch (token.kind) {
+      case "number":
+        return { kind: "literal", value: token.value };
+      case "string":
+        return { kind: "literal", value: token.value };
+      case "column":
+        return { kind: "column", name: token.name, thisRow: token.thisRow };
+      case "ref-error":
+        return { kind: "literal", value: new FormulaError("#REF!", "a reference to deleted cells") };
+      case "named":
+        return { kind: "named", name: token.name, page: token.page };
+      case "table": {
+        const next = this.tokens[this.at];
+        const prefix = this.text(token);
+        if (next?.kind === "ref-error") {
+          this.at++;
+          return { kind: "literal", value: new FormulaError("#REF!", `a reference to deleted cells of ${token.name}`) };
+        }
+        if (next?.kind === "column") {
+          this.at++;
+          if (next.thisRow) {
+            throw new FormulaError("#ERROR!", `[@${next.name}] is a cell of the formula's own row: ${prefix}[${next.name}] is the other table's column`);
+          }
+          return { kind: "column", name: next.name, thisRow: false, table: tableRefOf(token) };
+        }
+        if (next?.kind === "name" && isRowName(this.tokens, this.at)) {
+          this.at++;
+          return { ...this.rowCell(next.text), table: tableRefOf(token) };
+        }
+        if (next?.kind === "name" && parseCellName(next.text) && !(this.tokens[this.at + 1]?.kind === "op" && this.text(this.tokens[this.at + 1]) === "(")) {
+          this.at++;
+          const area = this.name(next.text);
+          if (area.kind === "area") return { ...area, table: tableRefOf(token) };
+        }
+        throw new FormulaError("#ERROR!", `${prefix} is followed by a cell, a range or a [column], as in ${prefix}A1`);
+      }
+      case "op":
+        if (token.text === "(") {
+          const inner = this.comparison();
+          if (!this.peekOp(")")) throw new FormulaError("#ERROR!", "a ( is missing its )");
+          this.at++;
+          return inner;
+        }
+        throw new FormulaError("#ERROR!", `unexpected "${this.text(token)}"`);
+      case "name":
+        return this.name(token.text);
+    }
+  }
+  /** The named row `row`'s cell in the [column] that follows (the token at `at`) */
+  rowCell(row) {
+    const column = this.tokens[this.at++];
+    if (column.thisRow) throw new FormulaError("#ERROR!", `${row}[@${column.name}]: a row's cell is written ${row}[${column.name}]`);
+    return { kind: "rowCell", row, column: column.name };
+  }
+  name(text) {
+    if (this.peekOp("(")) {
+      this.at++;
+      const args = [];
+      if (this.peekOp(")")) this.at++;
+      else {
+        for (; ; ) {
+          args.push(this.comparison());
+          if (this.peekOp(",", ";")) {
+            this.at++;
+            continue;
+          }
+          if (!this.peekOp(")")) throw new FormulaError("#ERROR!", `${text}( is missing its )`);
+          this.at++;
+          break;
+        }
+      }
+      return { kind: "call", name: text.toUpperCase(), args };
+    }
+    const upper = text.toUpperCase();
+    if (upper === "TRUE" || upper === "FALSE") return { kind: "literal", value: upper === "TRUE" };
+    const start = parseCellName(text);
+    if (isRowName(this.tokens, this.at - 1)) return this.rowCell(text);
+    if (!start) return { kind: "named", name: text };
+    if (!this.peekOp(":")) {
+      return { kind: "area", area: { top: start.row, left: start.column, bottom: start.row, right: start.column }, range: false };
+    }
+    this.at++;
+    const endToken = this.tokens[this.at++];
+    const end = endToken?.kind === "name" ? parseCellName(endToken.text) : void 0;
+    if (!end) throw new FormulaError("#ERROR!", `${text}: must be followed by a cell, as in ${text}:B3`);
+    return {
+      kind: "area",
+      area: {
+        top: Math.min(start.row, end.row),
+        left: Math.min(start.column, end.column),
+        bottom: Math.max(start.row, end.row),
+        right: Math.max(start.column, end.column)
+      },
+      range: true
+    };
+  }
+};
+var parsed = /* @__PURE__ */ new Map();
+function parse(formula) {
+  let result = parsed.get(formula);
+  if (result) return result;
+  const { tokens, error } = tokenize(formula);
+  if (error) result = error;
+  else if (tokens.length === 0) result = new FormulaError("#ERROR!", "the formula is empty");
+  else {
+    try {
+      result = new Parser(formula, tokens).parse();
+    } catch (e) {
+      if (!(e instanceof FormulaError)) throw e;
+      result = e;
+    }
+  }
+  if (parsed.size > 500) parsed.clear();
+  parsed.set(formula, result);
+  return result;
+}
+function autofixFormula(formula) {
+  const unchanged = { formula, fixes: [] };
+  if (!isError(parse(formula))) return unchanged;
+  let depth = 0;
+  let quote = false;
+  let bracket = false;
+  const extra = [];
+  for (let i = formula.startsWith("=") ? 1 : 0; i < formula.length; i++) {
+    const ch = formula[i];
+    if (quote) {
+      if (ch === '"') {
+        if (formula[i + 1] === '"') i++;
+        else quote = false;
+      }
+    } else if (bracket) {
+      if (ch === "]") bracket = false;
+    } else if (ch === '"') quote = true;
+    else if (ch === "[") bracket = true;
+    else if (ch === "(") depth++;
+    else if (ch === ")") {
+      if (depth > 0) depth--;
+      else extra.push(i);
+    }
+  }
+  let fixed = formula;
+  const fixes = [];
+  if (extra.length) {
+    const end = formula.trimEnd();
+    if (!end.endsWith(")".repeat(extra.length)) || extra[0] !== end.length - extra.length) return unchanged;
+    fixed = end.slice(0, extra[0]);
+    fixes.push(`removed ${")".repeat(extra.length)}`);
+  }
+  if (quote) {
+    fixed += '"';
+    fixes.push('closed the text with "');
+  }
+  if (bracket) {
+    fixed = `${fixed.trimEnd()}]`;
+    fixes.push("closed the column name with ]");
+  }
+  if (depth > 0) {
+    fixed = `${quote ? fixed : fixed.trimEnd()}${")".repeat(depth)}`;
+    fixes.push(`added ${")".repeat(depth)}`);
+  }
+  if (fixes.length === 0 || isError(parse(fixed))) return unchanged;
+  return { formula: fixed, fixes };
+}
+function wholeColumnNames(node, names) {
+  switch (node.kind) {
+    case "column":
+      if (!node.thisRow && !node.table) names.add(node.name);
+      break;
+    case "call":
+      for (const arg of node.args) wholeColumnNames(arg, names);
+      break;
+    case "unary":
+      wholeColumnNames(node.arg, names);
+      break;
+    case "binary":
+      wholeColumnNames(node.left, names);
+      wholeColumnNames(node.right, names);
+      break;
+  }
+  return names;
+}
+var DECIMAL_COMMA_RE = /\d,\d/;
+var Book = class {
+  constructor(source) {
+    this.source = source;
+  }
+  source;
+  sheets = /* @__PURE__ */ new Map();
+  // The sheets by table, whether reached by the table's name or a named cell's
+  tableSheets = /* @__PURE__ */ new Map();
+  /** Whether a formula refers to a page formulas may not read: it keeps its stored result */
+  keepsResult(formula) {
+    const unread = this.source?.unread;
+    return !!unread && formulaPages(formula).some(unread);
+  }
+  /** The cell named so on `page` (undefined: the formulas' page), in its table's sheet */
+  cell(name, page) {
+    const found = this.source?.cell?.(name, page);
+    if (!found || found.row < 1) return void 0;
+    return { sheet: this.sheetOf(found.table, page), row: found.row - 1, column: found.column };
+  }
+  /** The table's sheet, made on its first use (by its name or by a named cell's) */
+  sheetOf(table, page) {
+    let sheet = this.tableSheets.get(table);
+    if (!sheet) {
+      sheet = new Sheet(table, this, page);
+      this.tableSheets.set(table, sheet);
+    }
+    return sheet;
+  }
+  /** The sheet a reference from `from` is to: the other table, or `from` itself when it is named so */
+  sheet(ref, from) {
+    const page = ref.page ?? from.page;
+    if (page === from.page && from.name !== void 0 && from.name.toLowerCase() === ref.name.toLowerCase()) return from;
+    const key = `${page ?? ""}\0${ref.name.toLowerCase()}`;
+    let sheet = this.sheets.get(key);
+    if (!sheet) {
+      const table = this.source?.(ref.name, page);
+      if (!table) return new FormulaError("#REF!", `there is no table named ${ref.name}${page === void 0 ? " on this page" : ` on ${page}`}`);
+      sheet = this.sheetOf(table, page);
+      this.sheets.set(key, sheet);
+    }
+    return sheet;
+  }
+};
+var Sheet = class {
+  /** `page`: the page the table is on, when it is not the formulas' own (its unnamed references are to tables there) */
+  constructor(table, book = new Book(void 0), page) {
+    this.table = table;
+    this.book = book;
+    this.page = page;
+    this.name = table.meta?.name?.trim() || void 0;
+    this.headers = table.rows[0]?.cells ?? [];
+    this.body = table.rows.slice(1).map((r) => r.cells);
+    let comma = 0;
+    let point = 0;
+    for (const cells of this.body) {
+      for (const cell of cells) {
+        if (formulaOf(cell)) continue;
+        const text = unescapeCell(cell).trim();
+        if (asNumber(text) === void 0) continue;
+        if (DECIMAL_COMMA_RE.test(text)) comma++;
+        else if (/\d\.\d/.test(text)) point++;
+      }
+    }
+    this.decimalComma = comma > point;
+  }
+  table;
+  book;
+  page;
+  headers;
+  body;
+  results = /* @__PURE__ */ new Map();
+  evaluating = /* @__PURE__ */ new Set();
+  // Numbers in the table are written with a decimal comma: results are too
+  decimalComma;
+  // The table's name, by which formulas refer to it
+  name;
+  totals;
+  cellNames;
+  rowNames;
+  get rows() {
+    return this.body.length;
+  }
+  get columns() {
+    return this.headers.length;
+  }
+  /** A cell's value: a plain cell's text (a number if it reads as one), a formula cell's result */
+  value(row, column) {
+    const cell = this.body[row]?.[column];
+    if (cell === void 0 || column >= this.columns) {
+      return new FormulaError("#REF!", `${cellName(row, column)} is outside the table`);
+    }
+    const stored = formulaOf(cell);
+    if (!stored) {
+      const text = unescapeCell(withoutTags(cell)).trim();
+      if (text === "") return null;
+      return asNumber(text) ?? parseClock(text) ?? text;
+    }
+    return this.result(row, column, stored.formula);
+  }
+  /** The result of the formula in a cell */
+  result(row, column, formula) {
+    const key = `${row},${column}`;
+    const known = this.results.get(key);
+    if (known !== void 0) return known;
+    if (this.evaluating.has(key)) {
+      return new FormulaError("#CYCLE!", `${cellName(row, column)} depends on its own result`);
+    }
+    if (this.book.keepsResult(formula)) {
+      const shown = unescapeCell(formulaOf(this.body[row]?.[column] ?? "")?.value ?? "").trim();
+      const code = shown === "" ? "#REF!" : ERROR_CODES.find((c) => c === shown);
+      const kept = code ? new FormulaError(code, "links to other pages are turned off") : asNumber(shown) ?? parseClock(shown) ?? shown;
+      this.results.set(key, kept);
+      return kept;
+    }
+    this.evaluating.add(key);
+    let result;
+    try {
+      const tree = parse(formula);
+      result = isError(tree) ? tree : single(this.evaluate(tree, row, column));
+      if (typeof result === "number" && !Number.isFinite(result) || result instanceof TimeValue && !Number.isFinite(result.seconds)) {
+        result = new FormulaError("#NUM!", "the result is not a finite number");
+      }
+    } finally {
+      this.evaluating.delete(key);
+    }
+    this.results.set(key, result);
+    return result;
+  }
+  /** The text a formula cell shows for its result */
+  text(row, column, formula) {
+    const result = this.result(row, column, formula);
+    if (isError(result)) return result.code;
+    const text = toText(result);
+    return typeof result === "number" && this.decimalComma ? text.replace(".", ",") : text;
+  }
+  /** Whether the cell holds a formula that refers to the whole column `target` */
+  refersToColumn(row, column, target) {
+    const stored = formulaOf(this.body[row]?.[column] ?? "");
+    const tree = stored && parse(stored.formula);
+    if (!tree || isError(tree)) return false;
+    return Array.from(wholeColumnNames(tree, /* @__PURE__ */ new Set())).some((name) => referencedColumn(this.headers, name) === target);
+  }
+  /** The cell of the row named `row` in the column `column` */
+  rowCellValue(row, column, prefix = "") {
+    this.rowNames ??= namedRows(this.table);
+    const r = this.rowNames.get(row.toLowerCase());
+    if (r === void 0) return new FormulaError("#REF!", `there is no row named ${row}${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
+    const c = referencedColumn(this.headers, column);
+    if (c === void 0) return new FormulaError("#REF!", `there is no column named "${column}"${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
+    return this.value(r - 1, c);
+  }
+  /** The values of an area: one cell's value, or a range's (`range`) */
+  areaValue(area, range, prefix = "") {
+    const { top, left, bottom, right } = area;
+    if (bottom >= this.rows || right >= this.columns) {
+      return new FormulaError("#REF!", `${prefix}${areaText(area)} is outside the table`);
+    }
+    const values = [];
+    for (let r = top; r <= bottom; r++) {
+      for (let c = left; c <= right; c++) values.push(this.value(r, c));
+    }
+    return range ? values : values[0];
+  }
+  /**
+   * A column's values, without the table's total rows (see totalRows), so the
+   * columns of a table line up: XLOOKUP over one gives the value beside it in another
+   */
+  columnValue(name, prefix = "") {
+    const index = referencedColumn(this.headers, name);
+    if (index === void 0) return new FormulaError("#REF!", `there is no column named "${name}"${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
+    const totals = this.totalRows();
+    const values = [];
+    for (let r = 0; r < this.rows; r++) {
+      if (!totals.has(r)) values.push(this.value(r, index));
+    }
+    return values;
+  }
+  /**
+   * The total rows: those with a cell that refers to its own whole column, as
+   * =SUM([qty]) under Qty. A cell that refers to another column ([@qty] /
+   * SUM([qty]) in a Share column) does not make its row one.
+   */
+  totalRows() {
+    if (this.totals) return this.totals;
+    const totals = /* @__PURE__ */ new Set();
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.columns; c++) if (this.refersToColumn(r, c, c)) totals.add(r);
+    }
+    this.totals = totals;
+    return totals;
+  }
+  /** A named cell's value: in this table, else on this table's page (or `page`) */
+  named(name, page) {
+    if (page === void 0 || page === this.page) {
+      const own = this.cellNamed(name);
+      if (own) return this.value(own.row, own.column);
+    }
+    const found = this.book.cell(name, page ?? this.page);
+    if (!found) return new FormulaError("#NAME?", `there is no cell named ${name}${page ? ` on ${page}` : " on this page"}`);
+    return found.sheet.value(found.row, found.column);
+  }
+  /** The body cell of this table named so (ignoring case), if any */
+  cellNamed(name) {
+    this.cellNames ??= namedCells(this.table);
+    const found = this.cellNames.get(name.toLowerCase());
+    return found && { row: found.row - 1, column: found.column };
+  }
+  /** The sheet a reference's table is: this one, or another the book has */
+  sheetOf(table) {
+    return table ? this.book.sheet(table, this) : this;
+  }
+  evaluate(node, row, column) {
+    switch (node.kind) {
+      case "literal":
+        return node.value;
+      case "area": {
+        const sheet = this.sheetOf(node.table);
+        if (isError(sheet)) return sheet;
+        return sheet.areaValue(node.area, node.range, node.table ? `${node.table.name}!` : "");
+      }
+      case "column": {
+        const sheet = this.sheetOf(node.table);
+        if (isError(sheet)) return sheet;
+        if (node.thisRow) {
+          const index = referencedColumn(this.headers, node.name);
+          return index === void 0 ? new FormulaError("#REF!", `there is no column named "${node.name}"`) : this.value(row, index);
+        }
+        return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
+      }
+      case "named":
+        return this.named(node.name, node.page);
+      case "rowCell": {
+        const sheet = this.sheetOf(node.table);
+        if (isError(sheet)) return sheet;
+        return sheet.rowCellValue(node.row, node.column, node.table ? `${node.table.name}!` : "");
+      }
+      case "call": {
+        const f = FUNCTIONS[node.name];
+        if (!f) return new FormulaError("#NAME?", `there is no function ${node.name}`);
+        if (node.args.length < f.minArgs || f.maxArgs !== void 0 && node.args.length > f.maxArgs) {
+          return new FormulaError("#VALUE!", `wrong number of arguments: ${f.syntax}`);
+        }
+        return f.call(
+          node.args.map((arg) => {
+            const value = this.evaluate(arg, row, column);
+            const reference = arg.kind === "area" || arg.kind === "column" && arg.thisRow;
+            return reference && !isRange(value) && !isError(value) ? [value] : value;
+          })
+        );
+      }
+      case "unary": {
+        const arg = this.evaluate(node.arg, row, column);
+        const time = isRange(arg) ? void 0 : asTime(arg);
+        if (time && node.op !== "%") return node.op === "-" ? new TimeValue(-time.seconds) : time;
+        const n = toNumber(arg);
+        if (isError(n)) return n;
+        return node.op === "-" ? -n : node.op === "%" ? n / 100 : n;
+      }
+      case "binary":
+        return this.binary(node.op, this.evaluate(node.left, row, column), this.evaluate(node.right, row, column));
+    }
+  }
+  binary(op, leftValue, rightValue) {
+    const left = single(leftValue);
+    const right = single(rightValue);
+    if (isError(left)) return left;
+    if (isError(right)) return right;
+    if (op === "&") return toText(left) + toText(right);
+    const comparison = COMPARISONS[op];
+    if (comparison) return comparison(compare(left, right));
+    const dated = op === "+" || op === "-" ? dateArithmetic(op, left, right) : void 0;
+    if (dated !== void 0) return dated;
+    const timed = timeArithmetic(op, left, right);
+    if (timed !== void 0) return timed;
+    const a = toNumber(left);
+    const b = toNumber(right);
+    if (isError(a)) return a;
+    if (isError(b)) return b;
+    switch (op) {
+      case "+":
+        return a + b;
+      case "-":
+        return a - b;
+      case "*":
+        return a * b;
+      case "/":
+        return b === 0 ? new FormulaError("#DIV/0!", "division by zero") : a / b;
+      default:
+        return a ** b;
+    }
+  }
+};
+var COMPARISONS = {
+  "=": (o) => o === 0,
+  "<>": (o) => o !== 0,
+  "<": (o) => o < 0,
+  ">": (o) => o > 0,
+  "<=": (o) => o <= 0,
+  ">=": (o) => o >= 0
+};
+function compare(a, b) {
+  const da = typeof a === "string" ? parseDate(a) : void 0;
+  const db = da && typeof b === "string" ? parseDate(b) : void 0;
+  if (da && db) return da.ms - db.ms;
+  const na = a === null ? 0 : toNumber(a);
+  const nb = b === null ? 0 : toNumber(b);
+  if (!isError(na) && !isError(nb) && typeof a !== "boolean" && typeof b !== "boolean") return na - nb;
+  const ta = toText(a).toLowerCase();
+  const tb = toText(b).toLowerCase();
+  return ta < tb ? -1 : ta > tb ? 1 : 0;
+}
+function hasFormulas(table) {
+  return table.rows.some((row, r) => r > 0 && row.cells.some((cell) => formulaOf(cell) !== void 0));
+}
+function recalculate(table, tables) {
+  if (!hasFormulas(table)) return table;
+  const book = new Book(tables);
+  const sheet = new Sheet(table, book);
+  let result = table;
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.cells.forEach((cell, c) => {
+      const stored = formulaOf(cell);
+      if (!stored || book.keepsResult(stored.formula) && stored.value.trim() !== "") return;
+      const updated = keepTags(formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula), cell);
+      if (updated !== cell) result = setCell(result, r, c, updated);
+    });
+  });
+  return result;
+}
+function calculatedFormula(table, column, except = /* @__PURE__ */ new Set()) {
+  let formula;
+  for (let r = 1; r < table.rows.length; r++) {
+    if (except.has(r) || isTotalRow(table.rows[r].cells)) continue;
+    const stored = formulaOf(table.rows[r].cells[column] ?? "");
+    if (!stored || formula !== void 0 && formula !== stored.formula) return void 0;
+    formula = stored.formula;
+  }
+  return formula;
+}
+function isTotalRow(cells) {
+  return cells.some((cell) => {
+    const stored = formulaOf(cell);
+    const tree = stored && parse(stored.formula);
+    return !!tree && !isError(tree) && wholeColumnNames(tree, /* @__PURE__ */ new Set()).size > 0;
+  });
+}
+function withCalculatedCells(table, row, added = /* @__PURE__ */ new Set([row])) {
+  let result = table;
+  table.rows[row]?.cells.forEach((cell, column) => {
+    if (cell.trim() !== "") return;
+    const formula = calculatedFormula(table, column, added);
+    if (formula) result = setCell(result, row, column, formulaCell("", formula));
+  });
+  return result;
+}
+function formulaCount(table) {
+  return table.rows.reduce((n, row, r) => n + (r === 0 ? 0 : row.cells.filter((cell) => formulaOf(cell)).length), 0);
+}
+function withoutFormulas(table) {
+  let result = table;
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.cells.forEach((cell, c) => {
+      const stored = formulaOf(cell);
+      if (stored) result = setCell(result, r, c, keepTags(stored.value, cell, /* @__PURE__ */ new Set(["f"])));
+    });
+  });
+  return result;
+}
+function formulasAfterEdit(before, after, edit) {
+  let table = after;
+  if (edit.rowMap) {
+    const kept = /* @__PURE__ */ new Set();
+    for (let r = 0; r < before.rows.length; r++) {
+      const moved2 = edit.rowMap(r);
+      if (moved2 !== void 0) kept.add(moved2);
+    }
+    const added = /* @__PURE__ */ new Set();
+    for (let r = 1; r < after.rows.length; r++) if (!kept.has(r)) added.add(r);
+    for (const r of added) table = withCalculatedCells(table, r, added);
+  }
+  return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap), edit.tables);
+}
+function namedReferences(formula) {
+  const { tokens } = tokenize(formula);
+  const result = [];
+  tokens.forEach((token, i) => {
+    if (token.kind === "named") {
+      result.push({ name: token.name, page: token.page });
+      return;
+    }
+    if (token.kind !== "name" || parseCellName(token.text) || /^(true|false)$/i.test(token.text)) return;
+    const next = tokens[i + 1];
+    if (next?.kind === "op" && next.text === "(" || next?.kind === "column") return;
+    const previous = tokens[i - 1];
+    if (previous?.kind === "table" || previous?.kind === "op" && previous.text === ":") return;
+    result.push({ name: token.text });
+  });
+  return result;
+}
+function referredCellNames(table) {
+  const names = /* @__PURE__ */ new Set();
+  forFormulas(table, (formula) => {
+    for (const ref of namedReferences(formula)) if (ref.page === void 0) names.add(ref.name.toLowerCase());
+  });
+  return names;
+}
+function cellNamesOf(table) {
+  return new Set(namedCells(table).keys());
+}
+function forFormulas(table, each) {
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    for (const cell of row.cells) {
+      const stored = formulaOf(cell);
+      if (stored) each(stored.formula);
+    }
+  });
+}
+function referredPages(table) {
+  const pages = /* @__PURE__ */ new Set();
+  forFormulas(table, (formula) => {
+    for (const page of formulaPages(formula)) pages.add(page);
+  });
+  return pages;
+}
+function formulaPages(formula) {
+  return [
+    ...references(formula).flatMap((ref) => ref.table?.page ? [ref.table.page] : []),
+    ...namedReferences(formula).flatMap((ref) => ref.page ? [ref.page] : [])
+  ];
+}
+function referredTableNames(table) {
+  const names = /* @__PURE__ */ new Set();
+  forFormulas(table, (formula) => {
+    for (const token of tokenize(formula).tokens) {
+      if (token.kind === "table" && token.page === void 0) names.add(token.name.toLowerCase());
+    }
+  });
+  return names;
+}
+function formulaErrors(table, tables) {
+  const errors = /* @__PURE__ */ new Map();
+  if (!hasFormulas(table)) return errors;
+  const sheet = new Sheet(table, new Book(tables));
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.cells.forEach((cell, c) => {
+      const stored = formulaOf(cell);
+      const result = stored && sheet.result(r - 1, c, stored.formula);
+      if (isError(result)) errors.set(`${r},${c}`, `${result.code} ${result.detail}`);
+    });
+  });
+  return errors;
+}
+function mapSpan(a, b, map) {
+  const mapped = [];
+  for (let i = a; i <= b; i++) {
+    const m = map(i);
+    if (m !== void 0) mapped.push(m);
+  }
+  if (mapped.length === 0) return void 0;
+  const lo = Math.min(...mapped);
+  const hi = Math.max(...mapped);
+  const ordered = mapped.every((m, i) => i === 0 || m > mapped[i - 1]);
+  if (ordered || hi - lo + 1 === mapped.length) return [lo, hi];
+  const sorted = [...mapped].sort((x, y) => x - y);
+  let best = [sorted[0], sorted[0]];
+  let start = sorted[0];
+  for (let i = 1; i <= sorted.length; i++) {
+    if (i < sorted.length && sorted[i] === sorted[i - 1] + 1) continue;
+    const end = sorted[i - 1];
+    if (end - start > best[1] - best[0]) best = [start, end];
+    if (i < sorted.length) start = sorted[i];
+  }
+  return best;
+}
+function followedReference(formula, ref, edit) {
+  const { rowMap, columnMap } = edit;
+  if (ref.kind === "area") {
+    if (!rowMap && !columnMap) return void 0;
+    const bodyMap = (b) => {
+      const r = rowMap ? rowMap(b + 1) : b + 1;
+      return r === void 0 || r < 1 ? void 0 : r - 1;
+    };
+    const rows = mapSpan(ref.area.top, ref.area.bottom, bodyMap);
+    const cols = mapSpan(ref.area.left, ref.area.right, columnMap ?? ((c) => c));
+    const written = formula.slice(ref.from, ref.to);
+    const text = rows && cols ? written.includes(":") ? `${cellName(rows[0], cols[0])}:${cellName(rows[1], cols[1])}` : cellName(rows[0], cols[0]) : REF_ERROR;
+    return text === written.toUpperCase() ? void 0 : text;
+  }
+  const headersBefore = edit.before.rows[0]?.cells ?? [];
+  const id = referencedColumnId(headersBefore, ref.name);
+  const followed = followColumn(headersBefore, edit.after.rows[0]?.cells ?? [], id, columnMap ?? ((c) => c));
+  if (followed === void 0) return void 0;
+  if (followed === null) return REF_ERROR;
+  return sameColumnId(followed, id) ? void 0 : columnRefText(followed, ref.thisRow);
+}
+function withFormulas(table, rewrite) {
+  let result = table;
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.cells.forEach((cell, c) => {
+      const stored = formulaOf(cell);
+      if (!stored) return;
+      const formula = rewrite(stored.formula);
+      if (formula !== stored.formula) result = setCell(result, r, c, keepTags(formulaCell(stored.value, formula), cell));
+    });
+  });
+  return result;
+}
+function rewriteReferences(formula, follows, edit) {
+  let result = formula;
+  for (const ref of references(formula).reverse()) {
+    if (!follows(ref)) continue;
+    const text = followedReference(formula, ref, edit);
+    if (text !== void 0) result = result.slice(0, ref.from) + text + result.slice(ref.to);
+  }
+  return result;
+}
+function newName(edit) {
+  const from = edit.before.meta?.name?.trim();
+  const to = edit.after.meta?.name?.trim();
+  return from && to && from.toLowerCase() !== to.toLowerCase() ? to : void 0;
+}
+function isTo(ref, name) {
+  return !!ref.table && ref.table.page === void 0 && !!name && ref.table.name.toLowerCase() === name.toLowerCase();
+}
+function shiftReferences(before, after, rowMap, columnMap) {
+  if (!hasFormulas(after)) return after;
+  const edit = { before, after, rowMap, columnMap };
+  const own = before.meta?.name?.trim();
+  const renamed = newName(edit);
+  return withFormulas(after, (formula) => renameIn(rewriteReferences(formula, (ref) => !ref.table || isTo(ref, own), edit), own, renamed));
+}
+function renameIn(formula, own, renamed) {
+  if (!renamed || !own) return formula;
+  let result = formula;
+  for (const token of tokenize(formula).tokens.reverse()) {
+    if (token.kind === "table" && token.page === void 0 && token.name.toLowerCase() === own.toLowerCase()) {
+      result = `${result.slice(0, token.from)}${renamed}!${result.slice(token.to)}`;
+    }
+  }
+  return result;
+}
+function followTable(table, before, after, rowMap, columnMap) {
+  const name = before.meta?.name?.trim();
+  if (!name || !hasFormulas(table)) return table;
+  const edit = { before, after, rowMap, columnMap };
+  const renamed = newName(edit);
+  return withFormulas(table, (formula) => renameIn(rewriteReferences(formula, (ref) => isTo(ref, name), edit), name, renamed));
+}
+var REFERENCE_HELP = {
+  syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column] \xB7 table!A1 \xB7 table![Column] \xB7 cell_name",
+  description: "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell. Click or drag in the table to insert one, click a header for its column."
+};
+var BEFORE_OPERAND = /* @__PURE__ */ new Set(["=", "(", ",", ";", "+", "-", "*", "/", "^", "&", "<", ">"]);
+function referenceSlot(formula, start, end, pointed) {
+  if (!formula.trimStart().startsWith("=")) return void 0;
+  if (pointed && start === pointed.to && end === pointed.to && formula.slice(pointed.from, pointed.to) === pointed.text) {
+    return { from: pointed.from, to: pointed.to };
+  }
+  if (tokenize(formula.slice(0, start)).error) return void 0;
+  const before = formula.slice(0, start).trimEnd();
+  const after = formula.slice(end).trimStart();
+  if (/^[A-Za-z0-9_.["#(]/.test(after)) return void 0;
+  return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : void 0;
+}
+function completeFunction(text, start, end) {
+  if (start !== end || !text.trimStart().startsWith("=")) return void 0;
+  const before = text.slice(0, start);
+  const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
+  if (!typing || /[0-9]/.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return void 0;
+  if (tokenize(before).error) return void 0;
+  const prefix = typing.toUpperCase();
+  const names = Object.keys(FUNCTIONS).filter((name2) => name2.startsWith(prefix));
+  const name = names.length === 1 ? names[0] : names.find((n) => n === prefix);
+  return name ? { from: start - typing.length, to: start, text: `${name}(` } : void 0;
+}
+function formulaHelp(text, caret) {
+  if (!text.trimStart().startsWith("=")) return [];
+  const before = text.slice(0, caret);
+  const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
+  if (typing && !/[0-9]/.test(typing) && text[caret] !== "(") {
+    const prefix = typing.toUpperCase();
+    const matches = Object.entries(FUNCTIONS).filter(([name]) => name.startsWith(prefix));
+    if (matches.length) return matches.map(([, f]) => ({ syntax: f.syntax, description: f.description }));
+  }
+  const { tokens } = tokenize(before);
+  const open = [];
+  tokens.forEach((token, i) => {
+    if (token.kind !== "op") return;
+    if (token.text === "(") {
+      const previous = tokens[i - 1];
+      open.push(previous?.kind === "name" ? previous.text.toUpperCase() : void 0);
+    } else if (token.text === ")") open.pop();
+  });
+  for (let i = open.length - 1; i >= 0; i--) {
+    const f = open[i] && FUNCTIONS[open[i]];
+    if (f) return [{ syntax: f.syntax, description: f.description }];
+  }
+  return [REFERENCE_HELP];
+}
+
 // table-plus/src/features/formulas.ts
 var FORMULAS_NEED_METADATA = "Formulas are stored in the table: turn on the Store table metadata setting to add them (existing ones keep working)";
 var REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
@@ -4626,12 +4643,20 @@ var Formulas = class {
     this.formulaHint.remove();
   }
   // ---- the cell editor ----------------------------------------------------------
+  /** The formula tag (<meta f>) is the module's: edited, it is what editorValue writes */
+  takesTags() {
+    return ["f"];
+  }
+  /** A formula cell's value is its formula's: pasting leaves it */
+  keepsCell(cell) {
+    return formulaOf(cell) ? "formula cell" : void 0;
+  }
   /** A formula cell is edited as its formula; a text starting with "=" as '=…, so it stays text */
   editorText(_info, cell, original) {
     if (cell.row === 0) return void 0;
     const stored = formulaOf(original);
     if (stored) return stored.formula;
-    const text = unescapeCell(original);
+    const text = unescapeCell(withoutTags(original));
     return text.startsWith("=") ? `'${text}` : void 0;
   }
   editorOpened(editor) {
@@ -6178,24 +6203,24 @@ function planPaste(table, pins, at, data, insert) {
     pins
   };
 }
-function pasteCells(table, plan, data) {
+function pasteCells(table, plan, data, rules) {
   let result = table;
   for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
   for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
-  for (let k = 0; k < plan.newRows.count; k++) result = withCalculatedCells(result, plan.newRows.at + k);
-  let skipped = 0;
+  const skipped = /* @__PURE__ */ new Map();
   data.forEach((values, i) => {
     const row = plan.rows[i];
     values.forEach((value, j) => {
       const column = plan.columns[j];
       const current = result.rows[row]?.cells[column] ?? "";
       const cell = escapeCell(value);
-      if (formulaOf(current)) {
-        if (cell !== "") skipped++;
+      const kept = rules.keptBy(current);
+      if (kept) {
+        if (cell !== "") skipped.set(kept, (skipped.get(kept) ?? 0) + 1);
         return;
       }
       if (row === 0 && cell === "") return;
-      result = setCell(result, row, column, keepNames(cell, current));
+      result = setCell(result, row, column, rules.keepTags(cell, current));
     });
   });
   return { table: result, skipped };
@@ -6247,14 +6272,17 @@ var Paste = class {
       return;
     }
     const closed = this.host.takeEditor();
-    let skipped = 0;
+    let skipped = /* @__PURE__ */ new Map();
     const { newRows, newColumns } = plan;
     const result = await this.host.write(
       closed.widget,
       (t) => {
         const edited = closed.save(t);
         if (!edited) return void 0;
-        const pasted = pasteCells(edited, plan, data);
+        const pasted = pasteCells(edited, plan, data, {
+          keptBy: (cell) => this.host.cellKeptBy(cell),
+          keepTags: (value, from) => this.host.keepTags(value, from)
+        });
         skipped = pasted.skipped;
         return pasted.table;
       },
@@ -6269,7 +6297,7 @@ var Paste = class {
     const added = [
       ...newRows.count && !insert ? [`added ${plural2(newRows.count, "row")}`] : [],
       ...newColumns.count ? [`added ${plural2(newColumns.count, "column")}`] : [],
-      ...skipped ? [`kept ${plural2(skipped, "formula cell")}`] : []
+      ...Array.from(skipped, ([what2, count]) => `kept ${plural2(count, what2)}`)
     ];
     const what = insert ? `${plural2(data.length, "new row")}` : `${data.length} \xD7 ${width} cells`;
     void this.host.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
@@ -6399,7 +6427,7 @@ var Selection = class {
     const cells = this.cells();
     if (!widget || !info || !cells) return;
     const refs = cells.flat().map((cell) => this.host.cellRef(info, cell)).filter((ref) => ref !== void 0 && ref.row > 0);
-    const emptied = (table, ref) => setCell(table, ref.row, ref.column, keepNames("", table.rows[ref.row]?.cells[ref.column] ?? ""));
+    const emptied = (table, ref) => setCell(table, ref.row, ref.column, this.host.keepTags("", table.rows[ref.row]?.cells[ref.column] ?? ""));
     await this.host.write(widget, (t) => refs.reduce(emptied, t));
   }
   /**
@@ -7038,6 +7066,16 @@ var Controller = class {
   // ---- view: sort and filter --------------------------------------------
   viewOf(info) {
     return this.views.get(info.key) ?? DEFAULT_VIEW;
+  }
+  keepTags(value, from) {
+    return keepTags(value, from, new Set(this.features.flatMap((f) => f.takesTags?.() ?? [])));
+  }
+  cellKeptBy(cell) {
+    for (const feature of this.features) {
+      const reason = feature.keepsCell?.(cell);
+      if (reason) return reason;
+    }
+    return void 0;
   }
   viewChanged(widget, info) {
     this.setView(widget, info, this.viewOf(info));

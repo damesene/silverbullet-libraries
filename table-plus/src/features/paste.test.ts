@@ -48,4 +48,25 @@ describe("Pasting from a spreadsheet", () => {
     expect(text).toBe(TOTAL);
     expect(flashes).toEqual(["Table Plus: clear sorting and filters to paste cells: the rows shown are not where they would go"]);
   });
+
+  it("gives new rows' empty cells of a calculated column its formula; a value pasted there stays", async () => {
+    const CALC = '| Name | Qty | Twice |\n|---|---|---|\n| Pear | 3 | 6 <meta f="=[@qty]*2"> |\n| Apple | 10 | 20 <meta f="=[@qty]*2"> |\n';
+    await setup(CALC);
+    clickOn(cell(2, 0));
+    pasteText("Fig\t2\nPlum\t5\t99", true);
+    await flush();
+    expect(text).toBe(
+      '| Name | Qty | Twice |\n|---|---|---|\n| Pear | 3 | 6 <meta f="=[@qty]*2"> |\n| Fig | 2 | 4 <meta f="=[@qty]*2"> |\n| Plum | 5 | 99 |\n| Apple | 10 | 20 <meta f="=[@qty]*2"> |\n',
+    );
+  });
+
+  it("keeps the hidden tags of the cells pasted over: names, and formulas with the formulas module off", async () => {
+    const TAGGED = '| Name | Qty |\n|---|---|\n| Pear <meta n="pear"> | 3 |\n| Total | 3 <meta f="=SUM([qty])"> |\n';
+    await setup(TAGGED, { "tablePlus.modules.formulas.enabled": false });
+    clickOn(cell(1, 0));
+    pasteText("Fig\t2\nAll\t9");
+    await flush();
+    expect(text).toContain('| Fig <meta n="pear"> | 2 |');
+    expect(text).toContain('<meta f="=SUM([qty])"> |');
+  });
 });

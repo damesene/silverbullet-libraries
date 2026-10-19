@@ -106,7 +106,8 @@ A new `space-lua` block on a page is not active until Space Lua is reloaded; an 
 
 ### Other features
 - **Selection** follows the rows as shown (sorted/filtered); Delete empties cells (header names kept).
-- **Paste**: tab/line-break text (CSV-style quotes); Ctrl+V overwrites from the cell, adding rows/columns before the pinned ones; Ctrl+Shift+V inserts new rows; formula cells keep their formulas; refused while sorted or filtered.
+- **Paste**: tab/line-break text (CSV-style quotes); Ctrl+V overwrites from the cell, adding rows/columns before the pinned ones; Ctrl+Shift+V inserts new rows; a cell a feature computes is left (`Feature.keepsCell`: formula cells); refused while sorted or filtered. New rows get calculated columns' formulas in the write step, where nothing was pasted.
+- **Hidden tags in cells** (`tags.ts`): every `<meta …>` in a cell is kept when its text is edited, pasted over or cleared (`TableHost.keepTags`), whatever it is for; a feature that manages a tag's attributes takes them (`Feature.takesTags`: formulas take `f`) and writes them itself. So a module turned off loses none of its data in cells.
 - **Metadata removal** also removes formulas (cells keep their results) and ends a stored sort.
 - **Pointing** in formulas (click/drag cells, click header) uses the move cursor; only right after an operator, `(`, `,`, `=`, or replacing the reference just pointed at.
 

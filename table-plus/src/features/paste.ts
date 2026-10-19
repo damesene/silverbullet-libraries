@@ -54,14 +54,17 @@ export class Paste implements Feature {
       return;
     }
     const closed = this.host.takeEditor()!;
-    let skipped = 0;
+    let skipped: ReadonlyMap<string, number> = new Map();
     const { newRows, newColumns } = plan;
     const result = await this.host.write(
       closed.widget,
       (t) => {
         const edited = closed.save(t);
         if (!edited) return undefined;
-        const pasted = pasteCells(edited, plan, data);
+        const pasted = pasteCells(edited, plan, data, {
+          keptBy: (cell) => this.host.cellKeptBy(cell),
+          keepTags: (value, from) => this.host.keepTags(value, from),
+        });
         skipped = pasted.skipped;
         return pasted.table;
       },
@@ -76,7 +79,7 @@ export class Paste implements Feature {
     const added = [
       ...(newRows.count && !insert ? [`added ${plural(newRows.count, "row")}`] : []),
       ...(newColumns.count ? [`added ${plural(newColumns.count, "column")}`] : []),
-      ...(skipped ? [`kept ${plural(skipped, "formula cell")}`] : []),
+      ...Array.from(skipped, ([what, count]) => `kept ${plural(count, what)}`),
     ];
     const what = insert ? `${plural(data.length, "new row")}` : `${data.length} × ${width} cells`;
     void this.host.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");

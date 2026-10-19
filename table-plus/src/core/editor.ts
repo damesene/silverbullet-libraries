@@ -3,13 +3,13 @@
 // the cell, Esc cancels. Features shape what it shows and saves (a formula)
 // through the editor hooks of core/feature.ts.
 import { escapeCell, parseTable, type Table, unescapeCell } from "../markdown.ts";
-import { keepNames, withoutName } from "../names.ts";
 import { columnAfterMove, moveColumn, moveRow, setCell } from "../ops.ts";
 import { appendRowAt, clampColumnMove, clampRowMove } from "../pins.ts";
 import { UI_CLASS } from "../dom.ts";
 import type { CellEditor, Feature, FocusTarget, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
 import { STICKY_GAP } from "./layout.ts";
 import { insertRowWith, MOVE_BLOCKED } from "./structure.ts";
+import { withoutTags } from "../tags.ts";
 
 // Ctrl+Alt + these keys move the edited cell's row or column
 const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
@@ -88,8 +88,8 @@ export class CellEditing {
     if (!ref || this.editor) return;
     this.context.holdRow(widget, info, ref.row);
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
-    // A cell's name is not edited as text: it is kept (names.ts)
-    const bare = withoutName(original);
+    // The cell's hidden tags are not edited as text: they are kept (tags.ts)
+    const bare = withoutTags(original);
 
     // The cell keeps its size while its content is swapped for the field
     const cellStyle = cell.getAttribute("style");
@@ -109,7 +109,7 @@ export class CellEditing {
     field.size = 1;
     field.spellcheck = true;
     // What the field shows: the cell's text, unless a feature shows it otherwise (a formula)
-    field.value = this.context.features.reduce<string | undefined>((text, f) => text ?? f.editorText?.(info, ref, bare), undefined) ?? unescapeCell(bare);
+    field.value = this.context.features.reduce<string | undefined>((text, f) => text ?? f.editorText?.(info, ref, original), undefined) ?? unescapeCell(bare);
     const kept = this.host.doc.createDocumentFragment();
     while (cell.firstChild) kept.append(cell.firstChild);
     cell.classList.add("tp-editing");
@@ -166,7 +166,7 @@ export class CellEditing {
     this.editor = undefined;
     for (const feature of this.context.features) feature.editorClosed?.(active);
     let value = this.cellValue(active);
-    if (active.row === 0 && withoutName(value) === "" && active.original !== "") {
+    if (active.row === 0 && withoutTags(value) === "" && active.original !== "") {
       // SilverBullet would not show a column without a name
       value = active.original;
       void this.host.bridge.flash("Table Plus: a column needs a name; the old name was kept", "info");
@@ -188,7 +188,7 @@ export class CellEditing {
     const typed = active.field.value;
     if (typed === active.initial) return active.original;
     const value = this.context.features.reduce<string | undefined>((v, f) => v ?? f.editorValue?.(active, typed), undefined) ?? escapeCell(typed);
-    return keepNames(value, active.original);
+    return this.host.keepTags(value, active.original);
   }
 
   /**

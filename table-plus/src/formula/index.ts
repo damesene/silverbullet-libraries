@@ -18,7 +18,8 @@ import { type ColumnId, columnIdOf, columnKey, findColumn, followColumn, sameCol
 import { dateArithmetic, parseDate } from "./dates.ts";
 import { FUNCTIONS } from "./functions/index.ts";
 import { escapeCell, escapeMetaValue, type Table, unescapeCell, unescapeMetaValue } from "../markdown.ts";
-import { CELL_RE, cellNameOf, keepNames, namedCells, namedRows, withCellName, withoutName } from "../names.ts";
+import { CELL_RE, cellNameOf, namedCells, namedRows, withCellName } from "../names.ts";
+import { keepTags, withoutTags } from "../tags.ts";
 import { setCell } from "../ops.ts";
 import {
   asTime,
@@ -58,7 +59,7 @@ export function formulaOf(cell: string): StoredFormula | undefined {
   const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
   const rest = cell.slice(0, match.index) + cell.slice(match.index + match[0].length);
   const name = cellNameOf(rest);
-  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value: withoutName(rest), ...(name ? { name } : {}) };
+  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value: withoutTags(rest), ...(name ? { name } : {}) };
 }
 
 /** A cell holding `formula`, showing `value` (plain text), and named `name` if given */
@@ -714,7 +715,7 @@ class Sheet {
     }
     const stored = formulaOf(cell);
     if (!stored) {
-      const text = unescapeCell(withoutName(cell)).trim();
+      const text = unescapeCell(withoutTags(cell)).trim();
       if (text === "") return null;
       // A number, a time (14:30, 40:00), or text
       return asNumber(text) ?? parseClock(text) ?? text;
@@ -978,7 +979,7 @@ export function recalculate(table: Table, tables?: TableSource): Table {
       const stored = formulaOf(cell);
       // A result kept as it is written (a link to a page not read)
       if (!stored || (book.keepsResult(stored.formula) && stored.value.trim() !== "")) return;
-      const updated = keepNames(formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula), cell);
+      const updated = keepTags(formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula), cell);
       if (updated !== cell) result = setCell(result, r, c, updated);
     });
   });
@@ -987,14 +988,15 @@ export function recalculate(table: Table, tables?: TableSource): Table {
 
 /**
  * The formula a column computes row by row, as a spreadsheet's calculated
- * column: every body cell of the column (but `except`, a row of the markdown)
- * holds the same formula. Total rows (rows with a formula that refers to a
- * whole column) do not count. Undefined when the column holds anything else.
+ * column: every body cell of the column (but those of the rows `except`, of
+ * the markdown: new ones) holds the same formula. Total rows (rows with a
+ * formula that refers to a whole column) do not count. Undefined when the
+ * column holds anything else.
  */
-export function calculatedFormula(table: Table, column: number, except?: number): string | undefined {
+export function calculatedFormula(table: Table, column: number, except: ReadonlySet<number> = new Set()): string | undefined {
   let formula: string | undefined;
   for (let r = 1; r < table.rows.length; r++) {
-    if (r === except || isTotalRow(table.rows[r]!.cells)) continue;
+    if (except.has(r) || isTotalRow(table.rows[r]!.cells)) continue;
     const stored = formulaOf(table.rows[r]!.cells[column] ?? "");
     if (!stored || (formula !== undefined && formula !== stored.formula)) return undefined;
     formula = stored.formula;
@@ -1011,12 +1013,16 @@ function isTotalRow(cells: readonly string[]): boolean {
   });
 }
 
-/** The table with the empty cells of row `row` (of the markdown) filled with their columns' calculated formulas */
-export function withCalculatedCells(table: Table, row: number): Table {
+/**
+ * The table with the empty cells of row `row` (of the markdown) filled with
+ * their columns' calculated formulas, as the rows but `added` (new ones, `row`
+ * among them) have them
+ */
+export function withCalculatedCells(table: Table, row: number, added: ReadonlySet<number> = new Set([row])): Table {
   let result = table;
   table.rows[row]?.cells.forEach((cell, column) => {
     if (cell.trim() !== "") return;
-    const formula = calculatedFormula(table, column, row);
+    const formula = calculatedFormula(table, column, added);
     if (formula) result = setCell(result, row, column, formulaCell("", formula));
   });
   return result;
@@ -1034,7 +1040,7 @@ export function withoutFormulas(table: Table): Table {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
       const stored = formulaOf(cell);
-      if (stored) result = setCell(result, r, c, keepNames(stored.value, cell));
+      if (stored) result = setCell(result, r, c, keepTags(stored.value, cell, new Set(["f"])));
     });
   });
   return result;
@@ -1059,7 +1065,9 @@ export function formulasAfterEdit(
       const moved = edit.rowMap(r);
       if (moved !== undefined) kept.add(moved);
     }
-    for (let r = 1; r < after.rows.length; r++) if (!kept.has(r)) table = withCalculatedCells(table, r);
+    const added = new Set<number>();
+    for (let r = 1; r < after.rows.length; r++) if (!kept.has(r)) added.add(r);
+    for (const r of added) table = withCalculatedCells(table, r, added);
   }
   return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap), edit.tables);
 }
@@ -1240,7 +1248,7 @@ function withFormulas(table: Table, rewrite: (formula: string) => string): Table
       const stored = formulaOf(cell);
       if (!stored) return;
       const formula = rewrite(stored.formula);
-      if (formula !== stored.formula) result = setCell(result, r, c, keepNames(formulaCell(stored.value, formula), cell));
+      if (formula !== stored.formula) result = setCell(result, r, c, keepTags(formulaCell(stored.value, formula), cell));
     });
   });
   return result;
