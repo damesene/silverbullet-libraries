@@ -44,6 +44,12 @@ export const SETTINGS = {
     default: false,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
+  // A click on a cell selects its text (Shift+click does not); off: the reverse
+  selectOnClick: {
+    path: "tablePlus.selectOnClick",
+    default: false,
+    parse: (v) => (typeof v === "boolean" ? v : undefined),
+  } satisfies Setting<boolean>,
   // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
   ctrlEnterAddsRow: {
     path: "tablePlus.ctrlEnterAddsRow",

@@ -199,6 +199,33 @@ describe("Controller", () => {
     expect(editor.querySelector(".tp-cell-editor")).toBeNull();
   });
 
+  it("selects the cell's text on Shift+click, or on a plain click with selectOnClick", async () => {
+    const selected = () => {
+      const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+      return field.selectionStart === 0 && field.selectionEnd === field.value.length;
+    };
+    const click = (target: Element, shiftKey: boolean) => {
+      press(target, "mousedown", { shiftKey });
+      press(target, "click", { shiftKey });
+    };
+    await setup(PAGE);
+    click(cell(1, 0), false);
+    expect(selected()).toBe(false); // the cursor at the end
+    click(cell(2, 0), true); // to another cell, with Shift
+    await flush();
+    expect(selected()).toBe(true);
+
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(PAGE, { "tablePlus.selectOnClick": true });
+    await flush();
+    click(cell(1, 0), false);
+    expect(selected()).toBe(true);
+    click(cell(2, 0), true);
+    await flush();
+    expect(selected()).toBe(false);
+  });
+
   it("cancels an edit with Escape", async () => {
     await setup(PAGE);
     clickOn(cell(1, 0));

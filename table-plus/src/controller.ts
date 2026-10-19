@@ -205,6 +205,8 @@ export class Controller {
   private maxHeight = 0;
   // The metadata setting, for menus that offer pinning
   private metadataOn = false;
+  // The selectOnClick setting: a plain click selects the cell's text
+  private selectOnClick = false;
   // Sideways scroll of each wide table, carried over to its next rendering
   private readonly scrollLefts = new Map<string, number>();
   // The same for tables taller than the maximum height setting, scrolled inside
@@ -417,6 +419,7 @@ export class Controller {
     const smart = (await this.setting("smartFilters")) === true;
     const maxHeight = await this.setting("maxHeight");
     this.metadataOn = await this.setting("metadata");
+    this.selectOnClick = await this.setting("selectOnClick");
     if (this.stopped || (smart === this.filterOptions.smart && maxHeight === this.maxHeight)) return;
     this.filterOptions = { smart };
     this.maxHeight = maxHeight;
@@ -854,8 +857,10 @@ export class Controller {
     if (!cell || this.editor?.cell === cell) return;
     const ref = this.cellRef(info, cell);
     if (!ref) return;
-    if (this.editor) void this.finishEditing(true, { widget, ...ref });
-    else this.openEditor(widget, info, cell);
+    // Shift+click selects the cell's text; the selectOnClick setting swaps that round
+    const select = e.shiftKey !== this.selectOnClick;
+    if (this.editor) void this.finishEditing(true, { widget, ...ref, select });
+    else this.openEditor(widget, info, cell, select);
   };
 
   /**
@@ -1411,7 +1416,7 @@ export class Controller {
    */
   private async finishEditing(
     save: boolean,
-    next?: CellRef & { widget: HTMLElement },
+    next?: FocusTarget & { widget: HTMLElement },
     refocus = true,
   ): Promise<void> {
     const closed = this.closeEditor();
@@ -1426,7 +1431,7 @@ export class Controller {
       // The other table was not re-rendered by this edit unless they share text
       const info = this.infos.get(next.widget);
       const cell = info && this.cellAt(info, next);
-      if (info && cell) this.openEditor(next.widget, info, cell);
+      if (info && cell) this.openEditor(next.widget, info, cell, next.select);
       return;
     }
     if (!next && refocus) this.focusEditor(closed.widget);

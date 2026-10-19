@@ -23,6 +23,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 ## Editing cells
 
 * Click a cell to edit it in place. Enter or clicking elsewhere saves, Esc cancels.
+* Shift+click opens the editor with the cell's whole text selected, to type over it. The *Click selects the cell's text* setting swaps the two. See [[#Settings]].
 * Links, tasks and buttons in cells work as before: clicking them does not start editing.
 * A column always needs a name: emptying a header cell keeps the old name.
 
@@ -133,6 +134,9 @@ Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, 
 * **Enter in a cell editor** (`tablePlus.enterKey`), default `save`
   * `save`: Enter saves the cell.
   * `moveDown`: Enter saves and edits the cell below, Shift+Enter the cell above.
+* **Click selects the cell's text** (`tablePlus.selectOnClick`), default `false`
+  * `false`: a click puts the cursor at the end of the cell's text, Shift+click selects the whole text.
+  * `true`: the reverse. Moving between cells with the keyboard is the same either way.
 * **Ctrl+Enter adds a row** (`tablePlus.ctrlEnterAddsRow`), default `true`
   * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
   * `false`: Ctrl+Enter works like Enter.
@@ -145,6 +149,7 @@ config.set("tablePlus.metadata", true)
 config.set("tablePlus.maxHeight", 400)
 config.set("tablePlus.autoFormat", false)
 config.set("tablePlus.enterKey", "moveDown")
+config.set("tablePlus.selectOnClick", true)
 config.set("tablePlus.ctrlEnterAddsRow", false)
 config.set("tablePlus.smartFilters", false)
 ```
@@ -223,6 +228,12 @@ config.define("tablePlus", {
       default = "save",
       description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: the cell above).",
       ui = { category = "Table Plus", label = "Enter in a cell editor", priority = 3 },
+    },
+    selectOnClick = {
+      type = "boolean",
+      default = false,
+      description = "A click on a cell opens its editor with all its text selected, Shift+click with the cursor at the end. Off: the reverse (Shift+click selects the text). Keyboard navigation is not affected.",
+      ui = { category = "Table Plus", label = "Click selects the cell's text", priority = 2.5 },
     },
     ctrlEnterAddsRow = {
       type = "boolean",

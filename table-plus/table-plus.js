@@ -16,6 +16,12 @@ var SETTINGS = {
     default: false,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
+  // A click on a cell selects its text (Shift+click does not); off: the reverse
+  selectOnClick: {
+    path: "tablePlus.selectOnClick",
+    default: false,
+    parse: (v) => typeof v === "boolean" ? v : void 0
+  },
   // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
   ctrlEnterAddsRow: {
     path: "tablePlus.ctrlEnterAddsRow",
@@ -995,6 +1001,8 @@ var Controller = class {
   maxHeight = 0;
   // The metadata setting, for menus that offer pinning
   metadataOn = false;
+  // The selectOnClick setting: a plain click selects the cell's text
+  selectOnClick = false;
   // Sideways scroll of each wide table, carried over to its next rendering
   scrollLefts = /* @__PURE__ */ new Map();
   // The same for tables taller than the maximum height setting, scrolled inside
@@ -1166,6 +1174,7 @@ var Controller = class {
     const smart = await this.setting("smartFilters") === true;
     const maxHeight = await this.setting("maxHeight");
     this.metadataOn = await this.setting("metadata");
+    this.selectOnClick = await this.setting("selectOnClick");
     if (this.stopped || smart === this.filterOptions.smart && maxHeight === this.maxHeight) return;
     this.filterOptions = { smart };
     this.maxHeight = maxHeight;
@@ -1559,8 +1568,9 @@ var Controller = class {
     if (!cell || this.editor?.cell === cell) return;
     const ref = this.cellRef(info, cell);
     if (!ref) return;
-    if (this.editor) void this.finishEditing(true, { widget, ...ref });
-    else this.openEditor(widget, info, cell);
+    const select = e.shiftKey !== this.selectOnClick;
+    if (this.editor) void this.finishEditing(true, { widget, ...ref, select });
+    else this.openEditor(widget, info, cell, select);
   };
   /**
    * Middle-button autoscroll over a table that scrolls sideways. The browser's
@@ -2053,7 +2063,7 @@ var Controller = class {
     if (next && (result === "unchanged" || !sameTable)) {
       const info = this.infos.get(next.widget);
       const cell = info && this.cellAt(info, next);
-      if (info && cell) this.openEditor(next.widget, info, cell);
+      if (info && cell) this.openEditor(next.widget, info, cell, next.select);
       return;
     }
     if (!next && refocus) this.focusEditor(closed.widget);
