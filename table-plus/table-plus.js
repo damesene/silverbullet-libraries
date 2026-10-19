@@ -1829,60 +1829,6 @@ function focusMenu(menu) {
   menu.focus({ preventScroll: true });
 }
 
-// table-plus/src/meta.ts
-function withMeta(table, name, value) {
-  const current = table.meta ?? {};
-  if (current[name] === value) return table;
-  const meta = { ...current };
-  if (value === void 0) delete meta[name];
-  else meta[name] = value;
-  return { ...table, meta };
-}
-function parseSort(value) {
-  const match = /^(.*):(asc|desc)(?::(\d+))?$/.exec(value);
-  return match ? { name: match[1], direction: match[2], nth: Number(match[3] ?? 1) } : void 0;
-}
-function metaSort(table) {
-  const sort = table.meta?.sort === void 0 ? void 0 : parseSort(table.meta.sort);
-  const column = sort && findColumn(table.rows[0]?.cells ?? [], sort);
-  return sort && column !== void 0 ? { column, direction: sort.direction } : void 0;
-}
-function withMetaSort(table, sort) {
-  const id = sort && columnIdOf(table.rows[0]?.cells ?? [], sort.column);
-  if (!sort || !id) return withMeta(table, "sort", void 0);
-  return withMeta(table, "sort", `${id.name}:${sort.direction}${id.shared ? `:${id.nth}` : ""}`);
-}
-var PIN_ATTRIBUTES = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" };
-function metaPins(table) {
-  const count = (name) => {
-    const n = Number(table.meta?.[name]);
-    return Number.isInteger(n) && n > 0 ? n : 0;
-  };
-  const bodyRows = Math.max(0, table.rows.length - 1);
-  const columns = table.align.length;
-  const top = Math.min(count(PIN_ATTRIBUTES.top), bodyRows);
-  const left = Math.min(count(PIN_ATTRIBUTES.left), columns);
-  return {
-    top,
-    bottom: Math.min(count(PIN_ATTRIBUTES.bottom), bodyRows - top),
-    left,
-    right: Math.min(count(PIN_ATTRIBUTES.right), columns - left)
-  };
-}
-function withMetaPins(table, pins) {
-  let result = table;
-  for (const edge of ["top", "bottom", "left", "right"]) {
-    result = withMeta(result, PIN_ATTRIBUTES[edge], pins[edge] > 0 ? String(pins[edge]) : void 0);
-  }
-  return result;
-}
-function followMetaSort(before, after, map) {
-  if (after.meta?.sort === void 0 || after.meta.sort !== before.meta?.sort) return after;
-  const sort = metaSort(before);
-  const column = sort && map(sort.column);
-  return withMetaSort(after, sort && column !== void 0 ? { column, direction: sort.direction } : void 0);
-}
-
 // table-plus/src/pins.ts
 function rowZone(pins, rows, row) {
   if (row >= 1 && row <= pins.top) return "top";
@@ -1977,6 +1923,176 @@ function pinColumn(pins, columns, column, pin) {
   return { to, pins: p };
 }
 
+// table-plus/src/paste.ts
+function parseClipboardCells(text) {
+  const s = text.replace(/\r\n?/g, "\n");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let start = true;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (start && ch === '"') {
+      let j = i + 1;
+      let value = "";
+      while (j < s.length) {
+        if (s[j] === '"') {
+          if (s[j + 1] !== '"') break;
+          value += '"';
+          j += 2;
+        } else value += s[j++];
+      }
+      if (j < s.length && (j + 1 === s.length || s[j + 1] === "	" || s[j + 1] === "\n")) {
+        cell = value;
+        i = j;
+        start = false;
+        continue;
+      }
+    }
+    start = false;
+    if (ch === "	") {
+      row.push(cell);
+      cell = "";
+      start = true;
+    } else if (ch === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      start = true;
+    } else cell += ch;
+  }
+  if (!start || cell !== "" || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+  if (rows.length === 0 || rows.length === 1 && rows[0].length === 1) return void 0;
+  return rows;
+}
+function along(start, count, length, pinnedAtEnd) {
+  const tail = length - pinnedAtEnd;
+  const inTail = pinnedAtEnd > 0 && start >= tail;
+  const end = inTail ? length : tail;
+  const existing = [];
+  for (let i = start; i < end && existing.length < count; i++) existing.push(i);
+  const missing = count - existing.length;
+  if (missing > 0 && inTail) return void 0;
+  const added = Array.from({ length: missing }, (_, k) => tail + k);
+  return { targets: [...existing, ...added], at: tail, count: missing };
+}
+function planPaste(table, pins, at, data, insert) {
+  const width = Math.max(...data.map((r) => r.length));
+  const columns = along(at.column, width, table.align.length, pins.right);
+  if (!columns) return { error: "there are no columns after the columns pinned to the right to paste into" };
+  if (insert) {
+    const first = Math.max(1, at.row);
+    let p = pins;
+    let rows = table.rows.length;
+    let index = first;
+    const targets = [];
+    for (let k = 0; k < data.length; k++) {
+      const placed = insertRowAt(p, rows, index);
+      targets.push(placed.at);
+      p = placed.pins;
+      rows++;
+      index = placed.at + 1;
+    }
+    return {
+      rows: targets,
+      columns: columns.targets,
+      newRows: { at: targets[0], count: data.length },
+      newColumns: { at: columns.at, count: columns.count },
+      pins: p
+    };
+  }
+  const header = at.row === 0 ? [0] : [];
+  const body = along(Math.max(1, at.row), data.length - header.length, table.rows.length, pins.bottom);
+  if (!body) return { error: "there are no rows below the rows pinned to the bottom to paste into" };
+  return {
+    rows: [...header, ...body.targets],
+    columns: columns.targets,
+    newRows: { at: body.at, count: body.count },
+    newColumns: { at: columns.at, count: columns.count },
+    pins
+  };
+}
+function pasteCells(table, plan, data) {
+  let result = table;
+  for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
+  for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
+  for (let k = 0; k < plan.newRows.count; k++) result = withCalculatedCells(result, plan.newRows.at + k);
+  let skipped = 0;
+  data.forEach((values, i) => {
+    const row = plan.rows[i];
+    values.forEach((value, j) => {
+      const column = plan.columns[j];
+      const current = result.rows[row]?.cells[column] ?? "";
+      const cell = escapeCell(value);
+      if (formulaOf(current)) {
+        if (cell !== "") skipped++;
+        return;
+      }
+      if (row === 0 && cell === "") return;
+      result = setCell(result, row, column, cell);
+    });
+  });
+  return { table: result, skipped };
+}
+
+// table-plus/src/meta.ts
+function withMeta(table, name, value) {
+  const current = table.meta ?? {};
+  if (current[name] === value) return table;
+  const meta = { ...current };
+  if (value === void 0) delete meta[name];
+  else meta[name] = value;
+  return { ...table, meta };
+}
+function parseSort(value) {
+  const match = /^(.*):(asc|desc)(?::(\d+))?$/.exec(value);
+  return match ? { name: match[1], direction: match[2], nth: Number(match[3] ?? 1) } : void 0;
+}
+function metaSort(table) {
+  const sort = table.meta?.sort === void 0 ? void 0 : parseSort(table.meta.sort);
+  const column = sort && findColumn(table.rows[0]?.cells ?? [], sort);
+  return sort && column !== void 0 ? { column, direction: sort.direction } : void 0;
+}
+function withMetaSort(table, sort) {
+  const id = sort && columnIdOf(table.rows[0]?.cells ?? [], sort.column);
+  if (!sort || !id) return withMeta(table, "sort", void 0);
+  return withMeta(table, "sort", `${id.name}:${sort.direction}${id.shared ? `:${id.nth}` : ""}`);
+}
+var PIN_ATTRIBUTES = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" };
+function metaPins(table) {
+  const count = (name) => {
+    const n = Number(table.meta?.[name]);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  };
+  const bodyRows = Math.max(0, table.rows.length - 1);
+  const columns = table.align.length;
+  const top = Math.min(count(PIN_ATTRIBUTES.top), bodyRows);
+  const left = Math.min(count(PIN_ATTRIBUTES.left), columns);
+  return {
+    top,
+    bottom: Math.min(count(PIN_ATTRIBUTES.bottom), bodyRows - top),
+    left,
+    right: Math.min(count(PIN_ATTRIBUTES.right), columns - left)
+  };
+}
+function withMetaPins(table, pins) {
+  let result = table;
+  for (const edge of ["top", "bottom", "left", "right"]) {
+    result = withMeta(result, PIN_ATTRIBUTES[edge], pins[edge] > 0 ? String(pins[edge]) : void 0);
+  }
+  return result;
+}
+function followMetaSort(before, after, map) {
+  if (after.meta?.sort === void 0 || after.meta.sort !== before.meta?.sort) return after;
+  const sort = metaSort(before);
+  const column = sort && map(sort.column);
+  return withMetaSort(after, sort && column !== void 0 ? { column, direction: sort.direction } : void 0);
+}
+
 // table-plus/src/controller.ts
 function withoutMetadata(table) {
   const { meta: _meta, metaSource: _source, ...rest } = withoutFormulas(table);
@@ -2024,6 +2140,7 @@ var PAGE_ROWS = 10;
 var FILTER_HINT = "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
+var PASTE_BLOCKED = "Clear sorting and filters to paste cells: the rows shown are not where they would go";
 var PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 function placeAtEnd(parent, rows) {
   let next = null;
@@ -2099,6 +2216,8 @@ var Controller = class {
   // The reference last inserted by pointing at the table, and the cell its range started at
   pointed;
   stopPointing;
+  // The paste on its way was asked for with Ctrl+Shift+V: as new rows
+  pasteInserts = false;
   setBridge(bridge) {
     this.bridge = bridge;
   }
@@ -3125,6 +3244,15 @@ ${error}` : stored.formula;
     }
     field.addEventListener("keydown", (e) => {
       if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) this.pointed = void 0;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.pasteInserts = e.shiftKey;
+    });
+    field.addEventListener("paste", (e) => {
+      const insert = this.pasteInserts;
+      this.pasteInserts = false;
+      const data = parseClipboardCells(e.clipboardData?.getData("text/plain") ?? "");
+      if (!data || this.editor?.field !== field) return;
+      e.preventDefault();
+      void this.pasteIntoTable(data, insert);
     });
     field.addEventListener("blur", () => {
       if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, void 0, false);
@@ -3534,6 +3662,53 @@ ${error}` : stored.formula;
     win.addEventListener("blur", end);
     this.stopPointing = end;
     return true;
+  }
+  /**
+   * Pastes cells copied from a spreadsheet from the edited cell, as one edit:
+   * over the cells there (insert false), or as new rows at the cell's row
+   * (Ctrl+Shift+V). Cells with formulas keep them. Not while the table is
+   * sorted or filtered: the rows shown are not where the cells would go.
+   */
+  async pasteIntoTable(data, insert) {
+    const active = this.editor;
+    const info = active && this.infos.get(active.widget);
+    if (!active || !info) return;
+    if (this.rearranged(info)) {
+      void this.bridge.flash(`Table Plus: ${PASTE_BLOCKED.toLowerCase()}`, "info");
+      return;
+    }
+    const plan = planPaste(parseTable(info.source), info.pins, active, data, insert);
+    if ("error" in plan) {
+      void this.bridge.flash(`Table Plus: cannot paste here: ${plan.error}`, "error");
+      return;
+    }
+    const closed = this.closeEditor();
+    let skipped = 0;
+    const { newRows, newColumns } = plan;
+    const result = await this.write(
+      closed.widget,
+      (t) => {
+        const edited = this.withSaved(t, closed);
+        if (!edited) return void 0;
+        const pasted = pasteCells(edited, plan, data);
+        skipped = pasted.skipped;
+        return pasted.table;
+      },
+      void 0,
+      newColumns.count ? (c) => c >= newColumns.at ? c + newColumns.count : c : void 0,
+      plan.pins,
+      newRows.count ? (r) => r >= newRows.at ? r + newRows.count : r : void 0
+    );
+    if (result !== "written") return;
+    const width = Math.max(...data.map((r) => r.length));
+    const added = [
+      ...newRows.count && !insert ? [`added ${plural(newRows.count, "row")}`] : [],
+      ...newColumns.count ? [`added ${plural(newColumns.count, "column")}`] : [],
+      ...skipped ? [`kept ${plural(skipped, "formula cell")}`] : []
+    ];
+    const what = insert ? `${plural(data.length, "new row")}` : `${data.length} \xD7 ${width} cells`;
+    void this.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
+    this.focusEditor(closed.widget);
   }
   /** Tab while a function name is typed in a formula: completes it with its "(" */
   completeFunctionName() {

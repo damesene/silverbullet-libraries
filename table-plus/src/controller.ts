@@ -57,6 +57,7 @@ import {
   unescapeCell,
 } from "./markdown.ts";
 import { focusMenu, type MenuEntry, renderMenu } from "./menu.ts";
+import { parseClipboardCells, pasteCells, planPaste } from "./paste.ts";
 import { followMetaSort, metaPins, metaSort, withMetaPins, withMetaSort } from "./meta.ts";
 import {
   appendColumnAt,
@@ -232,6 +233,7 @@ const FILTER_HINT =
 
 const NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 const MOVE_BLOCKED = "Clear sorting and filters to move rows";
+const PASTE_BLOCKED = "Clear sorting and filters to paste cells: the rows shown are not where they would go";
 const PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 
 /**
@@ -297,6 +299,8 @@ export class Controller {
   // The reference last inserted by pointing at the table, and the cell its range started at
   private pointed: (PointedSpan & { readonly field: HTMLInputElement; readonly anchor?: CellRef }) | undefined;
   private stopPointing: (() => void) | undefined;
+  // The paste on its way was asked for with Ctrl+Shift+V: as new rows
+  private pasteInserts = false;
 
   constructor(
     private readonly doc: Document,
@@ -1486,6 +1490,17 @@ export class Controller {
     // Typing makes the reference just pointed at part of the formula: pointing no longer replaces it
     field.addEventListener("keydown", (e) => {
       if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) this.pointed = undefined;
+      // Ctrl+Shift+V pastes cells as new rows; the paste event does not tell Shift
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.pasteInserts = e.shiftKey;
+    });
+    // Cells copied from a spreadsheet go into the table; a single value into the field
+    field.addEventListener("paste", (e) => {
+      const insert = this.pasteInserts;
+      this.pasteInserts = false;
+      const data = parseClipboardCells(e.clipboardData?.getData("text/plain") ?? "");
+      if (!data || this.editor?.field !== field) return;
+      e.preventDefault();
+      void this.pasteIntoTable(data, insert);
     });
     field.addEventListener("blur", () => {
       // Focus went elsewhere on purpose: save, but leave the focus there
@@ -1952,6 +1967,54 @@ export class Controller {
     win.addEventListener("blur", end);
     this.stopPointing = end;
     return true;
+  }
+
+  /**
+   * Pastes cells copied from a spreadsheet from the edited cell, as one edit:
+   * over the cells there (insert false), or as new rows at the cell's row
+   * (Ctrl+Shift+V). Cells with formulas keep them. Not while the table is
+   * sorted or filtered: the rows shown are not where the cells would go.
+   */
+  private async pasteIntoTable(data: string[][], insert: boolean): Promise<void> {
+    const active = this.editor;
+    const info = active && this.infos.get(active.widget);
+    if (!active || !info) return;
+    if (this.rearranged(info)) {
+      void this.bridge.flash(`Table Plus: ${PASTE_BLOCKED.toLowerCase()}`, "info");
+      return;
+    }
+    const plan = planPaste(parseTable(info.source), info.pins, active, data, insert);
+    if ("error" in plan) {
+      void this.bridge.flash(`Table Plus: cannot paste here: ${plan.error}`, "error");
+      return;
+    }
+    const closed = this.closeEditor()!;
+    let skipped = 0;
+    const { newRows, newColumns } = plan;
+    const result = await this.write(
+      closed.widget,
+      (t) => {
+        const edited = this.withSaved(t, closed);
+        if (!edited) return undefined;
+        const pasted = pasteCells(edited, plan, data);
+        skipped = pasted.skipped;
+        return pasted.table;
+      },
+      undefined,
+      newColumns.count ? (c) => (c >= newColumns.at ? c + newColumns.count : c) : undefined,
+      plan.pins,
+      newRows.count ? (r) => (r >= newRows.at ? r + newRows.count : r) : undefined,
+    );
+    if (result !== "written") return;
+    const width = Math.max(...data.map((r) => r.length));
+    const added = [
+      ...(newRows.count && !insert ? [`added ${plural(newRows.count, "row")}`] : []),
+      ...(newColumns.count ? [`added ${plural(newColumns.count, "column")}`] : []),
+      ...(skipped ? [`kept ${plural(skipped, "formula cell")}`] : []),
+    ];
+    const what = insert ? `${plural(data.length, "new row")}` : `${data.length} × ${width} cells`;
+    void this.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
+    this.focusEditor(closed.widget);
   }
 
   /** Tab while a function name is typed in a formula: completes it with its "(" */

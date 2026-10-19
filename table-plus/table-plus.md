@@ -17,6 +17,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Sort**: click ⇅ in a column header. See [[#Sorting]].
 * **Filter**: hover the table and click *Filter*; `>10`, `/regex/`, `=text` and `!text` work too. See [[#Filtering]].
 * **Add, move or delete rows and columns**: click the ⠿ grip next to a row or above a column. See [[#Rows and columns]].
+* **Paste from a spreadsheet**: copy cells in Excel or Google Sheets, click a cell, Ctrl+V; Ctrl+Shift+V adds them as new rows. See [[#Pasting from a spreadsheet]].
 * **Formulas**: type `=SUM(B1:B3)` or `=SUM([qty])` into a cell; the result is written into the markdown. See [[#Formulas]].
 * **Pin rows and columns** to the edges, where they stay in view (needs *Store table metadata*). See [[#Pinning]].
 * **Change how Enter or filters work**: *Configuration: Open*, category *Table Plus*. See [[#Settings]].
@@ -52,6 +53,18 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * With the `moveDown` setting, Enter (and Shift+Enter) also moves to the cell below. See [[#Settings]].
 * Browsers use Ctrl+PageUp / PageDown to switch tabs and do not pass them to the page. They work where SilverBullet runs without tabs (installed as an app).
 * While Ctrl is held, the pointer shows a move cursor. Without Ctrl, arrows, Home and End move within the cell's text as usual.
+
+## Pasting from a spreadsheet
+
+Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table and paste:
+
+* **Ctrl+V** pastes them from that cell to the right and down, over the cells there. Where the table ends, rows and columns are added (before the rows and columns pinned to the bottom and right).
+* **Ctrl+Shift+V** overwrites nothing: the pasted rows are added as new rows at the cell's row (under the header when pasted there). Columns are added where the rows are wider than the table.
+* Cells with a formula keep it; the values pasted onto them are left out (the message says how many). New rows get the formulas of calculated columns, see [[#Formulas]].
+* Pasted onto the header, the first row names the columns; an empty value keeps the old name.
+* Spreadsheets copy values as they show them (`1 234,50 Kč`), not their formulas. A line break inside a cell becomes a space, as a markdown table cell has one line.
+* A single value (no tab, no line break) is pasted into the cell's editor as usual.
+* The paste is one edit: one Ctrl+Z undoes it. It is not possible while the table is sorted or filtered, as the rows shown are not where the cells would go.
 
 ## Showing the markdown
 
