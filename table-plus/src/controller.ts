@@ -28,7 +28,23 @@ import {
   unescapeCell,
 } from "./markdown.ts";
 import { focusMenu, type MenuEntry, renderMenu } from "./menu.ts";
-import { followMetaSort, metaSort, withMetaSort } from "./meta.ts";
+import { followMetaSort, metaPins, metaSort, withMetaPins, withMetaSort } from "./meta.ts";
+import {
+  appendColumnAt,
+  appendRowAt,
+  clampColumnMove,
+  clampRowMove,
+  type ColumnZone,
+  columnZone,
+  deleteColumnPins,
+  deleteRowPins,
+  insertColumnAt,
+  insertRowAt,
+  pinColumn,
+  pinRow,
+  type RowZone,
+  rowZone,
+} from "./pins.ts";
 import {
   columnAfterMove,
   deleteColumn,
@@ -47,6 +63,9 @@ import {
   DEFAULT_FILTER_OPTIONS,
   DEFAULT_VIEW,
   type FilterOptions,
+  NO_PINS,
+  type Pins,
+  withPins,
   isRearranged,
   parseFilter,
   remapColumns,
@@ -67,6 +86,10 @@ type WidgetInfo = {
   readonly columns: number;
   // The table ends with a metadata row (`<meta …>`), rendered as its last row
   readonly metaRow: boolean;
+  // Rows in the markdown, the header included
+  readonly rows: number;
+  // Pinned rows and columns, as stored in the metadata row
+  readonly pins: Pins;
 };
 
 type ActiveEditor = {
@@ -155,6 +178,7 @@ const FILTER_HINT =
 
 const NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 const MOVE_BLOCKED = "Clear sorting and filters to move rows";
+const PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting";
 
 export class Controller {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
@@ -163,6 +187,8 @@ export class Controller {
   private filterOptions: FilterOptions = DEFAULT_FILTER_OPTIONS;
   // The maximum table height setting, in pixels; 0: no limit
   private maxHeight = 0;
+  // The metadata setting, for menus that offer pinning
+  private metadataOn = false;
   // Sideways scroll of each wide table, carried over to its next rendering
   private readonly scrollLefts = new Map<string, number>();
   // The same for tables taller than the maximum height setting, scrolled inside
@@ -274,6 +300,7 @@ export class Controller {
   private async refreshSettings(): Promise<void> {
     const smart = (await this.setting("smartFilters")) === true;
     const maxHeight = await this.setting("maxHeight");
+    this.metadataOn = await this.setting("metadata");
     if (this.stopped || (smart === this.filterOptions.smart && maxHeight === this.maxHeight)) return;
     this.filterOptions = { smart };
     this.maxHeight = maxHeight;
@@ -352,6 +379,8 @@ export class Controller {
         key: `${page}#${range.ordinal}`,
         columns: shape.columns,
         metaRow: model.meta !== undefined,
+        rows: model.rows.length,
+        pins: metaPins(model),
       };
       // The sorting stored in the table is the view the first time the table shows
       const stored = metaSort(model);
@@ -428,10 +457,24 @@ export class Controller {
     const rows = Array.from(info.table.rows);
     const metaRow = info.metaRow ? rows.pop() : undefined;
     metaRow?.classList.add("tp-meta-row");
+    // Pinned rows and columns carry the pin icon of their menu item
+    const mark = (icon: string, title: string) => {
+      const span = this.doc.createElement("span");
+      span.className = `${UI_CLASS} tp-pin-mark`;
+      span.title = title;
+      span.innerHTML = icon;
+      return span;
+    };
+    const { top, bottom, left, right } = info.pins;
     rows.slice(1).forEach((tr, i) => {
-      tr.dataset.tpRow = String(i + 1);
+      const row = i + 1;
+      tr.dataset.tpRow = String(row);
+      if (row <= top) tr.cells[0]?.append(mark(ICONS.pinTop, "Pinned to the top"));
+      else if (row > rows.length - 1 - bottom) tr.cells[0]?.append(mark(ICONS.pinBottom, "Pinned to the bottom"));
     });
     Array.from(rows[0]!.cells).forEach((cell, column) => {
+      if (column < left) cell.append(mark(ICONS.pinLeft, "Pinned to the left"));
+      else if (column >= info.columns - right) cell.append(mark(ICONS.pinRight, "Pinned to the right"));
       const button = this.doc.createElement("button");
       button.type = "button";
       button.tabIndex = -1;
@@ -496,20 +539,35 @@ export class Controller {
 
   private applyView(widget: HTMLElement, info: WidgetInfo): void {
     const view = this.viewOf(info);
+    const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
     const values = rows.map((tr) => Array.from(tr.cells).map(cellText));
-    const order = visibleRows(values, view, this.filterOptions);
+    const order = visibleRows(values, withPins(view, info.pins), this.filterOptions);
     const shown = new Set(order);
-    const parent = rows[0]?.parentElement;
-    if (parent) {
-      for (const i of order) parent.append(rows[i]!);
-      rows.forEach((tr, i) => {
-        tr.classList.toggle("tp-hidden", !shown.has(i));
-        if (!shown.has(i)) parent.append(tr);
-      });
-      // The (hidden) metadata row stays last, as in the markdown
-      const metaRow = info.table.querySelector("tr.tp-meta-row");
-      if (metaRow) parent.append(metaRow);
+    const body = info.table.tBodies[0] ?? info.table;
+    // Rows pinned to the top go with the header, rows pinned to the bottom into
+    // the footer: both stay in view (updateStickyHeaders)
+    const head = info.table.tHead;
+    rows.slice(0, top).forEach((tr) => {
+      tr.classList.remove("tp-hidden");
+      head?.append(tr);
+    });
+    for (const i of order) body.append(rows[i]!);
+    rows.forEach((tr, i) => {
+      if (i < top || i >= rows.length - bottom) return;
+      tr.classList.toggle("tp-hidden", !shown.has(i));
+      if (!shown.has(i)) body.append(tr);
+    });
+    // The (hidden) metadata row stays last, as in the markdown
+    const metaRow = info.table.querySelector("tr.tp-meta-row");
+    if (metaRow) body.append(metaRow);
+    const pinnedBottom = rows.slice(rows.length - bottom);
+    if (bottom > 0) {
+      const foot = info.table.tFoot ?? info.table.createTFoot();
+      for (const tr of pinnedBottom) {
+        tr.classList.remove("tp-hidden");
+        foot.append(tr);
+      }
     }
 
     const header = info.table.rows[0]!;
@@ -527,10 +585,47 @@ export class Controller {
     });
 
     this.applyFilterRow(widget, info, view);
+    this.pinColumns(info);
     widget.classList.toggle("tp-rearranged", isRearranged(view, this.filterOptions));
     // A taller table scrolls inside its own box (the table box already has overflow: auto)
     widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
     if (this.hoverWidget === widget) this.showTableControls(widget, info);
+  }
+
+  /**
+   * Columns pinned to the left (right) stay at that edge while the table
+   * scrolls sideways: CSS sticky, offset by the widths of the pinned columns
+   * further out.
+   */
+  private pinColumns(info: WidgetInfo): void {
+    for (const cell of Array.from(info.table.querySelectorAll<HTMLElement>(".tp-pin-left, .tp-pin-right"))) {
+      cell.classList.remove("tp-pin-left", "tp-pin-right", "tp-pin-edge");
+      cell.style.left = "";
+      cell.style.right = "";
+    }
+    const { left, right } = info.pins;
+    if (left + right === 0) return;
+    const header = info.table.rows[0]!;
+    const rows = Array.from(info.table.rows).filter((tr) => !tr.classList.contains("tp-meta-row"));
+    const pin = (column: number, side: "left" | "right", offset: number, edge: boolean) => {
+      for (const tr of rows) {
+        const cell = tr.cells[column];
+        if (!cell) continue;
+        cell.classList.add(side === "left" ? "tp-pin-left" : "tp-pin-right");
+        cell.classList.toggle("tp-pin-edge", edge);
+        cell.style[side] = `${offset}px`;
+      }
+    };
+    let offset = 0;
+    for (let c = 0; c < left; c++) {
+      pin(c, "left", offset, c === left - 1);
+      offset += header.cells[c]?.getBoundingClientRect().width ?? 0;
+    }
+    offset = 0;
+    for (let c = info.columns - 1; c >= info.columns - right; c--) {
+      pin(c, "right", offset, c === info.columns - right);
+      offset += header.cells[c]?.getBoundingClientRect().width ?? 0;
+    }
   }
 
   private applyFilterRow(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
@@ -594,7 +689,8 @@ export class Controller {
     if (!(target instanceof Element)) return undefined;
     const cell = target.closest<HTMLTableCellElement>("td, th");
     if (!cell || cell.closest("table") !== info.table) return undefined;
-    return cell.parentElement?.classList.contains("tp-filter-row") ? undefined : cell;
+    const row = cell.parentElement?.classList;
+    return row?.contains("tp-filter-row") || row?.contains("tp-meta-row") ? undefined : cell;
   }
 
   private onMouseDown = (e: MouseEvent): void => {
@@ -823,7 +919,7 @@ export class Controller {
   private isShown(widget: HTMLElement, info: WidgetInfo, element: Element): boolean {
     const rect = element.getBoundingClientRect();
     const view = this.scrollParentOf(widget)?.getBoundingClientRect();
-    const box = widget.getBoundingClientRect();
+    const box = this.innerBox(widget);
     const head = info.table.tHead;
     // A body cell under the header held at the top is out of view
     const top = Math.max(
@@ -866,12 +962,40 @@ export class Controller {
       // Held below the page top (with room for the toolbar), or, in a table
       // scrolled inside its own box, at the top of that box
       const pageTop = (this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0) + STICKY_GAP;
-      const boxTop = this.scrollsInside(widget) ? widget.getBoundingClientRect().top : -Infinity;
+      const boxTop = this.scrollsInside(widget) ? this.innerBox(widget).top : -Infinity;
       const table = info.table.getBoundingClientRect();
-      const offset = Math.max(0, Math.min(Math.max(pageTop, boxTop) - table.top, table.height - head.offsetHeight));
+      // Rows pinned to the bottom first: held at the bottom of the view (the
+      // page, or the table's box), never above the header's own place
+      const foot = info.table.tFoot;
+      const footHeight = foot?.offsetHeight ?? 0;
+      let footTop = table.bottom - footHeight;
+      if (foot && footHeight > 0) {
+        const pageBottom = this.scrollParentOf(widget)?.getBoundingClientRect().bottom ?? this.doc.defaultView!.innerHeight;
+        const boxBottom = this.scrollsInside(widget) ? this.innerBox(widget).bottom : Infinity;
+        const lift = Math.min(
+          0,
+          Math.max(Math.min(pageBottom, boxBottom) - table.bottom, -(table.height - head.offsetHeight - footHeight)),
+        );
+        foot.style.transform = lift < 0 ? `translateY(${lift}px)` : "";
+        foot.classList.toggle("tp-stuck", lift < 0);
+        footTop += lift;
+      }
+      // The header (with the rows pinned to the top): never past the bottom rows
+      const offset = Math.max(0, Math.min(Math.max(pageTop, boxTop), footTop - head.offsetHeight) - table.top);
       head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
       head.classList.toggle("tp-stuck", offset > 0);
     }
+  }
+
+  /** Where the table's box shows its content: without its border and scrollbars */
+  private innerBox(widget: HTMLElement): { left: number; right: number; top: number; bottom: number } {
+    const rect = widget.getBoundingClientRect();
+    const left = rect.left + widget.clientLeft;
+    const top = rect.top + widget.clientTop;
+    // Before layout (and in tests) clientWidth is 0: the whole box then
+    const width = widget.clientWidth || rect.width;
+    const height = widget.clientHeight || rect.height;
+    return { left, right: left + width, top, bottom: top + height };
   }
 
   /** Whether a table is taller than its box (the maximum height setting) and scrolls inside it */
@@ -1222,15 +1346,14 @@ export class Controller {
       if (this.editor === active) await this.enter(false);
       return;
     }
+    const info = this.infos.get(active.widget);
     const closed = this.closeEditor()!;
-    await this.write(
-      closed.widget,
-      (t) => {
-        const edited = closed.value !== closed.original ? this.withCellEdit(t, closed) : t;
-        return edited && insertRow(edited, closed.row + 1);
-      },
-      { row: closed.row + 1, column: closed.column },
-    );
+    if (info) await this.insertRowWith(closed.widget, info, closed.row + 1, closed.column, (t) => this.withSaved(t, closed));
+  }
+
+  /** The table with the closed editor's value saved, if it changed */
+  private withSaved(table: Table, closed: ActiveEditor & { value: string }): Table | undefined {
+    return closed.value !== closed.original ? this.withCellEdit(table, closed) : table;
   }
 
   private async enter(up: boolean): Promise<void> {
@@ -1270,33 +1393,33 @@ export class Controller {
     const vertical = key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown";
     const step = key === "ArrowUp" || key === "ArrowLeft" ? -1 : 1;
     const from = vertical ? active.row : active.column;
-    const lastRow = parseTable(info.source).rows.length - 1;
-    const to =
+    const asked =
       key === "Home"
         ? 0
         : key === "End"
           ? info.columns - 1
           : key === "PageUp"
-            ? Math.max(1, from - PAGE_ROWS)
+            ? from - PAGE_ROWS
             : key === "PageDown"
-              ? Math.min(lastRow, from + PAGE_ROWS)
+              ? from + PAGE_ROWS
               : from + step;
-    if (to === from) return;
     if (vertical) {
       if (from === 0) return;
       if (this.rearranged(info)) {
         void this.bridge.flash(`Table Plus: ${MOVE_BLOCKED.toLowerCase()}`, "info");
         return;
       }
-      if (to < 1 || to >= parseTable(info.source).rows.length) return;
-    } else if (to < 0 || to >= info.columns) {
-      return;
     }
+    // Pinned rows and columns stay within their zone, the others outside them
+    const to = vertical
+      ? clampRowMove(info.pins, info.rows, from, asked)
+      : clampColumnMove(info.pins, info.columns, from, asked);
+    if (to === from) return;
     const closed = this.closeEditor()!;
     await this.write(
       closed.widget,
       (t) => {
-        const edited = closed.value !== closed.original ? this.withCellEdit(t, closed) : t;
+        const edited = this.withSaved(t, closed);
         if (!edited) return undefined;
         return vertical ? moveRow(edited, from, to) : moveColumn(edited, from, to);
       },
@@ -1357,17 +1480,9 @@ export class Controller {
       if (ref) await this.finishEditing(true, { widget: active.widget, ...ref });
       return;
     }
-    // Tab on the last cell adds a row
+    // Tab on the last cell adds a row (above the rows pinned to the bottom)
     const closed = this.closeEditor()!;
-    const rowsBefore = parseTable(info.source).rows.length;
-    await this.write(
-      closed.widget,
-      (t) => {
-        const edited = closed.value !== closed.original ? this.withCellEdit(t, closed) : t;
-        return edited && insertRow(edited, edited.rows.length);
-      },
-      { row: rowsBefore, column: 0 },
-    );
+    await this.insertRowWith(closed.widget, info, appendRowAt(info.pins, info.rows), 0, (t) => this.withSaved(t, closed));
   }
 
   private takePendingFocus(widget: HTMLElement, info: WidgetInfo): void {
@@ -1385,7 +1500,7 @@ export class Controller {
    * up or down, keeping a body cell clear of the header held at the top
    */
   private reveal(widget: HTMLElement, cell: HTMLElement): void {
-    const box = widget.getBoundingClientRect();
+    const box = this.innerBox(widget);
     let rect = cell.getBoundingClientRect();
     if (rect.right > box.right) widget.scrollLeft += rect.right - box.right;
     else if (rect.left < box.left) widget.scrollLeft -= box.left - rect.left;
@@ -1422,6 +1537,8 @@ export class Controller {
     change: (table: Table) => Table | undefined,
     focus?: FocusTarget,
     columnMap?: (column: number) => number | undefined,
+    // The pins after the edit, for edits that change them
+    pins?: Pins,
   ): Promise<WriteResult> {
     const info = this.infos.get(widget);
     if (!info) return "failed";
@@ -1435,7 +1552,8 @@ export class Controller {
         return "failed";
       }
       // A stored sorting stays on its column: renamed, moved, or gone with it
-      const changed = followMetaSort(before, edited, columnMap ?? ((c) => c));
+      const followed = followMetaSort(before, edited, columnMap ?? ((c) => c));
+      const changed = pins ? withMetaPins(followed, pins) : followed;
       // With the autoFormat setting every edited table is written aligned
       const format = await this.setting("autoFormat");
       const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
@@ -1477,11 +1595,7 @@ export class Controller {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (!widget || !info) return;
-    const rows = parseTable(info.source).rows.length;
-    void this.write(widget, (t) => insertRow(t, t.rows.length), {
-      row: rows,
-      column: this.firstVisibleColumn(widget, info),
-    });
+    void this.insertRowWith(widget, info, appendRowAt(info.pins, info.rows), this.firstVisibleColumn(widget, info));
   }
 
   /** The leftmost column in view, so editing a new row does not scroll a wide table back */
@@ -1496,7 +1610,101 @@ export class Controller {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (!widget || !info) return;
-    void this.write(widget, (t) => insertColumn(t, t.align.length), { row: 0, column: info.columns, select: true });
+    void this.insertColumnWith(widget, info, appendColumnAt(info.pins, info.columns));
+  }
+
+  // ---- structural edits: pinned rows and columns keep the edges -------------
+
+  /** Adds a row asked for at `at` (see insertRowAt) and edits it in `column` */
+  private insertRowWith(
+    widget: HTMLElement,
+    info: WidgetInfo,
+    at: number,
+    column: number,
+    prepare: (t: Table) => Table | undefined = (t) => t,
+  ): Promise<WriteResult> {
+    const insert = insertRowAt(info.pins, info.rows, at);
+    return this.write(
+      widget,
+      (t) => {
+        const prepared = prepare(t);
+        return prepared && insertRow(prepared, insert.at);
+      },
+      { row: insert.at, column },
+      undefined,
+      insert.pins,
+    );
+  }
+
+  private duplicateRowAt(widget: HTMLElement, info: WidgetInfo, row: number): Promise<WriteResult> {
+    // The copy goes below the row, or above it when the row is the last one pinned to the bottom
+    const insert = insertRowAt(info.pins, info.rows, row + 1);
+    return this.write(
+      widget,
+      (t) => {
+        const cells = t.rows[row]?.cells;
+        return cells ? insertRow(t, insert.at, cells) : undefined;
+      },
+      undefined,
+      undefined,
+      insert.pins,
+    );
+  }
+
+  private deleteRowAt(widget: HTMLElement, info: WidgetInfo, row: number): Promise<WriteResult> {
+    return this.write(widget, (t) => deleteRow(t, row), undefined, undefined, deleteRowPins(info.pins, info.rows, row));
+  }
+
+  /** Moves a row, within its zone when pinned, outside the zones when not */
+  private moveRowTo(widget: HTMLElement, info: WidgetInfo, from: number, asked: number): Promise<WriteResult> {
+    const to = clampRowMove(info.pins, info.rows, from, asked);
+    if (to === from) return Promise.resolve("unchanged");
+    return this.write(widget, (t) => moveRow(t, from, to));
+  }
+
+  private insertColumnWith(widget: HTMLElement, info: WidgetInfo, at: number): Promise<WriteResult> {
+    const insert = insertColumnAt(info.pins, info.columns, at);
+    return this.write(
+      widget,
+      (t) => insertColumn(t, insert.at),
+      { row: 0, column: insert.at, select: true },
+      (c) => (c >= insert.at ? c + 1 : c),
+      insert.pins,
+    );
+  }
+
+  private deleteColumnAt(widget: HTMLElement, info: WidgetInfo, column: number): Promise<WriteResult> {
+    return this.write(
+      widget,
+      (t) => deleteColumn(t, column),
+      undefined,
+      (c) => (c === column ? undefined : c > column ? c - 1 : c),
+      deleteColumnPins(info.pins, info.columns, column),
+    );
+  }
+
+  private moveColumnTo(widget: HTMLElement, info: WidgetInfo, from: number, asked: number): Promise<WriteResult> {
+    const to = clampColumnMove(info.pins, info.columns, from, asked);
+    if (to === from) return Promise.resolve("unchanged");
+    return this.write(widget, (t) => moveColumn(t, from, to), undefined, (c) => columnAfterMove(c, from, to));
+  }
+
+  /** Pins a row to the top or bottom (moving it there), or unpins it */
+  private async pinRowAt(widget: HTMLElement, info: WidgetInfo, row: number, pin: RowZone | undefined): Promise<void> {
+    if (!(await this.setting("metadata"))) return;
+    const { to, pins } = pinRow(info.pins, info.rows, row, pin);
+    await this.write(widget, (t) => moveRow(t, row, to), undefined, undefined, pins);
+  }
+
+  private async pinColumnAt(
+    widget: HTMLElement,
+    info: WidgetInfo,
+    column: number,
+    pin: ColumnZone | undefined,
+  ): Promise<void> {
+    if (!(await this.setting("metadata"))) return;
+    const { to, pins } = pinColumn(info.pins, info.columns, column, pin);
+    await this.write(widget, (t) => moveColumn(t, column, to), undefined, (c) => columnAfterMove(c, column, to), pins);
   }
 
   // ---- floating UI: toolbar, grips, add buttons --------------------------
@@ -1683,7 +1891,7 @@ export class Controller {
     widget: HTMLElement,
     info: WidgetInfo,
   ): { left: number; right: number; top: number; bottom: number } {
-    const box = widget.getBoundingClientRect();
+    const box = this.innerBox(widget);
     const table = info.table.getBoundingClientRect();
     return {
       left: Math.max(box.left, table.left),
@@ -1799,8 +2007,8 @@ export class Controller {
       this.hideHandles();
       const to = slot > from ? slot - 1 : slot;
       if (!commit || to === from) return;
-      if (axis === "row") void this.write(widget, (t) => moveRow(t, from, to));
-      else void this.write(widget, (t) => moveColumn(t, from, to), undefined, (c) => columnAfterMove(c, from, to));
+      if (axis === "row") void this.moveRowTo(widget, info, from, to);
+      else void this.moveColumnTo(widget, info, from, to);
     };
     return { move, finish };
   }
@@ -1867,36 +2075,75 @@ export class Controller {
 
   // `column`: the hovered column, where editing a new row starts
   private rowMenu(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
-    const rows = parseTable(info.source).rows.length;
     const rearranged = this.rearranged(info);
-    const edit = (change: (t: Table) => Table | undefined, focus?: FocusTarget) =>
-      this.runAndClose(() => void this.write(widget, change, focus));
+    const zone = rowZone(info.pins, info.rows, row);
+    const act = (run: () => unknown) => this.runAndClose(() => void run());
+    const moveBlocked = (to: number) =>
+      rearranged
+        ? MOVE_BLOCKED
+        : clampRowMove(info.pins, info.rows, row, to) === row
+          ? zone
+            ? "Pinned rows stay with the other pinned rows"
+            : "Already at the edge"
+          : undefined;
+    const pinBlocked = this.metadataOn ? undefined : PIN_NEEDS_METADATA;
+    // Nothing goes above the first row pinned to the top, nor below the last one pinned to the bottom
+    const insertBlocked = (at: number) =>
+      insertRowAt(info.pins, info.rows, at).at === at
+        ? undefined
+        : zone === "top"
+          ? "Rows pinned to the top stay at the top"
+          : "Rows pinned to the bottom stay at the bottom";
     return [
-      { kind: "item", label: "Insert row above", icon: ICONS.rowAbove, run: edit((t) => insertRow(t, row), { row, column }) },
+      {
+        kind: "item",
+        label: "Insert row above",
+        icon: ICONS.rowAbove,
+        run: act(() => this.insertRowWith(widget, info, row, column)),
+        disabled: insertBlocked(row),
+      },
       {
         kind: "item",
         label: "Insert row below",
         icon: ICONS.rowBelow,
-        run: edit((t) => insertRow(t, row + 1), { row: row + 1, column }),
+        run: act(() => this.insertRowWith(widget, info, row + 1, column)),
+        disabled: insertBlocked(row + 1),
       },
-      { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: edit((t) => duplicateRow(t, row)) },
+      { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: act(() => this.duplicateRowAt(widget, info, row)) },
       { kind: "separator" },
       {
         kind: "item",
         label: "Move up",
         icon: ICONS.arrowUp,
-        run: edit((t) => moveRow(t, row, row - 1)),
-        disabled: rearranged ? MOVE_BLOCKED : row <= 1 ? "Already the first row" : undefined,
+        run: act(() => this.moveRowTo(widget, info, row, row - 1)),
+        disabled: moveBlocked(row - 1),
       },
       {
         kind: "item",
         label: "Move down",
         icon: ICONS.arrowDown,
-        run: edit((t) => moveRow(t, row, row + 1)),
-        disabled: rearranged ? MOVE_BLOCKED : row >= rows - 1 ? "Already the last row" : undefined,
+        run: act(() => this.moveRowTo(widget, info, row, row + 1)),
+        disabled: moveBlocked(row + 1),
       },
       { kind: "separator" },
-      { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: edit((t) => deleteRow(t, row)) },
+      {
+        kind: "item",
+        label: "Pin to top",
+        icon: ICONS.pinTop,
+        checked: zone === "top",
+        run: act(() => this.pinRowAt(widget, info, row, zone === "top" ? undefined : "top")),
+        disabled: pinBlocked,
+      },
+      {
+        kind: "item",
+        label: "Pin to bottom",
+        icon: ICONS.pinBottom,
+        checked: zone === "bottom",
+        run: act(() => this.pinRowAt(widget, info, row, zone === "bottom" ? undefined : "bottom")),
+        disabled: pinBlocked,
+      },
+      { kind: "separator" },
+      { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => this.deleteRowAt(widget, info, row)) },
     ];
   }
 
@@ -1911,6 +2158,21 @@ export class Controller {
     ) => this.runAndClose(() => void this.write(widget, change, focus, columnMap));
     const sortBy = (next: ViewState) => this.runAndClose(() => this.setSort(widget, info, next));
     const alignTo = (target: Align) => edit((t) => setAlign(t, column, align === target ? "" : target));
+    const act = (run: () => unknown) => this.runAndClose(() => void run());
+    const zone = columnZone(info.pins, info.columns, column);
+    const columnMoveBlocked = (to: number) =>
+      clampColumnMove(info.pins, info.columns, column, to) === column
+        ? zone
+          ? "Pinned columns stay with the other pinned columns"
+          : "Already at the edge"
+        : undefined;
+    const pinBlocked = this.metadataOn ? undefined : PIN_NEEDS_METADATA;
+    const insertBlocked = (at: number) =>
+      insertColumnAt(info.pins, info.columns, at).at === at
+        ? undefined
+        : zone === "left"
+          ? "Columns pinned to the left stay at the left"
+          : "Columns pinned to the right stay at the right";
     const entries: MenuEntry[] = [
       {
         kind: "item",
@@ -1955,29 +2217,46 @@ export class Controller {
         kind: "item",
         label: "Insert column left",
         icon: ICONS.columnLeft,
-        run: edit((t) => insertColumn(t, column), { row: 0, column, select: true }, (c) => (c >= column ? c + 1 : c)),
+        run: act(() => this.insertColumnWith(widget, info, column)),
+        disabled: insertBlocked(column),
       },
       {
         kind: "item",
         label: "Insert column right",
         icon: ICONS.columnRight,
-        run: edit((t) => insertColumn(t, column + 1), { row: 0, column: column + 1, select: true }, (c) =>
-          c > column ? c + 1 : c,
-        ),
+        run: act(() => this.insertColumnWith(widget, info, column + 1)),
+        disabled: insertBlocked(column + 1),
       },
       {
         kind: "item",
         label: "Move left",
         icon: ICONS.arrowLeft,
-        run: edit((t) => moveColumn(t, column, column - 1), undefined, (c) => columnAfterMove(c, column, column - 1)),
-        disabled: column === 0 ? "Already the first column" : undefined,
+        run: act(() => this.moveColumnTo(widget, info, column, column - 1)),
+        disabled: columnMoveBlocked(column - 1),
       },
       {
         kind: "item",
         label: "Move right",
         icon: ICONS.arrowRight,
-        run: edit((t) => moveColumn(t, column, column + 1), undefined, (c) => columnAfterMove(c, column, column + 1)),
-        disabled: column >= info.columns - 1 ? "Already the last column" : undefined,
+        run: act(() => this.moveColumnTo(widget, info, column, column + 1)),
+        disabled: columnMoveBlocked(column + 1),
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Pin left",
+        icon: ICONS.pinLeft,
+        checked: zone === "left",
+        run: act(() => this.pinColumnAt(widget, info, column, zone === "left" ? undefined : "left")),
+        disabled: pinBlocked,
+      },
+      {
+        kind: "item",
+        label: "Pin right",
+        icon: ICONS.pinRight,
+        checked: zone === "right",
+        run: act(() => this.pinColumnAt(widget, info, column, zone === "right" ? undefined : "right")),
+        disabled: pinBlocked,
       },
       { kind: "separator" },
       {
@@ -1985,7 +2264,7 @@ export class Controller {
         label: "Delete column",
         icon: ICONS.trash,
         danger: true,
-        run: edit((t) => deleteColumn(t, column), undefined, (c) => (c === column ? undefined : c > column ? c - 1 : c)),
+        run: act(() => this.deleteColumnAt(widget, info, column)),
         disabled: info.columns <= 1 ? "A table needs at least one column" : undefined,
       },
     );

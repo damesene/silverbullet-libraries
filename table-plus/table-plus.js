@@ -100,6 +100,10 @@ function caretTextOffset(cell, x, y) {
 
 // table-plus/src/icons.ts
 var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
+var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
+var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
+var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
 var ICONS = {
   grip: svg(
     '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
@@ -122,7 +126,12 @@ var ICONS = {
   filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
   alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
   alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
-  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>')
+  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
+  // A pushpin with its needle pointing to the edge it pins to
+  pinTop: PIN_POINT_UP,
+  pinBottom: PIN_POINT_DOWN,
+  pinLeft: PIN_POINT_LEFT,
+  pinRight: PIN_POINT_RIGHT
 };
 
 // table-plus/src/markdown.ts
@@ -499,6 +508,141 @@ function focusMenu(menu) {
   menu.focus({ preventScroll: true });
 }
 
+// table-plus/src/view.ts
+var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
+var DEFAULT_VIEW = { filters: [], showFilters: false };
+function pinsOf(view) {
+  return view.pins ?? NO_PINS;
+}
+function hasPins(pins) {
+  return pins.top + pins.bottom + pins.left + pins.right > 0;
+}
+function withPins(view, pins) {
+  if (hasPins(pins)) return { ...view, pins };
+  const { pins: _pins, ...rest } = view;
+  return rest;
+}
+var DEFAULT_FILTER_OPTIONS = { smart: true };
+function isRearranged(view, options = DEFAULT_FILTER_OPTIONS) {
+  return !!view.sort || view.filters.some((f) => filterMatcher(f, options) !== void 0);
+}
+function cycleSort(view, column) {
+  if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
+  if (view.sort.direction === "asc") return { ...view, sort: { column, direction: "desc" } };
+  return withoutSort(view);
+}
+function withSort(view, column, direction) {
+  return { ...view, sort: { column, direction } };
+}
+function withoutSort(view) {
+  const { sort: _sort, ...rest } = view;
+  return rest;
+}
+function withFilter(view, column, value) {
+  const filters = [...view.filters];
+  while (filters.length <= column) filters.push("");
+  filters[column] = value;
+  return { ...view, filters };
+}
+function remapColumns(view, map) {
+  const filters = [];
+  view.filters.forEach((value, column) => {
+    const target = map(column);
+    if (target === void 0 || value === "") return;
+    while (filters.length <= target) filters.push("");
+    filters[target] = value;
+  });
+  const sortColumn = view.sort ? map(view.sort.column) : void 0;
+  const result = view.pins ? { filters, showFilters: view.showFilters, pins: view.pins } : { filters, showFilters: view.showFilters };
+  return view.sort && sortColumn !== void 0 ? { ...result, sort: { column: sortColumn, direction: view.sort.direction } } : result;
+}
+function normalizeForFilter(s) {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+var NUMBER_RE = /^[-+]?(\d{1,3}([  ]\d{3})+|\d+)([.,]\d+)?\s*%?$/;
+function asNumber(s) {
+  const t = s.trim();
+  if (!NUMBER_RE.test(t)) return void 0;
+  return Number(t.replace(/[  %]/g, "").replace(",", "."));
+}
+var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
+function compareValues(a, b) {
+  const na = asNumber(a);
+  const nb = asNumber(b);
+  if (na !== void 0 && nb !== void 0) return na - nb;
+  return collator.compare(a.trim(), b.trim());
+}
+var REGEX_RE = /^\/(.*)\/([cimsu]*)$/s;
+var COMPARISON_RE = /^(<=|>=|<|>)\s*(.*)$/s;
+function parseFilter(filter, options = DEFAULT_FILTER_OPTIONS) {
+  const text = filter.trim();
+  if (text === "") return {};
+  if (options.smart) {
+    if (text.startsWith("!")) {
+      const inner = parseFilter(text.slice(1), options);
+      const match = inner.match;
+      return match ? { match: (value) => !match(value) } : inner;
+    }
+    if (text.startsWith("=")) {
+      const whole = normalizeForFilter(text.slice(1).trim());
+      return whole === "" ? {} : { match: (value) => normalizeForFilter(value.trim()) === whole };
+    }
+    const regex = REGEX_RE.exec(text);
+    if (regex) return parseRegex(regex[1], regex[2]);
+    if (text.startsWith("/")) return {};
+    const comparison = COMPARISON_RE.exec(text);
+    if (comparison) {
+      const [, operator, rest] = comparison;
+      if (rest.trim() === "") return {};
+      const limit = asNumber(rest);
+      if (limit !== void 0) {
+        return {
+          match: (value) => {
+            const n = asNumber(value);
+            if (n === void 0) return false;
+            if (operator === ">") return n > limit;
+            if (operator === "<") return n < limit;
+            if (operator === ">=") return n >= limit;
+            return n <= limit;
+          }
+        };
+      }
+    }
+  }
+  const needle = normalizeForFilter(text);
+  return { match: (value) => normalizeForFilter(value).includes(needle) };
+}
+function parseRegex(pattern, flags) {
+  if (pattern === "") return {};
+  const caseSensitive = flags.includes("c");
+  const jsFlags = [...new Set(flags.replace(/[ci]/g, "") + (caseSensitive ? "" : "i"))].join("");
+  try {
+    const re = new RegExp(pattern, jsFlags);
+    return { match: (value) => re.test(value) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+function filterMatcher(filter, options = DEFAULT_FILTER_OPTIONS) {
+  return parseFilter(filter, options).match;
+}
+function visibleRows(values, view, options = DEFAULT_FILTER_OPTIONS) {
+  const { top, bottom } = pinsOf(view);
+  const matchers = view.filters.map((filter) => filterMatcher(filter, options));
+  const indexes = values.map((_, i) => i).filter((i) => i >= top && i < values.length - bottom).filter((i) => matchers.every((match, column) => !match || match(values[i][column] ?? "")));
+  const sort = view.sort;
+  if (!sort) return indexes;
+  const sign = sort.direction === "asc" ? 1 : -1;
+  return indexes.sort((a, b) => {
+    const va = values[a][sort.column] ?? "";
+    const vb = values[b][sort.column] ?? "";
+    const ea = va.trim() === "";
+    const eb = vb.trim() === "";
+    if (ea !== eb) return ea ? 1 : -1;
+    return sign * compareValues(va, vb) || a - b;
+  });
+}
+
 // table-plus/src/meta.ts
 function withMeta(table, name, value) {
   const current = table.meta ?? {};
@@ -530,11 +674,129 @@ function withMetaSort(table, sort) {
   const nth = names.slice(0, sort.column + 1).filter((n) => n === name).length;
   return withMeta(table, "sort", `${name}:${sort.direction}${same > 1 ? `:${nth}` : ""}`);
 }
+var PIN_ATTRIBUTES = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" };
+function metaPins(table) {
+  const count = (name) => {
+    const n = Number(table.meta?.[name]);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  };
+  const bodyRows = Math.max(0, table.rows.length - 1);
+  const columns = table.align.length;
+  const top = Math.min(count(PIN_ATTRIBUTES.top), bodyRows);
+  const left = Math.min(count(PIN_ATTRIBUTES.left), columns);
+  return {
+    top,
+    bottom: Math.min(count(PIN_ATTRIBUTES.bottom), bodyRows - top),
+    left,
+    right: Math.min(count(PIN_ATTRIBUTES.right), columns - left)
+  };
+}
+function withMetaPins(table, pins) {
+  let result = table;
+  for (const edge of ["top", "bottom", "left", "right"]) {
+    result = withMeta(result, PIN_ATTRIBUTES[edge], pins[edge] > 0 ? String(pins[edge]) : void 0);
+  }
+  return result;
+}
 function followMetaSort(before, after, map) {
   if (after.meta?.sort === void 0 || after.meta.sort !== before.meta?.sort) return after;
   const sort = metaSort(before);
   const column = sort && map(sort.column);
   return withMetaSort(after, sort && column !== void 0 ? { column, direction: sort.direction } : void 0);
+}
+
+// table-plus/src/pins.ts
+function rowZone(pins, rows, row) {
+  if (row >= 1 && row <= pins.top) return "top";
+  if (row >= rows - pins.bottom && row <= rows - 1) return "bottom";
+  return void 0;
+}
+function columnZone(pins, columns, column) {
+  if (column >= 0 && column < pins.left) return "left";
+  if (column >= columns - pins.right && column < columns) return "right";
+  return void 0;
+}
+function clampRowMove(pins, rows, from, to) {
+  const zone = rowZone(pins, rows, from);
+  const [min, max] = zone === "top" ? [1, pins.top] : zone === "bottom" ? [rows - pins.bottom, rows - 1] : [pins.top + 1, rows - 1 - pins.bottom];
+  return Math.max(min, Math.min(to, max));
+}
+function clampColumnMove(pins, columns, from, to) {
+  const zone = columnZone(pins, columns, from);
+  const [min, max] = zone === "left" ? [0, pins.left - 1] : zone === "right" ? [columns - pins.right, columns - 1] : [pins.left, columns - 1 - pins.right];
+  return Math.max(min, Math.min(to, max));
+}
+function insertRowAt(pins, rows, at) {
+  let index = Math.max(1, Math.min(at, rows));
+  if (pins.top > 0) index = Math.max(index, 2);
+  if (pins.bottom > 0) index = Math.min(index, rows - 1);
+  return {
+    at: index,
+    pins: {
+      ...pins,
+      top: pins.top + (index <= pins.top ? 1 : 0),
+      bottom: pins.bottom + (pins.bottom > 0 && index > rows - pins.bottom ? 1 : 0)
+    }
+  };
+}
+function appendRowAt(pins, rows) {
+  return rows - pins.bottom;
+}
+function deleteRowPins(pins, rows, row) {
+  const zone = rowZone(pins, rows, row);
+  return { ...pins, top: pins.top - (zone === "top" ? 1 : 0), bottom: pins.bottom - (zone === "bottom" ? 1 : 0) };
+}
+function insertColumnAt(pins, columns, at) {
+  let index = Math.max(0, Math.min(at, columns));
+  if (pins.left > 0) index = Math.max(index, 1);
+  if (pins.right > 0) index = Math.min(index, columns - 1);
+  return {
+    at: index,
+    pins: {
+      ...pins,
+      left: pins.left + (index < pins.left ? 1 : 0),
+      right: pins.right + (pins.right > 0 && index > columns - pins.right ? 1 : 0)
+    }
+  };
+}
+function appendColumnAt(pins, columns) {
+  return columns - pins.right;
+}
+function deleteColumnPins(pins, columns, column) {
+  const zone = columnZone(pins, columns, column);
+  return { ...pins, left: pins.left - (zone === "left" ? 1 : 0), right: pins.right - (zone === "right" ? 1 : 0) };
+}
+function pinRow(pins, rows, row, pin) {
+  const zone = rowZone(pins, rows, row);
+  if (zone === pin) return { to: row, pins };
+  let p = pins;
+  let to = row;
+  if (zone === "top") {
+    to = pins.top;
+    p = { ...p, top: p.top - 1 };
+  } else if (zone === "bottom") {
+    to = rows - pins.bottom;
+    p = { ...p, bottom: p.bottom - 1 };
+  }
+  if (pin === "top") return { to: p.top + 1, pins: { ...p, top: p.top + 1 } };
+  if (pin === "bottom") return { to: rows - 1 - p.bottom, pins: { ...p, bottom: p.bottom + 1 } };
+  return { to, pins: p };
+}
+function pinColumn(pins, columns, column, pin) {
+  const zone = columnZone(pins, columns, column);
+  if (zone === pin) return { to: column, pins };
+  let p = pins;
+  let to = column;
+  if (zone === "left") {
+    to = pins.left - 1;
+    p = { ...p, left: p.left - 1 };
+  } else if (zone === "right") {
+    to = columns - pins.right;
+    p = { ...p, right: p.right - 1 };
+  }
+  if (pin === "left") return { to: p.left, pins: { ...p, left: p.left + 1 } };
+  if (pin === "right") return { to: columns - 1 - p.right, pins: { ...p, right: p.right + 1 } };
+  return { to, pins: p };
 }
 
 // table-plus/src/ops.ts
@@ -569,9 +831,9 @@ function setCell(table, row, column, value) {
     })
   );
 }
-function insertRow(table, at) {
+function insertRow(table, at, cells) {
   const rows = [...table.rows];
-  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, emptyRow(table.align.length));
+  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, cells ? { cells: [...cells] } : emptyRow(table.align.length));
   return withRows(table, rows);
 }
 function deleteRow(table, row) {
@@ -580,13 +842,6 @@ function deleteRow(table, row) {
     table,
     table.rows.filter((_, i) => i !== row)
   );
-}
-function duplicateRow(table, row) {
-  const original = table.rows[row];
-  if (row < 1 || !original) return table;
-  const rows = [...table.rows];
-  rows.splice(row + 1, 0, { cells: [...original.cells] });
-  return withRows(table, rows);
 }
 function moveRow(table, from, to) {
   const last = table.rows.length - 1;
@@ -663,128 +918,6 @@ function columnAfterMove(c, from, to) {
   return c;
 }
 
-// table-plus/src/view.ts
-var DEFAULT_VIEW = { filters: [], showFilters: false };
-var DEFAULT_FILTER_OPTIONS = { smart: true };
-function isRearranged(view, options = DEFAULT_FILTER_OPTIONS) {
-  return !!view.sort || view.filters.some((f) => filterMatcher(f, options) !== void 0);
-}
-function cycleSort(view, column) {
-  if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
-  if (view.sort.direction === "asc") return { ...view, sort: { column, direction: "desc" } };
-  return withoutSort(view);
-}
-function withSort(view, column, direction) {
-  return { ...view, sort: { column, direction } };
-}
-function withoutSort(view) {
-  const { sort: _sort, ...rest } = view;
-  return rest;
-}
-function withFilter(view, column, value) {
-  const filters = [...view.filters];
-  while (filters.length <= column) filters.push("");
-  filters[column] = value;
-  return { ...view, filters };
-}
-function remapColumns(view, map) {
-  const filters = [];
-  view.filters.forEach((value, column) => {
-    const target = map(column);
-    if (target === void 0 || value === "") return;
-    while (filters.length <= target) filters.push("");
-    filters[target] = value;
-  });
-  const sortColumn = view.sort ? map(view.sort.column) : void 0;
-  const result = { filters, showFilters: view.showFilters };
-  return view.sort && sortColumn !== void 0 ? { ...result, sort: { column: sortColumn, direction: view.sort.direction } } : result;
-}
-function normalizeForFilter(s) {
-  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-}
-var NUMBER_RE = /^[-+]?(\d{1,3}([  ]\d{3})+|\d+)([.,]\d+)?\s*%?$/;
-function asNumber(s) {
-  const t = s.trim();
-  if (!NUMBER_RE.test(t)) return void 0;
-  return Number(t.replace(/[  %]/g, "").replace(",", "."));
-}
-var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
-function compareValues(a, b) {
-  const na = asNumber(a);
-  const nb = asNumber(b);
-  if (na !== void 0 && nb !== void 0) return na - nb;
-  return collator.compare(a.trim(), b.trim());
-}
-var REGEX_RE = /^\/(.*)\/([cimsu]*)$/s;
-var COMPARISON_RE = /^(<=|>=|<|>)\s*(.*)$/s;
-function parseFilter(filter, options = DEFAULT_FILTER_OPTIONS) {
-  const text = filter.trim();
-  if (text === "") return {};
-  if (options.smart) {
-    if (text.startsWith("!")) {
-      const inner = parseFilter(text.slice(1), options);
-      const match = inner.match;
-      return match ? { match: (value) => !match(value) } : inner;
-    }
-    if (text.startsWith("=")) {
-      const whole = normalizeForFilter(text.slice(1).trim());
-      return whole === "" ? {} : { match: (value) => normalizeForFilter(value.trim()) === whole };
-    }
-    const regex = REGEX_RE.exec(text);
-    if (regex) return parseRegex(regex[1], regex[2]);
-    if (text.startsWith("/")) return {};
-    const comparison = COMPARISON_RE.exec(text);
-    if (comparison) {
-      const [, operator, rest] = comparison;
-      if (rest.trim() === "") return {};
-      const limit = asNumber(rest);
-      if (limit !== void 0) {
-        return {
-          match: (value) => {
-            const n = asNumber(value);
-            if (n === void 0) return false;
-            if (operator === ">") return n > limit;
-            if (operator === "<") return n < limit;
-            if (operator === ">=") return n >= limit;
-            return n <= limit;
-          }
-        };
-      }
-    }
-  }
-  const needle = normalizeForFilter(text);
-  return { match: (value) => normalizeForFilter(value).includes(needle) };
-}
-function parseRegex(pattern, flags) {
-  if (pattern === "") return {};
-  const caseSensitive = flags.includes("c");
-  const jsFlags = [...new Set(flags.replace(/[ci]/g, "") + (caseSensitive ? "" : "i"))].join("");
-  try {
-    const re = new RegExp(pattern, jsFlags);
-    return { match: (value) => re.test(value) };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
-  }
-}
-function filterMatcher(filter, options = DEFAULT_FILTER_OPTIONS) {
-  return parseFilter(filter, options).match;
-}
-function visibleRows(values, view, options = DEFAULT_FILTER_OPTIONS) {
-  const matchers = view.filters.map((filter) => filterMatcher(filter, options));
-  const indexes = values.map((_, i) => i).filter((i) => matchers.every((match, column) => !match || match(values[i][column] ?? "")));
-  const sort = view.sort;
-  if (!sort) return indexes;
-  const sign = sort.direction === "asc" ? 1 : -1;
-  return indexes.sort((a, b) => {
-    const va = values[a][sort.column] ?? "";
-    const vb = values[b][sort.column] ?? "";
-    const ea = va.trim() === "";
-    const eb = vb.trim() === "";
-    if (ea !== eb) return ea ? 1 : -1;
-    return sign * compareValues(va, vb) || a - b;
-  });
-}
-
 // table-plus/src/controller.ts
 var STOPPED_EVENTS = [
   "keydown",
@@ -821,6 +954,7 @@ var PAGE_ROWS = 10;
 var FILTER_HINT = "Text to find. Also: >10 <10 >=10 <=10 (numbers), /pattern/ (regular expression; /pattern/c is case-sensitive), =text (whole cell), !filter (not)";
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
+var PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting";
 var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
@@ -844,6 +978,8 @@ var Controller = class {
   filterOptions = DEFAULT_FILTER_OPTIONS;
   // The maximum table height setting, in pixels; 0: no limit
   maxHeight = 0;
+  // The metadata setting, for menus that offer pinning
+  metadataOn = false;
   // Sideways scroll of each wide table, carried over to its next rendering
   scrollLefts = /* @__PURE__ */ new Map();
   // The same for tables taller than the maximum height setting, scrolled inside
@@ -931,6 +1067,7 @@ var Controller = class {
   async refreshSettings() {
     const smart = await this.setting("smartFilters") === true;
     const maxHeight = await this.setting("maxHeight");
+    this.metadataOn = await this.setting("metadata");
     if (this.stopped || smart === this.filterOptions.smart && maxHeight === this.maxHeight) return;
     this.filterOptions = { smart };
     this.maxHeight = maxHeight;
@@ -1001,7 +1138,9 @@ var Controller = class {
         hint: range.from,
         key: `${page}#${range.ordinal}`,
         columns: shape.columns,
-        metaRow: model.meta !== void 0
+        metaRow: model.meta !== void 0,
+        rows: model.rows.length,
+        pins: metaPins(model)
       };
       const stored = metaSort(model);
       if (stored && !this.views.has(info.key)) this.views.set(info.key, withSort(DEFAULT_VIEW, stored.column, stored.direction));
@@ -1070,10 +1209,23 @@ var Controller = class {
     const rows = Array.from(info.table.rows);
     const metaRow2 = info.metaRow ? rows.pop() : void 0;
     metaRow2?.classList.add("tp-meta-row");
+    const mark = (icon, title) => {
+      const span = this.doc.createElement("span");
+      span.className = `${UI_CLASS} tp-pin-mark`;
+      span.title = title;
+      span.innerHTML = icon;
+      return span;
+    };
+    const { top, bottom, left, right } = info.pins;
     rows.slice(1).forEach((tr, i) => {
-      tr.dataset.tpRow = String(i + 1);
+      const row = i + 1;
+      tr.dataset.tpRow = String(row);
+      if (row <= top) tr.cells[0]?.append(mark(ICONS.pinTop, "Pinned to the top"));
+      else if (row > rows.length - 1 - bottom) tr.cells[0]?.append(mark(ICONS.pinBottom, "Pinned to the bottom"));
     });
     Array.from(rows[0].cells).forEach((cell, column) => {
+      if (column < left) cell.append(mark(ICONS.pinLeft, "Pinned to the left"));
+      else if (column >= info.columns - right) cell.append(mark(ICONS.pinRight, "Pinned to the right"));
       const button = this.doc.createElement("button");
       button.type = "button";
       button.tabIndex = -1;
@@ -1129,19 +1281,32 @@ var Controller = class {
   }
   applyView(widget, info) {
     const view = this.viewOf(info);
+    const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
     const values = rows.map((tr) => Array.from(tr.cells).map(cellText));
-    const order = visibleRows(values, view, this.filterOptions);
+    const order = visibleRows(values, withPins(view, info.pins), this.filterOptions);
     const shown = new Set(order);
-    const parent = rows[0]?.parentElement;
-    if (parent) {
-      for (const i of order) parent.append(rows[i]);
-      rows.forEach((tr, i) => {
-        tr.classList.toggle("tp-hidden", !shown.has(i));
-        if (!shown.has(i)) parent.append(tr);
-      });
-      const metaRow2 = info.table.querySelector("tr.tp-meta-row");
-      if (metaRow2) parent.append(metaRow2);
+    const body = info.table.tBodies[0] ?? info.table;
+    const head = info.table.tHead;
+    rows.slice(0, top).forEach((tr) => {
+      tr.classList.remove("tp-hidden");
+      head?.append(tr);
+    });
+    for (const i of order) body.append(rows[i]);
+    rows.forEach((tr, i) => {
+      if (i < top || i >= rows.length - bottom) return;
+      tr.classList.toggle("tp-hidden", !shown.has(i));
+      if (!shown.has(i)) body.append(tr);
+    });
+    const metaRow2 = info.table.querySelector("tr.tp-meta-row");
+    if (metaRow2) body.append(metaRow2);
+    const pinnedBottom = rows.slice(rows.length - bottom);
+    if (bottom > 0) {
+      const foot = info.table.tFoot ?? info.table.createTFoot();
+      for (const tr of pinnedBottom) {
+        tr.classList.remove("tp-hidden");
+        foot.append(tr);
+      }
     }
     const header = info.table.rows[0];
     Array.from(header.cells).forEach((cell, column) => {
@@ -1156,9 +1321,45 @@ var Controller = class {
       else cell.removeAttribute("aria-sort");
     });
     this.applyFilterRow(widget, info, view);
+    this.pinColumns(info);
     widget.classList.toggle("tp-rearranged", isRearranged(view, this.filterOptions));
     widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
     if (this.hoverWidget === widget) this.showTableControls(widget, info);
+  }
+  /**
+   * Columns pinned to the left (right) stay at that edge while the table
+   * scrolls sideways: CSS sticky, offset by the widths of the pinned columns
+   * further out.
+   */
+  pinColumns(info) {
+    for (const cell of Array.from(info.table.querySelectorAll(".tp-pin-left, .tp-pin-right"))) {
+      cell.classList.remove("tp-pin-left", "tp-pin-right", "tp-pin-edge");
+      cell.style.left = "";
+      cell.style.right = "";
+    }
+    const { left, right } = info.pins;
+    if (left + right === 0) return;
+    const header = info.table.rows[0];
+    const rows = Array.from(info.table.rows).filter((tr) => !tr.classList.contains("tp-meta-row"));
+    const pin = (column, side, offset2, edge) => {
+      for (const tr of rows) {
+        const cell = tr.cells[column];
+        if (!cell) continue;
+        cell.classList.add(side === "left" ? "tp-pin-left" : "tp-pin-right");
+        cell.classList.toggle("tp-pin-edge", edge);
+        cell.style[side] = `${offset2}px`;
+      }
+    };
+    let offset = 0;
+    for (let c = 0; c < left; c++) {
+      pin(c, "left", offset, c === left - 1);
+      offset += header.cells[c]?.getBoundingClientRect().width ?? 0;
+    }
+    offset = 0;
+    for (let c = info.columns - 1; c >= info.columns - right; c--) {
+      pin(c, "right", offset, c === info.columns - right);
+      offset += header.cells[c]?.getBoundingClientRect().width ?? 0;
+    }
   }
   applyFilterRow(widget, info, view) {
     let row = info.table.querySelector("tr.tp-filter-row");
@@ -1216,7 +1417,8 @@ var Controller = class {
     if (!(target instanceof Element)) return void 0;
     const cell = target.closest("td, th");
     if (!cell || cell.closest("table") !== info.table) return void 0;
-    return cell.parentElement?.classList.contains("tp-filter-row") ? void 0 : cell;
+    const row = cell.parentElement?.classList;
+    return row?.contains("tp-filter-row") || row?.contains("tp-meta-row") ? void 0 : cell;
   }
   onMouseDown = (e) => {
     const target = e.target instanceof Node ? e.target : null;
@@ -1425,7 +1627,7 @@ var Controller = class {
   isShown(widget, info, element) {
     const rect = element.getBoundingClientRect();
     const view = this.scrollParentOf(widget)?.getBoundingClientRect();
-    const box = widget.getBoundingClientRect();
+    const box = this.innerBox(widget);
     const head = info.table.tHead;
     const top = Math.max(
       view?.top ?? 0,
@@ -1461,12 +1663,35 @@ var Controller = class {
       const head = info?.table.tHead;
       if (!info || !head || renderedTable(widget) !== info.table) continue;
       const pageTop = (this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0) + STICKY_GAP;
-      const boxTop = this.scrollsInside(widget) ? widget.getBoundingClientRect().top : -Infinity;
+      const boxTop = this.scrollsInside(widget) ? this.innerBox(widget).top : -Infinity;
       const table = info.table.getBoundingClientRect();
-      const offset = Math.max(0, Math.min(Math.max(pageTop, boxTop) - table.top, table.height - head.offsetHeight));
+      const foot = info.table.tFoot;
+      const footHeight = foot?.offsetHeight ?? 0;
+      let footTop = table.bottom - footHeight;
+      if (foot && footHeight > 0) {
+        const pageBottom = this.scrollParentOf(widget)?.getBoundingClientRect().bottom ?? this.doc.defaultView.innerHeight;
+        const boxBottom = this.scrollsInside(widget) ? this.innerBox(widget).bottom : Infinity;
+        const lift = Math.min(
+          0,
+          Math.max(Math.min(pageBottom, boxBottom) - table.bottom, -(table.height - head.offsetHeight - footHeight))
+        );
+        foot.style.transform = lift < 0 ? `translateY(${lift}px)` : "";
+        foot.classList.toggle("tp-stuck", lift < 0);
+        footTop += lift;
+      }
+      const offset = Math.max(0, Math.min(Math.max(pageTop, boxTop), footTop - head.offsetHeight) - table.top);
       head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
       head.classList.toggle("tp-stuck", offset > 0);
     }
+  }
+  /** Where the table's box shows its content: without its border and scrollbars */
+  innerBox(widget) {
+    const rect = widget.getBoundingClientRect();
+    const left = rect.left + widget.clientLeft;
+    const top = rect.top + widget.clientTop;
+    const width = widget.clientWidth || rect.width;
+    const height = widget.clientHeight || rect.height;
+    return { left, right: left + width, top, bottom: top + height };
   }
   /** Whether a table is taller than its box (the maximum height setting) and scrolls inside it */
   scrollsInside(widget) {
@@ -1762,15 +1987,13 @@ var Controller = class {
       if (this.editor === active) await this.enter(false);
       return;
     }
+    const info = this.infos.get(active.widget);
     const closed = this.closeEditor();
-    await this.write(
-      closed.widget,
-      (t) => {
-        const edited = closed.value !== closed.original ? this.withCellEdit(t, closed) : t;
-        return edited && insertRow(edited, closed.row + 1);
-      },
-      { row: closed.row + 1, column: closed.column }
-    );
+    if (info) await this.insertRowWith(closed.widget, info, closed.row + 1, closed.column, (t) => this.withSaved(t, closed));
+  }
+  /** The table with the closed editor's value saved, if it changed */
+  withSaved(table, closed) {
+    return closed.value !== closed.original ? this.withCellEdit(table, closed) : table;
   }
   async enter(up) {
     const active = this.editor;
@@ -1807,24 +2030,21 @@ var Controller = class {
     const vertical = key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown";
     const step = key === "ArrowUp" || key === "ArrowLeft" ? -1 : 1;
     const from = vertical ? active.row : active.column;
-    const lastRow = parseTable(info.source).rows.length - 1;
-    const to = key === "Home" ? 0 : key === "End" ? info.columns - 1 : key === "PageUp" ? Math.max(1, from - PAGE_ROWS) : key === "PageDown" ? Math.min(lastRow, from + PAGE_ROWS) : from + step;
-    if (to === from) return;
+    const asked = key === "Home" ? 0 : key === "End" ? info.columns - 1 : key === "PageUp" ? from - PAGE_ROWS : key === "PageDown" ? from + PAGE_ROWS : from + step;
     if (vertical) {
       if (from === 0) return;
       if (this.rearranged(info)) {
         void this.bridge.flash(`Table Plus: ${MOVE_BLOCKED.toLowerCase()}`, "info");
         return;
       }
-      if (to < 1 || to >= parseTable(info.source).rows.length) return;
-    } else if (to < 0 || to >= info.columns) {
-      return;
     }
+    const to = vertical ? clampRowMove(info.pins, info.rows, from, asked) : clampColumnMove(info.pins, info.columns, from, asked);
+    if (to === from) return;
     const closed = this.closeEditor();
     await this.write(
       closed.widget,
       (t) => {
-        const edited = closed.value !== closed.original ? this.withCellEdit(t, closed) : t;
+        const edited = this.withSaved(t, closed);
         if (!edited) return void 0;
         return vertical ? moveRow(edited, from, to) : moveColumn(edited, from, to);
       },
@@ -1883,15 +2103,7 @@ var Controller = class {
       return;
     }
     const closed = this.closeEditor();
-    const rowsBefore = parseTable(info.source).rows.length;
-    await this.write(
-      closed.widget,
-      (t) => {
-        const edited = closed.value !== closed.original ? this.withCellEdit(t, closed) : t;
-        return edited && insertRow(edited, edited.rows.length);
-      },
-      { row: rowsBefore, column: 0 }
-    );
+    await this.insertRowWith(closed.widget, info, appendRowAt(info.pins, info.rows), 0, (t) => this.withSaved(t, closed));
   }
   takePendingFocus(widget, info) {
     const pending = this.pendingFocus;
@@ -1907,7 +2119,7 @@ var Controller = class {
    * up or down, keeping a body cell clear of the header held at the top
    */
   reveal(widget, cell) {
-    const box = widget.getBoundingClientRect();
+    const box = this.innerBox(widget);
     let rect = cell.getBoundingClientRect();
     if (rect.right > box.right) widget.scrollLeft += rect.right - box.right;
     else if (rect.left < box.left) widget.scrollLeft -= box.left - rect.left;
@@ -1934,7 +2146,7 @@ var Controller = class {
    * Re-reads the table from the page, applies `change` and writes the result
    * back as one edit. `change` returns undefined to abort.
    */
-  async write(widget, change, focus, columnMap) {
+  async write(widget, change, focus, columnMap, pins) {
     const info = this.infos.get(widget);
     if (!info) return "failed";
     try {
@@ -1946,7 +2158,8 @@ var Controller = class {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
-      const changed = followMetaSort(before, edited, columnMap ?? ((c) => c));
+      const followed = followMetaSort(before, edited, columnMap ?? ((c) => c));
+      const changed = pins ? withMetaPins(followed, pins) : followed;
       const format = await this.setting("autoFormat");
       const markdown = serializeTable(format ? { ...changed, padded: true } : changed);
       if (markdown === range.text) return "unchanged";
@@ -1984,11 +2197,7 @@ var Controller = class {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (!widget || !info) return;
-    const rows = parseTable(info.source).rows.length;
-    void this.write(widget, (t) => insertRow(t, t.rows.length), {
-      row: rows,
-      column: this.firstVisibleColumn(widget, info)
-    });
+    void this.insertRowWith(widget, info, appendRowAt(info.pins, info.rows), this.firstVisibleColumn(widget, info));
   }
   /** The leftmost column in view, so editing a new row does not scroll a wide table back */
   firstVisibleColumn(widget, info) {
@@ -2001,7 +2210,79 @@ var Controller = class {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
     if (!widget || !info) return;
-    void this.write(widget, (t) => insertColumn(t, t.align.length), { row: 0, column: info.columns, select: true });
+    void this.insertColumnWith(widget, info, appendColumnAt(info.pins, info.columns));
+  }
+  // ---- structural edits: pinned rows and columns keep the edges -------------
+  /** Adds a row asked for at `at` (see insertRowAt) and edits it in `column` */
+  insertRowWith(widget, info, at, column, prepare = (t) => t) {
+    const insert = insertRowAt(info.pins, info.rows, at);
+    return this.write(
+      widget,
+      (t) => {
+        const prepared = prepare(t);
+        return prepared && insertRow(prepared, insert.at);
+      },
+      { row: insert.at, column },
+      void 0,
+      insert.pins
+    );
+  }
+  duplicateRowAt(widget, info, row) {
+    const insert = insertRowAt(info.pins, info.rows, row + 1);
+    return this.write(
+      widget,
+      (t) => {
+        const cells = t.rows[row]?.cells;
+        return cells ? insertRow(t, insert.at, cells) : void 0;
+      },
+      void 0,
+      void 0,
+      insert.pins
+    );
+  }
+  deleteRowAt(widget, info, row) {
+    return this.write(widget, (t) => deleteRow(t, row), void 0, void 0, deleteRowPins(info.pins, info.rows, row));
+  }
+  /** Moves a row, within its zone when pinned, outside the zones when not */
+  moveRowTo(widget, info, from, asked) {
+    const to = clampRowMove(info.pins, info.rows, from, asked);
+    if (to === from) return Promise.resolve("unchanged");
+    return this.write(widget, (t) => moveRow(t, from, to));
+  }
+  insertColumnWith(widget, info, at) {
+    const insert = insertColumnAt(info.pins, info.columns, at);
+    return this.write(
+      widget,
+      (t) => insertColumn(t, insert.at),
+      { row: 0, column: insert.at, select: true },
+      (c) => c >= insert.at ? c + 1 : c,
+      insert.pins
+    );
+  }
+  deleteColumnAt(widget, info, column) {
+    return this.write(
+      widget,
+      (t) => deleteColumn(t, column),
+      void 0,
+      (c) => c === column ? void 0 : c > column ? c - 1 : c,
+      deleteColumnPins(info.pins, info.columns, column)
+    );
+  }
+  moveColumnTo(widget, info, from, asked) {
+    const to = clampColumnMove(info.pins, info.columns, from, asked);
+    if (to === from) return Promise.resolve("unchanged");
+    return this.write(widget, (t) => moveColumn(t, from, to), void 0, (c) => columnAfterMove(c, from, to));
+  }
+  /** Pins a row to the top or bottom (moving it there), or unpins it */
+  async pinRowAt(widget, info, row, pin) {
+    if (!await this.setting("metadata")) return;
+    const { to, pins } = pinRow(info.pins, info.rows, row, pin);
+    await this.write(widget, (t) => moveRow(t, row, to), void 0, void 0, pins);
+  }
+  async pinColumnAt(widget, info, column, pin) {
+    if (!await this.setting("metadata")) return;
+    const { to, pins } = pinColumn(info.pins, info.columns, column, pin);
+    await this.write(widget, (t) => moveColumn(t, column, to), void 0, (c) => columnAfterMove(c, column, to), pins);
   }
   // ---- floating UI: toolbar, grips, add buttons --------------------------
   floating(tag, className) {
@@ -2157,7 +2438,7 @@ var Controller = class {
   }
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
   shownRect(widget, info) {
-    const box = widget.getBoundingClientRect();
+    const box = this.innerBox(widget);
     const table = info.table.getBoundingClientRect();
     return {
       left: Math.max(box.left, table.left),
@@ -2264,8 +2545,8 @@ var Controller = class {
       this.hideHandles();
       const to = slot > from ? slot - 1 : slot;
       if (!commit || to === from) return;
-      if (axis === "row") void this.write(widget, (t) => moveRow(t, from, to));
-      else void this.write(widget, (t) => moveColumn(t, from, to), void 0, (c) => columnAfterMove(c, from, to));
+      if (axis === "row") void this.moveRowTo(widget, info, from, to);
+      else void this.moveColumnTo(widget, info, from, to);
     };
     return { move, finish };
   }
@@ -2323,35 +2604,62 @@ var Controller = class {
   }
   // `column`: the hovered column, where editing a new row starts
   rowMenu(widget, info, row, column) {
-    const rows = parseTable(info.source).rows.length;
     const rearranged = this.rearranged(info);
-    const edit = (change, focus) => this.runAndClose(() => void this.write(widget, change, focus));
+    const zone = rowZone(info.pins, info.rows, row);
+    const act = (run) => this.runAndClose(() => void run());
+    const moveBlocked = (to) => rearranged ? MOVE_BLOCKED : clampRowMove(info.pins, info.rows, row, to) === row ? zone ? "Pinned rows stay with the other pinned rows" : "Already at the edge" : void 0;
+    const pinBlocked = this.metadataOn ? void 0 : PIN_NEEDS_METADATA;
+    const insertBlocked = (at) => insertRowAt(info.pins, info.rows, at).at === at ? void 0 : zone === "top" ? "Rows pinned to the top stay at the top" : "Rows pinned to the bottom stay at the bottom";
     return [
-      { kind: "item", label: "Insert row above", icon: ICONS.rowAbove, run: edit((t) => insertRow(t, row), { row, column }) },
+      {
+        kind: "item",
+        label: "Insert row above",
+        icon: ICONS.rowAbove,
+        run: act(() => this.insertRowWith(widget, info, row, column)),
+        disabled: insertBlocked(row)
+      },
       {
         kind: "item",
         label: "Insert row below",
         icon: ICONS.rowBelow,
-        run: edit((t) => insertRow(t, row + 1), { row: row + 1, column })
+        run: act(() => this.insertRowWith(widget, info, row + 1, column)),
+        disabled: insertBlocked(row + 1)
       },
-      { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: edit((t) => duplicateRow(t, row)) },
+      { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: act(() => this.duplicateRowAt(widget, info, row)) },
       { kind: "separator" },
       {
         kind: "item",
         label: "Move up",
         icon: ICONS.arrowUp,
-        run: edit((t) => moveRow(t, row, row - 1)),
-        disabled: rearranged ? MOVE_BLOCKED : row <= 1 ? "Already the first row" : void 0
+        run: act(() => this.moveRowTo(widget, info, row, row - 1)),
+        disabled: moveBlocked(row - 1)
       },
       {
         kind: "item",
         label: "Move down",
         icon: ICONS.arrowDown,
-        run: edit((t) => moveRow(t, row, row + 1)),
-        disabled: rearranged ? MOVE_BLOCKED : row >= rows - 1 ? "Already the last row" : void 0
+        run: act(() => this.moveRowTo(widget, info, row, row + 1)),
+        disabled: moveBlocked(row + 1)
       },
       { kind: "separator" },
-      { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: edit((t) => deleteRow(t, row)) }
+      {
+        kind: "item",
+        label: "Pin to top",
+        icon: ICONS.pinTop,
+        checked: zone === "top",
+        run: act(() => this.pinRowAt(widget, info, row, zone === "top" ? void 0 : "top")),
+        disabled: pinBlocked
+      },
+      {
+        kind: "item",
+        label: "Pin to bottom",
+        icon: ICONS.pinBottom,
+        checked: zone === "bottom",
+        run: act(() => this.pinRowAt(widget, info, row, zone === "bottom" ? void 0 : "bottom")),
+        disabled: pinBlocked
+      },
+      { kind: "separator" },
+      { kind: "item", label: "Delete row", icon: ICONS.trash, danger: true, run: act(() => this.deleteRowAt(widget, info, row)) }
     ];
   }
   columnMenu(widget, info, column) {
@@ -2361,6 +2669,11 @@ var Controller = class {
     const edit = (change, focus, columnMap) => this.runAndClose(() => void this.write(widget, change, focus, columnMap));
     const sortBy = (next) => this.runAndClose(() => this.setSort(widget, info, next));
     const alignTo = (target) => edit((t) => setAlign(t, column, align === target ? "" : target));
+    const act = (run) => this.runAndClose(() => void run());
+    const zone = columnZone(info.pins, info.columns, column);
+    const columnMoveBlocked = (to) => clampColumnMove(info.pins, info.columns, column, to) === column ? zone ? "Pinned columns stay with the other pinned columns" : "Already at the edge" : void 0;
+    const pinBlocked = this.metadataOn ? void 0 : PIN_NEEDS_METADATA;
+    const insertBlocked = (at) => insertColumnAt(info.pins, info.columns, at).at === at ? void 0 : zone === "left" ? "Columns pinned to the left stay at the left" : "Columns pinned to the right stay at the right";
     const entries = [
       {
         kind: "item",
@@ -2405,31 +2718,46 @@ var Controller = class {
         kind: "item",
         label: "Insert column left",
         icon: ICONS.columnLeft,
-        run: edit((t) => insertColumn(t, column), { row: 0, column, select: true }, (c) => c >= column ? c + 1 : c)
+        run: act(() => this.insertColumnWith(widget, info, column)),
+        disabled: insertBlocked(column)
       },
       {
         kind: "item",
         label: "Insert column right",
         icon: ICONS.columnRight,
-        run: edit(
-          (t) => insertColumn(t, column + 1),
-          { row: 0, column: column + 1, select: true },
-          (c) => c > column ? c + 1 : c
-        )
+        run: act(() => this.insertColumnWith(widget, info, column + 1)),
+        disabled: insertBlocked(column + 1)
       },
       {
         kind: "item",
         label: "Move left",
         icon: ICONS.arrowLeft,
-        run: edit((t) => moveColumn(t, column, column - 1), void 0, (c) => columnAfterMove(c, column, column - 1)),
-        disabled: column === 0 ? "Already the first column" : void 0
+        run: act(() => this.moveColumnTo(widget, info, column, column - 1)),
+        disabled: columnMoveBlocked(column - 1)
       },
       {
         kind: "item",
         label: "Move right",
         icon: ICONS.arrowRight,
-        run: edit((t) => moveColumn(t, column, column + 1), void 0, (c) => columnAfterMove(c, column, column + 1)),
-        disabled: column >= info.columns - 1 ? "Already the last column" : void 0
+        run: act(() => this.moveColumnTo(widget, info, column, column + 1)),
+        disabled: columnMoveBlocked(column + 1)
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: "Pin left",
+        icon: ICONS.pinLeft,
+        checked: zone === "left",
+        run: act(() => this.pinColumnAt(widget, info, column, zone === "left" ? void 0 : "left")),
+        disabled: pinBlocked
+      },
+      {
+        kind: "item",
+        label: "Pin right",
+        icon: ICONS.pinRight,
+        checked: zone === "right",
+        run: act(() => this.pinColumnAt(widget, info, column, zone === "right" ? void 0 : "right")),
+        disabled: pinBlocked
       },
       { kind: "separator" },
       {
@@ -2437,7 +2765,7 @@ var Controller = class {
         label: "Delete column",
         icon: ICONS.trash,
         danger: true,
-        run: edit((t) => deleteColumn(t, column), void 0, (c) => c === column ? void 0 : c > column ? c - 1 : c),
+        run: act(() => this.deleteColumnAt(widget, info, column)),
         disabled: info.columns <= 1 ? "A table needs at least one column" : void 0
       }
     );

@@ -39,10 +39,10 @@ export function setCell(table: Table, row: number, column: number, value: string
   );
 }
 
-/** Inserts an empty body row so that it becomes rows[at] */
-export function insertRow(table: Table, at: number): Table {
+/** Inserts a body row (empty, or with the given cells) so that it becomes rows[at] */
+export function insertRow(table: Table, at: number, cells?: readonly string[]): Table {
   const rows = [...table.rows];
-  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, emptyRow(table.align.length));
+  rows.splice(Math.max(1, Math.min(at, rows.length)), 0, cells ? { cells: [...cells] } : emptyRow(table.align.length));
   return withRows(table, rows);
 }
 

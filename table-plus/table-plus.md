@@ -17,6 +17,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Sort**: click ⇅ in a column header. See [[#Sorting]].
 * **Filter**: hover the table and click *Filter*; `>10`, `/regex/`, `=text` and `!text` work too. See [[#Filtering]].
 * **Add, move or delete rows and columns**: click the ⠿ grip next to a row or above a column. See [[#Rows and columns]].
+* **Pin rows and columns** to the edges, where they stay in view (needs *Store table metadata*). See [[#Pinning]].
 * **Change how Enter or filters work**: *Configuration: Open*, category *Table Plus*. See [[#Settings]].
 
 ## Editing cells
@@ -95,6 +96,19 @@ Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column.
 * **Add at the end**: *+ Row* below the table adds a row, *+* right of the header adds a column (named *Column N*, ready to rename).
 * Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.
 
+## Pinning
+
+With the *Store table metadata* setting on, the row menu has *Pin to top* and *Pin to bottom*, the column menu *Pin left* and *Pin right* (click a checked item again to unpin).
+
+* Pinning moves the row (column) in the markdown, to the edge of the table, next to the rows (columns) already pinned there. The table stores how many are pinned at each edge, see [[#Table metadata]].
+* Pinned rows and columns stay in view: rows pinned to the top move with the header, rows pinned to the bottom stay at the bottom of the view, columns stay at the left or right edge while a wide table scrolls sideways.
+* They are kept at the edges through every edit: rows added at the end go above the rows pinned to the bottom, columns added at the end left of the columns pinned to the right, and nothing is inserted above the first row pinned to the top or below the last one pinned to the bottom. A row inserted between pinned rows is pinned too.
+* Moving (drag, menu, Ctrl+Shift+arrows) keeps a pinned row (column) among the pinned ones and the others outside them.
+* Pinned rows are not sorted or filtered: they always show.
+* Unpinning moves the row (column) out of its edge, next to the unpinned ones; it does not go back to where it was before pinning (Ctrl+Z does).
+* "Pinned" means a number of rows (columns) at an edge: a row typed by hand above the first pinned row becomes the pinned one.
+* Rows pinned to the top look like the header.
+
 ## Large tables
 
 * **Sticky header**: while you scroll past a long table, its header stays at the top of the view, with the toolbar above it.
@@ -112,9 +126,10 @@ Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* category, 
 * **Smart filters** (`tablePlus.smartFilters`), default `true`
   * `true`: filter fields understand `>10`, `/pattern/`, `=text` and `!filter`.
   * `false`: everything typed in a filter field is text to find.
+
 * **Store table metadata** (`tablePlus.metadata`), default `false`
-  * `true`: table settings (for now: the sorting) are stored in the table itself, see [[#Table metadata]].
-  * `false`: sorting is a view only and never changes a table.
+  * `true`: table settings (the sorting and pinned rows and columns) are stored in the table itself, see [[#Table metadata]], and rows and columns can be pinned, see [[#Pinning]].
+  * `false`: sorting is a view only and never changes a table, and pinning is not offered.
 * **Ctrl+Enter adds a row** (`tablePlus.ctrlEnterAddsRow`), default `true`
   * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
   * `false`: Ctrl+Enter works like Enter.
@@ -136,21 +151,24 @@ config.set("tablePlus.maxHeight", 400)
 
 ## Table metadata
 
-With the *Store table metadata* setting on, Table Plus stores a table's settings in a last row that holds only a `<meta …>` tag. For now it stores the sorting:
+With the *Store table metadata* setting on, Table Plus stores a table's settings in a last row that holds only a `<meta …>` tag: the sorting and the pinned rows and columns.
 
 ```
 | Name  | Qty |
 | ----- | --: |
 | Pear  |   3 |
 | Apple |  10 |
-| <meta sort="Qty:desc"> |
+| Total |  13 |
+| <meta sort="Qty:desc" pin-bottom="1"> |
 ```
+
+* `sort` is the sorting, `pin-top`, `pin-bottom`, `pin-left` and `pin-right` how many rows (columns) at each edge are pinned.
 
 * The row is hidden in SilverBullet. Browsers never show `<meta>`, and other markdown renderers (GitHub, Obsidian) drop it, leaving at most an empty row.
 * It is always the last row: new rows go above it, and it is not sorted, filtered or moved.
 * The sorting is stored by column name: `Qty:desc`. With several columns of the same name, the occurrence is added: `Qty:desc:2` is the second column named Qty. It follows its column when the column is renamed or moved, and is removed with it.
-* When the sorting is cleared, the row is removed too, unless it holds other settings.
-* With the setting off, Table Plus does not write metadata, but a `<meta>` row already in a table is still hidden, its sorting is the table's first view, and the row is kept when you edit the table.
+* When the sorting is cleared and nothing is pinned, the row is removed.
+* With the setting off, Table Plus does not write metadata, but a `<meta>` row already in a table is still hidden, its sorting is the table's first view, its pinned rows and columns stay pinned (and are kept at the edges), and the row is kept when you edit the table.
 * SilverBullet indexes the row like any other: a query over the table's rows (`index.tag "table"`) also returns it, with the `<meta …>` text in its first column.
 
 ## How your markdown is kept
@@ -196,7 +214,7 @@ config.define("tablePlus", {
     metadata = {
       type = "boolean",
       default = false,
-      description = "Store table settings (for now: sorting) in a hidden last row <meta …> of the table. Off: sorting is a view only and tables are not changed by it; a <meta> row already in a table is still hidden, used and kept.",
+      description = "Store table settings (sorting, pinned rows and columns) in a hidden last row <meta …> of the table, and offer pinning. Off: sorting is a view only and tables are not changed by it; a <meta> row already in a table is still hidden, used and kept.",
       ui = { category = "Table Plus", label = "Store table metadata", priority = 0.25 },
     },
     ctrlEnterAddsRow = {
@@ -336,6 +354,72 @@ end
 /* Only the top row casts it: from the filter row it would cover the header row */
 .sb-table-widget thead.tp-stuck tr:first-child td {
   box-shadow: 0 -38px 0 0 var(--root-background-color, #fff);
+}
+
+/* Pinned rows and columns stay in view (moved there by script); they need an
+   opaque background over the rows and columns scrolling under them.
+   SilverBullet clips tables with overflow: hidden, which would make the table
+   the box sticky columns stick in; clip cuts the same without that. */
+.sb-table-widget.tp-table table {
+  overflow: clip !important;
+}
+.sb-table-widget tfoot.tp-stuck {
+  position: relative;
+  z-index: 3;
+  filter: drop-shadow(0 -2px 3px rgba(0, 0, 0, 0.25));
+}
+.sb-table-widget tfoot.tp-stuck td {
+  background: var(--root-background-color, #fff);
+}
+.sb-table-widget td.tp-pin-left,
+.sb-table-widget td.tp-pin-right {
+  position: sticky;
+  z-index: 1;
+  background: var(--root-background-color, #fff);
+}
+.sb-table-widget tbody tr:nth-of-type(even) td.tp-pin-left,
+.sb-table-widget tbody tr:nth-of-type(even) td.tp-pin-right {
+  background: linear-gradient(
+      var(--editor-table-even-background-color, transparent),
+      var(--editor-table-even-background-color, transparent)
+    ),
+    var(--root-background-color, #fff);
+}
+.sb-table-widget thead td.tp-pin-left,
+.sb-table-widget thead td.tp-pin-right {
+  background: linear-gradient(
+      var(--editor-table-head-background-color, transparent),
+      var(--editor-table-head-background-color, transparent)
+    ),
+    var(--root-background-color, #fff);
+}
+.sb-table-widget td.tp-pin-left.tp-pin-edge {
+  box-shadow: 3px 0 4px -2px rgba(0, 0, 0, 0.3);
+}
+.sb-table-widget td.tp-pin-right.tp-pin-edge {
+  box-shadow: -3px 0 4px -2px rgba(0, 0, 0, 0.3);
+}
+
+/* The pin icon on pinned rows (first cell) and columns (header): at the
+   cell's right edge, out of the layout, so no text moves when pinning */
+.sb-table-widget td:has(> .tp-pin-mark) {
+  position: relative;
+}
+.sb-table-widget td.tp-pin-left:has(> .tp-pin-mark),
+.sb-table-widget td.tp-pin-right:has(> .tp-pin-mark) {
+  position: sticky;
+}
+.tp-pin-mark {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  display: inline-flex;
+  transform: translateY(-50%);
+  opacity: 0.8;
+}
+.tp-pin-mark svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* Ctrl held in a cell editor: arrows move between cells */

@@ -1,9 +1,12 @@
-// What Table Plus keeps in a table's metadata row (`<meta …>`). For now: the
-// sorting, as `sort="Name:asc"`, by column name so it survives moving columns.
-// With several columns of the same name, the occurrence is added: "Qty:desc:2"
-// is the second column named Qty.
-import { type Table, unescapeCell } from "./markdown.ts";
-import type { SortDirection } from "./view.ts";
+// What Table Plus keeps in a table's metadata row (`<meta …>`):
+// - sort="Name:asc": the sorting, by column name so it survives moving columns;
+//   with several columns of the same name the occurrence is added ("Qty:desc:2"
+//   is the second column named Qty)
+// - pin-top="2", pin-bottom, pin-left, pin-right: how many rows (columns) at
+//   each edge of the table are pinned
+import type { Row, Table } from "./markdown.ts";
+import { unescapeCell } from "./markdown.ts";
+import { DEFAULT_VIEW, NO_PINS, type Pins, type SortDirection, type ViewState } from "./view.ts";
 
 export type MetaSort = { readonly column: number; readonly direction: SortDirection };
 
@@ -20,6 +23,8 @@ export function withMeta(table: Table, name: string, value: string | undefined):
 function headerNames(table: Table): string[] {
   return (table.rows[0]?.cells ?? []).map(unescapeCell);
 }
+
+// ---- sorting ------------------------------------------------------------------
 
 function parseSort(value: string): { name: string; direction: SortDirection; nth: number } | undefined {
   const match = /^(.*):(asc|desc)(?::(\d+))?$/.exec(value);
@@ -45,12 +50,58 @@ export function withMetaSort(table: Table, sort: MetaSort | undefined): Table {
   return withMeta(table, "sort", `${name}:${sort.direction}${same > 1 ? `:${nth}` : ""}`);
 }
 
+// ---- pins -----------------------------------------------------------------------
+
+const PIN_ATTRIBUTES = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" } as const;
+
+/** The pins stored in the table, limited to what it has room for */
+export function metaPins(table: Table): Pins {
+  const count = (name: string) => {
+    const n = Number(table.meta?.[name]);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  };
+  const bodyRows = Math.max(0, table.rows.length - 1);
+  const columns = table.align.length;
+  const top = Math.min(count(PIN_ATTRIBUTES.top), bodyRows);
+  const left = Math.min(count(PIN_ATTRIBUTES.left), columns);
+  return {
+    top,
+    bottom: Math.min(count(PIN_ATTRIBUTES.bottom), bodyRows - top),
+    left,
+    right: Math.min(count(PIN_ATTRIBUTES.right), columns - left),
+  };
+}
+
+/** Stores the pins; a count of 0 removes its attribute */
+export function withMetaPins(table: Table, pins: Pins): Table {
+  let result = table;
+  for (const edge of ["top", "bottom", "left", "right"] as const) {
+    result = withMeta(result, PIN_ATTRIBUTES[edge], pins[edge] > 0 ? String(pins[edge]) : undefined);
+  }
+  return result;
+}
+
+export function hasMetaPins(table: Table): boolean {
+  return Object.values(PIN_ATTRIBUTES).some((name) => table.meta?.[name] !== undefined);
+}
+
+// ---- the view as stored -----------------------------------------------------------
+
+/** The sorting stored in the table as a view, or undefined when none is */
+export function metaView(table: Table): ViewState | undefined {
+  const sort = metaSort(table);
+  return sort ? { ...DEFAULT_VIEW, sort } : undefined;
+}
+
+// ---- keeping the stored sorting through edits ---------------------------------------
+
 /**
  * Keeps the stored sorting on its column through an edit: read from the table
  * before, the column moved by `map` (undefined: deleted), written for the table
  * after, so renamed, moved and duplicate-named columns are followed. Tables
  * without a stored sorting, and edits that set the sorting themselves, are
- * returned as they are.
+ * returned as they are. (Pins are counts at the edges: the edits that change
+ * them set them.)
  */
 export function followMetaSort(
   before: Table,
@@ -62,3 +113,6 @@ export function followMetaSort(
   const column = sort && map(sort.column);
   return withMetaSort(after, sort && column !== undefined ? { column, direction: sort.direction } : undefined);
 }
+
+export { NO_PINS };
+export type { Row };

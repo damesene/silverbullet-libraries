@@ -2,20 +2,48 @@
 
 export type SortDirection = "asc" | "desc";
 
+// Pinned rows and columns are moved to the edges of the table in the markdown
+// and kept there: the first `top` and last `bottom` body rows, the first `left`
+// and last `right` columns. Pinned rows are not sorted or filtered, and both
+// stay in view while the table scrolls.
+export type Pins = {
+  readonly top: number;
+  readonly bottom: number;
+  readonly left: number;
+  readonly right: number;
+};
+
+export const NO_PINS: Pins = { top: 0, bottom: 0, left: 0, right: 0 };
+
 export type ViewState = {
   readonly sort?: { readonly column: number; readonly direction: SortDirection };
   readonly filters: readonly string[];
   readonly showFilters: boolean;
+  readonly pins?: Pins;
 };
 
 export const DEFAULT_VIEW: ViewState = { filters: [], showFilters: false };
 
-/** True when rows are shown in another order or some are hidden */
+export function pinsOf(view: ViewState): Pins {
+  return view.pins ?? NO_PINS;
+}
+
+export function hasPins(pins: Pins): boolean {
+  return pins.top + pins.bottom + pins.left + pins.right > 0;
+}
+
+export function withPins(view: ViewState, pins: Pins): ViewState {
+  if (hasPins(pins)) return { ...view, pins };
+  const { pins: _pins, ...rest } = view;
+  return rest;
+}
+
 // Smart filters (a setting): comparisons, regular expressions, `=` and `!`
 export type FilterOptions = { readonly smart: boolean };
 
 export const DEFAULT_FILTER_OPTIONS: FilterOptions = { smart: true };
 
+/** True when rows are shown in another order or some are hidden (pins aside) */
 export function isRearranged(view: ViewState, options = DEFAULT_FILTER_OPTIONS): boolean {
   return !!view.sort || view.filters.some((f) => filterMatcher(f, options) !== undefined);
 }
@@ -59,7 +87,8 @@ export function remapColumns(
     filters[target] = value;
   });
   const sortColumn = view.sort ? map(view.sort.column) : undefined;
-  const result: ViewState = { filters, showFilters: view.showFilters };
+  // Pins are counts at the edges: whoever changes the columns sets them
+  const result: ViewState = view.pins ? { filters, showFilters: view.showFilters, pins: view.pins } : { filters, showFilters: view.showFilters };
   return view.sort && sortColumn !== undefined
     ? { ...result, sort: { column: sortColumn, direction: view.sort.direction } }
     : result;
@@ -165,18 +194,21 @@ export function filterMatcher(filter: string, options = DEFAULT_FILTER_OPTIONS):
 }
 
 /**
- * The body rows to show, in display order, as indexes into `values` (one array
- * of cell texts per body row). Empty cells sort last in both directions; ties
- * keep the source order.
+ * The body rows to show between the pinned ones, in display order, as indexes
+ * into `values` (one array of cell texts per body row, values[0] being row 1).
+ * Pinned rows are left out: they are not sorted or filtered. Empty cells sort
+ * last in both directions; ties keep the source order.
  */
 export function visibleRows(
   values: readonly (readonly string[])[],
   view: ViewState,
   options = DEFAULT_FILTER_OPTIONS,
 ): number[] {
+  const { top, bottom } = pinsOf(view);
   const matchers = view.filters.map((filter) => filterMatcher(filter, options));
   const indexes = values
     .map((_, i) => i)
+    .filter((i) => i >= top && i < values.length - bottom)
     .filter((i) => matchers.every((match, column) => !match || match(values[i]![column] ?? "")));
   const sort = view.sort;
   if (!sort) return indexes;
