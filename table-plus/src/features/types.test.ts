@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { bodyTexts, cell, clickOn, editor, flush, key, press, setup, text, useTablePage } from "../testing/page.ts";
+import { bodyTexts, cell, clickOn, editor, flashes, flush, key, press, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Column types", () => {
   useTablePage();
@@ -58,6 +58,27 @@ describe("Column types", () => {
     Object.defineProperty(copy, "clipboardData", { value: { setData: (type: string, value: string) => (data[type] = value) } });
     document.dispatchEvent(copy);
     expect(data["text/plain"]).toBe("12.99\t4");
+  });
+
+  it("offers the type's values in the editor, and says when a value saved is not of the type", async () => {
+    await setup(PAGE);
+    clickOn(cell(1, 2));
+    const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+    const list = document.getElementById(field.getAttribute("list")!)!;
+    expect(Array.from(list.querySelectorAll("option")).map((o) => [o.value, o.label])).toEqual([
+      ["0", "0 ☆☆☆☆☆"],
+      ["1", "1 ★☆☆☆☆"],
+      ["2", "2 ★★☆☆☆"],
+      ["3", "3 ★★★☆☆"],
+      ["4", "4 ★★★★☆"],
+      ["5", "5 ★★★★★"],
+    ]);
+    field.value = "9";
+    key(field, "Enter");
+    await flush();
+    expect(text).toContain("| Pear | 12.99 | 9 | yes |");
+    expect(flashes).toEqual(['Table Plus: "9" is not a whole number from 0 to 5 (#stars); saved as typed']);
+    expect(document.querySelector("datalist")).toBeNull();
   });
 
   it("shows a formula's result in its column's type", async () => {

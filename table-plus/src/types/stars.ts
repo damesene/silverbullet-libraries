@@ -20,5 +20,8 @@ export default {
     return "★".repeat(n) + "☆".repeat(most(param) - n);
   },
   choices: (param) =>
-    Array.from({ length: most(param) + 1 }, (_, n) => ({ value: String(n), label: `${n} ${"★".repeat(n)}` })),
+    Array.from({ length: most(param) + 1 }, (_, n) => ({
+      value: String(n),
+      label: `${n} ${"★".repeat(n)}${"☆".repeat(most(param) - n)}`,
+    })),
 } satisfies ColumnType;

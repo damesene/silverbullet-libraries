@@ -2,11 +2,11 @@
 // (`| Price #currency |`) shows its cells as that type (types/), hides that
 // hashtag, and marks the cells that are not values of the type. The markdown
 // keeps the values as written: sorting, filters and copying use them.
-import type { Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import type { CellEditor, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellText, TYPE_TAG_CLASS, UI_CLASS } from "../dom.ts";
 import { formulaOf } from "../formula/index.ts";
 import { parseTable, unescapeCell } from "../markdown.ts";
-import { columnTypeOf, type Shown, typeOfTag, typeTagPatterns } from "../types/index.ts";
+import { columnTypeOf, type Shown, type TypedColumn, typeOfTag, typeTagPatterns } from "../types/index.ts";
 
 /**
  * CSS that hides the type hashtags of headers from the start: SilverBullet
@@ -24,6 +24,9 @@ function hiddenTagsCss(): string {
 
 export class ColumnTypes implements Feature {
   private readonly style: HTMLStyleElement;
+  // The values the open cell editor offers, and how many such lists were made (for their ids)
+  private choices: HTMLDataListElement | undefined;
+  private lists = 0;
 
   constructor(private readonly host: TableHost) {
     this.style = host.doc.createElement("style");
@@ -34,6 +37,49 @@ export class ColumnTypes implements Feature {
 
   stop(): void {
     this.style.remove();
+    this.choices?.remove();
+  }
+
+  // ---- the cell editor ------------------------------------------------------------
+
+  /** The type of the edited cell's column, if any (header cells have none) */
+  private typeOfEdited(editor: CellEditor): TypedColumn | undefined {
+    if (editor.row === 0) return undefined;
+    const header = parseTable(this.host.infoOf(editor.widget)?.source ?? "").rows[0]?.cells[editor.column];
+    return header === undefined ? undefined : columnTypeOf(unescapeCell(header));
+  }
+
+  /** A type with values to offer: the field suggests them as it is typed in (a datalist) */
+  editorOpened(editor: CellEditor): void {
+    const typed = this.typeOfEdited(editor);
+    const choices = typed?.type.choices?.(typed.param);
+    if (!choices?.length) return;
+    const list = this.host.doc.createElement("datalist");
+    list.id = `tp-choices-${++this.lists}`;
+    for (const choice of choices) {
+      const option = this.host.doc.createElement("option");
+      option.value = choice.value;
+      option.label = choice.label;
+      list.append(option);
+    }
+    this.host.doc.body.append(list);
+    editor.field.setAttribute("list", list.id);
+    this.choices = list;
+  }
+
+  editorClosed(): void {
+    this.choices?.remove();
+    this.choices = undefined;
+  }
+
+  /** A value that is not of the column's type is saved as typed, and said so */
+  editorValue(editor: CellEditor, typed: string): string | undefined {
+    const column = this.typeOfEdited(editor);
+    const text = typed.trim();
+    if (!column || text === "" || text.startsWith("=")) return undefined;
+    const error = column.type.check(text, column.param);
+    if (error) void this.host.bridge.flash(`Table Plus: ${error} (#${column.tag}); saved as typed`, "info");
+    return undefined;
   }
 
   decorate(_widget: HTMLElement, info: WidgetInfo): void {

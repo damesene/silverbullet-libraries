@@ -2453,7 +2453,10 @@ var stars_default = {
     const n = numberOf(text);
     return "\u2605".repeat(n) + "\u2606".repeat(most2(param) - n);
   },
-  choices: (param) => Array.from({ length: most2(param) + 1 }, (_, n) => ({ value: String(n), label: `${n} ${"\u2605".repeat(n)}` }))
+  choices: (param) => Array.from({ length: most2(param) + 1 }, (_, n) => ({
+    value: String(n),
+    label: `${n} ${"\u2605".repeat(n)}${"\u2606".repeat(most2(param) - n)}`
+  }))
 };
 
 // table-plus/src/types/trend.ts
@@ -2531,8 +2534,49 @@ var ColumnTypes = class {
   }
   host;
   style;
+  // The values the open cell editor offers, and how many such lists were made (for their ids)
+  choices;
+  lists = 0;
   stop() {
     this.style.remove();
+    this.choices?.remove();
+  }
+  // ---- the cell editor ------------------------------------------------------------
+  /** The type of the edited cell's column, if any (header cells have none) */
+  typeOfEdited(editor) {
+    if (editor.row === 0) return void 0;
+    const header = parseTable(this.host.infoOf(editor.widget)?.source ?? "").rows[0]?.cells[editor.column];
+    return header === void 0 ? void 0 : columnTypeOf(unescapeCell(header));
+  }
+  /** A type with values to offer: the field suggests them as it is typed in (a datalist) */
+  editorOpened(editor) {
+    const typed = this.typeOfEdited(editor);
+    const choices = typed?.type.choices?.(typed.param);
+    if (!choices?.length) return;
+    const list = this.host.doc.createElement("datalist");
+    list.id = `tp-choices-${++this.lists}`;
+    for (const choice of choices) {
+      const option = this.host.doc.createElement("option");
+      option.value = choice.value;
+      option.label = choice.label;
+      list.append(option);
+    }
+    this.host.doc.body.append(list);
+    editor.field.setAttribute("list", list.id);
+    this.choices = list;
+  }
+  editorClosed() {
+    this.choices?.remove();
+    this.choices = void 0;
+  }
+  /** A value that is not of the column's type is saved as typed, and said so */
+  editorValue(editor, typed) {
+    const column = this.typeOfEdited(editor);
+    const text = typed.trim();
+    if (!column || text === "" || text.startsWith("=")) return void 0;
+    const error = column.type.check(text, column.param);
+    if (error) void this.host.bridge.flash(`Table Plus: ${error} (#${column.tag}); saved as typed`, "info");
+    return void 0;
   }
   decorate(_widget, info) {
     const model = parseTable(info.source);

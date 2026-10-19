@@ -209,6 +209,7 @@ shows `$12.99`, `★★★★☆` and `✅`.
 * The type's hashtag is hidden in the header. SilverBullet leaves hashtags out of a column's key, so a query still reads `Price #currency-usd` as `price`, and the hashtag tags neither the rows nor the page.
 * A parameter goes after a dash: `#currency-usd`, `#number-2`, `#stars-10`. A hashtag that is not a type (or a type with a parameter it does not take) is an ordinary hashtag.
 * A cell whose value is not one of the type shows as written, in red; hover it to see why. Empty cells are left alone.
+* The cell editor offers the type's values where it has a few (`#stars`, `#check`, `#trend`): pick one or type. A value saved that is not of the type is kept as typed, and Table Plus says so.
 * A formula's result is shown in its column's type, e.g. `=SUM([price])` as an amount of money.
 * The hashtags of MdTableRender also work for these types: `#euro`, `#usd`, `#int`, `#float`, `#kg`, `#km`, `#watt`, `#logical`, `#evaluation`, `#gauge`.
 
