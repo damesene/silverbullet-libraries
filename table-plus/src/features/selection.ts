@@ -1,4 +1,5 @@
-// Selecting cells by dragging across them (or whole rows and columns with
+// Selecting cells by dragging across them, Shift+click (from the cell edited or
+// the selection's first cell) and Shift+arrows (or whole rows and columns with
 // their grips), to copy them for a spreadsheet (Ctrl+C) or
 // empty them (Delete); whole rows or columns already empty, Delete deletes
 // them. Copy, Clear and Delete rows / columns in the menu of a cell or of the
@@ -25,10 +26,20 @@ export function clipboardHtml(values: readonly (readonly string[])[]): string {
   return `<table>${rows}</table>`;
 }
 
+// What Shift+arrows move the selection's last cell by: rows (as shown), columns
+const STEPS: Readonly<Record<string, readonly [number, number]>> = {
+  ArrowUp: [-1, 0],
+  ArrowDown: [1, 0],
+  ArrowLeft: [0, -1],
+  ArrowRight: [0, 1],
+};
+
 export class Selection implements Feature {
   // The cells selected (rows of the markdown, header 0), in the table with this key
   private selection: { readonly key: string; readonly anchor: CellRef; focus: CellRef } | undefined;
   private stopSelecting: (() => void) | undefined;
+  // The selection a Shift+press goes on from: the press itself ends it first
+  private extending: { readonly key: string; readonly anchor: CellRef } | undefined;
 
   constructor(private readonly host: TableHost) {}
 
@@ -43,7 +54,27 @@ export class Selection implements Feature {
 
   // Any click ends a selection (one on Table Plus' own controls aside)
   beforeMouseDown(e: MouseEvent): void {
-    if (this.selection && !(e.target instanceof Node && this.host.isFloating(e.target))) this.clear();
+    const selection = this.selection;
+    this.extending = e.shiftKey && selection ? { key: selection.key, anchor: selection.anchor } : undefined;
+    if (selection && !(e.target instanceof Node && this.host.isFloating(e.target))) this.clear();
+  }
+
+  /**
+   * Shift+click on a cell selects the cells from the selection's first cell,
+   * else from the cell being edited (saved), else just this cell
+   */
+  beforeCellPress(_widget: HTMLElement, info: WidgetInfo, ref: CellRef, e: MouseEvent): boolean {
+    const extending = this.extending;
+    this.extending = undefined;
+    if (!e.shiftKey) return false;
+    const editing = this.host.editing;
+    const edited = editing && this.host.infoOf(editing.widget)?.key === info.key ? { row: editing.row, column: editing.column } : undefined;
+    const anchor = extending?.key === info.key ? extending.anchor : (edited ?? ref);
+    // A cell being edited is saved: the press selects now
+    const taken = this.host.takeEditor();
+    if (taken) void this.host.write(taken.widget, taken.save);
+    this.selectCells(info, anchor, ref);
+    return true;
   }
 
   /**
@@ -93,6 +124,14 @@ export class Selection implements Feature {
     }
     // Delete empties the selected cells; in a field (a cell editor, a filter) it deletes text as usual
     const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    // Shift+arrows (Ctrl+Shift+arrows too) move the selection's last cell
+    const step = STEPS[e.key];
+    if (step && e.shiftKey && !e.altKey && !e.metaKey && !inField) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.extendBy(step[0], step[1]);
+      return true;
+    }
     if (e.key === "Delete" && !inField && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
@@ -118,6 +157,21 @@ export class Selection implements Feature {
 
   selectCells(info: WidgetInfo, anchor: CellRef, focus: CellRef): void {
     this.selection = { key: info.key, anchor, focus };
+    this.show();
+  }
+
+  /** Moves the selection's last cell by rows (as shown) and columns, within the table */
+  private extendBy(rows: number, columns: number): void {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!selection || !info) return;
+    const shown = this.host.shownRows(info);
+    const at = shown.findIndex((tr) => (selection.focus.row === 0 ? tr === info.table.rows[0] : tr.dataset.tpRow === String(selection.focus.row)));
+    const tr = shown[Math.max(0, Math.min(shown.length - 1, at + rows))];
+    if (at < 0 || !tr) return;
+    const column = Math.max(0, Math.min(info.columns - 1, selection.focus.column + columns));
+    selection.focus = { row: tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow), column };
     this.show();
   }
 

@@ -27,7 +27,8 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 ## Editing cells
 
 * Click a cell to edit it in place. Enter or clicking elsewhere saves, Esc cancels.
-* Shift+click opens the editor with the cell's whole text selected, to type over it. The *Click selects the cell's text* setting swaps the two. See [[#Settings]].
+* A click puts the cursor at the end of the cell's text; with the *Click selects the cell's text* setting it selects the whole text, to type over it. See [[#Settings]].
+* Shift+click selects cells, as in a spreadsheet: see [[#Copying cells]].
 * Links, tasks and buttons in cells work as before: clicking them does not start editing.
 * A column always needs a name: emptying a header cell keeps the old name.
 
@@ -44,13 +45,14 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Ctrl+Home | Save, edit the row's first cell |
 | Ctrl+End | Save, edit the row's last cell |
 | Ctrl+PageUp / PageDown | Save, edit the cell 10 rows up / down |
+| Ctrl+Shift+arrows | Save, select the cells from this one on (see [[#Copying cells]]) |
 | Ctrl+Alt+↑ / ↓ | Move the row up / down |
 | Ctrl+Alt+← / → | Move the column left / right |
 | Ctrl+Alt+Home / End | Move the column to the start / end |
 | Ctrl+Alt+PageUp / PageDown | Move the row 10 places up / down |
 
 * Tab on the last cell adds a row.
-* With Shift, Enter and the Ctrl keys open the next cell as Shift+click does: with its whole text selected, or with the cursor at the end when the *Click selects the cell's text* setting is on. See [[#Settings]].
+* Shift+Enter opens the cell below with its whole text selected, or with the cursor at the end when the *Click selects the cell's text* setting is on. See [[#Settings]].
 * Ctrl+Alt+arrows save the cell and move it with its row or column, and keep editing it. Rows cannot move while sorted or filtered, nor the header row.
 * Enter (and Shift+Enter) also moves to the cell below; with the `save` setting it only saves. See [[#Settings]].
 * Browsers use Ctrl+PageUp / PageDown to switch tabs and do not pass them to the page. They work where SilverBullet runs without tabs (installed as an app).
@@ -59,6 +61,8 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 ## Copying cells
 
 * Press on a cell and drag across others, the header included if you like: the cells in between are selected. A plain click still edits the cell.
+* **Shift+click** a cell: the cells from the one being edited (it is saved) to this one are selected; with cells selected already, from the first of them; else just this cell.
+* **Shift+arrows** (Ctrl+Shift+arrows too) move the selection's far corner by a cell; in a cell editor, Ctrl+Shift+arrows start a selection there.
 * **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows).
 * Cells copy what they show: a formula's result, a link's text.
 * The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
@@ -415,10 +419,11 @@ Setting a part replaces what an earlier `config.set` of the same part set: set e
 
 * **Enter in a cell editor** (`enterKey`), default `moveDown`
   * `save`: Enter saves the cell.
-  * `moveDown`: Enter saves and edits the cell below; Shift+Enter too, opening it as Shift+click does.
+  * `moveDown`: Enter saves and edits the cell below; Shift+Enter too, opening it with its text selected (with *Click selects the cell's text*: with the cursor at the end).
 * **Click selects the cell's text** (`selectOnClick`), default `false`
-  * `false`: a click puts the cursor at the end of the cell's text, Shift+click selects the whole text.
-  * `true`: the reverse. With Shift, Enter and the Ctrl keys follow Shift+click; without Shift they put the cursor at the end either way.
+  * `false`: a click puts the cursor at the end of the cell's text; Shift+Enter opens the cell below with its whole text selected.
+  * `true`: a click selects the whole text; Shift+Enter opens the cell below with the cursor at the end. Enter, Tab and Ctrl+arrows put the cursor at the end either way.
+  * Without the `selection` module, Shift+click and Ctrl+Shift+arrows open the cell as Shift+Enter does.
 * **Ctrl+Enter adds a row** (`ctrlEnterAddsRow`), default `true`
   * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
   * `false`: Ctrl+Enter works like Enter.
@@ -439,7 +444,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `pageLinks` | Formulas can refer to tables and named cells on other pages (`[[Prices]]fruit!B2`), which Table Plus reads for them. Off: it reads no other page; formulas that refer to one keep the results they have (the formulas using them too), a new one shows `#REF!`. It needs the `formulas` module. See [[#Tables on other pages]]. |
 | `filters` | Rows can be filtered: the toolbar's filter icon shows a filter field under each header, *Filter* in a column menu opens that column's filter, *Filter: = value* in the cell menu filters by a cell's value; with *Store table metadata* the filters are stored in the table. Its setting `smart` (default `true`): fields understand `>10`, `/pattern/`, `=text`, `a\|b` and `!filter`; `false`: everything typed is text to find. Off: no filtering; filters stored in a table are kept but not used. See [[#Filtering]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
-| `selection` | Dragging across cells selects them; Ctrl+C copies them, Delete empties them (whole rows or columns already empty: deletes them); *Copy*, *Clear* and *Delete N rows / columns* in the cell menu. |
+| `selection` | Dragging across cells, Shift+click and Shift+arrows select them; Ctrl+C copies them, Delete empties them (whole rows or columns already empty: deletes them); *Copy*, *Clear* and *Delete N rows / columns* in the cell menu. Off: Shift+click opens the cell as Shift+Enter does. |
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
@@ -542,13 +547,13 @@ config.define("tablePlus", {
           type = "string",
           enum = { "save", "moveDown" },
           default = "moveDown",
-          description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: opened as on a Shift+click).",
+          description = "What Enter does in a cell editor. save: save the value. moveDown: save it and edit the cell below (Shift+Enter: opened with its text selected, or the reverse with selectOnClick).",
           ui = { category = "Table Plus", label = "Enter in a cell editor", priority = 3 },
         },
         selectOnClick = {
           type = "boolean",
           default = false,
-          description = "A click on a cell opens its editor with all its text selected, Shift+click with the cursor at the end. Off: the reverse (Shift+click selects the text). Shift+Enter and Ctrl+Shift+arrows follow Shift+click.",
+          description = "A click on a cell opens its editor with all its text selected, Shift+Enter with the cursor at the end. Off: the reverse (a click puts the cursor at the end, Shift+Enter selects the text).",
           ui = { category = "Table Plus", label = "Click selects the cell's text", priority = 2.5 },
         },
         ctrlEnterAddsRow = {
@@ -648,7 +653,7 @@ config.define("tablePlus", {
             enabled = {
               type = "boolean",
               default = true,
-              description = "Dragging across cells selects them; Ctrl+C copies them for a spreadsheet, Delete empties them.",
+              description = "Dragging across cells, Shift+click and Shift+arrows select them; Ctrl+C copies them for a spreadsheet, Delete empties them.",
               ui = { category = "Table Plus: Modules", label = "Cell selection", priority = 7 },
             },
           },

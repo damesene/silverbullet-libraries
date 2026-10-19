@@ -73,7 +73,7 @@ export const SETTINGS = {
     default: false,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
-  // A click on a cell selects its text (Shift+click does not); off: the reverse
+  // A click on a cell selects its text (Shift+Enter does not); off: the reverse
   selectOnClick: {
     path: "tablePlus.editor.selectOnClick",
     default: false,

@@ -104,7 +104,7 @@ describe("Cell editor", () => {
     expect(editor.querySelector(".tp-cell-editor")).toBeNull();
   });
 
-  it("selects the cell's text on Shift+click, or on a plain click with selectOnClick", async () => {
+  it("selects the cells from the edited one with Shift+click; a plain click selects the text with selectOnClick", async () => {
     const selected = () => {
       const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
       return field.selectionStart === 0 && field.selectionEnd === field.value.length;
@@ -113,12 +113,26 @@ describe("Cell editor", () => {
       press(target, "mousedown", { shiftKey });
       press(target, "click", { shiftKey });
     };
+    const marked = () => Array.from(editor.querySelectorAll(".tp-selected"));
     await setup(PAGE);
     click(cell(1, 0), false);
     expect(selected()).toBe(false); // the cursor at the end
-    click(cell(2, 0), true); // to another cell, with Shift
+    editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "Plum";
+    click(cell(2, 1), true); // to another cell, with Shift: the cells between, the edited one saved
     await flush();
-    expect(selected()).toBe(true);
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+    expect(text).toBe(PAGE.replace("| Pear |", "| Plum |"));
+    await controller.scan();
+    expect(marked()).toEqual([cell(1, 0), cell(1, 1), cell(2, 0), cell(2, 1)]);
+    // Shift+click again: on from the selection's first cell
+    click(cell(3, 0), true);
+    expect(marked()).toEqual([cell(1, 0), cell(2, 0), cell(3, 0)]);
+    // Nothing edited or selected: just that cell
+    click(cell(0, 1), false);
+    key(editor.querySelector(".tp-cell-editor")!, "Escape");
+    await flush();
+    click(cell(2, 1), true);
+    expect(marked()).toEqual([cell(2, 1)]);
 
     controller.stop();
     document.body.replaceChildren();
@@ -126,9 +140,14 @@ describe("Cell editor", () => {
     await flush();
     click(cell(1, 0), false);
     expect(selected()).toBe(true);
-    click(cell(2, 0), true);
+
+    // Without the selection module, Shift+click opens the cell as the setting's other choice
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(PAGE, { "tablePlus.modules.selection.enabled": false });
     await flush();
-    expect(selected()).toBe(false);
+    click(cell(2, 0), true);
+    expect(selected()).toBe(true);
   });
 
   it("cancels an edit with Escape", async () => {
@@ -268,7 +287,7 @@ describe("Cell editor", () => {
     expect(text.split("\n")[6]).toBe("| r1 |");
   });
 
-  it("opens the next cell as on a Shift+click with Shift+Enter and Ctrl+Shift+arrows", async () => {
+  it("opens the cell below with its text selected with Shift+Enter; Ctrl+Shift+arrows select cells", async () => {
     const selected = () => {
       const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
       return field.selectionStart === 0 && field.selectionEnd === field.value.length;
@@ -282,28 +301,47 @@ describe("Cell editor", () => {
       await flush();
       await controller.scan();
     };
+    const marked = () => Array.from(editor.querySelectorAll(".tp-selected"));
     await setup(PAGE, { "tablePlus.editor.enterKey": "moveDown" });
+    clickOn(cell(1, 0));
+    await go("ArrowDown", { ctrlKey: true });
+    expect(selected()).toBe(false);
+    await go("Enter", { shiftKey: true });
+    expect(at()).toEqual([3, 0]);
+    expect(selected()).toBe(true);
+    expect(text).toBe(PAGE); // moving does not touch the rows
+
+    // Ctrl+Shift+arrow: the editor closes, the cells from it on are selected; Shift+arrows (with Ctrl too) go on
+    await go("ArrowUp", { ctrlKey: true, shiftKey: true });
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+    expect(marked()).toEqual([cell(2, 0), cell(3, 0)]);
+    key(editor, "ArrowRight", { shiftKey: true });
+    key(editor, "ArrowUp", { shiftKey: true, ctrlKey: true });
+    expect(marked()).toEqual([cell(1, 0), cell(1, 1), cell(2, 0), cell(2, 1), cell(3, 0), cell(3, 1)]);
+    // At the table's edge it stays
+    key(editor, "ArrowRight", { shiftKey: true });
+    expect(marked().length).toBe(6);
+
+    // swapped by selectOnClick: Shift+Enter opens with the cursor at the end
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(PAGE, { "tablePlus.editor.selectOnClick": true, "tablePlus.editor.enterKey": "moveDown" });
+    await flush();
+    press(cell(1, 0), "mousedown");
+    press(cell(1, 0), "click");
+    await go("Enter", { shiftKey: true });
+    expect(at()).toEqual([2, 0]);
+    expect(selected()).toBe(false);
+
+    // Without the selection module, Ctrl+Shift+arrows open the cell with its text selected
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(PAGE, { "tablePlus.modules.selection.enabled": false });
+    await flush();
     clickOn(cell(1, 0));
     await go("ArrowRight", { ctrlKey: true, shiftKey: true });
     expect(at()).toEqual([1, 1]);
     expect(selected()).toBe(true);
-    await go("ArrowDown", { ctrlKey: true });
-    expect(selected()).toBe(false);
-    await go("Enter", { shiftKey: true });
-    expect(at()).toEqual([3, 1]);
-    expect(selected()).toBe(true);
-    expect(text).toBe(PAGE); // moving does not touch the rows
-
-    // swapped by selectOnClick: Shift opens with the cursor at the end
-    controller.stop();
-    document.body.replaceChildren();
-    await setup(PAGE, { "tablePlus.editor.selectOnClick": true });
-    await flush();
-    press(cell(1, 0), "mousedown");
-    press(cell(1, 0), "click");
-    await go("ArrowRight", { ctrlKey: true, shiftKey: true });
-    expect(at()).toEqual([1, 1]);
-    expect(selected()).toBe(false);
   });
 
   it("does not move the header row, nor rows while sorted", async () => {

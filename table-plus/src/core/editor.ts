@@ -252,7 +252,7 @@ export class CellEditing {
 
   /**
    * Whether a cell reached with the keyboard opens with its text selected:
-   * with Shift as on a Shift+click (the selectOnClick setting swaps that),
+   * with Shift (Shift+Enter; the selectOnClick setting swaps that),
    * without it with the cursor at the end
    */
   private selectsWith(shift: boolean): boolean {
@@ -328,7 +328,8 @@ export class CellEditing {
   /**
    * Ctrl+arrows: save and edit the neighbouring shown cell; Ctrl+Home / End:
    * the first / last cell of the row. Nothing happens at the table's edge.
-   * With Shift the cell opens as on a Shift+click.
+   * With Shift the cells from the edited one to that one are selected (the
+   * editor closes, saving); where no feature selects, the cell opens with its text selected.
    */
   private async navigate(key: string, shift: boolean): Promise<void> {
     const active = this.editor;
@@ -349,7 +350,13 @@ export class CellEditing {
     const target = shown[r]?.cells[column];
     if (!target || target === active.cell) return;
     const ref = this.host.cellRef(info, target);
-    if (ref) await this.finish(true, { widget: active.widget, ...ref, select: this.selectsWith(shift) });
+    if (!ref) return;
+    if (shift && this.host.selectsCells()) {
+      await this.finish(true);
+      this.host.selectCells(info, { row: active.row, column: active.column }, ref);
+      return;
+    }
+    await this.finish(true, { widget: active.widget, ...ref, select: this.selectsWith(shift) });
   }
 
   /** Tab / Shift+Tab: save and move to the next / previous shown cell */

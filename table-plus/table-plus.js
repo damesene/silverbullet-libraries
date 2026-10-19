@@ -16,7 +16,7 @@ var SETTINGS = {
     default: false,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
-  // A click on a cell selects its text (Shift+click does not); off: the reverse
+  // A click on a cell selects its text (Shift+Enter does not); off: the reverse
   selectOnClick: {
     path: "tablePlus.editor.selectOnClick",
     default: false,
@@ -940,7 +940,7 @@ var CellEditing = class {
   }
   /**
    * Whether a cell reached with the keyboard opens with its text selected:
-   * with Shift as on a Shift+click (the selectOnClick setting swaps that),
+   * with Shift (Shift+Enter; the selectOnClick setting swaps that),
    * without it with the cursor at the end
    */
   selectsWith(shift) {
@@ -999,7 +999,8 @@ var CellEditing = class {
   /**
    * Ctrl+arrows: save and edit the neighbouring shown cell; Ctrl+Home / End:
    * the first / last cell of the row. Nothing happens at the table's edge.
-   * With Shift the cell opens as on a Shift+click.
+   * With Shift the cells from the edited one to that one are selected (the
+   * editor closes, saving); where no feature selects, the cell opens with its text selected.
    */
   async navigate(key, shift) {
     const active = this.editor;
@@ -1019,7 +1020,13 @@ var CellEditing = class {
     const target = shown[r]?.cells[column];
     if (!target || target === active.cell) return;
     const ref = this.host.cellRef(info, target);
-    if (ref) await this.finish(true, { widget: active.widget, ...ref, select: this.selectsWith(shift) });
+    if (!ref) return;
+    if (shift && this.host.selectsCells()) {
+      await this.finish(true);
+      this.host.selectCells(info, { row: active.row, column: active.column }, ref);
+      return;
+    }
+    await this.finish(true, { widget: active.widget, ...ref, select: this.selectsWith(shift) });
   }
   /** Tab / Shift+Tab: save and move to the next / previous shown cell */
   async step(direction) {
@@ -6850,6 +6857,12 @@ function clipboardHtml(values) {
   const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
   return `<table>${rows}</table>`;
 }
+var STEPS = {
+  ArrowUp: [-1, 0],
+  ArrowDown: [1, 0],
+  ArrowLeft: [0, -1],
+  ArrowRight: [0, 1]
+};
 var Selection = class {
   constructor(host) {
     this.host = host;
@@ -6858,6 +6871,8 @@ var Selection = class {
   // The cells selected (rows of the markdown, header 0), in the table with this key
   selection;
   stopSelecting;
+  // The selection a Shift+press goes on from: the press itself ends it first
+  extending;
   start() {
     this.host.doc.defaultView.addEventListener("copy", this.onCopy, true);
   }
@@ -6867,7 +6882,25 @@ var Selection = class {
   }
   // Any click ends a selection (one on Table Plus' own controls aside)
   beforeMouseDown(e) {
-    if (this.selection && !(e.target instanceof Node && this.host.isFloating(e.target))) this.clear();
+    const selection = this.selection;
+    this.extending = e.shiftKey && selection ? { key: selection.key, anchor: selection.anchor } : void 0;
+    if (selection && !(e.target instanceof Node && this.host.isFloating(e.target))) this.clear();
+  }
+  /**
+   * Shift+click on a cell selects the cells from the selection's first cell,
+   * else from the cell being edited (saved), else just this cell
+   */
+  beforeCellPress(_widget, info, ref, e) {
+    const extending = this.extending;
+    this.extending = void 0;
+    if (!e.shiftKey) return false;
+    const editing = this.host.editing;
+    const edited = editing && this.host.infoOf(editing.widget)?.key === info.key ? { row: editing.row, column: editing.column } : void 0;
+    const anchor = extending?.key === info.key ? extending.anchor : edited ?? ref;
+    const taken = this.host.takeEditor();
+    if (taken) void this.host.write(taken.widget, taken.save);
+    this.selectCells(info, anchor, ref);
+    return true;
   }
   /**
    * After a press on a cell: dragging on to another cell of the table, with
@@ -6913,6 +6946,13 @@ var Selection = class {
       return true;
     }
     const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    const step = STEPS[e.key];
+    if (step && e.shiftKey && !e.altKey && !e.metaKey && !inField) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.extendBy(step[0], step[1]);
+      return true;
+    }
     if (e.key === "Delete" && !inField && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
@@ -6935,6 +6975,20 @@ var Selection = class {
   }
   selectCells(info, anchor, focus) {
     this.selection = { key: info.key, anchor, focus };
+    this.show();
+  }
+  /** Moves the selection's last cell by rows (as shown) and columns, within the table */
+  extendBy(rows, columns) {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!selection || !info) return;
+    const shown = this.host.shownRows(info);
+    const at = shown.findIndex((tr2) => selection.focus.row === 0 ? tr2 === info.table.rows[0] : tr2.dataset.tpRow === String(selection.focus.row));
+    const tr = shown[Math.max(0, Math.min(shown.length - 1, at + rows))];
+    if (at < 0 || !tr) return;
+    const column = Math.max(0, Math.min(info.columns - 1, selection.focus.column + columns));
+    selection.focus = { row: tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow), column };
     this.show();
   }
   selected(info) {
@@ -7402,6 +7456,9 @@ var Controller = class {
   }
   selectCells(info, anchor, focus) {
     for (const feature of this.features) feature.selectCells?.(info, anchor, focus);
+  }
+  selectsCells() {
+    return this.features.some((f) => f.selectCells);
   }
   selectedCells(info) {
     for (const feature of this.features) {

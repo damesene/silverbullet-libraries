@@ -156,6 +156,8 @@ export interface TableHost {
   otherPages(): OtherPages | undefined;
   /** Selects cells, where a feature selects (Feature.selectCells) */
   selectCells(info: WidgetInfo, anchor: CellRef, focus: CellRef): void;
+  /** Whether a feature selects cells (Feature.selectCells) */
+  selectsCells(): boolean;
   /** The cells selected in a table, if a feature selects (Feature.selected) */
   selectedCells(info: WidgetInfo): readonly CellRef[];
   /** Whether a module is on (one feature serves another: pageLinks reads pages for formulas) */

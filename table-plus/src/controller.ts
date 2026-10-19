@@ -366,6 +366,10 @@ export class Controller implements TableHost {
     for (const feature of this.features) feature.selectCells?.(info, anchor, focus);
   }
 
+  selectsCells(): boolean {
+    return this.features.some((f) => f.selectCells);
+  }
+
   selectedCells(info: WidgetInfo): readonly CellRef[] {
     for (const feature of this.features) {
       const cells = feature.selected?.(info);
@@ -1036,7 +1040,7 @@ export class Controller implements TableHost {
     const ref = this.cellRef(info, cell);
     if (!ref) return;
     for (const feature of this.features) if (feature.beforeCellPress?.(widget, info, ref, e)) return;
-    // Shift+click selects the cell's text; the selectOnClick setting swaps that round
+    // The selectOnClick setting selects the cell's text; Shift the reverse (where no feature took Shift+click to select cells)
     const select = e.shiftKey !== this.cellEditor.selectOnClick;
     if (this.cellEditor.active) void this.cellEditor.finish(true, { widget, ...ref, select });
     else this.cellEditor.open(widget, info, cell, select);
