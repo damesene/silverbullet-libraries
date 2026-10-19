@@ -124,6 +124,7 @@ Type a formula into a body cell, starting with `=`: `=B1*2`, `=SUM(B1:B3)`, `=SU
 * **Point instead of typing**: where the formula expects a reference (after `=`, `(`, `,` or an operator, not inside a text in quotes), the pointer over the table becomes a move cursor: click a cell to insert it, drag across cells for a range, or click a column's header for `[Name]`. Pointing again right away replaces that reference, Shift+click extends its range. After a typed reference or another complete operand, a click ends editing as usual.
 * While you edit a formula, each reference is outlined in the table in its own color. Drag an outline's edge to move the reference, a range's corner to resize it; Esc while dragging puts it back.
 * Under the cell, the formula shows with its references in the same colors, with help for the function being typed.
+* **Tab completes a function name**: `=AVE` and Tab gives `=AVERAGE(`. It works when the name can only be one function (or is one's whole name, as `IF` next to `IFERROR`); the help shows *Tab: AVERAGE(* then. Elsewhere Tab moves to the next cell as usual.
 
 ### Operators and values
 
@@ -853,6 +854,9 @@ body.tp-autoscrolling * {
   font-weight: 600;
   white-space: pre-wrap;
   word-break: break-all;
+}
+.tp-formula-tab {
+  opacity: 0.7;
 }
 .tp-formula-help code {
   margin-right: 6px;

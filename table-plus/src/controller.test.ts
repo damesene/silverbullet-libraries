@@ -943,6 +943,23 @@ describe("Controller", () => {
       expect(text.split("\n").slice(-2)).toEqual(['| b | 5 | 2 | 10 <meta f="=[@Qty]*[@Price]"> |', ""]);
     });
 
+    it("completes a function name with Tab, and moves on with Tab otherwise", async () => {
+      await setup(TOTAL);
+      clickOn(cell(3, 1));
+      field().value = "=su";
+      field().setSelectionRange(3, 3);
+      field().dispatchEvent(new Event("input"));
+      expect(document.querySelector(".tp-formula-tab")!.textContent).toBe("Tab: SUM(");
+      key(field(), "Tab");
+      expect(field().value).toBe("=SUM(");
+      expect(field().selectionStart).toBe(5);
+      field().value = "=SUM([Qty])";
+      field().setSelectionRange(11, 11);
+      key(field(), "Tab");
+      await flush();
+      expect(text).toContain('| Total | 13 <meta f="=SUM([Qty])"> |');
+    });
+
     it("fixes a missing ) when the formula is saved, and says so", async () => {
       await setup(TOTAL);
       clickOn(cell(3, 1));

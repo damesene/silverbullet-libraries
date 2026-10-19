@@ -18,6 +18,8 @@ import {
   type Area,
   areaText,
   autofixFormula,
+  completeFunction,
+  type FunctionCompletion,
   columnByName,
   columnName,
   columnRefText,
@@ -1490,6 +1492,9 @@ export class Controller {
       } else if (e.key === "Enter") {
         e.preventDefault();
         void this.enter(e.shiftKey);
+      } else if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && this.completeFunctionName()) {
+        // A function name being typed was completed: the editor stays
+        e.preventDefault();
       } else if (e.key === "Tab") {
         e.preventDefault();
         void this.step(e.shiftKey ? -1 : 1);
@@ -1929,6 +1934,25 @@ export class Controller {
     return true;
   }
 
+  /** Tab while a function name is typed in a formula: completes it with its "(" */
+  private completeFunctionName(): boolean {
+    const active = this.editor;
+    const completion = active && active.row > 0 ? this.functionCompletion(active) : undefined;
+    if (!active || !completion) return false;
+    const field = active.field;
+    this.replaceInField(field, completion.from, completion.to, completion.text);
+    const caret = completion.from + completion.text.length;
+    field.setSelectionRange(caret, caret);
+    this.updateFormulaUi();
+    return true;
+  }
+
+  private functionCompletion(active: ActiveEditor): FunctionCompletion | undefined {
+    const field = active.field;
+    const length = field.value.length;
+    return completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+  }
+
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
   private pointingSlot(active: ActiveEditor): { from: number; to: number } | undefined {
     if (active.row === 0) return undefined;
@@ -1981,6 +2005,13 @@ export class Controller {
       description.textContent = help.description;
       item.append(syntax, description);
       hint.append(item);
+    }
+    const completion = this.functionCompletion(active);
+    if (completion) {
+      const tab = this.doc.createElement("div");
+      tab.className = "tp-formula-tab";
+      tab.textContent = `Tab: ${completion.text}`;
+      hint.append(tab);
     }
     const rect = active.cell.getBoundingClientRect();
     this.place(hint, rect.left, rect.bottom + 4);

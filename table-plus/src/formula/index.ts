@@ -904,6 +904,27 @@ export function referenceSlot(
   return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : undefined;
 }
 
+// Replacing from..to with `text` completes the function name being typed
+export type FunctionCompletion = { readonly from: number; readonly to: number; readonly text: string };
+
+/**
+ * The completion of the function name typed right before the caret: its
+ * full name and "(", when it can only be one function (or it is one's whole
+ * name, as IF next to IFERROR). Undefined in a text in quotes, for a cell
+ * name (A1), before a "(" already there, or when it is not clear.
+ */
+export function completeFunction(text: string, start: number, end: number): FunctionCompletion | undefined {
+  if (start !== end || !text.trimStart().startsWith("=")) return undefined;
+  const before = text.slice(0, start);
+  const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
+  if (!typing || /[0-9]/.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return undefined;
+  if (tokenize(before).error) return undefined;
+  const prefix = typing.toUpperCase();
+  const names = Object.keys(FUNCTIONS).filter((name) => name.startsWith(prefix));
+  const name = names.length === 1 ? names[0] : names.find((n) => n === prefix);
+  return name ? { from: start - typing.length, to: start, text: `${name}(` } : undefined;
+}
+
 /**
  * Help for the formula being typed, with the cursor at `caret`: the functions
  * whose names start with the name being typed, else the function whose

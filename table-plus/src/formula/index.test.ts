@@ -4,6 +4,7 @@ import {
   autofixFormula,
   calculatedFormula,
   columnLetters,
+  completeFunction,
   formulaCell,
   formulaErrors,
   formulaHelp,
@@ -290,6 +291,25 @@ describe("calculated columns", () => {
     expect(calculatedFormula(mixed, 3, 3)).toBeUndefined();
     const other = setCell(table, 2, 3, formulaCell("", "=[@Qty]+1"));
     expect(calculatedFormula(other, 3, 3)).toBeUndefined();
+  });
+});
+
+describe("completeFunction", () => {
+  it("completes a name that can only be one function, with its (", () => {
+    expect(completeFunction("=AVE", 4, 4)).toEqual({ from: 1, to: 4, text: "AVERAGE(" });
+    expect(completeFunction("=sum(A1)+rou", 12, 12)).toEqual({ from: 9, to: 12, text: "ROUND(" });
+    expect(completeFunction("=IF", 3, 3)).toEqual({ from: 1, to: 3, text: "IF(" });
+  });
+
+  it("leaves names that are not clear, cells, texts and existing parentheses", () => {
+    expect(completeFunction("=A", 2, 2)).toBeUndefined(); // ABS, AND, AVERAGE
+    expect(completeFunction("=A1", 3, 3)).toBeUndefined();
+    expect(completeFunction("=SUM(", 4, 4)).toBeUndefined();
+    expect(completeFunction('="AVE', 5, 5)).toBeUndefined();
+    expect(completeFunction("=[AVE", 5, 5)).toBeUndefined();
+    expect(completeFunction("=XYZ", 4, 4)).toBeUndefined();
+    expect(completeFunction("=AVERAGE", 4, 4)).toBeUndefined(); // in the middle of a name
+    expect(completeFunction("AVE", 3, 3)).toBeUndefined();
   });
 });
 

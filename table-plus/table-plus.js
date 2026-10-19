@@ -1623,6 +1623,17 @@ function referenceSlot(formula, start, end, pointed) {
   if (/^[A-Za-z0-9_.["#(]/.test(after)) return void 0;
   return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : void 0;
 }
+function completeFunction(text, start, end) {
+  if (start !== end || !text.trimStart().startsWith("=")) return void 0;
+  const before = text.slice(0, start);
+  const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
+  if (!typing || /[0-9]/.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return void 0;
+  if (tokenize(before).error) return void 0;
+  const prefix = typing.toUpperCase();
+  const names = Object.keys(FUNCTIONS).filter((name2) => name2.startsWith(prefix));
+  const name = names.length === 1 ? names[0] : names.find((n) => n === prefix);
+  return name ? { from: start - typing.length, to: start, text: `${name}(` } : void 0;
+}
 function formulaHelp(text, caret) {
   if (!text.trimStart().startsWith("=")) return [];
   const before = text.slice(0, caret);
@@ -3088,6 +3099,8 @@ ${error}` : stored.formula;
       } else if (e.key === "Enter") {
         e.preventDefault();
         void this.enter(e.shiftKey);
+      } else if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && this.completeFunctionName()) {
+        e.preventDefault();
       } else if (e.key === "Tab") {
         e.preventDefault();
         void this.step(e.shiftKey ? -1 : 1);
@@ -3472,6 +3485,23 @@ ${error}` : stored.formula;
     this.stopPointing = end;
     return true;
   }
+  /** Tab while a function name is typed in a formula: completes it with its "(" */
+  completeFunctionName() {
+    const active = this.editor;
+    const completion = active && active.row > 0 ? this.functionCompletion(active) : void 0;
+    if (!active || !completion) return false;
+    const field = active.field;
+    this.replaceInField(field, completion.from, completion.to, completion.text);
+    const caret = completion.from + completion.text.length;
+    field.setSelectionRange(caret, caret);
+    this.updateFormulaUi();
+    return true;
+  }
+  functionCompletion(active) {
+    const field = active.field;
+    const length = field.value.length;
+    return completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+  }
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
   pointingSlot(active) {
     if (active.row === 0) return void 0;
@@ -3521,6 +3551,13 @@ ${error}` : stored.formula;
       description.textContent = help.description;
       item.append(syntax, description);
       hint.append(item);
+    }
+    const completion = this.functionCompletion(active);
+    if (completion) {
+      const tab = this.doc.createElement("div");
+      tab.className = "tp-formula-tab";
+      tab.textContent = `Tab: ${completion.text}`;
+      hint.append(tab);
     }
     const rect = active.cell.getBoundingClientRect();
     this.place(hint, rect.left, rect.bottom + 4);
