@@ -21,16 +21,20 @@ import {
   columnName,
   columnRefText,
   formulaCell,
+  formulaCount,
   formulaErrors,
   formulaHelp,
   formulaOf,
   type IndexMap,
   isErrorText,
   isFormulaInput,
+  type PointedSpan,
   recalculate,
   type Reference,
+  referenceSlot,
   references,
   shiftReferences,
+  withoutFormulas,
 } from "./formula/index.ts";
 import { ICONS } from "./icons.ts";
 import {
@@ -113,6 +117,8 @@ type WidgetInfo = {
   readonly pins: Pins;
   // Some formula cells show results from before the table was changed outside Table Plus
   readonly stale: boolean;
+  // How many cells hold a formula (a <meta f> tag)
+  readonly formulas: number;
 };
 
 type ActiveEditor = {
@@ -144,6 +150,16 @@ type HandleTarget = {
 };
 
 type WriteResult = "written" | "unchanged" | "failed";
+
+/** A table without its metadata row and without formulas (their cells keep their results) */
+function withoutMetadata(table: Table): Table {
+  const { meta: _meta, metaSource: _source, ...rest } = withoutFormulas(table);
+  return rest;
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
 
 /** Where the rows of the markdown go when a row is inserted at `at` */
 function rowAfterInsert(at: number): IndexMap {
@@ -273,6 +289,9 @@ export class Controller {
   private readonly formulaHint: HTMLElement;
   private referenceMarks: HTMLElement[] = [];
   private stopReferenceDrag: (() => void) | undefined;
+  // The reference last inserted by pointing at the table, and the cell its range started at
+  private pointed: (PointedSpan & { readonly field: HTMLInputElement; readonly anchor?: CellRef }) | undefined;
+  private stopPointing: (() => void) | undefined;
 
   constructor(
     private readonly doc: Document,
@@ -335,6 +354,7 @@ export class Controller {
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
+    this.stopPointing?.();
     this.hideFormulaUi();
     for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn, this.formulaHint]) el.remove();
   }
@@ -406,14 +426,19 @@ export class Controller {
     this.focusEditor(widget);
   }
 
-  /** Removes a table's metadata row, once confirmed; its sorting stays as a view until reload */
+  /**
+   * Removes a table's metadata, once confirmed: its metadata row (its sorting
+   * stays as a view until reload) and the formulas of its cells, which keep
+   * their results as plain values
+   */
   private async removeMetadata(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
-    if (!(await this.ask("Remove this table's metadata? Ctrl+Z brings it back."))) return;
+    const removed = [
+      ...(shownInfo.metaRow ? ["its stored settings (sorting, pinning)"] : []),
+      ...(shownInfo.formulas ? [`its ${plural(shownInfo.formulas, "formula")}: those cells keep their current results as plain values`] : []),
+    ];
+    if (!(await this.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`))) return;
     const [widget] = this.current(shownWidget, shownInfo);
-    await this.write(widget, (t) => {
-      const { meta: _meta, metaSource: _source, ...rest } = t;
-      return rest;
-    });
+    await this.write(widget, withoutMetadata);
     // The dialog took the focus: back to the editor, so Ctrl+Z works right away
     this.focusEditor(widget);
   }
@@ -433,23 +458,27 @@ export class Controller {
     const text = await this.bridge.getText();
     // From the last table up, so the earlier ones keep their positions
     const tables = findTables(text)
-      .filter((range) => parseTable(range.text).meta !== undefined)
+      .filter((range) => {
+        const table = parseTable(range.text);
+        return table.meta !== undefined || formulaCount(table) > 0;
+      })
       .reverse();
     if (tables.length === 0) {
       void this.bridge.flash("Table Plus: no table on this page has metadata", "info");
       return;
     }
+    const formulas = tables.reduce((n, range) => n + formulaCount(parseTable(range.text)), 0);
     const question =
-      `Remove the metadata of all ${tables.length} ` +
-      `table${tables.length === 1 ? "" : "s"} on this page? Ctrl+Z brings it back.`;
+      `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` +
+      (formulas ? `, including ${plural(formulas, "formula")} (those cells keep their current results as plain values)` : "") +
+      "? Ctrl+Z brings it back.";
     if (!(await this.ask(question))) return;
     // One edit over the span of all those tables, so one Ctrl+Z undoes it
     const from = tables[tables.length - 1]!.from;
     const to = tables[0]!.to;
     let span = text.slice(from, to);
     for (const range of tables) {
-      const { meta: _meta, metaSource: _source, ...rest } = parseTable(range.text);
-      span = span.slice(0, range.from - from) + serializeTable(rest) + span.slice(range.to - from);
+      span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(parseTable(range.text))) + span.slice(range.to - from);
     }
     const edit = minimalEdit(text.slice(from, to), span);
     await this.bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
@@ -545,6 +574,7 @@ export class Controller {
         rows: model.rows.length,
         pins: metaPins(model),
         stale: recalculate(model) !== model,
+        formulas: formulaCount(model),
       };
       // The sorting stored in the table is the view the first time the table shows
       const stored = metaSort(model);
@@ -918,6 +948,8 @@ export class Controller {
     if (!cell || this.editor?.cell === cell) return;
     const ref = this.cellRef(info, cell);
     if (!ref) return;
+    // While a formula waits for a reference, a click or drag in its table inserts one
+    if (this.pointReference(widget, info, ref, e)) return;
     // Shift+click selects the cell's text; the selectOnClick setting swaps that round
     const select = e.shiftKey !== this.selectOnClick;
     if (this.editor) void this.finishEditing(true, { widget, ...ref, select });
@@ -1429,6 +1461,10 @@ export class Controller {
         if (this.editor?.field === field && !this.stopReferenceDrag) this.updateFormulaUi();
       });
     }
+    // Typing makes the reference just pointed at part of the formula: pointing no longer replaces it
+    field.addEventListener("keydown", (e) => {
+      if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) this.pointed = undefined;
+    });
     field.addEventListener("blur", () => {
       // Focus went elsewhere on purpose: save, but leave the focus there
       if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, undefined, false);
@@ -1468,6 +1504,8 @@ export class Controller {
     const active = this.editor;
     if (!active) return undefined;
     this.editor = undefined;
+    this.stopPointing?.();
+    this.pointed = undefined;
     this.hideFormulaUi();
     let value = this.cellValue(active);
     if (active.row === 0 && value === "" && active.original !== "") {
@@ -1770,6 +1808,8 @@ export class Controller {
       return;
     }
     const refs = references(formula);
+    // Where a reference can go, the table shows that cells can be pointed at
+    active.widget.classList.toggle("tp-pointing", this.pointingSlot(active) !== undefined);
     this.showFormulaHint(active, formula, refs);
     for (const mark of this.referenceMarks) mark.remove();
     this.referenceMarks = [];
@@ -1807,6 +1847,103 @@ export class Controller {
         this.referenceMarks.push(mark);
       });
     });
+  }
+
+  /**
+   * Pointing, as in a spreadsheet: while a formula is edited and its caret is
+   * where a reference can go, a click on a cell of the same table inserts the
+   * cell (A1), a drag the range (A1:B3), a click on a header the column
+   * ([Qty]). Pointing again replaces the reference just inserted. Returns
+   * whether the click was taken.
+   */
+  private pointReference(widget: HTMLElement, info: WidgetInfo, cell: CellRef, e: MouseEvent): boolean {
+    const active = this.editor;
+    if (!active || active.widget !== widget) return false;
+    const slot = this.pointingSlot(active);
+    if (!slot) return false;
+    this.stopPointing?.();
+    const field = active.field;
+    let span = slot;
+    const put = (text: string, anchor?: CellRef) => {
+      this.replaceInField(field, span.from, span.to, text);
+      span = { from: span.from, to: span.from + text.length };
+      field.setSelectionRange(span.to, span.to);
+      this.pointed = { field, ...span, text, anchor };
+      this.updateFormulaUi();
+    };
+    if (cell.row === 0) {
+      const header = parseTable(info.source).rows[0]?.cells[cell.column] ?? "";
+      const text = columnRefText(columnName(header), false);
+      // A header whose name cannot be a reference: the click is taken, but inserts nothing
+      if (text) put(text);
+      return true;
+    }
+    // Shift+click extends the range just pointed at, from the cell it started at
+    const last = this.pointed;
+    const anchor =
+      e.shiftKey && last?.field === field && last.anchor && last.from === slot.from
+        ? last.anchor
+        : { row: cell.row - 1, column: cell.column };
+    const areaTo = (to: CellRef): Area => ({
+      top: Math.min(anchor.row, to.row),
+      left: Math.min(anchor.column, to.column),
+      bottom: Math.max(anchor.row, to.row),
+      right: Math.max(anchor.column, to.column),
+    });
+    put(areaText(areaTo({ row: cell.row - 1, column: cell.column })), anchor);
+    // Dragging with the button held makes it a range; it ends with the button,
+    // a key, the window losing focus or the editor closing
+    const win = this.doc.defaultView!;
+    const end = () => {
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", up, true);
+      win.removeEventListener("keydown", end, true);
+      win.removeEventListener("blur", end);
+      this.stopPointing = undefined;
+    };
+    const move = (ev: MouseEvent) => {
+      if (this.editor?.field !== field || ev.buttons === 0) {
+        end();
+        return;
+      }
+      const to = this.bodyCellAt(info, ev.clientX, ev.clientY);
+      const text = to && areaText(areaTo(to));
+      if (text && text !== field.value.slice(span.from, span.to)) put(text, anchor);
+    };
+    const up = () => {
+      end();
+      if (this.editor?.field === field) field.focus({ preventScroll: true });
+    };
+    win.addEventListener("mousemove", move, true);
+    win.addEventListener("mouseup", up, true);
+    win.addEventListener("keydown", end, true);
+    win.addEventListener("blur", end);
+    this.stopPointing = end;
+    return true;
+  }
+
+  /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
+  private pointingSlot(active: ActiveEditor): { from: number; to: number } | undefined {
+    if (active.row === 0) return undefined;
+    const field = active.field;
+    const length = field.value.length;
+    const pointed = this.pointed?.field === field ? this.pointed : undefined;
+    return referenceSlot(field.value, field.selectionStart ?? length, field.selectionEnd ?? length, pointed);
+  }
+
+  /**
+   * Replaces part of the field's text, as typing would where the browser
+   * allows it (so Ctrl+Z in the field undoes it), else directly
+   */
+  private replaceInField(field: HTMLInputElement, from: number, to: number, text: string): void {
+    const expected = field.value.slice(0, from) + text + field.value.slice(to);
+    field.setSelectionRange(from, to);
+    try {
+      if (typeof this.doc.execCommand === "function") this.doc.execCommand("insertText", false, text);
+    } catch {
+      // Not supported: set directly below
+    }
+    if (field.value !== expected) field.value = expected;
   }
 
   /** The formula with its references in their colors, and help for what is typed */
@@ -1848,6 +1985,7 @@ export class Controller {
 
   private hideFormulaUi(): void {
     this.stopReferenceDrag?.();
+    for (const widget of Array.from(this.doc.querySelectorAll(".tp-pointing"))) widget.classList.remove("tp-pointing");
     this.formulaHint.classList.remove("tp-visible");
     for (const mark of this.referenceMarks) mark.remove();
     this.referenceMarks = [];
@@ -1976,7 +2114,7 @@ export class Controller {
       const current = references(field.value)[index];
       const text = cell && current && textFor(cell);
       if (!text || !current || field.value.slice(current.from, current.to) === text) return;
-      field.value = field.value.slice(0, current.from) + text + field.value.slice(current.to);
+      this.replaceInField(field, current.from, current.to, text);
       const caret = current.from + text.length;
       field.setSelectionRange(caret, caret);
       this.updateFormulaUi();
@@ -2357,9 +2495,11 @@ export class Controller {
         () => void this.write(this.current(widget, info)[0], (t) => t),
       );
     }
-    if (info.metaRow) {
-      button("Remove metadata", "Remove this table's stored settings (sorting, pinning): its <meta> row", () =>
-        void this.removeMetadata(widget, info),
+    if (info.metaRow || info.formulas) {
+      button(
+        "Remove metadata",
+        "Remove this table's <meta> tags: its stored settings (sorting, pinning) and the formulas of its cells, which keep their results",
+        () => void this.removeMetadata(widget, info),
       );
     }
     button("Edit markdown", "Show this table as markdown", () => void this.showMarkdown(this.current(widget, info)[1]));

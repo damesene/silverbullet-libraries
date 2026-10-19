@@ -589,6 +589,36 @@ describe("Controller", () => {
       expect(flashes).toEqual(["Table Plus: removed the metadata of 2 table(s)"]);
     });
 
+    it("removes formulas with the metadata, keeping their results, and says so", async () => {
+      const page = '| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta f="=SUM([Qty])"> |\n| <meta sort="Qty:desc"> |\n';
+      await setup(page);
+      const questions: string[] = [];
+      (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+        questions.push(message);
+        return true;
+      };
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button"))
+        .find((b) => b.textContent === "Remove metadata")!
+        .click();
+      await flush();
+      expect(questions[0]).toContain("its stored settings (sorting, pinning), and its 1 formula: those cells keep their current results");
+      expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n");
+
+      // A table with formulas only: the button shows, and the command counts it
+      controller.stop();
+      document.body.replaceChildren();
+      await setup('| A |\n|---|\n| 1 |\n| 2 <meta f="=A1*2"> |\n');
+      const asked: string[] = [];
+      (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+        asked.push(message);
+        return true;
+      };
+      await controller.removeAllMetadata();
+      expect(asked[0]).toContain("the 1 table on this page, including 1 formula (those cells keep their current results");
+      expect(text).toBe("| A |\n|---|\n| 1 |\n| 2 |\n");
+    });
+
     it("keeps the metadata row last and follows a renamed column", async () => {
       await setup(META_PAGE);
       clickOn(cell(0, 1)); // the Qty header
@@ -992,6 +1022,85 @@ describe("Controller", () => {
         pointer(window, "pointerup", 150, 30);
         expect(document.activeElement).toBe(field());
         key(field(), "Enter");
+        await flush();
+        expect(text).toContain('| Total | 13 <meta f="=SUM(B1:B2)"> |');
+      });
+
+      it("inserts a cell, a dragged range or a clicked column where the formula expects a reference", async () => {
+        await setup(TOTAL);
+        clickOn(cell(3, 1));
+        field().value = "=SUM(";
+        field().setSelectionRange(5, 5);
+        // Press on B1 (y 20–40), drag to B2, release
+        press(cell(1, 1), "mousedown", { clientX: 150, clientY: 30 });
+        expect(field().value).toBe("=SUM(B1");
+        window.dispatchEvent(new MouseEvent("mousemove", { buttons: 1, clientX: 150, clientY: 50 }));
+        window.dispatchEvent(new MouseEvent("mouseup", { clientX: 150, clientY: 50 }));
+        expect(field().value).toBe("=SUM(B1:B2");
+        expect(document.querySelector(".tp-cell-editor")).not.toBeNull();
+        // Pointing again replaces the reference just inserted
+        press(cell(2, 0), "mousedown", { clientX: 50, clientY: 50 });
+        window.dispatchEvent(new MouseEvent("mouseup"));
+        expect(field().value).toBe("=SUM(A2");
+        // After a comma, a click on the header inserts the column
+        field().value = "=SUM(A2, ";
+        field().setSelectionRange(9, 9);
+        press(cell(0, 1), "mousedown", { clientX: 150, clientY: 10 });
+        window.dispatchEvent(new MouseEvent("mouseup"));
+        expect(field().value).toBe("=SUM(A2, [Qty]");
+        field().value += ")";
+        key(field(), "Enter");
+        await flush();
+        expect(text).toContain('| Total | 13 <meta f="=SUM(A2, [Qty])"> |');
+      });
+
+      it("shows that cells can be pointed at, extends with Shift+click and stops a drag when editing ends", async () => {
+        await setup(TOTAL);
+        const widget = () => editor.querySelector<HTMLElement>(".sb-table-widget")!;
+        clickOn(cell(3, 1));
+        field().value = "=SUM(";
+        field().setSelectionRange(5, 5);
+        field().dispatchEvent(new Event("input"));
+        expect(widget().classList.contains("tp-pointing")).toBe(true);
+        press(cell(1, 1), "mousedown", { clientX: 150, clientY: 30 });
+        window.dispatchEvent(new MouseEvent("mouseup"));
+        press(cell(2, 1), "mousedown", { clientX: 150, clientY: 50, shiftKey: true });
+        window.dispatchEvent(new MouseEvent("mouseup"));
+        expect(field().value).toBe("=SUM(B1:B2");
+        // Typing makes it part of the formula: no more pointing after it
+        key(field(), ")");
+        field().value = "=SUM(B1:B2)";
+        field().setSelectionRange(11, 11);
+        field().dispatchEvent(new Event("input"));
+        expect(widget().classList.contains("tp-pointing")).toBe(false);
+        // A drag whose editor closes stops changing anything
+        field().value = "=SUM(B1:B2)+";
+        field().setSelectionRange(12, 12);
+        press(cell(1, 0), "mousedown", { clientX: 50, clientY: 30 });
+        expect(field().value).toBe("=SUM(B1:B2)+A1");
+        const closed = field();
+        key(closed, "Escape");
+        window.dispatchEvent(new MouseEvent("mousemove", { buttons: 1, clientX: 50, clientY: 50 }));
+        expect(closed.value).toBe("=SUM(B1:B2)+A1");
+        expect(widget().classList.contains("tp-pointing")).toBe(false);
+      });
+
+      it("ends editing after a typed reference instead of replacing it", async () => {
+        await setup(TOTAL);
+        clickOn(cell(3, 1));
+        field().value = "=B1+B2";
+        field().setSelectionRange(6, 6);
+        clickOn(cell(1, 0));
+        await flush();
+        expect(text).toContain('| Total | 13 <meta f="=B1+B2"> |');
+      });
+
+      it("ends editing as before when a click comes after a complete operand", async () => {
+        await setup(TOTAL);
+        clickOn(cell(3, 1));
+        field().value = "=SUM(B1:B2)";
+        field().setSelectionRange(11, 11);
+        clickOn(cell(1, 0));
         await flush();
         expect(text).toContain('| Total | 13 <meta f="=SUM(B1:B2)"> |');
       });

@@ -11,6 +11,7 @@ import {
   recalculate,
   references,
   REFERENCE_HELP,
+  referenceSlot,
   shiftReferences,
 } from "./index.ts";
 import { parseMetaRow, parseTable, serializeTable, splitRow } from "../markdown.ts";
@@ -259,6 +260,53 @@ describe("references", () => {
     expect(columnLetters(26)).toBe("AA");
     expect(areaText({ top: 0, left: 1, bottom: 0, right: 1 })).toBe("B1");
     expect(areaText({ top: 0, left: 1, bottom: 4, right: 2 })).toBe("B1:C5");
+  });
+});
+
+describe("referenceSlot", () => {
+  it("takes a reference where an operand can go", () => {
+    expect(referenceSlot("=", 1, 1)).toEqual({ from: 1, to: 1 });
+    expect(referenceSlot("=SUM(", 5, 5)).toEqual({ from: 5, to: 5 });
+    expect(referenceSlot("=SUM(A1, ", 9, 9)).toEqual({ from: 9, to: 9 });
+    expect(referenceSlot("=A1*", 4, 4)).toEqual({ from: 4, to: 4 });
+  });
+
+  it("replaces the reference just pointed at while the caret is after it", () => {
+    const pointed = { from: 5, to: 10, text: "A1:B2" };
+    expect(referenceSlot("=SUM(A1:B2", 10, 10, pointed)).toEqual({ from: 5, to: 10 });
+    // Typed references are operands: a click after them ends editing
+    expect(referenceSlot("=SUM(A1:B2", 10, 10)).toBeUndefined();
+    expect(referenceSlot("=B1+B2", 6, 6)).toBeUndefined();
+    // Changed since it was pointed at, or the caret moved: no longer the pointed reference
+    expect(referenceSlot("=SUM(A1:B3", 10, 10, pointed)).toBeUndefined();
+    expect(referenceSlot("=SUM(A1:B2", 7, 7, pointed)).toBeUndefined();
+  });
+
+  it("replaces a selected operand", () => {
+    expect(referenceSlot("=A1+B1", 1, 3)).toEqual({ from: 1, to: 3 });
+  });
+
+  it("handles spaces, unary minus and operators", () => {
+    expect(referenceSlot("= ", 2, 2)).toEqual({ from: 2, to: 2 });
+    expect(referenceSlot("=-", 2, 2)).toEqual({ from: 2, to: 2 });
+    expect(referenceSlot("=A1 ", 4, 4)).toBeUndefined();
+    expect(referenceSlot("=A1%", 4, 4)).toBeUndefined();
+    expect(referenceSlot("=A1:", 4, 4)).toBeUndefined();
+  });
+
+  it("takes none in a text in quotes", () => {
+    expect(referenceSlot('="a+', 4, 4)).toBeUndefined();
+    expect(referenceSlot('="a()"', 4, 4)).toBeUndefined();
+    expect(referenceSlot('="x, , y"', 5, 5)).toBeUndefined();
+    expect(referenceSlot('="x"&', 5, 5)).toEqual({ from: 5, to: 5 });
+  });
+
+  it("takes none after an operand, before one, or outside a formula", () => {
+    expect(referenceSlot("=SUM(A1)", 8, 8)).toBeUndefined();
+    expect(referenceSlot("=12", 3, 3)).toBeUndefined();
+    expect(referenceSlot("text", 4, 4)).toBeUndefined();
+    expect(referenceSlot("=SUM(A1", 5, 5)).toBeUndefined();
+    expect(referenceSlot("=[Qty", 3, 3)).toBeUndefined();
   });
 });
 

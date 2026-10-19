@@ -1435,6 +1435,20 @@ function recalculate(table) {
   });
   return result;
 }
+function formulaCount(table) {
+  return table.rows.reduce((n, row, r) => n + (r === 0 ? 0 : row.cells.filter((cell) => formulaOf(cell)).length), 0);
+}
+function withoutFormulas(table) {
+  let result = table;
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.cells.forEach((cell, c) => {
+      const stored = formulaOf(cell);
+      if (stored) result = setCell(result, r, c, stored.value);
+    });
+  });
+  return result;
+}
 function formulaErrors(table) {
   const errors = /* @__PURE__ */ new Map();
   if (!hasFormulas(table)) return errors;
@@ -1522,8 +1536,20 @@ function shiftReferences(before, after, rowMap, columnMap) {
 }
 var REFERENCE_HELP = {
   syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column]",
-  description: "A cell (A1 is the first row under the header), a range, a whole column by its name, or that column in this row."
+  description: "A cell (A1 is the first row under the header), a range, a whole column by its name, or that column in this row. Click or drag in the table to insert one, click a header for its column."
 };
+var BEFORE_OPERAND = /* @__PURE__ */ new Set(["=", "(", ",", ";", "+", "-", "*", "/", "^", "&", "<", ">"]);
+function referenceSlot(formula, start, end, pointed) {
+  if (!formula.trimStart().startsWith("=")) return void 0;
+  if (pointed && start === pointed.to && end === pointed.to && formula.slice(pointed.from, pointed.to) === pointed.text) {
+    return { from: pointed.from, to: pointed.to };
+  }
+  if (tokenize(formula.slice(0, start)).error) return void 0;
+  const before = formula.slice(0, start).trimEnd();
+  const after = formula.slice(end).trimStart();
+  if (/^[A-Za-z0-9_.["#(]/.test(after)) return void 0;
+  return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : void 0;
+}
 function formulaHelp(text, caret) {
   if (!text.trimStart().startsWith("=")) return [];
   const before = text.slice(0, caret);
@@ -1835,6 +1861,13 @@ function pinColumn(pins, columns, column, pin) {
 }
 
 // table-plus/src/controller.ts
+function withoutMetadata(table) {
+  const { meta: _meta, metaSource: _source, ...rest } = withoutFormulas(table);
+  return rest;
+}
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
 function rowAfterInsert(at) {
   return (r) => r >= at ? r + 1 : r;
 }
@@ -1946,6 +1979,9 @@ var Controller = class {
   formulaHint;
   referenceMarks = [];
   stopReferenceDrag;
+  // The reference last inserted by pointing at the table, and the cell its range started at
+  pointed;
+  stopPointing;
   setBridge(bridge) {
     this.bridge = bridge;
   }
@@ -1986,6 +2022,7 @@ var Controller = class {
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.stopAutoscroll?.();
     this.closeMenu(false);
+    this.stopPointing?.();
     this.hideFormulaUi();
     for (const el of [this.bar, this.rowGrip, this.columnGrip, this.addRow, this.addColumn, this.formulaHint]) el.remove();
   }
@@ -2048,14 +2085,19 @@ var Controller = class {
     );
     this.focusEditor(widget);
   }
-  /** Removes a table's metadata row, once confirmed; its sorting stays as a view until reload */
+  /**
+   * Removes a table's metadata, once confirmed: its metadata row (its sorting
+   * stays as a view until reload) and the formulas of its cells, which keep
+   * their results as plain values
+   */
   async removeMetadata(shownWidget, shownInfo) {
-    if (!await this.ask("Remove this table's metadata? Ctrl+Z brings it back.")) return;
+    const removed = [
+      ...shownInfo.metaRow ? ["its stored settings (sorting, pinning)"] : [],
+      ...shownInfo.formulas ? [`its ${plural(shownInfo.formulas, "formula")}: those cells keep their current results as plain values`] : []
+    ];
+    if (!await this.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
     const [widget] = this.current(shownWidget, shownInfo);
-    await this.write(widget, (t) => {
-      const { meta: _meta, metaSource: _source, ...rest } = t;
-      return rest;
-    });
+    await this.write(widget, withoutMetadata);
     this.focusEditor(widget);
   }
   /**
@@ -2070,19 +2112,22 @@ var Controller = class {
   /** Removes the metadata rows of all tables on the current page, once confirmed */
   async removeAllMetadata() {
     const text = await this.bridge.getText();
-    const tables = findTables(text).filter((range) => parseTable(range.text).meta !== void 0).reverse();
+    const tables = findTables(text).filter((range) => {
+      const table = parseTable(range.text);
+      return table.meta !== void 0 || formulaCount(table) > 0;
+    }).reverse();
     if (tables.length === 0) {
       void this.bridge.flash("Table Plus: no table on this page has metadata", "info");
       return;
     }
-    const question = `Remove the metadata of all ${tables.length} table${tables.length === 1 ? "" : "s"} on this page? Ctrl+Z brings it back.`;
+    const formulas = tables.reduce((n, range) => n + formulaCount(parseTable(range.text)), 0);
+    const question = `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` + (formulas ? `, including ${plural(formulas, "formula")} (those cells keep their current results as plain values)` : "") + "? Ctrl+Z brings it back.";
     if (!await this.ask(question)) return;
     const from = tables[tables.length - 1].from;
     const to = tables[0].to;
     let span = text.slice(from, to);
     for (const range of tables) {
-      const { meta: _meta, metaSource: _source, ...rest } = parseTable(range.text);
-      span = span.slice(0, range.from - from) + serializeTable(rest) + span.slice(range.to - from);
+      span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(parseTable(range.text))) + span.slice(range.to - from);
     }
     const edit = minimalEdit(text.slice(from, to), span);
     await this.bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
@@ -2168,7 +2213,8 @@ var Controller = class {
         metaRow: model.meta !== void 0,
         rows: model.rows.length,
         pins: metaPins(model),
-        stale: recalculate(model) !== model
+        stale: recalculate(model) !== model,
+        formulas: formulaCount(model)
       };
       const stored = metaSort(model);
       if (stored && !this.views.has(info.key)) this.views.set(info.key, withSort(DEFAULT_VIEW, stored.column, stored.direction));
@@ -2505,6 +2551,7 @@ ${error}` : stored.formula;
     if (!cell || this.editor?.cell === cell) return;
     const ref = this.cellRef(info, cell);
     if (!ref) return;
+    if (this.pointReference(widget, info, ref, e)) return;
     const select = e.shiftKey !== this.selectOnClick;
     if (this.editor) void this.finishEditing(true, { widget, ...ref, select });
     else this.openEditor(widget, info, cell, select);
@@ -2943,6 +2990,9 @@ ${error}` : stored.formula;
         if (this.editor?.field === field && !this.stopReferenceDrag) this.updateFormulaUi();
       });
     }
+    field.addEventListener("keydown", (e) => {
+      if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) this.pointed = void 0;
+    });
     field.addEventListener("blur", () => {
       if (this.editor?.field === field && !this.movingRows) void this.finishEditing(true, void 0, false);
     });
@@ -2980,6 +3030,8 @@ ${error}` : stored.formula;
     const active = this.editor;
     if (!active) return void 0;
     this.editor = void 0;
+    this.stopPointing?.();
+    this.pointed = void 0;
     this.hideFormulaUi();
     let value = this.cellValue(active);
     if (active.row === 0 && value === "" && active.original !== "") {
@@ -3240,6 +3292,7 @@ ${error}` : stored.formula;
       return;
     }
     const refs = references(formula);
+    active.widget.classList.toggle("tp-pointing", this.pointingSlot(active) !== void 0);
     this.showFormulaHint(active, formula, refs);
     for (const mark of this.referenceMarks) mark.remove();
     this.referenceMarks = [];
@@ -3276,6 +3329,92 @@ ${error}` : stored.formula;
         this.referenceMarks.push(mark);
       });
     });
+  }
+  /**
+   * Pointing, as in a spreadsheet: while a formula is edited and its caret is
+   * where a reference can go, a click on a cell of the same table inserts the
+   * cell (A1), a drag the range (A1:B3), a click on a header the column
+   * ([Qty]). Pointing again replaces the reference just inserted. Returns
+   * whether the click was taken.
+   */
+  pointReference(widget, info, cell, e) {
+    const active = this.editor;
+    if (!active || active.widget !== widget) return false;
+    const slot = this.pointingSlot(active);
+    if (!slot) return false;
+    this.stopPointing?.();
+    const field = active.field;
+    let span = slot;
+    const put = (text, anchor2) => {
+      this.replaceInField(field, span.from, span.to, text);
+      span = { from: span.from, to: span.from + text.length };
+      field.setSelectionRange(span.to, span.to);
+      this.pointed = { field, ...span, text, anchor: anchor2 };
+      this.updateFormulaUi();
+    };
+    if (cell.row === 0) {
+      const header = parseTable(info.source).rows[0]?.cells[cell.column] ?? "";
+      const text = columnRefText(columnName(header), false);
+      if (text) put(text);
+      return true;
+    }
+    const last = this.pointed;
+    const anchor = e.shiftKey && last?.field === field && last.anchor && last.from === slot.from ? last.anchor : { row: cell.row - 1, column: cell.column };
+    const areaTo = (to) => ({
+      top: Math.min(anchor.row, to.row),
+      left: Math.min(anchor.column, to.column),
+      bottom: Math.max(anchor.row, to.row),
+      right: Math.max(anchor.column, to.column)
+    });
+    put(areaText(areaTo({ row: cell.row - 1, column: cell.column })), anchor);
+    const win = this.doc.defaultView;
+    const end = () => {
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", up, true);
+      win.removeEventListener("keydown", end, true);
+      win.removeEventListener("blur", end);
+      this.stopPointing = void 0;
+    };
+    const move = (ev) => {
+      if (this.editor?.field !== field || ev.buttons === 0) {
+        end();
+        return;
+      }
+      const to = this.bodyCellAt(info, ev.clientX, ev.clientY);
+      const text = to && areaText(areaTo(to));
+      if (text && text !== field.value.slice(span.from, span.to)) put(text, anchor);
+    };
+    const up = () => {
+      end();
+      if (this.editor?.field === field) field.focus({ preventScroll: true });
+    };
+    win.addEventListener("mousemove", move, true);
+    win.addEventListener("mouseup", up, true);
+    win.addEventListener("keydown", end, true);
+    win.addEventListener("blur", end);
+    this.stopPointing = end;
+    return true;
+  }
+  /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
+  pointingSlot(active) {
+    if (active.row === 0) return void 0;
+    const field = active.field;
+    const length = field.value.length;
+    const pointed = this.pointed?.field === field ? this.pointed : void 0;
+    return referenceSlot(field.value, field.selectionStart ?? length, field.selectionEnd ?? length, pointed);
+  }
+  /**
+   * Replaces part of the field's text, as typing would where the browser
+   * allows it (so Ctrl+Z in the field undoes it), else directly
+   */
+  replaceInField(field, from, to, text) {
+    const expected = field.value.slice(0, from) + text + field.value.slice(to);
+    field.setSelectionRange(from, to);
+    try {
+      if (typeof this.doc.execCommand === "function") this.doc.execCommand("insertText", false, text);
+    } catch {
+    }
+    if (field.value !== expected) field.value = expected;
   }
   /** The formula with its references in their colors, and help for what is typed */
   showFormulaHint(active, formula, refs) {
@@ -3315,6 +3454,7 @@ ${error}` : stored.formula;
   }
   hideFormulaUi() {
     this.stopReferenceDrag?.();
+    for (const widget of Array.from(this.doc.querySelectorAll(".tp-pointing"))) widget.classList.remove("tp-pointing");
     this.formulaHint.classList.remove("tp-visible");
     for (const mark of this.referenceMarks) mark.remove();
     this.referenceMarks = [];
@@ -3431,7 +3571,7 @@ ${error}` : stored.formula;
       const current = references(field.value)[index];
       const text = cell && current && textFor(cell);
       if (!text || !current || field.value.slice(current.from, current.to) === text) return;
-      field.value = field.value.slice(0, current.from) + text + field.value.slice(current.to);
+      this.replaceInField(field, current.from, current.to, text);
       const caret = current.from + text.length;
       field.setSelectionRange(caret, caret);
       this.updateFormulaUi();
@@ -3748,10 +3888,10 @@ ${error}` : stored.formula;
         () => void this.write(this.current(widget, info)[0], (t) => t)
       );
     }
-    if (info.metaRow) {
+    if (info.metaRow || info.formulas) {
       button(
         "Remove metadata",
-        "Remove this table's stored settings (sorting, pinning): its <meta> row",
+        "Remove this table's <meta> tags: its stored settings (sorting, pinning) and the formulas of its cells, which keep their results",
         () => void this.removeMetadata(widget, info)
       );
     }

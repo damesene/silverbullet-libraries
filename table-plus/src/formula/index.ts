@@ -630,6 +630,24 @@ export function recalculate(table: Table): Table {
   return result;
 }
 
+/** How many cells of the table hold a formula */
+export function formulaCount(table: Table): number {
+  return table.rows.reduce((n, row, r) => n + (r === 0 ? 0 : row.cells.filter((cell) => formulaOf(cell)).length), 0);
+}
+
+/** The table with every formula removed: its cells keep their results as plain values */
+export function withoutFormulas(table: Table): Table {
+  let result = table;
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.cells.forEach((cell, c) => {
+      const stored = formulaOf(cell);
+      if (stored) result = setCell(result, r, c, stored.value);
+    });
+  });
+  return result;
+}
+
 /** Why formula cells show errors: "row,column" (rows of the markdown, header 0) → code and detail */
 export function formulaErrors(table: Table): Map<string, string> {
   const errors = new Map<string, string>();
@@ -750,8 +768,41 @@ export type FormulaHelp = { readonly syntax: string; readonly description: strin
 export const REFERENCE_HELP: FormulaHelp = {
   syntax: "A1 · A1:B3 · [Column] · [@Column]",
   description:
-    "A cell (A1 is the first row under the header), a range, a whole column by its name, or that column in this row.",
+    "A cell (A1 is the first row under the header), a range, a whole column by its name, or that column in this row. Click or drag in the table to insert one, click a header for its column.",
 };
+
+// After these a reference can follow: clicking the table inserts one there
+const BEFORE_OPERAND = new Set(["=", "(", ",", ";", "+", "-", "*", "/", "^", "&", "<", ">"]);
+
+// A reference inserted by pointing at the table, and where it was inserted
+export type PointedSpan = { readonly from: number; readonly to: number; readonly text: string };
+
+/**
+ * Where a reference pointed at in the table goes, with the field's selection
+ * from `start` to `end`: the reference just pointed at while the caret is
+ * still after it (pointing again replaces it), else the selection when an
+ * operand can go there (after "=", "(", "," or an operator, not in a text in
+ * quotes). Undefined: the caret is after an operand, so a click in the table
+ * ends editing instead.
+ */
+export function referenceSlot(
+  formula: string,
+  start: number,
+  end: number,
+  pointed?: PointedSpan,
+): { from: number; to: number } | undefined {
+  if (!formula.trimStart().startsWith("=")) return undefined;
+  if (pointed && start === pointed.to && end === pointed.to && formula.slice(pointed.from, pointed.to) === pointed.text) {
+    return { from: pointed.from, to: pointed.to };
+  }
+  // In a text in quotes (or after something that is not a formula) a reference does not belong
+  if (tokenize(formula.slice(0, start)).error) return undefined;
+  const before = formula.slice(0, start).trimEnd();
+  // Right before another operand ("=SUM(|A1"), a reference would run into it
+  const after = formula.slice(end).trimStart();
+  if (/^[A-Za-z0-9_.["#(]/.test(after)) return undefined;
+  return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : undefined;
+}
 
 /**
  * Help for the formula being typed, with the cursor at `caret`: the functions

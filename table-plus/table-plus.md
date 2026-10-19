@@ -119,6 +119,7 @@ Type a formula into a body cell, starting with `=`: `=B1*2`, `=SUM(B1:B3)`, `=SU
 * Edits made in the markdown do not change references. `[Qty]` and `[@Qty]` are not affected by added or moved rows at all, so they are the safest choice for totals.
 * `A1` counts rows in the markdown, not as a sorting or filter shows them.
 * Not supported: absolute references (`$A$1`) and references to other tables.
+* **Point instead of typing**: where the formula expects a reference (after `=`, `(`, `,` or an operator, not inside a text in quotes), the pointer over the table becomes a move cursor: click a cell to insert it, drag across cells for a range, or click a column's header for `[Name]`. Pointing again right away replaces that reference, Shift+click extends its range. After a typed reference or another complete operand, a click ends editing as usual.
 * While you edit a formula, each reference is outlined in the table in its own color. Drag an outline's edge to move the reference, a range's corner to resize it; Esc while dragging puts it back.
 * Under the cell, the formula shows with its references in the same colors, with help for the function being typed.
 
@@ -250,7 +251,7 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 * The sorting is stored by column name: `Qty:desc`. With several columns of the same name, the occurrence is added: `Qty:desc:2` is the second column named Qty. It follows its column when the column is renamed or moved, and is removed with it.
 * When the sorting is cleared and nothing is pinned, the row is removed.
 * With the setting off, a table without a `<meta>` row gets none. A table with one keeps using it: its sorting is still stored, and its rows and columns can be unpinned, but nothing new can be pinned. When the row is left empty, it is removed.
-* To remove metadata: *Remove metadata* in a table's toolbar removes that table's row; the *Table Plus: Remove table metadata* command removes the rows of all tables on the page (it says how many). Both ask first, and one Ctrl+Z brings the rows back.
+* To remove metadata: *Remove metadata* in a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
 * SilverBullet indexes the row like any other: a query over the table's rows (`index.tag "table"`) also returns it, with the `<meta …>` text in its first column.
 
 ## How your markdown is kept
@@ -817,6 +818,10 @@ body.tp-autoscrolling * {
 }
 
 /* Formulas */
+/* While a formula waits for a reference, cells can be pointed at */
+.sb-table-widget.tp-table.tp-pointing td:not(.tp-editing) {
+  cursor: move;
+}
 /* A formula's result: a dotted underline (not while the cell is edited) */
 .sb-table-widget.tp-table td.tp-formula:not(.tp-editing) {
   text-decoration: underline dotted color-mix(in srgb, var(--ui-accent-color) 75%, transparent);
