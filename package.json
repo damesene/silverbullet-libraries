@@ -7,7 +7,8 @@
     "watch": "node scripts/build.mjs --watch",
     "deploy": "node scripts/deploy.mjs",
     "check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "playground": "node scripts/playground.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

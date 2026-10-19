@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Table Plus playground</title>
+    <link rel="stylesheet" href="playground.css" />
+  </head>
+  <body>
+    <header>
+      <strong>Table Plus playground</strong>
+      <span class="hint">Mock SilverBullet: markdown on the left, rendered page on the right</span>
+      <span class="spacer"></span>
+      <button id="reset" type="button">Reset sample</button>
+      <button id="theme" type="button">Dark / light</button>
+    </header>
+    <aside id="settings"></aside>
+    <main>
+      <section class="pane">
+        <h2>Markdown</h2>
+        <textarea id="source" spellcheck="false"></textarea>
+      </section>
+      <section class="pane">
+        <h2>Page</h2>
+        <div id="scroller">
+          <div id="page" class="cm-content" tabindex="0"></div>
+        </div>
+      </section>
+    </main>
+    <div id="flash"></div>
+    <script type="module" src="playground.js"></script>
+  </body>
+</html>

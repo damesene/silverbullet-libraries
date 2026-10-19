@@ -1,0 +1,292 @@
+// A page without SilverBullet: markdown in a textarea, tables rendered the way
+// SilverBullet renders them, and Table Plus on top through a mock Bridge.
+import type { Bridge } from "../table-plus/src/bridge.ts";
+import { SETTINGS } from "../table-plus/src/bridge.ts";
+import { init } from "../table-plus/src/index.ts";
+import { findTables, parseTable } from "../table-plus/src/markdown.ts";
+import libraryPage from "../table-plus/table-plus.md";
+import sample from "./sample.md";
+
+const TEXT_KEY = "tablePlusPlayground.text";
+const SETTINGS_KEY = "tablePlusPlayground.settings";
+const THEME_KEY = "tablePlusPlayground.theme";
+
+const source = document.querySelector<HTMLTextAreaElement>("#source")!;
+const page = document.querySelector<HTMLElement>("#page")!;
+const flashBox = document.querySelector<HTMLElement>("#flash")!;
+
+function load(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function save(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage blocked: the playground still works, it just forgets
+  }
+}
+
+// The library page's space-style block, as SilverBullet would apply it
+const style = /```space-style\r?\n([\s\S]*?)```/.exec(libraryPage)?.[1] ?? "";
+document.head.append(Object.assign(document.createElement("style"), { textContent: style }));
+
+// --- Rendering, as SilverBullet does it --------------------------------------
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+}
+
+function inline(text: string): string {
+  const meta = /^<meta\b[^>]*>$/i.exec(text.trim());
+  if (meta) return text.trim();
+  return escapeHtml(text.replaceAll("\\|", "|"))
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[\[([^\]]+)\]\]/g, '<a data-ref="$1">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
+    .replace(/(^|\s)_([^_]+)_/g, "$1<em>$2</em>");
+}
+
+function renderTable(from: number, text: string): HTMLElement {
+  const model = parseTable(text);
+  const lineStarts: number[] = [];
+  let offset = from;
+  for (const line of text.split("\n")) {
+    lineStarts.push(offset);
+    offset += line.length + 1;
+  }
+  const widget = document.createElement("span");
+  widget.className = "sb-table-widget";
+  // A click shows the table's markdown
+  widget.addEventListener("click", () => moveCursor(from));
+  const table = document.createElement("table");
+  // SilverBullet leaves the position out for a table at the very start of the page
+  if (from > 0) table.dataset.pos = String(from);
+  const thead = document.createElement("thead");
+  const tbody = document.createElement("tbody");
+  model.rows.forEach((row, r) => {
+    const tr = document.createElement("tr");
+    // Source lines: header, delimiter, then body rows
+    tr.dataset.pos = String(lineStarts[r === 0 ? 0 : r + 1]);
+    row.cells.forEach((cell, c) => {
+      // SilverBullet leaves out empty header cells
+      if (r === 0 && cell.trim() === "") return;
+      const td = document.createElement("td");
+      const align = model.align[c];
+      if (align) td.style.textAlign = align;
+      td.innerHTML = inline(cell.trim());
+      tr.append(td);
+    });
+    (r === 0 ? thead : tbody).append(tr);
+  });
+  if (model.meta) {
+    const tr = document.createElement("tr");
+    tr.dataset.pos = String(lineStarts[lineStarts.length - 1]);
+    const td = document.createElement("td");
+    td.append(document.createElement("meta"));
+    tr.append(td);
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+  widget.append(table);
+  return widget;
+}
+
+function renderBlocks(text: string, into: DocumentFragment): void {
+  for (const block of text.split(/\n\s*\n/)) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+    const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
+    const element = document.createElement(heading ? `h${heading[1]!.length}` : "p");
+    element.innerHTML = inline(heading ? heading[2]! : trimmed);
+    into.append(element);
+  }
+}
+
+function render(): void {
+  const fragment = document.createDocumentFragment();
+  let at = 0;
+  for (const range of findTables(text)) {
+    renderBlocks(text.slice(at, range.from), fragment);
+    fragment.append(renderTable(range.from, range.text));
+    at = range.to;
+  }
+  renderBlocks(text.slice(at), fragment);
+  page.replaceChildren(fragment);
+}
+
+// --- Document and history -----------------------------------------------------
+
+let text = load(TEXT_KEY) ?? sample;
+let cursor = 0;
+type Snapshot = { text: string; cursor: number };
+const undoStack: Snapshot[] = [];
+const redoStack: Snapshot[] = [];
+
+function setText(next: string, nextCursor: number, record = true): void {
+  if (record && next !== text) {
+    undoStack.push({ text, cursor });
+    redoStack.length = 0;
+  }
+  text = next;
+  cursor = Math.max(0, Math.min(nextCursor, text.length));
+  if (source.value !== text) source.value = text;
+  save(TEXT_KEY, text);
+  render();
+}
+
+function step(from: Snapshot[], to: Snapshot[]): void {
+  const snapshot = from.pop();
+  if (!snapshot) return;
+  to.push({ text, cursor });
+  setText(snapshot.text, snapshot.cursor, false);
+}
+
+function moveCursor(pos: number): void {
+  cursor = pos;
+  source.focus();
+  source.setSelectionRange(pos, pos);
+  // Scroll the textarea so the cursor's line is in view
+  const line = text.slice(0, pos).split("\n").length;
+  const lineHeight = parseFloat(getComputedStyle(source).lineHeight) || 20;
+  source.scrollTop = Math.max(0, (line - 5) * lineHeight);
+}
+
+// Typing in the textarea: one undo step per pause
+let typingSnapshot: Snapshot | undefined;
+let typingTimer: number | undefined;
+source.addEventListener("input", () => {
+  typingSnapshot ??= { text, cursor };
+  text = source.value;
+  cursor = source.selectionStart;
+  save(TEXT_KEY, text);
+  window.clearTimeout(typingTimer);
+  typingTimer = window.setTimeout(() => {
+    if (typingSnapshot && typingSnapshot.text !== text) {
+      undoStack.push(typingSnapshot);
+      redoStack.length = 0;
+    }
+    typingSnapshot = undefined;
+    render();
+  }, 300);
+});
+source.addEventListener("keydown", (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  const key = e.key.toLowerCase();
+  if (!mod || (key !== "z" && key !== "y")) return;
+  e.preventDefault();
+  step(...((key === "z" && !e.shiftKey ? [undoStack, redoStack] : [redoStack, undoStack]) as [Snapshot[], Snapshot[]]));
+});
+// Undo on the page when Table Plus left the key alone (e.g. no table edit to undo)
+page.addEventListener("keydown", (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  const key = e.key.toLowerCase();
+  if (e.defaultPrevented || !mod || (key !== "z" && key !== "y")) return;
+  e.preventDefault();
+  step(...((key === "z" && !e.shiftKey ? [undoStack, redoStack] : [redoStack, undoStack]) as [Snapshot[], Snapshot[]]));
+});
+
+// --- Settings -----------------------------------------------------------------
+
+type Key = keyof typeof SETTINGS;
+let settings: Record<string, unknown> = {};
+try {
+  settings = JSON.parse(load(SETTINGS_KEY) ?? "{}");
+} catch {
+  settings = {};
+}
+
+const LABELS: Record<Key, string> = {
+  metadata: "Store table metadata",
+  maxHeight: "Max height (px)",
+  autoFormat: "Format tables",
+  enterKey: "Enter",
+  selectOnClick: "Click selects text",
+  ctrlEnterAddsRow: "Ctrl+Enter adds a row",
+  smartFilters: "Smart filters",
+};
+
+function settingsChanged(): void {
+  save(SETTINGS_KEY, JSON.stringify(settings));
+  // A fresh render lets Table Plus pick the settings up
+  render();
+}
+
+const settingsBox = document.querySelector<HTMLElement>("#settings")!;
+for (const key of Object.keys(SETTINGS) as Key[]) {
+  const setting = SETTINGS[key];
+  const label = document.createElement("label");
+  const current = setting.path in settings ? settings[setting.path] : setting.default;
+  let input: HTMLInputElement | HTMLSelectElement;
+  if (typeof setting.default === "boolean") {
+    input = Object.assign(document.createElement("input"), { type: "checkbox", checked: current === true });
+    input.addEventListener("change", () => {
+      settings[setting.path] = (input as HTMLInputElement).checked;
+      settingsChanged();
+    });
+    label.append(input, LABELS[key]);
+  } else if (typeof setting.default === "number") {
+    input = Object.assign(document.createElement("input"), { type: "number", min: "0", step: "50", value: String(current) });
+    input.style.width = "6em";
+    input.addEventListener("change", () => {
+      settings[setting.path] = Number(input.value);
+      settingsChanged();
+    });
+    label.append(LABELS[key], input);
+  } else {
+    input = document.createElement("select");
+    for (const option of ["save", "moveDown"]) input.append(new Option(option, option, false, option === current));
+    input.addEventListener("change", () => {
+      settings[setting.path] = input.value;
+      settingsChanged();
+    });
+    label.append(LABELS[key], input);
+  }
+  settingsBox.append(label);
+}
+
+// --- Chrome -------------------------------------------------------------------
+
+function flash(message: string, type: "info" | "error" = "info"): void {
+  const note = document.createElement("div");
+  note.textContent = message;
+  if (type === "error") note.className = "error";
+  flashBox.append(note);
+  window.setTimeout(() => note.remove(), 3000);
+}
+
+document.querySelector("#reset")!.addEventListener("click", () => setText(sample, 0));
+
+function applyTheme(theme: string): void {
+  document.documentElement.dataset.theme = theme;
+  save(THEME_KEY, theme);
+}
+applyTheme(load(THEME_KEY) ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+document.querySelector("#theme")!.addEventListener("click", () =>
+  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"),
+);
+
+// --- Table Plus ---------------------------------------------------------------
+
+const bridge: Bridge = {
+  getText: () => text,
+  replaceRange: (from, to, insert) => setText(text.slice(0, from) + insert + text.slice(to), from + insert.length),
+  moveCursor: (pos) => moveCursor(pos),
+  getCurrentPage: () => "Playground",
+  flash,
+  getConfig: (path, defaultValue) => (path in settings ? settings[path] : defaultValue),
+  setSelection: (from) => {
+    cursor = from;
+  },
+  getCursor: () => cursor,
+  undo: () => step(undoStack, redoStack),
+  redo: () => step(redoStack, undoStack),
+};
+
+source.value = text;
+render();
+init(bridge);

@@ -1,0 +1,189 @@
+/* Stand-ins for the SilverBullet theme variables Table Plus uses */
+:root {
+  --root-color: #1f2328;
+  --root-background-color: #ffffff;
+  --ui-accent-color: #464cfc;
+  --danger-color: #c62828;
+  --button-border-color: #c8c8d0;
+  --editor-table-head-background-color: #e8e8ee;
+  --editor-table-even-background-color: #f4f4f8;
+  --ui-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --editor-font: "Iowan Old Style", Georgia, serif;
+  --panel: #f6f6f8;
+  --border: #dcdce2;
+}
+:root[data-theme="dark"] {
+  --root-color: #e6e6ea;
+  --root-background-color: #1e1f24;
+  --ui-accent-color: #8a8eff;
+  --danger-color: #ff6b6b;
+  --button-border-color: #4a4b55;
+  --editor-table-head-background-color: #2e2f38;
+  --editor-table-even-background-color: #26272e;
+  --panel: #18191d;
+  --border: #33343c;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+body {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  color: var(--root-color);
+  background: var(--root-background-color);
+  font-family: var(--ui-font);
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+header .hint {
+  font-size: 13px;
+  opacity: 0.7;
+}
+.spacer {
+  flex: 1;
+}
+button {
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 10px;
+  color: inherit;
+  background: var(--root-background-color);
+  border: 1px solid var(--button-border-color);
+  border-radius: 4px;
+  cursor: pointer;
+}
+#settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 8px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+#settings label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  min-height: 0;
+}
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+.pane h2 {
+  margin: 0;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+}
+#source {
+  flex: 1;
+  padding: 8px 16px;
+  font: 13px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;
+  color: inherit;
+  background: var(--panel);
+  border: 0;
+  resize: none;
+  outline: none;
+  white-space: pre;
+}
+#scroller {
+  flex: 1;
+  overflow: auto;
+}
+#page {
+  padding: 8px 24px 80px;
+  font-family: var(--editor-font);
+  font-size: 17px;
+  line-height: 1.5;
+  outline: none;
+}
+#page h1,
+#page h2,
+#page h3 {
+  font-family: var(--ui-font);
+  margin: 1em 0 0.4em;
+}
+#page p {
+  margin: 0.4em 0;
+}
+#page code {
+  font-size: 0.85em;
+  padding: 0 3px;
+  background: var(--editor-table-even-background-color);
+  border-radius: 3px;
+}
+#page a[data-ref] {
+  color: var(--ui-accent-color);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* Roughly SilverBullet's own table look */
+.sb-table-widget {
+  display: block;
+  margin: 0.6em 0;
+}
+.sb-table-widget table {
+  border-collapse: collapse;
+}
+.sb-table-widget thead tr {
+  background: var(--editor-table-head-background-color);
+  font-weight: bold;
+}
+.sb-table-widget tbody tr:nth-of-type(even) {
+  background: var(--editor-table-even-background-color);
+}
+.sb-table-widget td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+}
+
+#flash {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 100;
+}
+#flash div {
+  padding: 8px 14px;
+  font-size: 14px;
+  color: #fff;
+  background: #333;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+}
+#flash div.error {
+  background: var(--danger-color);
+}
+
+@media (max-width: 800px) {
+  main {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 2fr;
+  }
+}

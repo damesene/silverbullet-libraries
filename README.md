@@ -34,6 +34,7 @@ npm run watch          # rebuild on change
 npm test               # vitest
 npm run check          # TypeScript
 npm run deploy -- <space folder>   # copy the libraries into a local space's Library/damesene/
+npm run playground     # try Table Plus without SilverBullet, on mock data: http://localhost:8000/
 ```
 
 After deploying, reload the SilverBullet page so the new `.js` module is loaded.
