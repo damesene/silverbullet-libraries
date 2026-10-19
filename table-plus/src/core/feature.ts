@@ -110,6 +110,8 @@ export interface TableHost {
     | undefined;
   /** Asks the user (SilverBullet's dialog, else the browser's) */
   ask(question: string): Promise<boolean>;
+  /** Asks for a text (SilverBullet's dialog, else the browser's); undefined: cancelled */
+  promptText(message: string, value?: string): Promise<string | undefined>;
   /** Hands the keyboard back to SilverBullet's editor */
   focusEditor(widget: HTMLElement): void;
   /** Whether a table is shown sorted or filtered, so rows are not where the markdown has them */

@@ -143,6 +143,11 @@ export function referencedColumn(headers: readonly string[], written: string): n
 
 const CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
 
+/** Whether a name reads as a cell reference in formulas (A1, AB12) */
+export function isCellName(text: string): boolean {
+  return CELL_RE.test(text);
+}
+
 function parseCellName(text: string): { row: number; column: number } | undefined {
   const m = CELL_RE.exec(text);
   return m ? { row: Number(m[2]) - 1, column: columnIndex(m[1]!) } : undefined;

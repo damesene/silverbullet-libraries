@@ -2281,6 +2281,9 @@ function referencedColumn(headers, written) {
   return findColumn(headers, referencedColumnId(headers, written));
 }
 var CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
+function isCellName(text) {
+  return CELL_RE.test(text);
+}
 function parseCellName(text) {
   const m = CELL_RE.exec(text);
   return m ? { row: Number(m[2]) - 1, column: columnIndex(m[1]) } : void 0;
@@ -4740,6 +4743,22 @@ function withMetaPins(table, pins) {
   }
   return result;
 }
+var TABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function tableNameProblem(name) {
+  if (!TABLE_NAME_RE.test(name)) return `"${name}" is not a table name: letters, digits and _, not starting with a digit`;
+  if (isCellName(name) || /^(true|false)$/i.test(name)) return `"${name}" would read as a cell or a value`;
+  return void 0;
+}
+function metaName(table) {
+  const name = table.meta?.name?.trim();
+  return name && !tableNameProblem(name) ? name : void 0;
+}
+function withMetaName(table, name) {
+  return withMeta(table, "name", name);
+}
+function sameTableName(a, b) {
+  return a.toLowerCase() === b.toLowerCase();
+}
 function followMetaSort(before, after, map) {
   if (after.meta?.sort === void 0 || after.meta.sort !== before.meta?.sort) return after;
   const sort = metaSort(before);
@@ -4765,14 +4784,57 @@ var Metadata = class {
   }
   host;
   toolbarButtons(widget, info) {
-    if (!info.metaRow && formulaCount(parseTable(info.source)) === 0) return [];
+    const table = parseTable(info.source);
+    const name = metaName(table);
+    const naming = info.metaRow || this.host.metadataEnabled ? [
+      {
+        label: name ? `Name: ${name}` : "Name",
+        title: name ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it` : "Name this table, so formulas in other tables can refer to it (name!A1)",
+        run: () => void this.rename(widget, info)
+      }
+    ] : [];
+    if (!info.metaRow && formulaCount(table) === 0) return naming;
     return [
+      ...naming,
       {
         label: "Remove metadata",
-        title: "Remove this table's <meta> tags: its stored settings (sorting, pinning) and the formulas of its cells, which keep their results",
+        title: "Remove this table's <meta> tags: its stored settings (sorting, pinning, name) and the formulas of its cells, which keep their results",
         run: () => void this.removeFromTable(widget, info)
       }
     ];
+  }
+  /**
+   * Names, renames or (with an empty name) unnames a table, asking for the
+   * name; refused when it is not a valid name or another table on the page has it
+   */
+  async rename(shownWidget, shownInfo) {
+    const shown = parseTable(shownInfo.source);
+    const answer = await this.host.promptText("Table name (letters, digits and _; empty: no name)", metaName(shown) ?? "");
+    if (answer === void 0) return;
+    const name = answer.trim();
+    if (name === (shown.meta?.name?.trim() ?? "")) return;
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    const info = this.host.infoOf(widget) ?? shownInfo;
+    const problem = name === "" ? void 0 : tableNameProblem(name);
+    if (problem) {
+      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
+      return;
+    }
+    if (name !== "") {
+      const text = await this.host.bridge.getText();
+      const self = locateBySource(text, info.hint, info.source);
+      const taken = findTables(text).some((range) => {
+        if (range.from === self?.from) return false;
+        const other = metaName(parseTable(range.text));
+        return other !== void 0 && sameTableName(other, name);
+      });
+      if (taken) {
+        void this.host.bridge.flash(`Table Plus: another table on this page is named ${name}`, "error");
+        return;
+      }
+    }
+    await this.host.write(widget, (t) => withMetaName(t, name === "" ? void 0 : name));
+    this.host.focusEditor(widget);
   }
   /**
    * Removes a table's metadata, once confirmed: its metadata row (a sorting
@@ -4782,7 +4844,7 @@ var Metadata = class {
   async removeFromTable(shownWidget, shownInfo) {
     const formulas = formulaCount(parseTable(shownInfo.source));
     const removed = [
-      ...shownInfo.metaRow ? ["its stored settings (sorting, pinning)"] : [],
+      ...shownInfo.metaRow ? ["its stored settings (sorting, pinning, name)"] : [],
       ...formulas ? [`its ${plural(formulas, "formula")}: those cells keep their current results as plain values`] : []
     ];
     if (!await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
@@ -5243,7 +5305,8 @@ var Controller = class {
   doc;
   bridge;
   infos = /* @__PURE__ */ new WeakMap();
-  enhancing = /* @__PURE__ */ new WeakSet();
+  // Tables being enhanced: a scan meanwhile waits for it instead of starting again
+  enhancing = /* @__PURE__ */ new WeakMap();
   views = /* @__PURE__ */ new Map();
   filterOptions = DEFAULT_FILTER_OPTIONS;
   // The maximum table height setting, in pixels; 0: no limit
@@ -5393,6 +5456,10 @@ var Controller = class {
   async ask(question) {
     return this.bridge.confirm ? await this.bridge.confirm(question, { destructive: true }) : this.doc.defaultView.confirm(question);
   }
+  async promptText(message, value = "") {
+    const answer = this.bridge.prompt ? await this.bridge.prompt(message, value) : this.doc.defaultView.prompt(message, value);
+    return answer ?? void 0;
+  }
   /**
    * Sorts the rows in the markdown as the view sorts them (the shown values;
    * rows a filter hides too, pinned rows staying where they are), once
@@ -5490,9 +5557,14 @@ var Controller = class {
     }
     await Promise.all(pending);
   }
-  async enhance(widget, table) {
-    if (this.enhancing.has(widget)) return;
-    this.enhancing.add(widget);
+  enhance(widget, table) {
+    const running = this.enhancing.get(widget);
+    if (running) return running;
+    const done = this.enhanceNow(widget, table).finally(() => this.enhancing.delete(widget));
+    this.enhancing.set(widget, done);
+    return done;
+  }
+  async enhanceNow(widget, table) {
     try {
       const hint = positionHint(table);
       if (hint === void 0) {
@@ -5544,8 +5616,6 @@ var Controller = class {
       void this.refreshSettings();
     } catch (e) {
       console.error("Table Plus: could not enhance a table", e);
-    } finally {
-      this.enhancing.delete(widget);
     }
   }
   markUnsupported(widget, incompatible) {

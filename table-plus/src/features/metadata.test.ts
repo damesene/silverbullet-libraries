@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PAGE, bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Table metadata", () => {
@@ -8,10 +8,56 @@ describe("Table metadata", () => {
   const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const META_PAGE = '| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort="Qty:desc"> |\n';
 
+  it("names a table from its toolbar, refusing a name that is taken or not valid", async () => {
+    const TWO = '| A |\n|---|\n| 1 |\n\n| B |\n|---|\n| 2 |\n| <meta name="prices"> |\n';
+    await setup(TWO, { "tablePlus.metadata": true });
+    const nameButton = () => {
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      return Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button")).find((b) => b.textContent!.startsWith("Name"))!;
+    };
+    const prompt = vi.spyOn(window, "prompt");
+    expect(nameButton().textContent).toBe("Name");
+    // Taken by the other table (ignoring case)
+    prompt.mockReturnValue("Prices");
+    nameButton().click();
+    await flush();
+    expect(text).toBe(TWO);
+    expect(flashes.pop()).toBe("Table Plus: another table on this page is named Prices");
+    // Not a name
+    prompt.mockReturnValue("A1");
+    nameButton().click();
+    await flush();
+    expect(text).toBe(TWO);
+    expect(flashes.pop()).toContain('"A1" would read as a cell');
+    prompt.mockReturnValue("fruit");
+    nameButton().click();
+    await flush();
+    expect(text).toBe(TWO.replace("| 1 |\n", '| 1 |\n| <meta name="fruit"> |\n'));
+    await controller.scan();
+    expect(nameButton().textContent).toBe("Name: fruit");
+    // An empty name removes it
+    prompt.mockReturnValue("");
+    nameButton().click();
+    await flush();
+    expect(text).toBe(TWO);
+  });
+
+  it("offers a name only with the setting on, or to a table with a metadata row", async () => {
+    await setup(PAGE);
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(Array.from(document.querySelectorAll(".tp-bar button")).map((b) => b.textContent)).not.toContain("Name");
+    // A table with a metadata row gets one with the setting off too
+    controller.stop();
+    document.body.replaceChildren();
+    await setup('| A |\n|---|\n| 1 |\n| 2 |\n| <meta pin-top="1"> |\n');
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(Array.from(document.querySelectorAll(".tp-bar button")).map((b) => b.textContent)).toContain("Name");
+  });
+
   it("does not change the table when sorting with the setting off", async () => {
     await setup(PAGE);
     clickOn(cell(0, 0).querySelector(".tp-sort")!);
-    await wait(450);
+    await wait(700);
     expect(text).toBe(PAGE);
   });
 
@@ -19,12 +65,12 @@ describe("Table metadata", () => {
     await setup(PAGE, { "tablePlus.metadata": true });
     clickOn(cell(0, 1).querySelector(".tp-sort")!); // Qty ascending
     clickOn(cell(0, 1).querySelector(".tp-sort")!); // Qty descending
-    await wait(450);
+    await wait(700);
     await controller.scan();
     expect(text).toBe(PAGE.replace("| Fig | 2 |\n", '| Fig | 2 |\n| <meta sort="qty:desc"> |\n'));
     expect(bodyTexts()).toEqual(["apple", "Pear", "Fig"]);
     clickOn(cell(0, 1).querySelector(".tp-sort")!); // back to the order as written
-    await wait(450);
+    await wait(700);
     expect(text).toBe(PAGE);
   });
 
@@ -38,7 +84,7 @@ describe("Table metadata", () => {
   it("keeps updating a table's metadata with the setting off", async () => {
     await setup(META_PAGE); // the setting is off; the table stores Qty descending
     clickOn(cell(0, 1).querySelector(".tp-sort")!); // Qty: descending → the order as written
-    await wait(450);
+    await wait(700);
     // the stored sorting is cleared, and the row, now empty, goes
     expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n");
   });
@@ -120,7 +166,7 @@ describe("Table metadata", () => {
       .find((b) => b.textContent === "Remove metadata")!
       .click();
     await flush();
-    expect(questions[0]).toContain("its stored settings (sorting, pinning), and its 1 formula: those cells keep their current results");
+    expect(questions[0]).toContain("its stored settings (sorting, pinning, name), and its 1 formula: those cells keep their current results");
     expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n");
 
     // A table with formulas only: the button shows, and the command counts it
@@ -138,7 +184,8 @@ describe("Table metadata", () => {
   });
 
   it("keeps the metadata row last and follows a renamed column", async () => {
-    await setup(META_PAGE);
+    // Enter only saves the header: the cell below would open
+    await setup(META_PAGE, { "tablePlus.editor.enterKey": "save" });
     clickOn(cell(0, 1)); // the Qty header
     editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "Count";
     key(editor.querySelector(".tp-cell-editor")!, "Enter");

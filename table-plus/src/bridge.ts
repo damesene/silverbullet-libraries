@@ -17,6 +17,8 @@ export type Bridge = {
   readonly evalExpression?: (expression: string) => unknown;
   // Optional: asks before removing metadata (else the browser's confirm)
   readonly confirm?: (message: string, options?: { destructive?: boolean }) => boolean | Promise<boolean>;
+  // Optional: asks for a text, e.g. a table's name (else the browser's prompt); undefined: cancelled
+  readonly prompt?: (message: string, defaultValue?: string) => string | undefined | null | Promise<string | undefined | null>;
 };
 
 type Setting<T> = {

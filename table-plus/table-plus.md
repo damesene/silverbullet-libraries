@@ -358,6 +358,14 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
 | `autoscroll` | The middle mouse button over a table scrolls it. |
 
+## Table names
+
+A table can have a name, so formulas in other tables can refer to it. Click *Name* in the table's toolbar and type it; an empty name removes it. The name is stored in the table's metadata row (`<meta name="prices">`), so it needs the *Store table metadata* setting, or a table that has a metadata row already.
+
+* A name is letters, digits and `_`, not starting with a digit, e.g. `prices` or `price_list`. Names that read as a cell (`A1`, `AB12`) or as `TRUE` / `FALSE` are refused.
+* Names are compared ignoring case, and two tables on a page cannot have the same name.
+* The toolbar shows the name: *Name: prices*.
+
 ## Table metadata
 
 With the *Store table metadata* setting on, Table Plus stores a table's settings in a last row that holds only a `<meta …>` tag: the sorting and the pinned rows and columns.
@@ -371,14 +379,14 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 | <meta sort="qty:desc" pin-bottom="1"> |
 ```
 
-* `sort` is the sorting, `pin-top`, `pin-bottom`, `pin-left` and `pin-right` how many rows (columns) at each edge are pinned.
+* `sort` is the sorting, `pin-top`, `pin-bottom`, `pin-left` and `pin-right` how many rows (columns) at each edge are pinned, `name` the table's name (see [[#Table names]]).
 
 * The row is hidden in SilverBullet. Browsers never show `<meta>`, and other markdown renderers (GitHub, Obsidian) drop it, leaving at most an empty row.
 * It is always the last row: new rows go above it, and it is not sorted, filtered or moved.
 * The sorting is stored by column name: `qty:desc`. Names are keys, as for formula references (see [[#References]]): the column `Unit price` is stored as `unit_price`, and any spelling with that key names it. With several columns of the same name, the occurrence is added: `qty:desc:2` is the second column named Qty. It follows its column when the column is renamed or moved, and is removed with it.
 * When the sorting is cleared and nothing is pinned, the row is removed.
 * With the setting off, a table without a `<meta>` row gets none. A table with one keeps using it: its sorting is still stored, and its rows and columns can be unpinned, but nothing new can be pinned. When the row is left empty, it is removed.
-* To remove metadata: *Remove metadata* in a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row (a sorting stored there ends: the rows show as written) and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
+* To remove metadata: *Remove metadata* in a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row (a sorting stored there ends: the rows show as written; the table's name goes too) and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
 * SilverBullet indexes the row like any other: a query over the table's rows (`index.tag "table"`) also returns it, with the `<meta …>` text in its first column.
 
 ## How your markdown is kept
@@ -594,6 +602,7 @@ if js and js.window then
     redo = editor.redo,
     evalExpression = lua.evalExpression,
     confirm = editor.confirm,
+    prompt = editor.prompt,
   })
   -- Once the page is re-indexed, `${…}` cells show results from the new index
   event.listen {

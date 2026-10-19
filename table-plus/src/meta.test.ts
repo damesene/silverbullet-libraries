@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findTables, locateByShape, parseMetaRow, parseTable, serializeTable } from "./markdown.ts";
-import { followMetaSort, metaSort, withMeta, withMetaSort } from "./meta.ts";
+import { followMetaSort, metaName, metaSort, sameTableName, tableNameProblem, withMeta, withMetaName, withMetaSort } from "./meta.ts";
 import { columnAfterMove, deleteColumn, insertRow, moveColumn, setCell } from "./ops.ts";
 
 const md = (t: ReturnType<typeof parseTable>) => serializeTable(t);
@@ -94,5 +94,31 @@ describe("stored sorting", () => {
   it("leaves tables without a stored sorting alone", () => {
     const edited = setCell(base, 1, 0, "b");
     expect(followMetaSort(base, edited, (c) => c)).toBe(edited);
+  });
+});
+
+describe("table names", () => {
+  it("takes names that formulas can write before !", () => {
+    expect(tableNameProblem("prices")).toBeUndefined();
+    expect(tableNameProblem("price_list2")).toBeUndefined();
+    expect(tableNameProblem("_x")).toBeUndefined();
+    expect(tableNameProblem("2prices")).toBeDefined();
+    expect(tableNameProblem("price list")).toBeDefined();
+    expect(tableNameProblem("ceník")).toBeDefined();
+    // Read as a cell or a value
+    expect(tableNameProblem("A1")).toBeDefined();
+    expect(tableNameProblem("ab12")).toBeDefined();
+    expect(tableNameProblem("TRUE")).toBeDefined();
+    expect(tableNameProblem("ABCD1")).toBeUndefined();
+  });
+
+  it("reads and writes a table's name in its metadata row, compared ignoring case", () => {
+    const table = parseTable("| A |\n|---|\n| 1 |");
+    const named = withMetaName(table, "prices");
+    expect(serializeTable(named)).toBe('| A |\n|---|\n| 1 |\n| <meta name="prices"> |');
+    expect(metaName(parseTable(serializeTable(named)))).toBe("prices");
+    expect(metaName(withMeta(table, "name", "A1"))).toBeUndefined();
+    expect(serializeTable(withMetaName(named, undefined))).toBe(serializeTable(table));
+    expect(sameTableName("Prices", "prices")).toBe(true);
   });
 });

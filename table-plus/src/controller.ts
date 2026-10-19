@@ -119,7 +119,8 @@ function placeAtEnd(parent: Element, rows: readonly HTMLTableRowElement[]): void
 
 export class Controller implements TableHost {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
-  private readonly enhancing = new WeakSet<HTMLElement>();
+  // Tables being enhanced: a scan meanwhile waits for it instead of starting again
+  private readonly enhancing = new WeakMap<HTMLElement, Promise<void>>();
   private readonly views = new Map<string, ViewState>();
   private filterOptions: FilterOptions = DEFAULT_FILTER_OPTIONS;
   // The maximum table height setting, in pixels; 0: no limit
@@ -302,6 +303,13 @@ export class Controller implements TableHost {
       : this.doc.defaultView!.confirm(question);
   }
 
+  async promptText(message: string, value = ""): Promise<string | undefined> {
+    const answer = this.bridge.prompt
+      ? await this.bridge.prompt(message, value)
+      : this.doc.defaultView!.prompt(message, value);
+    return answer ?? undefined;
+  }
+
   /**
    * Sorts the rows in the markdown as the view sorts them (the shown values;
    * rows a filter hides too, pinned rows staying where they are), once
@@ -410,9 +418,15 @@ export class Controller implements TableHost {
     await Promise.all(pending);
   }
 
-  private async enhance(widget: HTMLElement, table: HTMLTableElement): Promise<void> {
-    if (this.enhancing.has(widget)) return;
-    this.enhancing.add(widget);
+  private enhance(widget: HTMLElement, table: HTMLTableElement): Promise<void> {
+    const running = this.enhancing.get(widget);
+    if (running) return running;
+    const done = this.enhanceNow(widget, table).finally(() => this.enhancing.delete(widget));
+    this.enhancing.set(widget, done);
+    return done;
+  }
+
+  private async enhanceNow(widget: HTMLElement, table: HTMLTableElement): Promise<void> {
     try {
       const hint = positionHint(table);
       if (hint === undefined) {
@@ -467,8 +481,6 @@ export class Controller implements TableHost {
       void this.refreshSettings();
     } catch (e) {
       console.error("Table Plus: could not enhance a table", e);
-    } finally {
-      this.enhancing.delete(widget);
     }
   }
 

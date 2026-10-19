@@ -4,7 +4,9 @@
 //   occurrence is added ("Qty:desc:2" is the second column named Qty)
 // - pin-top="2", pin-bottom, pin-left, pin-right: how many rows (columns) at
 //   each edge of the table are pinned
+// - name="prices": the table's name, by which formulas refer to it (prices!B2)
 import { columnIdOf, findColumn } from "./columns.ts";
+import { isCellName } from "./formula/index.ts";
 import type { Row, Table } from "./markdown.ts";
 import { DEFAULT_VIEW, NO_PINS, type Pins, type SortDirection, type ViewState } from "./view.ts";
 
@@ -74,6 +76,35 @@ export function withMetaPins(table: Table, pins: Pins): Table {
 
 export function hasMetaPins(table: Table): boolean {
   return Object.values(PIN_ATTRIBUTES).some((name) => table.meta?.[name] !== undefined);
+}
+
+// ---- the table's name ---------------------------------------------------------------
+
+// A name formulas can write before "!": letters, digits and _, not starting with a digit
+const TABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Why a text cannot be a table's name; undefined when it can */
+export function tableNameProblem(name: string): string | undefined {
+  if (!TABLE_NAME_RE.test(name)) return `"${name}" is not a table name: letters, digits and _, not starting with a digit`;
+  // Formulas would read it as a cell (A1, AB12) or a logical value
+  if (isCellName(name) || /^(true|false)$/i.test(name)) return `"${name}" would read as a cell or a value`;
+  return undefined;
+}
+
+/** The table's name, if it has a valid one */
+export function metaName(table: Table): string | undefined {
+  const name = table.meta?.name?.trim();
+  return name && !tableNameProblem(name) ? name : undefined;
+}
+
+/** Names (or, with undefined, unnames) the table */
+export function withMetaName(table: Table, name: string | undefined): Table {
+  return withMeta(table, "name", name);
+}
+
+/** Whether two table names are the same: names are compared ignoring case */
+export function sameTableName(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 // ---- the view as stored -----------------------------------------------------------
