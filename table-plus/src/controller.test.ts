@@ -589,6 +589,30 @@ describe("Controller", () => {
       expect(flashes).toEqual(["Table Plus: removed the metadata of 2 table(s)"]);
     });
 
+    it("shows the rows as written once the metadata with their sorting is removed", async () => {
+      await setup(META_PAGE);
+      expect(bodyTexts()).toEqual(["apple", "Pear"]); // stored: Qty descending
+      (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = () => true;
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      Array.from(document.querySelectorAll<HTMLElement>(".tp-bar button"))
+        .find((b) => b.textContent === "Remove metadata")!
+        .click();
+      await flush();
+      await controller.scan();
+      expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n");
+      expect(bodyTexts()).toEqual(["Pear", "apple"]);
+      expect(cell(0, 1).querySelector(".tp-sort")!.textContent).toBe("⇅");
+
+      // The same with the command for the whole page
+      controller.stop();
+      document.body.replaceChildren();
+      await setup(META_PAGE);
+      (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = () => true;
+      await controller.removeAllMetadata();
+      await controller.scan();
+      expect(bodyTexts()).toEqual(["Pear", "apple"]);
+    });
+
     it("removes formulas with the metadata, keeping their results, and says so", async () => {
       const page = '| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta f="=SUM([Qty])"> |\n| <meta sort="Qty:desc"> |\n';
       await setup(page);

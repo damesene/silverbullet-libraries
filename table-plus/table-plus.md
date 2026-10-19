@@ -254,7 +254,7 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 * The sorting is stored by column name: `Qty:desc`. With several columns of the same name, the occurrence is added: `Qty:desc:2` is the second column named Qty. It follows its column when the column is renamed or moved, and is removed with it.
 * When the sorting is cleared and nothing is pinned, the row is removed.
 * With the setting off, a table without a `<meta>` row gets none. A table with one keeps using it: its sorting is still stored, and its rows and columns can be unpinned, but nothing new can be pinned. When the row is left empty, it is removed.
-* To remove metadata: *Remove metadata* in a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
+* To remove metadata: *Remove metadata* in a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row (a sorting stored there ends: the rows show as written) and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
 * SilverBullet indexes the row like any other: a query over the table's rows (`index.tag "table"`) also returns it, with the `<meta …>` text in its first column.
 
 ## How your markdown is kept

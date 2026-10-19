@@ -431,9 +431,9 @@ export class Controller {
   }
 
   /**
-   * Removes a table's metadata, once confirmed: its metadata row (its sorting
-   * stays as a view until reload) and the formulas of its cells, which keep
-   * their results as plain values
+   * Removes a table's metadata, once confirmed: its metadata row (a sorting
+   * stored there goes with it: the rows show as written) and the formulas of
+   * its cells, which keep their results as plain values
    */
   private async removeMetadata(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
     const removed = [
@@ -441,10 +441,24 @@ export class Controller {
       ...(shownInfo.formulas ? [`its ${plural(shownInfo.formulas, "formula")}: those cells keep their current results as plain values`] : []),
     ];
     if (!(await this.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`))) return;
-    const [widget] = this.current(shownWidget, shownInfo);
+    const [widget, info] = this.current(shownWidget, shownInfo);
+    if (metaSort(parseTable(info.source))) this.dropStoredSort(info.key);
     await this.write(widget, withoutMetadata);
     // The dialog took the focus: back to the editor, so Ctrl+Z works right away
     this.focusEditor(widget);
+  }
+
+  /**
+   * The sorting a table's metadata stored ends with the metadata, so the rows
+   * show as written. Without filters the view is forgotten, so Ctrl+Z (the
+   * metadata back) shows the stored sorting again.
+   */
+  private dropStoredSort(key: string): void {
+    clearTimeout(this.sortTimers.get(key));
+    this.sortTimers.delete(key);
+    const view = this.views.get(key);
+    if (view && view.filters.some((f) => f !== "")) this.views.set(key, withoutSort(view));
+    else this.views.delete(key);
   }
 
   /**
@@ -481,8 +495,11 @@ export class Controller {
     const from = tables[tables.length - 1]!.from;
     const to = tables[0]!.to;
     let span = text.slice(from, to);
+    const page = await this.bridge.getCurrentPage();
     for (const range of tables) {
-      span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(parseTable(range.text))) + span.slice(range.to - from);
+      const table = parseTable(range.text);
+      if (metaSort(table)) this.dropStoredSort(`${page}#${range.ordinal}`);
+      span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(table)) + span.slice(range.to - from);
     }
     const edit = minimalEdit(text.slice(from, to), span);
     await this.bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
