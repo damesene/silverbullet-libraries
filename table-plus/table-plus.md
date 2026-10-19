@@ -552,9 +552,11 @@ body.tp-navigating .sb-table-widget.tp-table * {
   cursor: move !important;
 }
 
-/* Inline editing: same place and size as the text, with an accent underline */
+/* Inline editing: the field takes the text's place and size; the cell is
+   highlighted as selected cells are */
 .sb-table-widget td.tp-editing {
-  background-color: color-mix(in srgb, var(--ui-accent-color) 7%, transparent);
+  background-color: color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent);
 }
 .tp-cell-editor {
   display: block;
@@ -572,7 +574,6 @@ body.tp-navigating .sb-table-widget.tp-table * {
   color: inherit;
   background: transparent;
   outline: none;
-  box-shadow: 0 2px 0 0 var(--ui-accent-color);
 }
 
 /* Filter row */
