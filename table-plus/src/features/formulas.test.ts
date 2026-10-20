@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
+import { clearOwnFunctions, defineOwnFunctions, functionNamed } from "../formula/functions/index.ts";
+import { toNumber, type Value } from "../formula/values.ts";
+import { defineFunctions, resetDefinitions } from "../index.ts";
 
 describe("Formulas", () => {
   useTablePage();
@@ -181,6 +184,59 @@ describe("Formulas", () => {
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     // Still there, no longer highlighted
     expect(recalc()!.classList.contains("tp-attention")).toBe(false);
+  });
+
+  describe("own functions", () => {
+    const GLOBAL_KEY = "__tablePlus";
+    afterEach(() => {
+      clearOwnFunctions();
+      delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
+    });
+    const recalc = () => document.querySelector<HTMLElement>('.tp-bar button[aria-label="Recalculate"]');
+    // As the docs' example: a reference is a one-cell list, toNumber takes it as its value
+    const vat = (rate: number) => ({ name: "VAT", syntax: "VAT(amount)", minArgs: 1, maxArgs: 1, call: ([a]: Value[]) => (toNumber(a!) as number) * rate });
+    const attention = () => {
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      return recalc()!.classList.contains("tp-attention");
+    };
+    const checked = () => new Promise((resolve) => setTimeout(resolve));
+
+    it("calls a function defined from Space Lua; the tables are checked again when the definitions change", async () => {
+      await setup("| Name | Price | Gross |\n|---|---|---|\n| Pear | 4 | |\n");
+      // As the library page's entry does: the controller is the window's
+      (globalThis as Record<string, unknown>)[GLOBAL_KEY] = controller;
+      defineFunctions([vat(1.5)]);
+      clickOn(cell(1, 2));
+      await type("=VAT([@price])");
+      expect(text).toContain('| Pear | 4 | 6 <meta f="=VAT([@price])"> |');
+      expect(attention()).toBe(false);
+      // Space Lua loaded again: the function is kept until the scripts define theirs
+      resetDefinitions();
+      await checked();
+      expect(attention()).toBe(false);
+      // Another version: viewing writes nothing, Recalculate is highlighted and writes the new result
+      defineFunctions([vat(2)]);
+      await checked();
+      expect(attention()).toBe(true);
+      expect(text).toContain('| Pear | 4 | 6 <meta f="=VAT([@price])"> |');
+      recalc()!.click();
+      await flush();
+      await controller.scan();
+      expect(text).toContain('| Pear | 4 | 8 <meta f="=VAT([@price])"> |');
+      expect(attention()).toBe(false);
+      // Loaded again, defined no more (its file gone): the result stays as written, Recalculate highlighted
+      resetDefinitions();
+      defineFunctions([{ name: "OTHER", call: () => 1 }]);
+      await checked();
+      expect(attention()).toBe(true);
+      expect(text).toContain('| Pear | 4 | 8 <meta f="=VAT([@price])"> |');
+    });
+
+    it("says what is wrong with definitions, and defines the others", () => {
+      expect(defineFunctions([{ name: "OK", call: () => 1 }, { name: "NOCALL" }])).toBe("Table Plus: own functions not defined: function 2: NOCALL has no call function");
+      expect(defineFunctions([{ name: "OKAY", call: () => 1 }])).toBeUndefined();
+      expect(functionNamed("OK")).toBeDefined();
+    });
   });
 
   describe("referring to other tables", () => {
@@ -539,6 +595,13 @@ describe("Formulas", () => {
       cellMenuItem(cell(1, 1), /^Name cell/)!.click();
       await flush();
       expect(flashes.pop()).toBe("Table Plus: sum is a function's name");
+      // One of the user's own too
+      defineOwnFunctions([{ name: "VAT", syntax: "VAT()", description: "", minArgs: 0, call: () => 1 }]);
+      prompt.mockReturnValue("vat");
+      cellMenuItem(cell(1, 1), /^Name cell/)!.click();
+      await flush();
+      clearOwnFunctions();
+      expect(flashes.pop()).toBe("Table Plus: vat is a function's name");
       expect(text).toBe('| A | B |\n|---|---|\n| 1 <meta cn="one"> | 2 |\n');
     });
 

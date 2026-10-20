@@ -305,6 +305,46 @@ The page's name in double brackets goes before the table's name: `[[Prices]]frui
 
 In ranges, empty cells and text that is not a number are skipped by the number functions.
 
+### Your own functions
+
+Functions of your own are written in JavaScript, in a file of your space, the way Table Plus' own are, and given to Table Plus from Space Lua. For example `Library/me/functions.js`:
+
+```js
+export default ({ toNumber, isError }) => [
+  {
+    name: "VAT",
+    syntax: "VAT(amount, [rate])",
+    description: "The amount with VAT, 21 % unless a rate is given.",
+    minArgs: 1,
+    maxArgs: 2,
+    call: ([amount, rate = 0.21]) => {
+      const a = toNumber(amount);
+      const r = toNumber(rate);
+      if (isError(a)) return a;
+      if (isError(r)) return r;
+      return a * (1 + r);
+    },
+  },
+];
+```
+
+and in a `space-lua` block of any page (your [[CONFIG]], say; a block with a priority of its own must have one below 50, Table Plus' own):
+
+```lua
+tablePlus.defineFunctions(js.importFromSpace("Library/me/functions.js"))
+```
+
+Then `=VAT([@price])` works in every table, and typing it shows its syntax and description.
+
+* The file's default export is the list of functions, or a function that gets Table Plus' helpers (below) and returns the list. Each function has a `name` (letters, digits, `_` and `.`, starting with a letter, not one that reads as a cell such as `LOG2`; formulas may write it in any case), a `call`, and optionally `syntax` and `description` (shown while typing a formula), `minArgs` (default 0) and `maxArgs` (default: any number).
+* `call(args, place)` gets the arguments' values: a number, a text, `true` or `false`, `null` for an empty cell, a time (`TimeValue`) or an error (`FormulaError`); a reference (`A1`, `[@price]`, `A1:A5`, `[qty]`) is the list of its cells' values, one for one cell, as Table Plus' own functions get them (so `SUM(A1)` skips a text there as in a range). `toNumber`, `toText` and `single` take a one-cell list as its value. `place` is where the formula is: `{ row, column }`, 1 the first row under the header and the first column. It returns one value: a number, a text, `true` or `false`, `null` (empty), a time or an error.
+* It must give its result at once, from its arguments only: it is called whenever the table is calculated, and its result is written into the cell. It cannot wait for anything (a query, another page): a function that returns a promise gives `#VALUE!`. For data from SilverBullet, a cell with a Lua expression (`${…}`) shows it.
+* A function that throws gives `#VALUE!` with its message (on the cell's hover), as does one that returns a list or an object; one that throws a `FormulaError` gives that error.
+* A function with a built-in function's name replaces it.
+* The helpers are the conversions Table Plus' own functions use: `toNumber`, `toText`, `toBoolean` (an error for a value that is none), `numbers` (the numbers of all the arguments, ranges skipping empty cells and text), `flatten` (all the values of the arguments, ranges taken apart), `single` (a range's first value), `firstError`, `isError`, `isRange`, `toDate` / `parseDate` (a date as `{ ms, time }`), `formatDate` (written back), and `FormulaError` (`new FormulaError("#N/A", "why")`) and `TimeValue` (`new TimeValue(seconds)`). An error given to them comes back, so a function passes errors in its arguments on by returning it.
+* Functions are defined again whenever SilverBullet loads Space Lua again: a change of the file shows after reloading the page (the browser keeps a module it loaded). A formula calling a function that is not defined (its file missing, or not loaded) keeps the result written, and *Recalculate* in the toolbar is highlighted: an edit of that table writes `#NAME?` there.
+* A mistake in a definition (no `call`, a name formulas cannot write) is shown in a notification; the other functions are defined.
+
 ### Errors
 
 | Shows | Because |
@@ -603,6 +643,28 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 * If a SilverBullet update renders tables differently, Table Plus switches itself off with one notification, and tables behave as without it.
 
 ## Implementation
+
+```space-lua
+-- priority: 50
+-- Table Plus' Space Lua API, loaded before your scripts (they have priority 0
+-- unless they say otherwise): tablePlus.defineFunctions, see "Your own functions"
+tablePlus = tablePlus or {}
+if js and js.window then
+  local tablePlusJs = js.importFromSpace("Library/damesene/table-plus.js")
+  -- Space Lua is loaded (again): the scripts' definitions replace those of before (kept until then)
+  tablePlusJs.resetDefinitions()
+  function tablePlus.defineFunctions(definitions)
+    -- The others are defined; a mistake is shown, the rest of the script goes on
+    local problem = tablePlusJs.defineFunctions(definitions)
+    if problem then
+      editor.flashNotification(problem, "error")
+    end
+  end
+else
+  -- Space Lua without a window (no tables to calculate): nothing to define
+  function tablePlus.defineFunctions() end
+end
+```
 
 ```space-lua
 -- Settings, shown in the Configuration Manager (Configuration: Open)
@@ -946,8 +1008,8 @@ config.define("tablePlus", {
 
 -- Table Plus only uses the public editor and config API, handed over here
 if js and js.window then
-  local tablePlus = js.importFromSpace("Library/damesene/table-plus.js")
-  tablePlus.init({
+  local tablePlusJs = js.importFromSpace("Library/damesene/table-plus.js")
+  tablePlusJs.init({
     getText = editor.getText,
     replaceRange = editor.replaceRange,
     moveCursor = editor.moveCursor,
@@ -985,26 +1047,26 @@ if js and js.window then
   event.listen {
     name = "editor:pageLoaded",
     run = function()
-      tablePlus.pageLoaded()
+      tablePlusJs.pageLoaded()
     end,
   }
   -- Once the page is re-indexed, `${…}` cells show results from the new index
   event.listen {
     name = "page:index",
     run = function(e)
-      tablePlus.pageIndexed(e.data.name)
+      tablePlusJs.pageIndexed(e.data.name)
     end,
   }
   command.define {
     name = "Table Plus: Settings",
     run = function()
-      tablePlus.openSettings()
+      tablePlusJs.openSettings()
     end,
   }
   command.define {
     name = "Table Plus: Remove table metadata",
     run = function()
-      tablePlus.removeAllMetadata()
+      tablePlusJs.removeAllMetadata()
     end,
   }
 end

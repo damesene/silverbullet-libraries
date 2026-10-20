@@ -896,8 +896,8 @@ function withoutTagsWith(cell, attributes) {
   return [withoutTags(cell), ...kept].filter((part) => part !== "").join(" ");
 }
 function keepTags(value, from, taken = /* @__PURE__ */ new Set()) {
-  const own = new Set(cellTags(value).flatMap(attributesOf));
-  const kept = cellTags(from).filter((tag) => !attributesOf(tag).some((name) => own.has(name) || taken.has(name)));
+  const own2 = new Set(cellTags(value).flatMap(attributesOf));
+  const kept = cellTags(from).filter((tag) => !attributesOf(tag).some((name) => own2.has(name) || taken.has(name)));
   return [value.trim(), ...kept].filter((part) => part !== "").join(" ");
 }
 
@@ -1868,10 +1868,10 @@ var SettingsDialog = class {
     block.append(row);
     const keys = Object.keys(SETTINGS).filter((key) => moduleOf(key) === name);
     if (keys.length > 0) {
-      const own = this.el("div", "tp-settings-module-settings");
-      for (const key of keys) own.append(this.row(key));
-      block.append(own);
-      this.moduleSettings.set(name, own);
+      const own2 = this.el("div", "tp-settings-module-settings");
+      for (const key of keys) own2.append(this.row(key));
+      block.append(own2);
+      this.moduleSettings.set(name, own2);
     }
     return block;
   }
@@ -1903,7 +1903,7 @@ var SettingsDialog = class {
     if (this.note) {
       this.note.textContent = !this.context.canSave ? "Settings cannot be saved here." : this.invalid.size > 0 ? "A number is not valid." : modules ? "Modules apply once the page reloads." : "";
     }
-    for (const [name, own] of this.moduleSettings) own.hidden = this.values.get(enabledPath(name)) !== true;
+    for (const [name, own2] of this.moduleSettings) own2.hidden = this.values.get(enabledPath(name)) !== true;
     for (const input of Array.from(this.backdrop?.querySelectorAll("input, select") ?? [])) {
       input.disabled = this.saving;
     }
@@ -2185,11 +2185,11 @@ function homeOf(code) {
 }
 function formatMoney(n, code, locale) {
   const options = { style: "currency", currency: code, currencyDisplay: "narrowSymbol" };
-  const own = numberFormat(locale, options).formatToParts(n);
+  const own2 = numberFormat(locale, options).formatToParts(n);
   const home = numberFormat(homeOf(code), options).formatToParts(n);
-  const symbol = own.find((p) => p.type === "currency")?.value ?? code;
-  const sign = own.filter((p) => p.type === "minusSign" || p.type === "plusSign").map((p) => p.value).join("");
-  const digits = own.filter((p) => !["currency", "minusSign", "plusSign", "literal"].includes(p.type)).map((p) => p.value).join("");
+  const symbol = own2.find((p) => p.type === "currency")?.value ?? code;
+  const sign = own2.filter((p) => p.type === "minusSign" || p.type === "plusSign").map((p) => p.value).join("");
+  const digits = own2.filter((p) => !["currency", "minusSign", "plusSign", "literal"].includes(p.type)).map((p) => p.value).join("");
   const symbolFirst = home.findIndex((p) => p.type === "currency") < home.findIndex((p) => p.type === "integer");
   const gap = home.find((p) => p.type === "literal" && /^\s+$/.test(p.value))?.value ?? "";
   return symbolFirst ? `${sign}${symbol}${gap}${digits}` : `${sign}${digits}${gap}${symbol}`;
@@ -3773,7 +3773,25 @@ var ALL2 = [
   xlookup_default,
   row_default
 ];
-var FUNCTIONS = Object.fromEntries(ALL2.map((f) => [f.name, f]));
+var BUILT_IN_FUNCTIONS = Object.fromEntries(ALL2.map((f) => [f.name, f]));
+var own = /* @__PURE__ */ new Map();
+function functionNamed(name) {
+  return own.get(name) ?? BUILT_IN_FUNCTIONS[name];
+}
+function functionNames() {
+  return Array.from(/* @__PURE__ */ new Set([...Object.keys(BUILT_IN_FUNCTIONS), ...own.keys()]));
+}
+function isOwnFunction(name) {
+  return own.has(name);
+}
+var anew = false;
+function defineOwnFunctions(functions) {
+  own = new Map([...anew ? [] : own, ...functions.map((f) => [f.name, f])]);
+  anew = false;
+}
+function ownFunctionsAnew() {
+  anew = true;
+}
 
 // table-plus/src/formula/index.ts
 var FORMULA_TAG_RE = /<meta\s+f\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
@@ -4389,8 +4407,8 @@ var Sheet = class {
   /** A named cell's value: in this table, else on this table's page (or `page`) */
   named(name, page) {
     if (page === void 0 || page === this.page) {
-      const own = this.cellNamed(name);
-      if (own) return this.value(own.row, own.column);
+      const own2 = this.cellNamed(name);
+      if (own2) return this.value(own2.row, own2.column);
     }
     const found = this.book.cell(name, page ?? this.page);
     if (!found) return new FormulaError("#NAME?", `there is no cell named ${name}${page ? ` on ${page}` : " on this page"}`);
@@ -4432,7 +4450,7 @@ var Sheet = class {
         return sheet.rowCellValue(node.row, node.column, node.table ? `${node.table.name}!` : "");
       }
       case "call": {
-        const f = FUNCTIONS[node.name];
+        const f = functionNamed(node.name);
         if (!f) return new FormulaError("#NAME?", `there is no function ${node.name}`);
         if (node.args.length < f.minArgs || f.maxArgs !== void 0 && node.args.length > f.maxArgs) {
           return new FormulaError("#VALUE!", `wrong number of arguments: ${f.syntax}`);
@@ -4619,6 +4637,19 @@ function formulaPages(formula) {
     ...namedReferences(formula).flatMap((ref) => ref.page ? [ref.page] : [])
   ];
 }
+function callsOwnFunctions(table) {
+  let calls = false;
+  forFormulas(table, (formula) => {
+    const { tokens } = tokenize(formula);
+    tokens.forEach((token, i) => {
+      const next = tokens[i + 1];
+      if (token.kind !== "name" || next?.kind !== "op" || next.text !== "(") return;
+      const name = token.text.toUpperCase();
+      if (isOwnFunction(name) || !BUILT_IN_FUNCTIONS[name]) calls = true;
+    });
+  });
+  return calls;
+}
 function referredTableNames(table) {
   const names = /* @__PURE__ */ new Set();
   forFormulas(table, (formula) => {
@@ -4718,15 +4749,15 @@ function isTo(ref, name) {
 function shiftReferences(before, after, rowMap, columnMap) {
   if (!hasFormulas(after)) return after;
   const edit = { before, after, rowMap, columnMap };
-  const own = before.meta?.name?.trim();
+  const own2 = before.meta?.name?.trim();
   const renamed = newName(edit);
-  return withFormulas(after, (formula) => renameIn(rewriteReferences(formula, (ref) => !ref.table || isTo(ref, own), edit), own, renamed));
+  return withFormulas(after, (formula) => renameIn(rewriteReferences(formula, (ref) => !ref.table || isTo(ref, own2), edit), own2, renamed));
 }
-function renameIn(formula, own, renamed) {
-  if (!renamed || !own) return formula;
+function renameIn(formula, own2, renamed) {
+  if (!renamed || !own2) return formula;
   let result = formula;
   for (const token of tokenize(formula).tokens.reverse()) {
-    if (token.kind === "table" && token.page === void 0 && token.name.toLowerCase() === own.toLowerCase()) {
+    if (token.kind === "table" && token.page === void 0 && token.name.toLowerCase() === own2.toLowerCase()) {
       result = `${result.slice(0, token.from)}${renamed}!${result.slice(token.to)}`;
     }
   }
@@ -4759,10 +4790,10 @@ function completeFunction(text, start, end) {
   if (start !== end || !text.trimStart().startsWith("=")) return void 0;
   const before = text.slice(0, start);
   const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
-  if (!typing || /[0-9]/.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return void 0;
+  if (!typing || CELL_RE.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return void 0;
   if (tokenize(before).error) return void 0;
   const prefix = typing.toUpperCase();
-  const names = Object.keys(FUNCTIONS).filter((name2) => name2.startsWith(prefix));
+  const names = functionNames().filter((name2) => name2.startsWith(prefix));
   const name = names.length === 1 ? names[0] : names.find((n) => n === prefix);
   return name ? { from: start - typing.length, to: start, text: `${name}(` } : void 0;
 }
@@ -4770,10 +4801,10 @@ function formulaHelp(text, caret) {
   if (!text.trimStart().startsWith("=")) return [];
   const before = text.slice(0, caret);
   const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
-  if (typing && !/[0-9]/.test(typing) && text[caret] !== "(") {
+  if (typing && !CELL_RE.test(typing) && text[caret] !== "(") {
     const prefix = typing.toUpperCase();
-    const matches = Object.entries(FUNCTIONS).filter(([name]) => name.startsWith(prefix));
-    if (matches.length) return matches.map(([, f]) => ({ syntax: f.syntax, description: f.description }));
+    const matches = functionNames().filter((name) => name.startsWith(prefix)).map((name) => functionNamed(name));
+    if (matches.length) return matches.map((f) => ({ syntax: f.syntax, description: f.description }));
   }
   const { tokens } = tokenize(before);
   const open = [];
@@ -4785,7 +4816,7 @@ function formulaHelp(text, caret) {
     } else if (token.text === ")") open.pop();
   });
   for (let i = open.length - 1; i >= 0; i--) {
-    const f = open[i] && FUNCTIONS[open[i]];
+    const f = open[i] && functionNamed(open[i]);
     if (f) return [{ syntax: f.syntax, description: f.description }];
   }
   return [REFERENCE_HELP];
@@ -4918,8 +4949,8 @@ function pageTables(tables, here, replace, others) {
       names = { tables: /* @__PURE__ */ new Map(), cells: /* @__PURE__ */ new Map() };
       for (const { range, table: parsed3 } of list) {
         const table = isHere && replace && range.from === replace.from ? replace.table : parsed3;
-        const own = metaName(table)?.toLowerCase();
-        if (own && !names.tables.has(own)) names.tables.set(own, table);
+        const own2 = metaName(table)?.toLowerCase();
+        if (own2 && !names.tables.has(own2)) names.tables.set(own2, table);
         for (const [name, cell] of namedCells(table)) if (!names.cells.has(name)) names.cells.set(name, { table, ...cell });
       }
       pages.set(key, names);
@@ -4949,11 +4980,11 @@ function isAffected(referred, affected) {
   return [...referred.tables].some((n) => affected.tables.has(n)) || [...referred.cells].some((n) => affected.cells.has(n));
 }
 function tablesWritten(all, source) {
-  const own = all.find((t) => t.range.text === source)?.table;
-  if (!own) return all.map((t) => t.table);
-  const result = [own];
-  const affected = affectedBy(own);
-  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredBy(t.table) }));
+  const own2 = all.find((t) => t.range.text === source)?.table;
+  if (!own2) return all.map((t) => t.table);
+  const result = [own2];
+  const affected = affectedBy(own2);
+  const rest = all.filter((t) => t.table !== own2).map((t) => ({ table: t.table, referred: referredBy(t.table) }));
   for (let found = true; found; ) {
     found = false;
     for (let i = rest.length - 1; i >= 0; i--) {
@@ -5900,20 +5931,25 @@ ${error}` : stored.formula;
    * results are checked again, as SilverBullet keeps their widgets as they were
    */
   enhanced(widget) {
-    this.recheck(widget);
+    this.recheck(widget, false);
   }
-  /** Another page whose tables formulas read was changed */
+  /** Another page whose tables formulas read was changed, or the user's own functions were defined anew */
   tablesChanged() {
-    this.recheck();
+    this.recheck(void 0, true);
   }
-  /** Checks again whether the tables that refer to other tables (but `except`) are out of date */
-  recheck(except) {
+  /**
+   * Checks again whether the tables that refer to other tables (but `except`)
+   * are out of date; `ownFunctions`: those that call own functions too (they
+   * were defined anew, which an edit of a table does not do)
+   */
+  recheck(except, ownFunctions2) {
     const tables = this.tableSource();
     for (const other of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = other === except ? void 0 : this.host.infoOf(other);
       if (!info || !this.withFormulas.has(info.table)) continue;
       const model = parseTable(info.source);
-      if (referredTableNames(model).size === 0 && referredPages(model).size === 0 && referredCellNames(model).size === 0) continue;
+      const refersElsewhere = referredTableNames(model).size > 0 || referredPages(model).size > 0 || referredCellNames(model).size > 0;
+      if (!refersElsewhere && !(ownFunctions2 && callsOwnFunctions(model))) continue;
       if (recalculate(model, tables) !== model) this.stale.add(info.table);
       else this.stale.delete(info.table);
       this.markCells(info, model, tables);
@@ -5930,7 +5966,7 @@ ${error}` : stored.formula;
         place: "icon",
         icon: ICONS.recalculate,
         attention: stale,
-        title: stale ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, or TODAY() moved on)" : "Recalculate the formulas (their results are up to date)",
+        title: stale ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, TODAY() moved on, or a function of your own changed)" : "Recalculate the formulas (their results are up to date)",
         // A write recalculates: an edit that changes nothing else
         run: () => void this.host.write(this.host.widgetForKey(info.key) ?? widget, (t) => t)
       }
@@ -8303,13 +8339,13 @@ Row name: ${row}` : `Row name: ${row}`;
     const name = answer.trim();
     if (name === current) return;
     let problem = name === "" ? void 0 : nameProblem(name, "cell");
-    if (!problem && name && FUNCTIONS[name.toUpperCase()]) problem = `${name} is a function's name`;
+    if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
     if (!problem && name) {
       const text = await this.host.bridge.getText();
-      const own = locateBySource(text, shownInfo.hint, shownInfo.source);
+      const own2 = locateBySource(text, shownInfo.hint, shownInfo.source);
       const taken = findTables(text).some(
         (range) => parseTable(range.text).rows.some(
-          (r, ri) => ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column))
+          (r, ri) => ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own2 && range.from === own2.from && ri === row && ci === column))
         )
       );
       if (taken) problem = `another cell on this page is named ${name}`;
@@ -8688,7 +8724,7 @@ var Themes = class {
   toolbarButtons(widget, info) {
     if (!info.metaRow && !this.host.metadataEnabled) return [];
     const table = parseTable(info.source);
-    const own = metaTheme(table);
+    const own2 = metaTheme(table);
     const ownStripes = metaStripes(table);
     const set = (choices) => () => void this.choose(widget, info, choices);
     const item = (label, checked, run, detail) => ({ kind: "item", label, icon: "", checked, run, ...detail ? { detail } : {} });
@@ -8703,7 +8739,7 @@ var Themes = class {
       return [
         // First the global theme (as "No type" leads the column types): the table's own theme and stripes go, it follows the settings
         // The settings' theme after it, no preview (it is listed below, marked default)
-        { ...item("Global theme", own === void 0 && ownStripes === void 0, set({ theme: void 0, stripes: void 0 })), value: { text: themeLabel(this.theme) } },
+        { ...item("Global theme", own2 === void 0 && ownStripes === void 0, set({ theme: void 0, stripes: void 0 })), value: { text: themeLabel(this.theme) } },
         { kind: "separator" },
         stripesRow,
         { kind: "separator" },
@@ -8711,7 +8747,7 @@ var Themes = class {
         ...allThemes(this.host.doc).map(
           (theme) => item(
             `${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`,
-            own === theme,
+            own2 === theme,
             set({ theme }),
             detail(theme)
           )
@@ -8729,7 +8765,7 @@ var Themes = class {
         label: "Theme",
         title: "How this table looks: the Theme and Stripes settings (Global theme), or a theme and stripes of its own (stored in the table)",
         icon: ICONS.theme,
-        value: own ? themeLabel(own) : `${themeLabel(this.theme)} (global)`,
+        value: own2 ? themeLabel(own2) : `${themeLabel(this.theme)} (global)`,
         // Not used: the item opens its choices
         run: () => {
         },
@@ -9889,8 +9925,8 @@ var Controller = class {
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
     else setTimeout(run, 0);
   }
-  async promptText(message, value = "") {
-    const answer = this.bridge.prompt ? await this.bridge.prompt(message, value) : this.doc.defaultView.prompt(message, value);
+  async promptText(message2, value = "") {
+    const answer = this.bridge.prompt ? await this.bridge.prompt(message2, value) : this.doc.defaultView.prompt(message2, value);
     return answer ?? void 0;
   }
   /**
@@ -10090,9 +10126,9 @@ var Controller = class {
     widget.dataset.tpUnsupported = "true";
     if (!incompatible || this.warnedIncompatible) return;
     this.warnedIncompatible = true;
-    const message = "Table Plus is inactive: this SilverBullet version renders tables differently than expected";
-    console.warn(message);
-    void this.bridge.flash(message, "error");
+    const message2 = "Table Plus is inactive: this SilverBullet version renders tables differently than expected";
+    console.warn(message2);
+    void this.bridge.flash(message2, "error");
   }
   /**
    * A table with unnamed columns renders with its header shifted against its
@@ -11608,6 +11644,94 @@ var Controller = class {
   }
 };
 
+// table-plus/src/formula/functions/own.ts
+var HELPERS = {
+  FormulaError,
+  TimeValue,
+  isError,
+  isRange,
+  firstError,
+  single,
+  flatten,
+  numbers,
+  toNumber,
+  toText,
+  toBoolean,
+  toDate,
+  formatDate,
+  parseDate
+};
+var NAME_RE2 = /^[A-Za-z][A-Za-z0-9_.]*$/;
+function ownFunctions(definitions) {
+  let list = definitions;
+  if (isObject(list) && !Array.isArray(list) && "default" in list) list = list.default;
+  if (typeof list === "function") {
+    try {
+      list = list(HELPERS);
+    } catch (e) {
+      return { functions: [], problems: [`the definitions failed: ${message(e)}`] };
+    }
+  }
+  if (!Array.isArray(list)) return { functions: [], problems: ["the definitions are not a list of functions (or a function returning one)"] };
+  const functions = [];
+  const problems = [];
+  list.forEach((definition, i) => {
+    const f = ownFunction(definition);
+    if (typeof f === "string") problems.push(`function ${i + 1}: ${f}`);
+    else functions.push(f);
+  });
+  return { functions, problems };
+}
+function ownFunction(definition) {
+  if (!isObject(definition)) return "not an object";
+  const { name, syntax, description, minArgs = 0, maxArgs, call } = definition;
+  if (typeof name !== "string" || !NAME_RE2.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and . starting with a letter`;
+  const upper = name.toUpperCase();
+  if (CELL_RE.test(name) || upper === "TRUE" || upper === "FALSE") return `its name ${name} reads as ${upper === "TRUE" || upper === "FALSE" ? "a value" : "a cell"} in formulas`;
+  if (typeof call !== "function") return `${upper} has no call function`;
+  if (syntax !== void 0 && typeof syntax !== "string") return `${upper}: its syntax is not text`;
+  if (description !== void 0 && typeof description !== "string") return `${upper}: its description is not text`;
+  if (!isCount(minArgs)) return `${upper}: minArgs is not a whole number of 0 or more`;
+  if (maxArgs !== void 0 && (!isCount(maxArgs) || maxArgs < minArgs)) return `${upper}: maxArgs is not a whole number of minArgs or more`;
+  return {
+    name: upper,
+    syntax: syntax ?? `${upper}(\u2026)`,
+    description: description ?? "",
+    minArgs,
+    ...maxArgs === void 0 ? {} : { maxArgs },
+    call: (args, context) => {
+      let result;
+      try {
+        result = call(args, context);
+      } catch (e) {
+        result = e instanceof FormulaError ? e : new FormulaError("#VALUE!", `${upper} failed: ${message(e)}`);
+      }
+      return resultOf(upper, result);
+    }
+  };
+}
+function resultOf(name, result) {
+  if (result === void 0 || result === null) return null;
+  if (typeof result === "number" || typeof result === "string" || typeof result === "boolean") return result;
+  if (result instanceof FormulaError) {
+    return ERROR_CODES.includes(result.code) ? result : new FormulaError("#VALUE!", `${name} gave the error ${String(result.code)}, which is none of ${ERROR_CODES.join(" ")}`);
+  }
+  if (result instanceof TimeValue) return result;
+  if (isObject(result) && typeof result.then === "function") {
+    return new FormulaError("#VALUE!", `${name} returned a promise: a function gives its result at once (it cannot wait for anything)`);
+  }
+  return new FormulaError("#VALUE!", `${name} returned ${Array.isArray(result) ? "a list" : "an object"}: a function gives one value (a number, a text, TRUE or FALSE)`);
+}
+function isObject(value) {
+  return typeof value === "object" && value !== null;
+}
+function isCount(value) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+function message(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+
 // table-plus/src/index.ts
 var version = "0.1.0";
 var GLOBAL_KEY = "__tablePlus";
@@ -11627,6 +11751,25 @@ function removeAllMetadata() {
   const controller = globalThis[GLOBAL_KEY];
   void controller?.removeAllMetadata();
 }
+function defineFunctions(definitions) {
+  const { functions, problems } = ownFunctions(definitions);
+  defineOwnFunctions(functions);
+  definitionsChanged();
+  return problems.length ? `Table Plus: own functions not defined: ${problems.join("; ")}` : void 0;
+}
+function resetDefinitions() {
+  ownFunctionsAnew();
+}
+var checkQueued = false;
+function definitionsChanged() {
+  if (checkQueued) return;
+  checkQueued = true;
+  setTimeout(() => {
+    checkQueued = false;
+    const controller = globalThis[GLOBAL_KEY];
+    controller?.tablesChanged();
+  });
+}
 function init(bridge) {
   const missing = missingBridgeFunctions(bridge);
   if (missing.length) {
@@ -11644,10 +11787,12 @@ function init(bridge) {
   controller.start();
 }
 export {
+  defineFunctions,
   init,
   openSettings,
   pageIndexed,
   pageLoaded,
   removeAllMetadata,
+  resetDefinitions,
   version
 };

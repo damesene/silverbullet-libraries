@@ -16,7 +16,7 @@
 // "!": prices!B2, prices!A1:B3, prices![Price].
 import { type ColumnId, columnIdOf, columnKey, findColumn, followColumn, sameColumnId } from "../columns.ts";
 import { dateArithmetic, parseDate } from "./dates.ts";
-import { FUNCTIONS } from "./functions/index.ts";
+import { BUILT_IN_FUNCTIONS, functionNamed, functionNames, isOwnFunction } from "./functions/index.ts";
 import { escapeCell, escapeMetaValue, type Table, unescapeCell, unescapeMetaValue } from "../markdown.ts";
 import { CELL_RE, cellNameOf, namedCells, namedRows, withCellName } from "../names.ts";
 import { keepTags, withoutTags } from "../tags.ts";
@@ -878,7 +878,7 @@ class Sheet {
         return sheet.rowCellValue(node.row, node.column, node.table ? `${node.table.name}!` : "");
       }
       case "call": {
-        const f = FUNCTIONS[node.name];
+        const f = functionNamed(node.name);
         if (!f) return new FormulaError("#NAME?", `there is no function ${node.name}`);
         if (node.args.length < f.minArgs || (f.maxArgs !== undefined && node.args.length > f.maxArgs)) {
           return new FormulaError("#VALUE!", `wrong number of arguments: ${f.syntax}`);
@@ -1140,6 +1140,25 @@ function formulaPages(formula: string): string[] {
   ];
 }
 
+/**
+ * Whether a table's formulas call a function of the user's own, or one that
+ * is not built in (it may be defined later): their results change when the
+ * own functions are defined anew
+ */
+export function callsOwnFunctions(table: Table): boolean {
+  let calls = false;
+  forFormulas(table, (formula) => {
+    const { tokens } = tokenize(formula);
+    tokens.forEach((token, i) => {
+      const next = tokens[i + 1];
+      if (token.kind !== "name" || next?.kind !== "op" || next.text !== "(") return;
+      const name = token.text.toUpperCase();
+      if (isOwnFunction(name) || !BUILT_IN_FUNCTIONS[name]) calls = true;
+    });
+  });
+  return calls;
+}
+
 /** The names (lowercase) of the tables on the page that a table's formulas refer to, so they change when those do */
 export function referredTableNames(table: Table): Set<string> {
   const names = new Set<string>();
@@ -1379,10 +1398,10 @@ export function completeFunction(text: string, start: number, end: number): Func
   if (start !== end || !text.trimStart().startsWith("=")) return undefined;
   const before = text.slice(0, start);
   const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
-  if (!typing || /[0-9]/.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return undefined;
+  if (!typing || CELL_RE.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return undefined;
   if (tokenize(before).error) return undefined;
   const prefix = typing.toUpperCase();
-  const names = Object.keys(FUNCTIONS).filter((name) => name.startsWith(prefix));
+  const names = functionNames().filter((name) => name.startsWith(prefix));
   const name = names.length === 1 ? names[0] : names.find((n) => n === prefix);
   return name ? { from: start - typing.length, to: start, text: `${name}(` } : undefined;
 }
@@ -1396,10 +1415,10 @@ export function formulaHelp(text: string, caret: number): FormulaHelp[] {
   if (!text.trimStart().startsWith("=")) return [];
   const before = text.slice(0, caret);
   const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
-  if (typing && !/[0-9]/.test(typing) && text[caret] !== "(") {
+  if (typing && !CELL_RE.test(typing) && text[caret] !== "(") {
     const prefix = typing.toUpperCase();
-    const matches = Object.entries(FUNCTIONS).filter(([name]) => name.startsWith(prefix));
-    if (matches.length) return matches.map(([, f]) => ({ syntax: f.syntax, description: f.description }));
+    const matches = functionNames().filter((name) => name.startsWith(prefix)).map((name) => functionNamed(name)!);
+    if (matches.length) return matches.map((f) => ({ syntax: f.syntax, description: f.description }));
   }
   // The innermost call whose parenthesis is still open before the caret
   const { tokens } = tokenize(before);
@@ -1412,7 +1431,7 @@ export function formulaHelp(text: string, caret: number): FormulaHelp[] {
     } else if (token.text === ")") open.pop();
   });
   for (let i = open.length - 1; i >= 0; i--) {
-    const f = open[i] && FUNCTIONS[open[i]!];
+    const f = open[i] && functionNamed(open[i]!);
     if (f) return [{ syntax: f.syntax, description: f.description }];
   }
   return [REFERENCE_HELP];

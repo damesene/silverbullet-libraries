@@ -11,7 +11,7 @@
 // is moved or sorted.
 import { columnIdOf, columnKey } from "../columns.ts";
 import type { CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { FUNCTIONS } from "../formula/functions/index.ts";
+import { functionNamed } from "../formula/functions/index.ts";
 import { ICONS } from "../icons.ts";
 import { findTables, locateBySource, parseTable, type Table } from "../markdown.ts";
 import { metaName, sameTableName, tableNameProblem, withMetaName } from "../meta.ts";
@@ -223,7 +223,7 @@ export class Names implements Feature {
     const name = answer.trim();
     if (name === current) return;
     let problem = name === "" ? undefined : nameProblem(name, "cell");
-    if (!problem && name && FUNCTIONS[name.toUpperCase()]) problem = `${name} is a function's name`;
+    if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
     if (!problem && name) {
       // The name is the page's: no other cell on it may have it
       const text = await this.host.bridge.getText();

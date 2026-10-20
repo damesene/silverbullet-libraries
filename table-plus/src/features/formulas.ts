@@ -17,6 +17,7 @@ import {
   type Area,
   areaText,
   autofixFormula,
+  callsOwnFunctions,
   columnRefText,
   completeFunction,
   formulaCell,
@@ -308,22 +309,27 @@ export class Formulas implements Feature {
    * results are checked again, as SilverBullet keeps their widgets as they were
    */
   enhanced(widget: HTMLElement): void {
-    this.recheck(widget);
+    this.recheck(widget, false);
   }
 
-  /** Another page whose tables formulas read was changed */
+  /** Another page whose tables formulas read was changed, or the user's own functions were defined anew */
   tablesChanged(): void {
-    this.recheck();
+    this.recheck(undefined, true);
   }
 
-  /** Checks again whether the tables that refer to other tables (but `except`) are out of date */
-  private recheck(except?: HTMLElement): void {
+  /**
+   * Checks again whether the tables that refer to other tables (but `except`)
+   * are out of date; `ownFunctions`: those that call own functions too (they
+   * were defined anew, which an edit of a table does not do)
+   */
+  private recheck(except: HTMLElement | undefined, ownFunctions: boolean): void {
     const tables = this.tableSource();
     for (const other of Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = other === except ? undefined : this.host.infoOf(other);
       if (!info || !this.withFormulas.has(info.table)) continue;
       const model = parseTable(info.source);
-      if (referredTableNames(model).size === 0 && referredPages(model).size === 0 && referredCellNames(model).size === 0) continue;
+      const refersElsewhere = referredTableNames(model).size > 0 || referredPages(model).size > 0 || referredCellNames(model).size > 0;
+      if (!refersElsewhere && !(ownFunctions && callsOwnFunctions(model))) continue;
       if (recalculate(model, tables) !== model) this.stale.add(info.table);
       else this.stale.delete(info.table);
       // An error's reason may have changed (another page read)
@@ -343,7 +349,7 @@ export class Formulas implements Feature {
         icon: ICONS.recalculate,
         attention: stale,
         title: stale
-          ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, or TODAY() moved on)"
+          ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, TODAY() moved on, or a function of your own changed)"
           : "Recalculate the formulas (their results are up to date)",
         // A write recalculates: an edit that changes nothing else
         run: () => void this.host.write(this.host.widgetForKey(info.key) ?? widget, (t) => t),

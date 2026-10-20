@@ -1,4 +1,5 @@
-// The functions formulas can call, one per file in this folder.
+// The functions formulas can call: the built-in ones, one per file in this
+// folder, and the user's own (own.ts), which replace a built-in one of their name.
 //
 // To add one: copy a file such as sum.ts, change its name, syntax, description
 // and call, import it here and add it to the list. Then add its syntax and
@@ -74,5 +75,47 @@ const ALL: readonly FormulaFunction[] = [
   row,
 ];
 
-/** The functions by name */
-export const FUNCTIONS: Readonly<Record<string, FormulaFunction>> = Object.fromEntries(ALL.map((f) => [f.name, f]));
+/** The built-in functions by name */
+export const BUILT_IN_FUNCTIONS: Readonly<Record<string, FormulaFunction>> = Object.fromEntries(ALL.map((f) => [f.name, f]));
+
+// The user's own functions by name, as last defined
+let own = new Map<string, FormulaFunction>();
+
+/** The function formulas call by this name (upper case): the user's own, else the built-in one */
+export function functionNamed(name: string): FormulaFunction | undefined {
+  return own.get(name) ?? BUILT_IN_FUNCTIONS[name];
+}
+
+/** Every function's name, built-in and own */
+export function functionNames(): string[] {
+  return Array.from(new Set([...Object.keys(BUILT_IN_FUNCTIONS), ...own.keys()]));
+}
+
+/** Whether formulas calling this function (upper case) call one of the user's own */
+export function isOwnFunction(name: string): boolean {
+  return own.has(name);
+}
+
+// Space Lua is loaded again: the next definitions replace those of before
+let anew = false;
+
+/** Functions of the user's own, added to those defined before (one of the same name replaced), or replacing them all after `ownFunctionsAnew` */
+export function defineOwnFunctions(functions: readonly FormulaFunction[]): void {
+  own = new Map([...(anew ? [] : own), ...functions.map((f) => [f.name, f] as const)]);
+  anew = false;
+}
+
+/**
+ * Space Lua is loaded again: the scripts define the functions anew. Those of
+ * before are kept until then, so formulas calculated meanwhile (a write) still
+ * have them; when no script defines any any more, they stay until a reload.
+ */
+export function ownFunctionsAnew(): void {
+  anew = true;
+}
+
+/** Forgets the user's own functions */
+export function clearOwnFunctions(): void {
+  own = new Map();
+  anew = false;
+}

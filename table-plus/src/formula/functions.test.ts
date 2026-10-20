@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import libraryPage from "../../table-plus.md?raw";
-import { FUNCTIONS } from "./functions/index.ts";
+import { BUILT_IN_FUNCTIONS as FUNCTIONS } from "./functions/index.ts";
 import { FormulaError, parseClock, toText, type Value } from "./values.ts";
 
 // Called in the first cell (A1); ROW() tests set the place itself
