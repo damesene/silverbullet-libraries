@@ -17,7 +17,11 @@ npm run deploy -- <space folder>   # copy the library into a local space
 
 - **Rebuild before every commit**: `table-plus/table-plus.js` is committed, because SilverBullet installs it from the repo and runs no build. A commit with `src/` changes and a stale `.js` ships the old code. Nothing checks this automatically.
 - **Commit messages**: one line, `Table Plus: <what changed>` (or `Playground: …`), no body, **no AI co-author trailer**. One feature or fix per commit.
-- Never push without being asked; never push to `main` directly unless asked.
+- **Commit only when the user says so** ("commit"); until then changes stay in the working copy. Never push without being asked; never push to `main` directly unless asked. A change spanning several fixes is split into commits, each with `table-plus.js` built from its own changes.
+- The conversation with the user is in Czech; everything in the repository (code, comments, docs, commit messages) is English.
+- **A fix goes where it belongs**: the core gets generic mechanisms only (it knows no module by name, nor a module's classes or settings), a module's fix stays in the module. Features read rows through the host (`bodyRows`, `shownRows`, `cellAt`), never by querying the table's DOM.
+- **What SilverBullet runs is not touched for the playground**: the benchmark measures from outside (playground/profile.ts wraps methods); no measuring, flags or checks for it in `src/`.
+- Do not write files of a SilverBullet space on disk while SilverBullet has it open: it keeps its copy and writes a sync conflict into the page (it did, in CONFIG.md). Change pages through SilverBullet (its UI, a Table Plus command).
 - Every commit: `npx tsc --noEmit`, `npx vitest run`, `npm run build` all pass. Run `npx tsc --noEmit --noUnusedLocals` too after moving code (tsconfig does not enforce it).
 - Code style: match the surrounding code. Comments explain why, in full sentences or fragments; user-facing strings and docs are English. The library page is written for users: plain, specific, no internals.
 - Line endings are LF (`.gitattributes`); editors on Windows may write CRLF into the working copy, git normalizes on commit.
@@ -133,6 +137,15 @@ A new `space-lua` block on a page is not active until Space Lua is reloaded; an 
 - **Hidden tags in cells** (`tags.ts`): every `<meta …>` in a cell is kept when its text is edited, pasted over or cleared (`TableHost.keepTags`), whatever it is for; a feature that manages a tag's attributes takes them (`Feature.takesTags`: formulas take `f`) and writes them itself. So a module turned off loses none of its data in cells.
 - **Metadata removal** also removes formulas (cells keep their results) and ends a stored sort.
 - **Pointing** in formulas (click/drag cells, click header) uses the move cursor; only right after an operator, `(`, `,`, `=`, or replacing the reference just pointed at.
+- **Pinned rows and columns** show a light tint of the accent color (`--tp-pinned-tint`, 12 %), not a border: a selected or edited cell draws its marks with inset shadows, which a border would clash with; a pinned column's edge has its shadow already.
+
+### Settings dialog
+- One source with SilverBullet: it writes the Configuration Manager's managed block of CONFIG (Ctrl-, shows what it wrote and the reverse), every value changed written as it is, the default too (the value shown may come from another `config.set`, which the managed block, coming last, overrides).
+- Modules on their own tab, each with its description and its own settings under it; a module turned on or off needs *Save and reload* (modules are created when Table Plus starts). It says it is for every table in the space. Every setting has a `label` and a `hint`; the library page's `config.define` labels match them.
+
+### Performance (large tables)
+- Measured with the playground's benchmark and in SilverBullet (Chrome's trace: layouts and what forced them). After an edit SilverBullet renders the whole table anew and the browser lays it all out (an auto table layout depends on every row): that layout, paid once per change, is the cost; Table Plus must not make the browser pay it more than once (no layout reads between writes in view hooks, controls placed in the next frame).
+- **largeTables is off by default**: it changes how a large table looks (a box with its own scrollbar) and the browser's find sees only the rows in view. One setting, `minRows`: a row count, as a table's height would need the layout it avoids. The box is the one Maximum table height already makes (one scrollbar), else the window's height; virtualizing against the page's scroll (no box) was set aside: the table's height would be estimated, the page would move as rows are measured, and CodeMirror keeps a height map of its widgets.
 
 ## Deferred / open
 
@@ -141,4 +154,7 @@ A new `space-lua` block on a page is not active until Space Lua is reloaded; an 
 - A check that `table-plus.js` matches `src/` (`npm run check-build` or a pre-commit hook).
 - The band of the + could be found without hovering the table first (coming from the left or below, no + shows and a press there reaches SilverBullet). Offered, not done.
 - Enter after editing in select mode follows `enterKey` (edits the cell below); a spreadsheet would only select it.
-- Tests run in jsdom (layout is mocked where needed). Agents check UI with Playwright in the playground and in a local SilverBullet built from the fork (see CLAUDE.local.md); the user's deployed SilverBullet (Docker, latest release, the Tiniri theme) can differ.
+- Tests run in jsdom (layout is mocked where needed). Agents check UI with Playwright in the playground and in a local SilverBullet (a container of the latest release, the library deployed with `npm run deploy`); the user's deployed SilverBullet (Docker, latest release, the Tiniri theme) can differ.
+- **Enter without rewriting the table** (offered, not done): Enter would show the value and open the next cell at once, the markdown written in one go after a pause or when the table is left; each Enter then costs milliseconds. Costs: formulas, totals and sorting update after the pause, Ctrl+Z undoes the batch, edits held in memory for a moment.
+- **Recalculating only the formulas an edit affects** (offered, not done): today every write recalculates the whole table (`formulas · writeStep`, the largest part of an edit after the layout).
+- largeTables: the browser's find (Ctrl+F) sees only the rows in view; columns' widths are kept from the first rows shown (they only grow); the height of rows out of view is estimated, so the scrollbar may jump a little with rows of different heights.
