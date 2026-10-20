@@ -476,7 +476,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `widths` | A column's width set by dragging the right edge of its header, *Auto width* in the column's menu, *Reset column widths* in the table's ⋯ menu; with *Store table metadata* stored in the table. Off: columns are as wide as their text; widths stored in tables are kept but not used. |
 | `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
 | `autoscroll` | The middle mouse button over a table scrolls it. |
-| `fullScreen` | The toolbar's full screen icon shows the table over the whole window (not the browser's full screen), with its toolbar, menus and editing as in the page; the same icon (*Exit full screen*) or Esc closes it. |
+| `fullScreen` | The toolbar's full screen icon shows the table over the whole window (not the browser's full screen), with its toolbar, menus and editing as in the page, the columns' letters above the header and the rows' numbers left of them, as formulas refer to them (`B3`); the same icon (*Exit full screen*) or Esc closes it. |
 | `largeTables` | Off by default. A table with many rows (setting `minRows`, default `200`) scrolls in a box of its own: as tall as *Maximum table height*, else the window. Only the rows in and around the box's view are in the page, so editing, sorting and filtering a table of thousands of rows stays quick. The browser's find (Ctrl+F) finds only those rows. Off: every row is in the page, the table as tall as its rows (unless *Maximum table height* is set). |
 
 ## Table names
@@ -1021,6 +1021,20 @@ end
   bottom: 0;
   z-index: 3;
 }
+/* Its header opaque, and the room above it covered in the page's color, at
+   all times: the browser holds the header at once while the script marks it
+   held (tp-stuck) only a frame later, so a fast scroll showed rows there.
+   (:where: a selected or edited header cell's own marks still win.) */
+.sb-table-widget.tp-sticky-box :where(thead td) {
+  background: linear-gradient(
+      var(--editor-table-head-background-color, transparent),
+      var(--editor-table-head-background-color, transparent)
+    ),
+    var(--root-background-color, #fff);
+}
+.sb-table-widget.tp-sticky-box :where(thead tr:first-child > td) {
+  box-shadow: 0 -42px 0 0 var(--root-background-color, #fff);
+}
 
 /* Header held at the top of the view while the table scrolls past (moved by
    script, or by the browser with tp-sticky-native) */
@@ -1200,19 +1214,77 @@ body.tp-navigating .sb-table-widget.tp-table * {
   height: 100dvh;
   max-height: none !important;
   margin: 0;
-  /* No padding at the top: the header sticks STICKY_GAP below the box's content edge (tp-sticky-box).
-     The room at the sides is a border, not padding: a border does not scroll
-     away with the table, so the + and the grips left of it stay in view */
-  padding: 0 0 24px;
-  border-left: 40px solid var(--root-background-color, #fff);
-  border-right: 40px solid var(--root-background-color, #fff);
+  /* Room only where Table Plus' controls need it: left of the rows (the +,
+     the grips) and above the header (the toolbar). At the left a border, not
+     padding: a border does not scroll away with the table. At the top the
+     table's margin, as high as the header is held below the box's top
+     (STICKY_GAP, tp-sticky-box); rows scrolled into it are covered by the
+     held header's shadow in the page's color. */
+  padding: 0;
+  border: 0;
+  border-left: 28px solid var(--root-background-color, #fff);
   overflow: auto;
   background: var(--root-background-color, #fff);
 }
-/* The room for the toolbar above the header, scrolled away with the table */
 .sb-table-widget.tp-fullscreen > table {
-  margin-top: 48px;
+  margin-top: 42px;
 }
+/* The columns' letters above the header and the rows' numbers left of the
+   rows, in that room (as formulas count them). Shown over the window only. The
+   table lets them out of its box (it is clipped in the page), each header cell
+   holds its letter (a pinned one is sticky, which holds it too). */
+.sb-table-widget .tp-col-letter {
+  display: none;
+}
+.sb-table-widget.tp-fullscreen.tp-table > table {
+  overflow: visible !important;
+}
+.sb-table-widget.tp-fullscreen thead tr:first-child > td:not(.tp-pin-left):not(.tp-pin-right) {
+  position: relative;
+}
+.sb-table-widget.tp-fullscreen .tp-col-letter {
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  font: 12px/22px var(--ui-font, system-ui, sans-serif);
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
+  color: var(--root-color, #333);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.tp-floating.tp-fullscreen-rows {
+  z-index: 46;
+  left: 0;
+  width: 28px;
+  overflow: hidden;
+  pointer-events: none;
+  display: block !important;
+}
+.tp-floating.tp-fullscreen-rows:not(.tp-visible) {
+  display: none !important;
+}
+.tp-fullscreen-rows > span {
+  position: absolute;
+  left: 0;
+  right: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font: 11px var(--ui-font, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  color: var(--root-color, #333);
+  opacity: 0.5;
+}
+.tp-fullscreen-rows > span[hidden] {
+  display: none;
+}
+
 /* CodeMirror's scroller is a stacking context (z-index 0) under SilverBullet's
    top bar (z-index 20): lifted over it while it holds a table shown so */
 .cm-scroller:has(.sb-table-widget.tp-fullscreen) {

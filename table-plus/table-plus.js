@@ -7375,9 +7375,12 @@ var Widths = class {
 // table-plus/src/features/fullscreen.ts
 var FULL_CLASS = "tp-fullscreen";
 var OPEN_CLASS = "tp-fullscreen-open";
+var LETTER_CLASS = "tp-col-letter";
 var FullScreen = class {
   constructor(host) {
     this.host = host;
+    this.numbers = host.floating("div", "tp-fullscreen-rows");
+    this.numbers.setAttribute("aria-hidden", "true");
   }
   host;
   // The table shown over the window (its key) and its widget as rendered now
@@ -7385,8 +7388,12 @@ var FullScreen = class {
   widget;
   // The table rendered anew taken for it before it was enhanced (tableAdded)
   guessed;
+  // The rows' numbers, over the room left of the rows
+  numbers;
+  numbersQueued = false;
   stop() {
     this.end();
+    this.numbers.remove();
   }
   toolbarButtons(widget, info) {
     const on = this.key === info.key;
@@ -7401,6 +7408,17 @@ var FullScreen = class {
       }
     ];
   }
+  // Each header cell's letter (shown only over the window, by the CSS)
+  decorate(_widget, info) {
+    Array.from(info.table.rows[0]?.cells ?? []).forEach((cell, column) => {
+      if (cell.querySelector(`:scope > .${LETTER_CLASS}`)) return;
+      const letter = this.host.doc.createElement("span");
+      letter.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} ${LETTER_CLASS}`;
+      letter.setAttribute("aria-hidden", "true");
+      letter.textContent = columnLetters(column);
+      cell.append(letter);
+    });
+  }
   begin(widget, info) {
     if (this.widget && this.widget !== widget) this.unmark(this.widget);
     this.key = info.key;
@@ -7414,6 +7432,7 @@ var FullScreen = class {
     this.widget = void 0;
     if (widget) this.unmark(widget);
     this.host.doc.body.classList.remove(OPEN_CLASS);
+    this.numbers.classList.remove("tp-visible");
     this.host.toolbarChanged();
     const info = widget && this.host.infoOf(widget);
     if (info) this.host.tableResized(info);
@@ -7422,6 +7441,8 @@ var FullScreen = class {
     this.widget = widget;
     widget.classList.add(FULL_CLASS);
     this.host.doc.body.classList.add(OPEN_CLASS);
+    this.numbers.classList.add("tp-visible");
+    this.queueNumbers();
   }
   unmark(widget) {
     widget.classList.remove(FULL_CLASS);
@@ -7442,6 +7463,13 @@ var FullScreen = class {
     else if (widget.classList.contains(FULL_CLASS)) this.unmark(widget);
     if (this.key !== void 0 && this.widget && !this.widget.isConnected && !this.host.widgetForKey(this.key)) this.end();
   }
+  // Its rows sorted, filtered or put back into the document: their numbers follow
+  viewApplied(widget) {
+    if (widget === this.widget) this.queueNumbers();
+  }
+  rowsAttached(info) {
+    if (info.table === this.widget?.querySelector("table")) this.queueNumbers();
+  }
   // Esc closes it, unless something else takes the key first (a cell editor, a selection, a field, a menu)
   keyDown(e) {
     if (e.key !== "Escape" || this.key === void 0 || this.host.editing) return false;
@@ -7452,10 +7480,60 @@ var FullScreen = class {
     this.end();
     return true;
   }
-  // Another page shown: no table of it is over the window
+  // After a scroll or a change of the layout (in a frame): the numbers follow the rows; another page shown: it ends
   layoutChanged() {
-    if (this.key === void 0 || this.widget?.isConnected) return;
-    if (!this.host.doc.querySelector(`${WIDGET_SELECTOR}.${FULL_CLASS}`)) this.end();
+    if (this.key === void 0) return;
+    if (!this.widget?.isConnected && !this.host.doc.querySelector(`${WIDGET_SELECTOR}.${FULL_CLASS}`)) {
+      this.end();
+      return;
+    }
+    this.placeNumbers();
+  }
+  queueNumbers() {
+    if (this.numbersQueued) return;
+    this.numbersQueued = true;
+    const win = this.host.doc.defaultView;
+    const run = () => {
+      this.numbersQueued = false;
+      this.placeNumbers();
+    };
+    if (win.requestAnimationFrame) win.requestAnimationFrame(run);
+    else setTimeout(run, 0);
+  }
+  /** A number beside each row in view, below the header (held or not), above the box's bottom */
+  placeNumbers() {
+    const widget = this.widget;
+    const info = widget?.isConnected ? this.host.infoOf(widget) : void 0;
+    if (!widget || !info) return;
+    const top = info.table.rows[0].getBoundingClientRect().bottom;
+    const bottom = this.host.innerBox(widget).bottom;
+    const layer = this.numbers;
+    layer.style.top = `${top}px`;
+    layer.style.height = `${Math.max(0, bottom - top)}px`;
+    const rows = this.host.shownRows(info).filter((tr) => tr.dataset.tpRow !== void 0 && tr.isConnected);
+    let low = 0;
+    let high = rows.length;
+    while (low < high) {
+      const mid = low + high >> 1;
+      if (rows[mid].getBoundingClientRect().bottom <= top) low = mid + 1;
+      else high = mid;
+    }
+    let shown = 0;
+    for (let i = low; i < rows.length; i++) {
+      const rect = rows[i].getBoundingClientRect();
+      if (rect.top >= bottom) break;
+      let label = layer.children[shown];
+      if (!label) {
+        label = this.host.doc.createElement("span");
+        layer.append(label);
+      }
+      label.hidden = false;
+      label.textContent = rows[i].dataset.tpRow;
+      label.style.top = `${rect.top - top}px`;
+      label.style.height = `${rect.height}px`;
+      shown++;
+    }
+    for (let i = shown; i < layer.children.length; i++) layer.children[i].hidden = true;
   }
 };
 

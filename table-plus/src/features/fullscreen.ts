@@ -1,17 +1,26 @@
 // The fullScreen module: a toolbar icon shows the table over the whole window
 // (not the browser's full screen); the same icon (Exit full screen) or Esc
-// closes it. The table
-// stays where SilverBullet rendered it; CSS (tp-fullscreen) lays its box over
-// the window, so its scroll, sticky header and Table Plus' controls work as in
-// a table with its own box. SilverBullet renders the table anew after every
-// edit: the table shown so (by its key) is shown so again, at once when it is
-// put into the page (before it is laid out), confirmed once it is enhanced.
+// closes it. The table stays where SilverBullet rendered it; CSS
+// (tp-fullscreen) lays its box over the window, so its scroll, sticky header
+// and Table Plus' controls work as in a table with its own box. SilverBullet
+// renders the table anew after every edit: the table shown so (by its key) is
+// shown so again, at once when it is put into the page (before it is laid
+// out), confirmed once it is enhanced.
+//
+// The room above the header and left of the rows (for the toolbar, the grips
+// and the +) shows the columns' letters and the rows' numbers, as formulas
+// count them (A1: the first row under the header). The letters are in the
+// header's cells (CSS puts them above), so they move with it; the numbers are
+// a layer over the room at the left, placed by the rows shown after each
+// scroll (in the frame the core updates what follows the layout).
 import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { WIDGET_SELECTOR } from "../dom.ts";
+import { OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
+import { columnLetters } from "../formula/index.ts";
 import { ICONS } from "../icons.ts";
 
 const FULL_CLASS = "tp-fullscreen";
 const OPEN_CLASS = "tp-fullscreen-open";
+const LETTER_CLASS = "tp-col-letter";
 
 export class FullScreen implements Feature {
   // The table shown over the window (its key) and its widget as rendered now
@@ -19,11 +28,18 @@ export class FullScreen implements Feature {
   private widget: HTMLElement | undefined;
   // The table rendered anew taken for it before it was enhanced (tableAdded)
   private guessed: HTMLElement | undefined;
+  // The rows' numbers, over the room left of the rows
+  private readonly numbers: HTMLElement;
+  private numbersQueued = false;
 
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: TableHost) {
+    this.numbers = host.floating("div", "tp-fullscreen-rows");
+    this.numbers.setAttribute("aria-hidden", "true");
+  }
 
   stop(): void {
     this.end();
+    this.numbers.remove();
   }
 
   toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
@@ -40,6 +56,18 @@ export class FullScreen implements Feature {
     ];
   }
 
+  // Each header cell's letter (shown only over the window, by the CSS)
+  decorate(_widget: HTMLElement, info: WidgetInfo): void {
+    Array.from(info.table.rows[0]?.cells ?? []).forEach((cell, column) => {
+      if (cell.querySelector(`:scope > .${LETTER_CLASS}`)) return;
+      const letter = this.host.doc.createElement("span");
+      letter.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} ${LETTER_CLASS}`;
+      letter.setAttribute("aria-hidden", "true");
+      letter.textContent = columnLetters(column);
+      cell.append(letter);
+    });
+  }
+
   private begin(widget: HTMLElement, info: WidgetInfo): void {
     if (this.widget && this.widget !== widget) this.unmark(this.widget);
     this.key = info.key;
@@ -54,6 +82,7 @@ export class FullScreen implements Feature {
     this.widget = undefined;
     if (widget) this.unmark(widget);
     this.host.doc.body.classList.remove(OPEN_CLASS);
+    this.numbers.classList.remove("tp-visible");
     this.host.toolbarChanged();
     const info = widget && this.host.infoOf(widget);
     if (info) this.host.tableResized(info);
@@ -63,6 +92,8 @@ export class FullScreen implements Feature {
     this.widget = widget;
     widget.classList.add(FULL_CLASS);
     this.host.doc.body.classList.add(OPEN_CLASS);
+    this.numbers.classList.add("tp-visible");
+    this.queueNumbers();
   }
 
   private unmark(widget: HTMLElement): void {
@@ -88,6 +119,15 @@ export class FullScreen implements Feature {
     if (this.key !== undefined && this.widget && !this.widget.isConnected && !this.host.widgetForKey(this.key)) this.end();
   }
 
+  // Its rows sorted, filtered or put back into the document: their numbers follow
+  viewApplied(widget: HTMLElement): void {
+    if (widget === this.widget) this.queueNumbers();
+  }
+
+  rowsAttached(info: WidgetInfo): void {
+    if (info.table === this.widget?.querySelector("table")) this.queueNumbers();
+  }
+
   // Esc closes it, unless something else takes the key first (a cell editor, a selection, a field, a menu)
   keyDown(e: KeyboardEvent): boolean {
     if (e.key !== "Escape" || this.key === undefined || this.host.editing) return false;
@@ -99,9 +139,62 @@ export class FullScreen implements Feature {
     return true;
   }
 
-  // Another page shown: no table of it is over the window
+  // After a scroll or a change of the layout (in a frame): the numbers follow the rows; another page shown: it ends
   layoutChanged(): void {
-    if (this.key === undefined || this.widget?.isConnected) return;
-    if (!this.host.doc.querySelector(`${WIDGET_SELECTOR}.${FULL_CLASS}`)) this.end();
+    if (this.key === undefined) return;
+    if (!this.widget?.isConnected && !this.host.doc.querySelector(`${WIDGET_SELECTOR}.${FULL_CLASS}`)) {
+      this.end();
+      return;
+    }
+    this.placeNumbers();
+  }
+
+  private queueNumbers(): void {
+    if (this.numbersQueued) return;
+    this.numbersQueued = true;
+    const win = this.host.doc.defaultView!;
+    const run = () => {
+      this.numbersQueued = false;
+      this.placeNumbers();
+    };
+    if (win.requestAnimationFrame) win.requestAnimationFrame(run);
+    else setTimeout(run, 0);
+  }
+
+  /** A number beside each row in view, below the header (held or not), above the box's bottom */
+  private placeNumbers(): void {
+    const widget = this.widget;
+    const info = widget?.isConnected ? this.host.infoOf(widget) : undefined;
+    if (!widget || !info) return;
+    const top = info.table.rows[0]!.getBoundingClientRect().bottom;
+    const bottom = this.host.innerBox(widget).bottom;
+    const layer = this.numbers;
+    layer.style.top = `${top}px`;
+    layer.style.height = `${Math.max(0, bottom - top)}px`;
+    // The rows as shown (in their order, their tops going down): the first in view found by halving
+    const rows = this.host.shownRows(info).filter((tr) => tr.dataset.tpRow !== undefined && tr.isConnected);
+    let low = 0;
+    let high = rows.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (rows[mid]!.getBoundingClientRect().bottom <= top) low = mid + 1;
+      else high = mid;
+    }
+    let shown = 0;
+    for (let i = low; i < rows.length; i++) {
+      const rect = rows[i]!.getBoundingClientRect();
+      if (rect.top >= bottom) break;
+      let label = layer.children[shown] as HTMLElement | undefined;
+      if (!label) {
+        label = this.host.doc.createElement("span");
+        layer.append(label);
+      }
+      label.hidden = false;
+      label.textContent = rows[i]!.dataset.tpRow!;
+      label.style.top = `${rect.top - top}px`;
+      label.style.height = `${rect.height}px`;
+      shown++;
+    }
+    for (let i = shown; i < layer.children.length; i++) (layer.children[i] as HTMLElement).hidden = true;
   }
 }
