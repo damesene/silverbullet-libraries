@@ -374,6 +374,11 @@ export class Selection implements Feature {
     }
   }
 
+  // A cell's editor opened (also from a + or a menu, which leave the selection): the selection ends
+  editorOpened(): void {
+    if (this.selection) this.clear();
+  }
+
   // A table rendered again (after a write) shows the selection again
   enhanced(_widget: HTMLElement, info: WidgetInfo): void {
     if (this.selection?.key === info.key) this.show();

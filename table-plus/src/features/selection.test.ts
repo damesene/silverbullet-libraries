@@ -18,6 +18,24 @@ describe("Selecting cells", () => {
     window.dispatchEvent(new MouseEvent("mouseup"));
   };
 
+  it("ends the selection when a + adds a row and edits its cell", async () => {
+    // Select mode: a click selects
+    localStorage.removeItem("tablePlus.editMode");
+    await setup(PAGE);
+    cell(3, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    clickOn(cell(3, 0));
+    expect(cell(3, 0).classList.contains("tp-selected")).toBe(true);
+    // The quiet + under the last row (a floating control: the press leaves the selection)
+    press(document.querySelector('.tp-insert.tp-quiet[aria-label="Add a row"]')!, "mousedown");
+    for (let i = 0; i < 5 && !editor.querySelector(".tp-cell-editor"); i++) {
+      await flush();
+      await controller.scan();
+    }
+    expect(text).toBe(`${PAGE}| | |\n`);
+    expect(editor.querySelector(".tp-cell-editor")!.closest("tr")!.dataset.tpRow).toBe("4");
+    expect(editor.querySelectorAll(".tp-selected").length).toBe(0);
+  });
+
   it("selects the cells dragged across and copies them for a spreadsheet", async () => {
     await setup('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| a "b" | 10 <meta f="=5*2"> |\n| Fig | 2 |\n');
     drag(cell(0, 0), cell(2, 1));

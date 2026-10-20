@@ -7262,6 +7262,10 @@ var Selection = class {
       void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
     }
   }
+  // A cell's editor opened (also from a + or a menu, which leave the selection): the selection ends
+  editorOpened() {
+    if (this.selection) this.clear();
+  }
   // A table rendered again (after a write) shows the selection again
   enhanced(_widget, info) {
     if (this.selection?.key === info.key) this.show();
