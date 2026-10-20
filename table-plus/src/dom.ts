@@ -23,6 +23,10 @@ export const INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
 // Elements Table Plus adds into a rendered table
 export const UI_CLASS = "tp-ui";
 
+// Those of them in a header cell that sit out of its line (positioned at the
+// cell's edge: the pin mark, a module's handle): the header's layout leaves them where they are
+export const OUT_OF_LINE_CLASS = "tp-out-of-line";
+
 export function renderedTable(widget: Element): HTMLTableElement | null {
   return widget.querySelector("table");
 }
@@ -60,8 +64,6 @@ export function cellText(cell: Element): string {
 // control), which always show
 export const HEAD_CLASS = "tp-head";
 const HEAD_NAME_CLASS = "tp-head-name";
-// Table Plus' elements in a header that sit out of the line (at the cell's edge)
-const OUT_OF_LINE = ["tp-pin-mark", "tp-col-resize"];
 
 /**
  * Lays a header cell out on one line: its name in a box that the CSS cuts
@@ -78,7 +80,7 @@ export function layOutHeaderCell(cell: HTMLTableCellElement): void {
   head.append(name);
   for (const node of Array.from(cell.childNodes)) {
     const ui = node instanceof Element && node.classList.contains(UI_CLASS);
-    if (ui && OUT_OF_LINE.some((c) => (node as Element).classList.contains(c))) continue;
+    if (ui && (node as Element).classList.contains(OUT_OF_LINE_CLASS)) continue;
     (ui ? head : name).append(node);
   }
   cell.prepend(head);

@@ -18,6 +18,9 @@ describe("Column widths", () => {
   it("sets a column's width by dragging its header's edge, from the width at the press, stored in the table", async () => {
     await setup(PAGE, { "tablePlus.metadata": true });
     expect(handle(1)).not.toBeNull();
+    // Out of the header's line (marked so, the core knows no module's element): in the cell, at its edge
+    expect(handle(1).parentElement).toBe(cell(0, 1));
+    expect(cell(0, 1).querySelector(".tp-head .tp-col-resize")).toBeNull();
     // Moving back and forth: the width follows the pointer from the press, at least 40px
     drag(0, 120, [30, 300, -200, 60]);
     await flush();

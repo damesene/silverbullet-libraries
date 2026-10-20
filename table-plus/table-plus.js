@@ -594,6 +594,7 @@ var SCROLLER_SELECTOR = ".cm-scroller";
 var NATIVE_ACTION_SELECTOR = "a[data-ref], [data-mention-name], button[data-onclick], span.sb-task-state";
 var INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
 var UI_CLASS = "tp-ui";
+var OUT_OF_LINE_CLASS = "tp-out-of-line";
 function renderedTable(widget) {
   return widget.querySelector("table");
 }
@@ -617,7 +618,6 @@ function cellText(cell) {
 }
 var HEAD_CLASS = "tp-head";
 var HEAD_NAME_CLASS = "tp-head-name";
-var OUT_OF_LINE = ["tp-pin-mark", "tp-col-resize"];
 function layOutHeaderCell(cell) {
   if (cell.querySelector(`:scope > .${HEAD_CLASS}`)) return;
   const doc = cell.ownerDocument;
@@ -628,7 +628,7 @@ function layOutHeaderCell(cell) {
   head.append(name);
   for (const node of Array.from(cell.childNodes)) {
     const ui = node instanceof Element && node.classList.contains(UI_CLASS);
-    if (ui && OUT_OF_LINE.some((c) => node.classList.contains(c))) continue;
+    if (ui && node.classList.contains(OUT_OF_LINE_CLASS)) continue;
     (ui ? head : name).append(node);
   }
   cell.prepend(head);
@@ -6603,7 +6603,7 @@ var Widths = class {
   decorate(_widget, info) {
     Array.from(info.table.rows[0].cells).forEach((cell, column) => {
       const handle = this.host.doc.createElement("span");
-      handle.className = `${UI_CLASS} tp-col-resize`;
+      handle.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-col-resize`;
       handle.dataset.tpColumn = String(column);
       handle.title = "Drag to set the column's width; double-click for automatic";
       cell.append(handle);
@@ -8428,7 +8428,7 @@ var Controller = class {
     metaRow2?.classList.add("tp-meta-row");
     const mark = (icon, title) => {
       const span = this.doc.createElement("span");
-      span.className = `${UI_CLASS} tp-pin-mark`;
+      span.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-pin-mark`;
       span.title = title;
       span.innerHTML = icon;
       return span;

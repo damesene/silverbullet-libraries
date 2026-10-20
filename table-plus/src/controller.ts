@@ -42,6 +42,7 @@ import {
   EDITOR_SELECTOR,
   INTERACTIVE_SELECTOR,
   layOutHeaderCell,
+  OUT_OF_LINE_CLASS,
   NATIVE_ACTION_SELECTOR,
   positionHint,
   renderedTable,
@@ -765,7 +766,7 @@ export class Controller implements TableHost {
     // Pinned rows and columns carry the pin icon of their menu item
     const mark = (icon: string, title: string) => {
       const span = this.doc.createElement("span");
-      span.className = `${UI_CLASS} tp-pin-mark`;
+      span.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-pin-mark`;
       span.title = title;
       span.innerHTML = icon;
       return span;

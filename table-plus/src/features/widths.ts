@@ -8,7 +8,7 @@
 // moved since, never measured again: a scrollbar showing or going, or the
 // table moving as it gets narrower, cannot feed back into it.
 import type { Feature, TableHost, WidgetInfo } from "../core/feature.ts";
-import { UI_CLASS } from "../dom.ts";
+import { OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
@@ -54,7 +54,7 @@ export class Widths implements Feature {
   decorate(_widget: HTMLElement, info: WidgetInfo): void {
     Array.from(info.table.rows[0]!.cells).forEach((cell, column) => {
       const handle = this.host.doc.createElement("span");
-      handle.className = `${UI_CLASS} tp-col-resize`;
+      handle.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-col-resize`;
       handle.dataset.tpColumn = String(column);
       handle.title = "Drag to set the column's width; double-click for automatic";
       cell.append(handle);
