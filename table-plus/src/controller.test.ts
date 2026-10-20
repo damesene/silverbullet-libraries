@@ -208,8 +208,8 @@ describe("Controller", () => {
 
   // The table at x 100..400, y 100, its rows 30 high, its two columns 150 wide (jsdom has no layout)
   const layOutTable = () => {
-    const rect = (left: number, top: number, width: number, height: number) =>
-      ({ left, top, right: left + width, bottom: top + height, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+    // Real DOMRects (their fields are getters, as the browser's)
+    const rect = (left: number, top: number, width: number, height: number) => new DOMRect(left, top, width, height);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const tr = this.closest("tr");
       if (tr && this.closest(".sb-table-widget")) {
@@ -244,6 +244,44 @@ describe("Controller", () => {
     mark.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
     await flush();
     expect(text).toBe(PAGE.replace("| Pear | 3 |\n", "| Pear | 3 |\n| | |\n"));
+  });
+
+  it("shows the + on the borders of the header and of the rows pinned to the top", async () => {
+    await setup("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| Fig | 2 |\n| <meta pin-top=\"2\"> |\n", { "tablePlus.metadata": true });
+    layOutTable();
+    expect(cell(2, 0).closest("thead")).not.toBeNull();
+    cell(3, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const mark = document.querySelector<HTMLElement>(".tp-insert:not(.tp-quiet)")!;
+    const move = (x: number, y: number) => document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX: x, clientY: y }));
+    const at = () => parseFloat(mark.style.top) + mark.offsetHeight / 2;
+    // Under the header (130), between Pear and apple (160), under apple (190)
+    for (const border of [130, 160, 190]) {
+      move(80, border + 2);
+      expect(at()).toBe(border);
+    }
+  });
+
+  it("gives a row scrolled under the header held at the top no grip, its border no +", async () => {
+    await setup(PAGE);
+    layOutTable();
+    // The header held over Pear (130..160) and part of apple (160..190)
+    const head = document.querySelector("thead")!;
+    Object.defineProperty(head, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 135, bottom: 165, left: 100, right: 400, width: 300, height: 30, x: 100, y: 135, toJSON: () => ({}) }) as DOMRect,
+    });
+    cell(2, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const mark = document.querySelector<HTMLElement>(".tp-insert:not(.tp-quiet)")!;
+    const grip = document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+    const move = (x: number, y: number) => document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX: x, clientY: y }));
+    // Beside Pear, under the header: no grip goes to it
+    move(97, 150);
+    expect(grip.style.top).not.toBe(`${130 + (30 - 22) / 2}px`);
+    // The nearest border shown: not Pear's (160, under the header)
+    move(80, 158);
+    expect(mark.classList.contains("tp-visible")).toBe(true);
+    expect(parseFloat(mark.style.top) + mark.offsetHeight / 2).not.toBe(160);
+    expect([130, 190]).toContain(parseFloat(mark.style.top) + mark.offsetHeight / 2);
   });
 
   it("shows the + inserting a column in a lane of its own above the column grips, none over a grip; the toolbar keeps clear of it", async () => {

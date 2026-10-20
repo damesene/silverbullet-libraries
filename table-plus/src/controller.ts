@@ -1314,7 +1314,8 @@ export class Controller implements TableHost {
     const head = info.table.tHead;
     // A body cell under the header held at the top is out of view
     const top = Math.max(view.top, box.top, head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity);
-    const bottom = Math.min(view.bottom, box.bottom);
+    // ... and one under the rows held at the bottom
+    const bottom = Math.min(view.bottom, box.bottom, element.closest("tbody") ? this.heldBounds(info).bottom : Infinity);
     return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
   }
 
@@ -1618,14 +1619,26 @@ export class Controller implements TableHost {
     // over the row grip (on the edge) the band, but no +; left of it, the +
     // on the border nearest the pointer, so it needs no aiming
     if (x >= shown.left - INSERT_LANE_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + INSERT_LANE_PAST) {
-      const rows = this.shownRows(info);
+      // Body rows as far as they show between the rows held over them (the
+      // header held at the top, rows pinned there or to the bottom): one that
+      // scrolled under them gets no grip, its border no +
+      const held = this.heldBounds(info);
+      const body = (tr: HTMLTableRowElement) => tr.parentElement?.tagName === "TBODY";
+      const span = (tr: HTMLTableRowElement) => {
+        const r = tr.getBoundingClientRect();
+        // (A DOMRect's fields are getters: spreading it copies none)
+        return body(tr) ? { top: Math.max(r.top, held.top), bottom: Math.min(r.bottom, held.bottom), edge: r.bottom } : { top: r.top, bottom: r.bottom, edge: r.bottom };
+      };
+      const rows = this.shownRows(info).filter((tr) => span(tr).bottom > span(tr).top + 1);
       // The row grip goes to the row beside the pointer
-      const beside = rows.find((tr, i) => i > 0 && y >= tr.getBoundingClientRect().top && y < tr.getBoundingClientRect().bottom);
+      const beside = rows.find((tr, i) => i > 0 && y >= span(tr).top && y < span(tr).bottom);
       if (beside) this.hoverAt(widget, info, beside.cells[this.hoverCell?.cellIndex ?? 0] ?? beside.cells[0]);
-      const edges = rows.map((tr) => tr.getBoundingClientRect().bottom);
-      const i = edges.reduce((best, edge, j) => (Math.abs(y - edge) < Math.abs(y - edges[best]!) ? j : best), 0);
-      if (mark && x <= shown.left - INSERT_LANE_FROM && rows.length) {
-        const edge = edges[i]!;
+      // The borders under the rows shown, where they show
+      const edges = rows
+        .map((tr, i) => ({ edge: span(tr).edge, i }))
+        .filter(({ edge, i }) => !body(rows[i]!) || (edge >= held.top - 1 && edge <= held.bottom + 1));
+      if (mark && x <= shown.left - INSERT_LANE_FROM && edges.length) {
+        const { edge, i } = edges.reduce((best, e) => (Math.abs(y - e.edge) < Math.abs(y - best.edge) ? e : best));
         const next = rows[i + 1];
         const below = next && Number(next.dataset.tpRow);
         const above = i > 0 ? Number(rows[i]!.dataset.tpRow) : undefined;
@@ -1642,14 +1655,26 @@ export class Controller implements TableHost {
     // the + on the border nearest the pointer, as for rows
     if (y >= header.top - INSERT_LANE_BAND && y <= header.top + 2 && x >= shown.left - INSERT_REACH && x <= shown.right + INSERT_LANE_PAST) {
       const cells = Array.from(info.table.rows[0]!.cells);
-      // The column grip goes to the column under the pointer (in the row hovered last)
-      const column = cells.findIndex((c) => x >= c.getBoundingClientRect().left && x < c.getBoundingClientRect().right);
+      const pinned = (c: HTMLTableCellElement) => c.classList.contains("tp-pin-left") || c.classList.contains("tp-pin-right");
+      // The column grip goes to the column under the pointer (in the row hovered last): a pinned
+      // column over one the table scrolled sideways under it
+      const under = cells.filter((c) => x >= c.getBoundingClientRect().left && x < c.getBoundingClientRect().right);
+      const column = (under.find(pinned) ?? under[0])?.cellIndex ?? -1;
       const row = (this.hoverCell?.parentElement as HTMLTableRowElement | undefined) ?? info.table.rows[0]!;
       if (column >= 0 && row.closest("table") === info.table) this.hoverAt(widget, info, row.cells[column]);
-      // The borders in view (a wide table scrolls sideways), by the column they insert at
-      const edges = [cells[0]!.getBoundingClientRect().left, ...cells.map((c) => c.getBoundingClientRect().right)]
-        .map((edge, i) => ({ edge, i }))
-        .filter(({ edge }) => edge >= shown.left - INSERT_REACH && edge <= shown.right + INSERT_REACH);
+      // The borders in view (a wide table scrolls sideways, under its pinned
+      // columns), by the column they insert at: a pinned column's, and the
+      // others' between the pinned ones
+      const held = this.heldBounds(info);
+      const edges = cells
+        .flatMap((c, i) => {
+          const r = c.getBoundingClientRect();
+          return [
+            { edge: r.left, i, pinned: pinned(c) },
+            { edge: r.right, i: i + 1, pinned: pinned(c) },
+          ];
+        })
+        .filter(({ edge, pinned }) => (pinned || (edge >= held.left - 1 && edge <= held.right + 1)) && edge >= shown.left - INSERT_REACH && edge <= shown.right + INSERT_REACH);
       if (mark && y <= header.top - INSERT_LANE_FROM && edges.length) {
         const { edge, i } = edges.reduce((best, e) => (Math.abs(x - e.edge) < Math.abs(x - best.edge) ? e : best));
         const at = i < cells.length ? i : appendColumnAt(info.pins, info.columns);
@@ -1784,7 +1809,10 @@ export class Controller implements TableHost {
       const view = this.viewBounds(widget);
       // Where it goes: the border under the last row, the header's top at the last column
       const y = axis === "row" ? end.edge : info.table.rows[0]!.getBoundingClientRect().top - INSERT_LANE_AT;
-      const inView = y >= view.top && y <= view.bottom && (axis === "row" || end.edge <= end.shown.right + INSERT_REACH);
+      // A last body row scrolled under the rows held at the top has its border there too: out of view
+      const held = this.heldBounds(info);
+      const inView =
+        y >= view.top && y <= view.bottom && (axis === "row" ? end.edge >= held.top - 1 : end.edge <= end.shown.right + INSERT_REACH);
       if (!inView) {
         mark.classList.remove("tp-visible");
         continue;
@@ -2249,6 +2277,25 @@ export class Controller implements TableHost {
   }
 
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
+  /**
+   * Where the body shows between what is held over it as the page and the
+   * table scroll: below the header (with the rows pinned to the top), above
+   * the rows pinned to the bottom, between the columns pinned left and right.
+   * What scrolls under those is out of view.
+   */
+  private heldBounds(info: WidgetInfo): { left: number; right: number; top: number; bottom: number } {
+    const { tHead: head, tFoot: foot } = info.table;
+    const header = Array.from(info.table.rows[0]!.cells);
+    const lefts = header.filter((c) => c.classList.contains("tp-pin-left")).map((c) => c.getBoundingClientRect().right);
+    const rights = header.filter((c) => c.classList.contains("tp-pin-right")).map((c) => c.getBoundingClientRect().left);
+    return {
+      top: head ? head.getBoundingClientRect().bottom : -Infinity,
+      bottom: foot?.rows.length ? foot.getBoundingClientRect().top : Infinity,
+      left: lefts.length ? Math.max(...lefts) : -Infinity,
+      right: rights.length ? Math.min(...rights) : Infinity,
+    };
+  }
+
   shownRect(
     widget: HTMLElement,
     info: WidgetInfo,

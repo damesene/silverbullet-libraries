@@ -8463,7 +8463,7 @@ var Controller = class {
     const box = this.innerBox(widget);
     const head = info.table.tHead;
     const top = Math.max(view.top, box.top, head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity);
-    const bottom = Math.min(view.bottom, box.bottom);
+    const bottom = Math.min(view.bottom, box.bottom, element.closest("tbody") ? this.heldBounds(info).bottom : Infinity);
     return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
   }
   // ---- layout: what follows scrolling ------------------------------------------
@@ -8713,13 +8713,18 @@ var Controller = class {
     const header = info.table.rows[0].getBoundingClientRect();
     const { clientX: x, clientY: y } = e;
     if (x >= shown.left - INSERT_LANE_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + INSERT_LANE_PAST) {
-      const rows = this.shownRows(info);
-      const beside = rows.find((tr, i2) => i2 > 0 && y >= tr.getBoundingClientRect().top && y < tr.getBoundingClientRect().bottom);
+      const held = this.heldBounds(info);
+      const body = (tr) => tr.parentElement?.tagName === "TBODY";
+      const span = (tr) => {
+        const r = tr.getBoundingClientRect();
+        return body(tr) ? { top: Math.max(r.top, held.top), bottom: Math.min(r.bottom, held.bottom), edge: r.bottom } : { top: r.top, bottom: r.bottom, edge: r.bottom };
+      };
+      const rows = this.shownRows(info).filter((tr) => span(tr).bottom > span(tr).top + 1);
+      const beside = rows.find((tr, i) => i > 0 && y >= span(tr).top && y < span(tr).bottom);
       if (beside) this.hoverAt(widget, info, beside.cells[this.hoverCell?.cellIndex ?? 0] ?? beside.cells[0]);
-      const edges = rows.map((tr) => tr.getBoundingClientRect().bottom);
-      const i = edges.reduce((best, edge, j) => Math.abs(y - edge) < Math.abs(y - edges[best]) ? j : best, 0);
-      if (mark && x <= shown.left - INSERT_LANE_FROM && rows.length) {
-        const edge = edges[i];
+      const edges = rows.map((tr, i) => ({ edge: span(tr).edge, i })).filter(({ edge, i }) => !body(rows[i]) || edge >= held.top - 1 && edge <= held.bottom + 1);
+      if (mark && x <= shown.left - INSERT_LANE_FROM && edges.length) {
+        const { edge, i } = edges.reduce((best, e2) => Math.abs(y - e2.edge) < Math.abs(y - best.edge) ? e2 : best);
         const next = rows[i + 1];
         const below = next && Number(next.dataset.tpRow);
         const above = i > 0 ? Number(rows[i].dataset.tpRow) : void 0;
@@ -8732,10 +8737,19 @@ var Controller = class {
     }
     if (y >= header.top - INSERT_LANE_BAND && y <= header.top + 2 && x >= shown.left - INSERT_REACH && x <= shown.right + INSERT_LANE_PAST) {
       const cells = Array.from(info.table.rows[0].cells);
-      const column = cells.findIndex((c) => x >= c.getBoundingClientRect().left && x < c.getBoundingClientRect().right);
+      const pinned = (c) => c.classList.contains("tp-pin-left") || c.classList.contains("tp-pin-right");
+      const under = cells.filter((c) => x >= c.getBoundingClientRect().left && x < c.getBoundingClientRect().right);
+      const column = (under.find(pinned) ?? under[0])?.cellIndex ?? -1;
       const row = this.hoverCell?.parentElement ?? info.table.rows[0];
       if (column >= 0 && row.closest("table") === info.table) this.hoverAt(widget, info, row.cells[column]);
-      const edges = [cells[0].getBoundingClientRect().left, ...cells.map((c) => c.getBoundingClientRect().right)].map((edge, i) => ({ edge, i })).filter(({ edge }) => edge >= shown.left - INSERT_REACH && edge <= shown.right + INSERT_REACH);
+      const held = this.heldBounds(info);
+      const edges = cells.flatMap((c, i) => {
+        const r = c.getBoundingClientRect();
+        return [
+          { edge: r.left, i, pinned: pinned(c) },
+          { edge: r.right, i: i + 1, pinned: pinned(c) }
+        ];
+      }).filter(({ edge, pinned: pinned2 }) => (pinned2 || edge >= held.left - 1 && edge <= held.right + 1) && edge >= shown.left - INSERT_REACH && edge <= shown.right + INSERT_REACH);
       if (mark && y <= header.top - INSERT_LANE_FROM && edges.length) {
         const { edge, i } = edges.reduce((best, e2) => Math.abs(x - e2.edge) < Math.abs(x - best.edge) ? e2 : best);
         const at = i < cells.length ? i : appendColumnAt(info.pins, info.columns);
@@ -8845,7 +8859,8 @@ var Controller = class {
       const end = this.endOf(widget, info, axis);
       const view = this.viewBounds(widget);
       const y = axis === "row" ? end.edge : info.table.rows[0].getBoundingClientRect().top - INSERT_LANE_AT;
-      const inView = y >= view.top && y <= view.bottom && (axis === "row" || end.edge <= end.shown.right + INSERT_REACH);
+      const held = this.heldBounds(info);
+      const inView = y >= view.top && y <= view.bottom && (axis === "row" ? end.edge >= held.top - 1 : end.edge <= end.shown.right + INSERT_REACH);
       if (!inView) {
         mark.classList.remove("tp-visible");
         continue;
@@ -9243,6 +9258,24 @@ var Controller = class {
     return true;
   }
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
+  /**
+   * Where the body shows between what is held over it as the page and the
+   * table scroll: below the header (with the rows pinned to the top), above
+   * the rows pinned to the bottom, between the columns pinned left and right.
+   * What scrolls under those is out of view.
+   */
+  heldBounds(info) {
+    const { tHead: head, tFoot: foot } = info.table;
+    const header = Array.from(info.table.rows[0].cells);
+    const lefts = header.filter((c) => c.classList.contains("tp-pin-left")).map((c) => c.getBoundingClientRect().right);
+    const rights = header.filter((c) => c.classList.contains("tp-pin-right")).map((c) => c.getBoundingClientRect().left);
+    return {
+      top: head ? head.getBoundingClientRect().bottom : -Infinity,
+      bottom: foot?.rows.length ? foot.getBoundingClientRect().top : Infinity,
+      left: lefts.length ? Math.max(...lefts) : -Infinity,
+      right: rights.length ? Math.min(...rights) : Infinity
+    };
+  }
   shownRect(widget, info) {
     const box = this.innerBox(widget);
     const table = info.table.getBoundingClientRect();
