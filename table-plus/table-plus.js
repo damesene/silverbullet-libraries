@@ -7423,6 +7423,10 @@ var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
 var BAR_GAP = 12;
 var INSERT_BAND = 16;
 var INSERT_REACH = 6;
+var ROW_INSERT_AT = 17;
+var ROW_INSERT_FROM = 7;
+var ROW_INSERT_BAND = 32;
+var ROW_INSERT_BELOW = 16;
 var LONG_PRESS_MS = 550;
 var STORE_SORT_DELAY_MS = 400;
 var ANCHOR_MS = 1e3;
@@ -8672,13 +8676,14 @@ var Controller = class {
     const header = info.table.rows[0].getBoundingClientRect();
     const { clientX: x, clientY: y } = e;
     const near = (a, b) => Math.abs(a - b) <= INSERT_REACH;
-    if (x >= shown.left - INSERT_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + INSERT_REACH) {
+    if (x >= shown.left - ROW_INSERT_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + ROW_INSERT_BELOW) {
       const rows = this.shownRows(info);
-      const beside = rows.find((tr, i) => i > 0 && y >= tr.getBoundingClientRect().top && y < tr.getBoundingClientRect().bottom);
+      const beside = rows.find((tr, i2) => i2 > 0 && y >= tr.getBoundingClientRect().top && y < tr.getBoundingClientRect().bottom);
       if (beside) this.hoverAt(widget, info, beside.cells[this.hoverCell?.cellIndex ?? 0] ?? beside.cells[0]);
-      for (let i = 0; mark && i < rows.length; i++) {
-        const edge = rows[i].getBoundingClientRect().bottom;
-        if (!near(y, edge)) continue;
+      const edges = rows.map((tr) => tr.getBoundingClientRect().bottom);
+      const i = edges.reduce((best, edge, j) => Math.abs(y - edge) < Math.abs(y - edges[best]) ? j : best, 0);
+      if (mark && x <= shown.left - ROW_INSERT_FROM && rows.length) {
+        const edge = edges[i];
         const next = rows[i + 1];
         const below = next && Number(next.dataset.tpRow);
         const above = i > 0 ? Number(rows[i].dataset.tpRow) : void 0;
@@ -8720,8 +8725,9 @@ var Controller = class {
     line.classList.add("tp-visible");
     mark.classList.add("tp-visible");
     if (at.axis === "row") {
-      Object.assign(line.style, { left: `${shown.left}px`, top: `${edge - 1}px`, width: `${shown.right - shown.left}px`, height: "2px" });
-      this.place(mark, shown.left - mark.offsetWidth / 2, edge - mark.offsetHeight / 2);
+      const center = shown.left - ROW_INSERT_AT;
+      Object.assign(line.style, { left: `${center}px`, top: `${edge - 1}px`, width: `${shown.right - center}px`, height: "2px" });
+      this.place(mark, center - mark.offsetWidth / 2, edge - mark.offsetHeight / 2);
     } else {
       const top = info.table.rows[0].getBoundingClientRect().top;
       Object.assign(line.style, { left: `${edge - 1}px`, top: `${top}px`, width: "2px", height: `${shown.bottom - top}px` });

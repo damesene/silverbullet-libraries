@@ -102,10 +102,18 @@ const SORT_GLYPH = { asc: "▲", desc: "▼", none: "⇅" } as const;
 // Toolbar distance above the header: clear of the column grip and the + on the header's top edge
 const BAR_GAP = 12;
 
-// How far left of a table (above its header) the band reaches where a + inserts
-// a row (column), and how near a border the pointer must be
+// How far above a table's header the band reaches where a + inserts a column,
+// and how near a border the pointer must be
 const INSERT_BAND = 16;
 const INSERT_REACH = 6;
+// The + inserting a row has a lane of its own left of the row grip (which sits
+// on the table's left edge, 12px wide): its centre this far left of the edge,
+// shown while the pointer is left of the grip, in a band reaching this far
+// (and this far under the table), on the border nearest the pointer
+const ROW_INSERT_AT = 17;
+const ROW_INSERT_FROM = 7;
+const ROW_INSERT_BAND = 32;
+const ROW_INSERT_BELOW = 16;
 
 // A press this long on a touch screen opens the cell menu
 const LONG_PRESS_MS = 550;
@@ -1573,15 +1581,18 @@ export class Controller implements TableHost {
     const header = info.table.rows[0]!.getBoundingClientRect();
     const { clientX: x, clientY: y } = e;
     const near = (a: number, b: number) => Math.abs(a - b) <= INSERT_REACH;
-    // Left of the table: the borders under the header and under each row shown
-    if (x >= shown.left - INSERT_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + INSERT_REACH) {
+    // Left of the table: the borders under the header and under each row shown;
+    // over the row grip (on the edge) the band, but no +; left of it, the +
+    // on the border nearest the pointer, so it needs no aiming
+    if (x >= shown.left - ROW_INSERT_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + ROW_INSERT_BELOW) {
       const rows = this.shownRows(info);
       // The row grip goes to the row beside the pointer
       const beside = rows.find((tr, i) => i > 0 && y >= tr.getBoundingClientRect().top && y < tr.getBoundingClientRect().bottom);
       if (beside) this.hoverAt(widget, info, beside.cells[this.hoverCell?.cellIndex ?? 0] ?? beside.cells[0]);
-      for (let i = 0; mark && i < rows.length; i++) {
-        const edge = rows[i]!.getBoundingClientRect().bottom;
-        if (!near(y, edge)) continue;
+      const edges = rows.map((tr) => tr.getBoundingClientRect().bottom);
+      const i = edges.reduce((best, edge, j) => (Math.abs(y - edge) < Math.abs(y - edges[best]!) ? j : best), 0);
+      if (mark && x <= shown.left - ROW_INSERT_FROM && rows.length) {
+        const edge = edges[i]!;
         const next = rows[i + 1];
         const below = next && Number(next.dataset.tpRow);
         const above = i > 0 ? Number(rows[i]!.dataset.tpRow) : undefined;
@@ -1634,9 +1645,10 @@ export class Controller implements TableHost {
     line.classList.add("tp-visible");
     mark.classList.add("tp-visible");
     if (at.axis === "row") {
-      Object.assign(line.style, { left: `${shown.left}px`, top: `${edge - 1}px`, width: `${shown.right - shown.left}px`, height: "2px" });
-      // On the table's left edge, where the border meets it
-      this.place(mark, shown.left - mark.offsetWidth / 2, edge - mark.offsetHeight / 2);
+      // Left of the row grips, the border drawn from it across the table
+      const center = shown.left - ROW_INSERT_AT;
+      Object.assign(line.style, { left: `${center}px`, top: `${edge - 1}px`, width: `${shown.right - center}px`, height: "2px" });
+      this.place(mark, center - mark.offsetWidth / 2, edge - mark.offsetHeight / 2);
     } else {
       const top = info.table.rows[0]!.getBoundingClientRect().top;
       Object.assign(line.style, { left: `${edge - 1}px`, top: `${top}px`, width: "2px", height: `${shown.bottom - top}px` });

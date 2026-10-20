@@ -359,7 +359,7 @@ Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; m
   * Column: sort, filter, type (see [[#Column types]]), align (left, center, right), insert left or right, move, select columns, delete.
 * **Select rows** (*Select columns*) in the menu: from that row, the rows up to the one under the pointer are selected as you move it; a click anywhere in the table ends the selection there (without editing the cell). Esc keeps just the first row. **Shift+click on a grip** does the same without the menu: from the first of the rows already selected, else from that row. A click on the grip of a selected row then opens its menu with *Delete N rows*.
 * **Drag a grip** to move the row or column: a copy follows the pointer and the others move aside to show where it goes; near the top or bottom of the view the page scrolls. Esc cancels the drag.
-* **Insert with +**: with a mouse or a pen, hover the left edge of the table on the border between two rows, or the top edge above the header on the border between two columns: a **+** inserts a row (column) there. On the last border it adds one at the end. A new column is named *Column N*, ready to rename. On a touch screen, insert from the row's or column's menu.
+* **Insert with +**: with a mouse or a pen, hover just left of the row grips (the **+** shows on the border between rows nearest the pointer), or the top edge above the header on the border between two columns: the **+** inserts a row (column) there. On the last border it adds one at the end. A new column is named *Column N*, ready to rename. On a touch screen, insert from the row's or column's menu.
 * Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.
 
 ## Pinning

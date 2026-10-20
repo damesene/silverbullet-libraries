@@ -205,6 +205,39 @@ describe("Controller", () => {
     expect(inner.inInsertBand).toBe(false);
   });
 
+  it("shows the + inserting a row in a lane of its own left of the row grips, none over a grip", async () => {
+    await setup(PAGE);
+    // The table at x 100..400, y 100, its rows 30 high
+    const rect = (left: number, top: number, width: number, height: number) =>
+      ({ left, top, right: left + width, bottom: top + height, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const tr = this.closest("tr");
+      if (tr && this.closest(".sb-table-widget")) return rect(100, 100 + (tr as HTMLTableRowElement).rowIndex * 30, 300, 30);
+      if (this.matches(".sb-table-widget, table")) return rect(100, 100, 300, 120);
+      return rect(0, 0, 0, 0);
+    });
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const mark = document.querySelector<HTMLElement>(".tp-insert")!;
+    const move = (x: number, y: number) => document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX: x, clientY: y }));
+    // On the border under Pear, over the row grip on the table's edge: no +
+    move(97, 160);
+    expect(mark.classList.contains("tp-visible")).toBe(false);
+    move(94, 160);
+    expect(mark.classList.contains("tp-visible")).toBe(false);
+    // Left of the grip: the +, its centre 17px left of the edge (the 18px + clear of the grip, 12px wide on the edge)
+    move(85, 160);
+    expect(mark.classList.contains("tp-visible")).toBe(true);
+    expect(parseFloat(mark.style.left) + mark.offsetWidth / 2).toBe(83);
+    // Anywhere in the lane: on the border nearest the pointer, no aiming needed
+    move(75, 183);
+    expect(parseFloat(mark.style.top) + mark.offsetHeight / 2).toBe(190);
+    move(75, 172);
+    expect(parseFloat(mark.style.top) + mark.offsetHeight / 2).toBe(160);
+    mark.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    await flush();
+    expect(text).toBe(PAGE.replace("| Pear | 3 |\n", "| Pear | 3 |\n| | |\n"));
+  });
+
   it("formats the table's markdown from the toolbar's menu; again, it writes nothing", async () => {
     await setup("| A | Long |\n|---|---|\n| 1 | x |\n", { "tablePlus.autoFormat": false });
     tableMenuItem(/^Format table$/)!.click();
