@@ -2204,8 +2204,10 @@ body.tp-autoscrolling * {
 .sb-table-widget.tp-table.tp-pointing td:not(.tp-editing) {
   cursor: move;
 }
-/* A formula's result: a dotted underline (not while the cell is edited) */
-.sb-table-widget.tp-table td.tp-formula:not(.tp-editing) {
+/* A formula's result: a dotted underline (not while the cell is edited). On
+   the content box too: a decoration does not reach into an inline block. */
+.sb-table-widget.tp-table td.tp-formula:not(.tp-editing),
+.sb-table-widget.tp-table td.tp-formula:not(.tp-editing) > .tp-cell-content {
   text-decoration: underline dotted color-mix(in srgb, var(--ui-accent-color) 75%, transparent);
   text-decoration-thickness: 2px;
   /* Clear of the digits, which have no descenders to leave room */
