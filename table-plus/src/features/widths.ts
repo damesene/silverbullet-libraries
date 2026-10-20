@@ -3,11 +3,12 @@
 // "Auto width" in its menu. With the metadata setting it is stored in the
 // table (width.price="180", meta.ts), which follows the column through renames
 // and moves (metadataAfterEdit); without it, it holds for the view only.
+// "Reset column widths" in the table's menu makes every column automatic.
 //
 // While dragging, the width is the width at the press plus how far the pointer
 // moved since, never measured again: a scrollbar showing or going, or the
 // table moving as it gets narrower, cannot feed back into it.
-import type { Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
@@ -182,22 +183,31 @@ export class Widths implements Feature {
     return widget && info ? [widget, info] : undefined;
   }
 
-  /** A column's width set (undefined: automatic): stored in the table where it can be, else for the view */
-  private async set(widget: HTMLElement, info: WidgetInfo, column: number, width: number | undefined): Promise<void> {
+  /** A column's width set (undefined: automatic) */
+  private set(widget: HTMLElement, info: WidgetInfo, column: number, width: number | undefined): Promise<void> {
+    return this.setAll(widget, info, new Map([[column, width]]));
+  }
+
+  /** Columns' widths set (undefined: automatic): stored in the table where they can be, else for the view */
+  private async setAll(widget: HTMLElement, info: WidgetInfo, set: ReadonlyMap<number, number | undefined>): Promise<void> {
     const view = this.viewed.get(info.key) ?? new Map<number, number | undefined>();
-    view.set(column, width);
+    for (const [column, width] of set) view.set(column, width);
     this.viewed.set(info.key, view);
     this.viewApplied(widget, info);
     this.host.tableResized(info);
+    // Reset column widths offered or not
+    this.host.toolbarChanged();
     if (!(info.metaRow || this.host.metadataEnabled)) return;
     const result = await this.host.write(widget, (t) => {
       const widths = columnMeta(t, "width");
-      if (width === undefined) widths.delete(column);
-      else widths.set(column, String(width));
+      for (const [column, width] of set) {
+        if (width === undefined) widths.delete(column);
+        else widths.set(column, String(width));
+      }
       return withColumnMeta(t, "width", widths);
     });
-    // Stored (or already so): the table's metadata has it now
-    if (result !== "failed") this.viewed.get(info.key)?.delete(column);
+    // Stored (or already so): the table's metadata has them now
+    if (result !== "failed") for (const column of set.keys()) this.viewed.get(info.key)?.delete(column);
   }
 
   /** Columns moved, inserted or deleted: the widths set for the view go with them */
@@ -212,7 +222,26 @@ export class Widths implements Feature {
     this.viewed.set(key, moved);
   }
 
-  // ---- the column menu ------------------------------------------------------------
+  // ---- the menus --------------------------------------------------------------------
+
+  // Before Remove metadata (the widths module comes before it), which would remove them too
+  toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+    const widths = this.widthsOf(info);
+    if (!widths.size) return [];
+    return [
+      {
+        label: "Reset column widths",
+        icon: ICONS.columnWidth,
+        danger: true,
+        title: widths.size === 1 ? "Make the column with a width set as wide as its text again" : `Make the ${widths.size} columns with a width set as wide as their text again`,
+        run: () => {
+          // As rendered now (the menu stays open across a write)
+          const [w, now] = this.current(info.key) ?? [widget, info];
+          void this.setAll(w, now, new Map(Array.from(this.widthsOf(now).keys(), (column) => [column, undefined])));
+        },
+      },
+    ];
+  }
 
   columnMenuEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
     const width = this.widthsOf(info).get(column);

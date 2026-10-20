@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { cell, controller, editor, flush, setup, text, useTablePage } from "../testing/page.ts";
+import { cell, controller, editor, flush, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 
 describe("Column widths", () => {
   useTablePage();
@@ -91,6 +91,37 @@ describe("Column widths", () => {
     expect(cell(0, 0).querySelector(".tp-cell-editor")).not.toBeNull();
     expect(handle(0).parentElement).toBe(cell(0, 0));
     expect(cell(0, 0).querySelector(".tp-head")).toBeNull();
+  });
+
+  it("resets every column's width from the table's menu, right before Remove metadata, the rest of the metadata kept", async () => {
+    await setup(`${PAGE}| <meta width.name="180" width.qty="90" sort.qty="desc"> |
+`, { "tablePlus.metadata": true });
+    tableMenuItem(/^Edit markdown$/);
+    const labels = Array.from(document.querySelectorAll(".tp-menu .tp-menu-item")).map((e) => e.textContent);
+    expect(labels.slice(-2)).toEqual(["Reset column widths", "Remove metadata"]);
+    tableMenuItem(/^Reset column widths$/)!.click();
+    await flush();
+    expect(text).toBe(`${PAGE}| <meta sort.qty="desc"> |
+`);
+    await controller.scan();
+    expect(cell(0, 0).style.width).toBe("");
+    expect(cell(0, 1).style.width).toBe("");
+    // None set: not offered
+    expect(tableMenuItem(/^Reset column widths$/)).toBeUndefined();
+  });
+
+  it("resets widths held for the view only", async () => {
+    await setup(PAGE);
+    expect(tableMenuItem(/^Reset column widths$/)).toBeUndefined();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    drag(1, 80, [40]);
+    await flush();
+    tableMenuItem(/^Reset column widths$/)!.click();
+    await flush();
+    expect(text).toBe(PAGE);
+    expect(cell(0, 1).style.width).toBe("");
+    await controller.scan();
+    expect(cell(0, 1).style.width).toBe("");
   });
 
   it("holds a width for the view only without the metadata setting", async () => {

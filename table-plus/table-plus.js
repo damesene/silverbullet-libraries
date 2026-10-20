@@ -7159,21 +7159,28 @@ var Widths = class {
     const info = widget && this.host.infoOf(widget);
     return widget && info ? [widget, info] : void 0;
   }
-  /** A column's width set (undefined: automatic): stored in the table where it can be, else for the view */
-  async set(widget, info, column, width) {
+  /** A column's width set (undefined: automatic) */
+  set(widget, info, column, width) {
+    return this.setAll(widget, info, /* @__PURE__ */ new Map([[column, width]]));
+  }
+  /** Columns' widths set (undefined: automatic): stored in the table where they can be, else for the view */
+  async setAll(widget, info, set) {
     const view = this.viewed.get(info.key) ?? /* @__PURE__ */ new Map();
-    view.set(column, width);
+    for (const [column, width] of set) view.set(column, width);
     this.viewed.set(info.key, view);
     this.viewApplied(widget, info);
     this.host.tableResized(info);
+    this.host.toolbarChanged();
     if (!(info.metaRow || this.host.metadataEnabled)) return;
     const result = await this.host.write(widget, (t) => {
       const widths = columnMeta(t, "width");
-      if (width === void 0) widths.delete(column);
-      else widths.set(column, String(width));
+      for (const [column, width] of set) {
+        if (width === void 0) widths.delete(column);
+        else widths.set(column, String(width));
+      }
       return withColumnMeta(t, "width", widths);
     });
-    if (result !== "failed") this.viewed.get(info.key)?.delete(column);
+    if (result !== "failed") for (const column of set.keys()) this.viewed.get(info.key)?.delete(column);
   }
   /** Columns moved, inserted or deleted: the widths set for the view go with them */
   columnsMoved(key, map) {
@@ -7186,7 +7193,24 @@ var Widths = class {
     }
     this.viewed.set(key, moved2);
   }
-  // ---- the column menu ------------------------------------------------------------
+  // ---- the menus --------------------------------------------------------------------
+  // Before Remove metadata (the widths module comes before it), which would remove them too
+  toolbarButtons(widget, info) {
+    const widths = this.widthsOf(info);
+    if (!widths.size) return [];
+    return [
+      {
+        label: "Reset column widths",
+        icon: ICONS.columnWidth,
+        danger: true,
+        title: widths.size === 1 ? "Make the column with a width set as wide as its text again" : `Make the ${widths.size} columns with a width set as wide as their text again`,
+        run: () => {
+          const [w, now2] = this.current(info.key) ?? [widget, info];
+          void this.setAll(w, now2, new Map(Array.from(this.widthsOf(now2).keys(), (column) => [column, void 0])));
+        }
+      }
+    ];
+  }
   columnMenuEntries(widget, info, column) {
     const width = this.widthsOf(info).get(column);
     if (width === void 0) return [];
