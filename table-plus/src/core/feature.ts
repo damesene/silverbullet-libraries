@@ -166,6 +166,8 @@ export interface TableHost {
   selectsCells(): boolean;
   /** The cells selected in a table, if a feature selects (Feature.selected) */
   selectedCells(info: WidgetInfo): readonly CellRef[];
+  /** The cells selected changed (the selection module): what follows them (the quiet + of a last row or column) follows */
+  selectionChanged(): void;
   /** Whether a module is on (one feature serves another: pageLinks reads pages for formulas) */
   moduleOn(name: FeatureName): boolean;
   /** Tables changed outside the page (another page read anew): features check them again */

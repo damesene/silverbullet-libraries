@@ -99,21 +99,23 @@ const STOPPED_EVENTS = [
 const SORT_GLYPH = { asc: "▲", desc: "▼", none: "⇅" } as const;
 
 
-// Toolbar distance above the header: clear of the column grip and the + on the header's top edge
+// Toolbar distance above the header: clear of the column grip on the header's top edge
 const BAR_GAP = 12;
+// How far the toolbar keeps left of the table's right edge: clear of the +
+// adding a column there (in its lane above the header, as high as the toolbar)
+const BAR_CLEAR = 15;
 
-// How far above a table's header the band reaches where a + inserts a column,
-// and how near a border the pointer must be
-const INSERT_BAND = 16;
+// How near the table's end a column border must be to count as in view
 const INSERT_REACH = 6;
-// The + inserting a row has a lane of its own left of the row grip (which sits
-// on the table's left edge, 12px wide): its centre this far left of the edge,
-// shown while the pointer is left of the grip, in a band reaching this far
-// (and this far under the table), on the border nearest the pointer
-const ROW_INSERT_AT = 17;
-const ROW_INSERT_FROM = 7;
-const ROW_INSERT_BAND = 32;
-const ROW_INSERT_BELOW = 16;
+// The + inserting a row (column) has a lane of its own beside the grips (which
+// sit on the table's left edge and on the header's top edge, 12px thick): its
+// centre this far out from the edge, shown while the pointer is past the grip,
+// in a band reaching this far out (and this far past the table's last row or
+// column), on the border nearest the pointer
+const INSERT_LANE_AT = 17;
+const INSERT_LANE_FROM = 7;
+const INSERT_LANE_BAND = 32;
+const INSERT_LANE_PAST = 16;
 
 // A press this long on a touch screen opens the cell menu
 const LONG_PRESS_MS = 550;
@@ -199,6 +201,10 @@ export class Controller implements TableHost {
   private readonly insertMark: HTMLButtonElement;
   private readonly insertLine: HTMLElement;
   private insertAt: { readonly key: string; readonly axis: "row" | "column"; readonly at: number; readonly beside: RowHold } | undefined;
+  // Quiet + buttons under the last row and right of the last column, shown
+  // while that row (column) is hovered, selected or edited; lit up under the
+  // pointer. A + the pointer brings up on the same axis takes their place.
+  private readonly quietMarks: Readonly<Record<"row" | "column", HTMLButtonElement>>;
   // Features that keep their own state and work through this controller
   // (core/feature.ts): those turned on, filled in when Table Plus starts
   private readonly features: Feature[] = [];
@@ -243,6 +249,10 @@ export class Controller implements TableHost {
     });
     this.bar = this.floating("div", "tp-bar");
     this.insertMark = this.floatingButton("tp-insert", "Insert here", ICONS.plus);
+    this.quietMarks = {
+      row: this.floatingButton("tp-insert tp-quiet", "Add a row", ICONS.plus),
+      column: this.floatingButton("tp-insert tp-quiet", "Add a column", ICONS.plus),
+    };
     this.insertLine = this.floating("div", "tp-insert-line");
   }
 
@@ -273,6 +283,15 @@ export class Controller implements TableHost {
 
     // A click without a press (the keyboard); a press is taken in onMouseDown
     this.insertMark.addEventListener("click", () => this.insertHere());
+    for (const axis of ["row", "column"] as const) {
+      const mark = this.quietMarks[axis];
+      mark.addEventListener("click", () => this.insertAtEnd(axis));
+      // Lit up under the pointer (the CSS), with the line where it adds
+      mark.addEventListener("pointerenter", () => this.lineAtEnd(axis));
+      mark.addEventListener("pointerleave", () => {
+        if (!this.insertAt) this.insertLine.classList.remove("tp-visible");
+      });
+    }
 
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
@@ -357,7 +376,7 @@ export class Controller implements TableHost {
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.closeTableMenu(false);
-    for (const el of [this.bar, this.insertMark, this.insertLine]) el.remove();
+    for (const el of [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)]) el.remove();
   }
 
   private onBlur = (): void => this.cellEditor.setNavigating(false);
@@ -375,7 +394,7 @@ export class Controller implements TableHost {
       return;
     }
     this.hoverCell = active.cell;
-    for (const feature of this.features) feature.cellHovered?.(active.widget, info, active.cell);
+    this.cellHovered(active.widget, info, active.cell);
   }
 
   /** Refreshes the settings at most once a second, the last request always served */
@@ -1082,6 +1101,14 @@ export class Controller implements TableHost {
     // SilverBullet would put the cursor into the table and show its markdown. It inserts at once, and the
     // click that ends it is swallowed: the table rendered anew (the page maybe scrolled) puts something
     // else under the pointer, e.g. a link, which the click would follow
+    const quietAxis = (["row", "column"] as const).find((axis) => e.target instanceof Node && this.quietMarks[axis].contains(e.target));
+    if (e.button === 0 && quietAxis) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.insertPressAt = Date.now();
+      this.insertAtEnd(quietAxis);
+      return;
+    }
     const onMark = e.target instanceof Node && this.insertMark.contains(e.target);
     if (e.button === 0 && (onMark || (this.inInsertBand && !(e.target instanceof Node && this.isFloating(e.target))))) {
       e.preventDefault();
@@ -1267,7 +1294,7 @@ export class Controller implements TableHost {
     this.showTableControls(widget, info);
     const cell = this.hoverCell;
     if (cell && cell.isConnected && this.isShown(widget, info, cell)) {
-      for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
+      this.cellHovered(widget, info, cell);
     } else this.endHover(true);
     // The table moved under a pointer that did not: the + where the pointer is now
     if (this.insertAt || this.inInsertBand) this.insertUnderPointer();
@@ -1295,6 +1322,7 @@ export class Controller implements TableHost {
       this.stickyQueued = false;
       if (this.stopped) return;
       for (const feature of this.features) feature.layoutChanged?.();
+      this.showQuietMarks();
       // After the header has moved: controls that point at it follow
       this.followScroll();
     };
@@ -1405,7 +1433,7 @@ export class Controller implements TableHost {
     const cell = this.tableCellOf(info, target);
     if (cell && cell !== this.hoverCell) {
       this.hoverCell = cell;
-      for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
+      this.cellHovered(widget, info, cell);
     }
   };
 
@@ -1580,18 +1608,17 @@ export class Controller implements TableHost {
     const shown = this.shownRect(widget, info);
     const header = info.table.rows[0]!.getBoundingClientRect();
     const { clientX: x, clientY: y } = e;
-    const near = (a: number, b: number) => Math.abs(a - b) <= INSERT_REACH;
     // Left of the table: the borders under the header and under each row shown;
     // over the row grip (on the edge) the band, but no +; left of it, the +
     // on the border nearest the pointer, so it needs no aiming
-    if (x >= shown.left - ROW_INSERT_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + ROW_INSERT_BELOW) {
+    if (x >= shown.left - INSERT_LANE_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + INSERT_LANE_PAST) {
       const rows = this.shownRows(info);
       // The row grip goes to the row beside the pointer
       const beside = rows.find((tr, i) => i > 0 && y >= tr.getBoundingClientRect().top && y < tr.getBoundingClientRect().bottom);
       if (beside) this.hoverAt(widget, info, beside.cells[this.hoverCell?.cellIndex ?? 0] ?? beside.cells[0]);
       const edges = rows.map((tr) => tr.getBoundingClientRect().bottom);
       const i = edges.reduce((best, edge, j) => (Math.abs(y - edge) < Math.abs(y - edges[best]!) ? j : best), 0);
-      if (mark && x <= shown.left - ROW_INSERT_FROM && rows.length) {
+      if (mark && x <= shown.left - INSERT_LANE_FROM && rows.length) {
         const edge = edges[i]!;
         const next = rows[i + 1];
         const below = next && Number(next.dataset.tpRow);
@@ -1604,18 +1631,23 @@ export class Controller implements TableHost {
       }
       return this.hideInsert(true);
     }
-    // Above the header: the borders between columns, and right of the last
-    if (y >= header.top - INSERT_BAND && y <= header.top + 2 && x >= shown.left - INSERT_REACH && x <= shown.right + INSERT_REACH) {
+    // Above the header: the borders between columns, and right of the last; over
+    // the column grip (on the header's top edge) the band, but no +; above it,
+    // the + on the border nearest the pointer, as for rows
+    if (y >= header.top - INSERT_LANE_BAND && y <= header.top + 2 && x >= shown.left - INSERT_REACH && x <= shown.right + INSERT_LANE_PAST) {
       const cells = Array.from(info.table.rows[0]!.cells);
       // The column grip goes to the column under the pointer (in the row hovered last)
       const column = cells.findIndex((c) => x >= c.getBoundingClientRect().left && x < c.getBoundingClientRect().right);
       const row = (this.hoverCell?.parentElement as HTMLTableRowElement | undefined) ?? info.table.rows[0]!;
       if (column >= 0 && row.closest("table") === info.table) this.hoverAt(widget, info, row.cells[column]);
-      const edges = [cells[0]!.getBoundingClientRect().left, ...cells.map((c) => c.getBoundingClientRect().right)];
-      for (let i = 0; mark && i < edges.length; i++) {
-        if (!near(x, edges[i]!) || edges[i]! < shown.left - INSERT_REACH || edges[i]! > shown.right + INSERT_REACH) continue;
+      // The borders in view (a wide table scrolls sideways), by the column they insert at
+      const edges = [cells[0]!.getBoundingClientRect().left, ...cells.map((c) => c.getBoundingClientRect().right)]
+        .map((edge, i) => ({ edge, i }))
+        .filter(({ edge }) => edge >= shown.left - INSERT_REACH && edge <= shown.right + INSERT_REACH);
+      if (mark && y <= header.top - INSERT_LANE_FROM && edges.length) {
+        const { edge, i } = edges.reduce((best, e) => (Math.abs(x - e.edge) < Math.abs(x - best.edge) ? e : best));
         const at = i < cells.length ? i : appendColumnAt(info.pins, info.columns);
-        this.markInsert(widget, info, { key: info.key, axis: "column", at, beside: {} }, edges[i]!, shown);
+        this.markInsert(widget, info, { key: info.key, axis: "column", at, beside: {} }, edge, shown);
         return true;
       }
       return this.hideInsert(true);
@@ -1627,7 +1659,7 @@ export class Controller implements TableHost {
   private hoverAt(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement | undefined): void {
     if (!cell || cell === this.hoverCell || this.cellEditor.active) return;
     this.hoverCell = cell;
-    for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
+    this.cellHovered(widget, info, cell);
   }
 
   private markInsert(
@@ -1639,30 +1671,142 @@ export class Controller implements TableHost {
   ): void {
     this.insertAt = at;
     const mark = this.insertMark;
-    const line = this.insertLine;
     mark.title = at.axis === "row" ? "Insert a row here" : "Insert a column here";
     mark.setAttribute("aria-label", mark.title);
-    line.classList.add("tp-visible");
     mark.classList.add("tp-visible");
-    if (at.axis === "row") {
-      // Left of the row grips, the border drawn from it across the table
-      const center = shown.left - ROW_INSERT_AT;
+    this.placeInsert(mark, info, at.axis, edge, shown);
+    // The quiet + on its axis gives way
+    this.showQuietMarks();
+  }
+
+  /**
+   * A + and the line it inserts at: a row's left of the row grips, the line
+   * across the table; a column's above the column grips, the line down the
+   * table
+   */
+  private placeInsert(
+    mark: HTMLElement,
+    info: WidgetInfo,
+    axis: "row" | "column",
+    edge: number,
+    shown: { left: number; right: number; top: number; bottom: number },
+  ): void {
+    const line = this.insertLine;
+    line.classList.add("tp-visible");
+    if (axis === "row") {
+      const center = shown.left - INSERT_LANE_AT;
       Object.assign(line.style, { left: `${center}px`, top: `${edge - 1}px`, width: `${shown.right - center}px`, height: "2px" });
       this.place(mark, center - mark.offsetWidth / 2, edge - mark.offsetHeight / 2);
     } else {
-      const top = info.table.rows[0]!.getBoundingClientRect().top;
-      Object.assign(line.style, { left: `${edge - 1}px`, top: `${top}px`, width: "2px", height: `${shown.bottom - top}px` });
-      // On the header's top edge, where the border meets it
-      this.place(mark, edge - mark.offsetWidth / 2, top - mark.offsetHeight / 2);
+      const center = info.table.rows[0]!.getBoundingClientRect().top - INSERT_LANE_AT;
+      Object.assign(line.style, { left: `${edge - 1}px`, top: `${center}px`, width: "2px", height: `${shown.bottom - center}px` });
+      this.place(mark, edge - mark.offsetWidth / 2, center - mark.offsetHeight / 2);
     }
   }
 
-  /** The + goes; `inBand`: the pointer is still in the band around the table (the table's controls stay) */
+  /**
+   * The + the pointer brought up goes (the quiet ones come back); `inBand`:
+   * the pointer is still in the band around the table (the table's controls
+   * stay)
+   */
   private hideInsert(inBand = false): boolean {
     this.insertAt = undefined;
     this.insertMark.classList.remove("tp-visible");
     this.insertLine.classList.remove("tp-visible");
+    this.showQuietMarks();
     return inBand;
+  }
+
+  /** A cell is hovered or edited (or the page moved under it): the features follow it; the quiet + of a last row or column */
+  private cellHovered(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void {
+    for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
+    this.showQuietMarks();
+  }
+
+  selectionChanged(): void {
+    this.showQuietMarks();
+  }
+
+  /**
+   * The table whose last row or column has the cell edited, the cell hovered
+   * or a selected cell (in this order), and which of the two
+   */
+  private quietTarget(): { widget: HTMLElement; info: WidgetInfo; row: boolean; column: boolean } | undefined {
+    const editing = this.cellEditor.active?.cell;
+    const hovered = this.hoverCell?.isConnected ? this.hoverCell : undefined;
+    const selected = Array.from(this.doc.querySelectorAll<HTMLTableCellElement>(".tp-selected"));
+    const first = editing ?? hovered ?? selected[0];
+    const hit = first && this.enhancedWidgetOf(first);
+    if (!hit) return undefined;
+    const [widget, info] = hit;
+    const rows = this.shownRows(info);
+    const lastRow = rows.length > 1 ? rows[rows.length - 1] : undefined;
+    const lastColumn = info.table.rows[0]!.cells.length - 1;
+    const cells = [editing, hovered, ...selected].filter((cell) => cell?.closest("table") === info.table);
+    const row = cells.some((cell) => cell!.parentElement === lastRow);
+    const column = cells.some((cell) => cell!.cellIndex === lastColumn);
+    return row || column ? { widget, info, row, column } : undefined;
+  }
+
+  /** Where a row (column) is added at the end: its edge, and the insert there */
+  private endOf(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column") {
+    const shown = this.shownRect(widget, info);
+    if (axis === "row") {
+      const rows = this.shownRows(info);
+      const last = rows[rows.length - 1]!;
+      const at = { key: info.key, axis, at: appendRowAt(info.pins, info.rows), beside: { after: Number(last.dataset.tpRow) } };
+      return { at, edge: last.getBoundingClientRect().bottom, shown };
+    }
+    const cells = info.table.rows[0]!.cells;
+    const at = { key: info.key, axis, at: appendColumnAt(info.pins, info.columns), beside: {} };
+    return { at, edge: cells[cells.length - 1]!.getBoundingClientRect().right, shown };
+  }
+
+  /** The quiet + of the last row and column (quietTarget), but on an axis where the pointer brought up a +, or out of view */
+  private showQuietMarks(): void {
+    const target = this.quietTarget();
+    for (const axis of ["row", "column"] as const) {
+      const mark = this.quietMarks[axis];
+      if (!target || !target[axis] || this.insertAt?.axis === axis) {
+        mark.classList.remove("tp-visible");
+        continue;
+      }
+      const { widget, info } = target;
+      const end = this.endOf(widget, info, axis);
+      const view = this.viewBounds(widget);
+      // Where it goes: the border under the last row, the header's top at the last column
+      const y = axis === "row" ? end.edge : info.table.rows[0]!.getBoundingClientRect().top - INSERT_LANE_AT;
+      const inView = y >= view.top && y <= view.bottom && (axis === "row" || end.edge <= end.shown.right + INSERT_REACH);
+      if (!inView) {
+        mark.classList.remove("tp-visible");
+        continue;
+      }
+      const line = this.insertLine.classList.contains("tp-visible");
+      // Shown before it is placed: hidden, it has no size to centre by
+      mark.classList.add("tp-visible");
+      this.placeInsert(mark, info, axis, end.edge, end.shown);
+      // The line shows only while the pointer is on a quiet + (or with the pointer's own +)
+      if (!line && !mark.matches(":hover")) this.insertLine.classList.remove("tp-visible");
+    }
+  }
+
+  /** The pointer on a quiet +: the line where it adds */
+  private lineAtEnd(axis: "row" | "column"): void {
+    const target = this.quietTarget();
+    if (!target || this.insertAt) return;
+    const end = this.endOf(target.widget, target.info, axis);
+    this.placeInsert(this.quietMarks[axis], target.info, axis, end.edge, end.shown);
+  }
+
+  /** A quiet + pressed: a row (column) added at the end, its first cell (name) edited */
+  private insertAtEnd(axis: "row" | "column"): void {
+    const target = this.quietTarget();
+    if (!target) return;
+    const { widget, info } = target;
+    const { at } = this.endOf(widget, info, axis);
+    this.insertedIn = info.key;
+    if (axis === "row") void insertRowWith(this, widget, info, at.at, this.firstVisibleColumn(widget, info), undefined, at.beside);
+    else void insertColumnWith(this, widget, info, at.at);
   }
 
   /** The + clicked: a row (column) inserted there, its first cell (name) edited */
@@ -1733,7 +1877,7 @@ export class Controller implements TableHost {
 
   isFloating(node: Node): boolean {
     return (
-      [this.bar, this.insertMark, this.insertLine].some((el) => el.contains(node)) ||
+      [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)].some((el) => el.contains(node)) ||
       !!this.tableMenu?.element.contains(node) ||
       this.features.some((f) => f.owns?.(node))
     );
@@ -1763,6 +1907,7 @@ export class Controller implements TableHost {
   /** No cell is hovered: the grips go, and with `closeMenus` an open menu */
   private endHover(closeMenus: boolean): void {
     this.hoverCell = undefined;
+    this.showQuietMarks();
     for (const feature of this.features) feature.hoverEnded?.(closeMenus);
   }
 
@@ -1772,6 +1917,8 @@ export class Controller implements TableHost {
     for (const el of [this.bar, this.insertMark, this.insertLine]) el.classList.remove("tp-visible");
     this.insertAt = undefined;
     this.hoverWidget = undefined;
+    // A selected cell's quiet + stays
+    this.showQuietMarks();
   }
 
   /** The toolbar above the table and the add-row / add-column buttons */
@@ -1909,7 +2056,7 @@ export class Controller implements TableHost {
     // as far as it is in view: the page around a wide table may scroll
     // sideways too, taking the box's edge along. A box wider than its table
     // (a renderer's block) does not take the toolbar past the table.
-    this.place(bar, Math.min(rect.right, tableRect.right, shown.right) - bar.offsetWidth - (fits ? 0 : 6), top);
+    this.place(bar, Math.min(rect.right, tableRect.right, shown.right) - bar.offsetWidth - (fits ? BAR_CLEAR : 6), top);
     this.positionTableMenu();
   }
 

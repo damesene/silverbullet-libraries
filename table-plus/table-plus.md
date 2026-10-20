@@ -359,7 +359,7 @@ Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; m
   * Column: sort, filter, type (see [[#Column types]]), align (left, center, right), insert left or right, move, select columns, delete.
 * **Select rows** (*Select columns*) in the menu: from that row, the rows up to the one under the pointer are selected as you move it; a click anywhere in the table ends the selection there (without editing the cell). Esc keeps just the first row. **Shift+click on a grip** does the same without the menu: from the first of the rows already selected, else from that row. A click on the grip of a selected row then opens its menu with *Delete N rows*.
 * **Drag a grip** to move the row or column: a copy follows the pointer and the others move aside to show where it goes; near the top or bottom of the view the page scrolls. Esc cancels the drag.
-* **Insert with +**: with a mouse or a pen, hover just left of the row grips (the **+** shows on the border between rows nearest the pointer), or the top edge above the header on the border between two columns: the **+** inserts a row (column) there. On the last border it adds one at the end. A new column is named *Column N*, ready to rename. On a touch screen, insert from the row's or column's menu.
+* **Insert with +**: with a mouse or a pen, hover just left of the row grips, or just above the column grips: a **+** shows on the border nearest the pointer and inserts a row (column) there. On the last border it adds one at the end; while a cell of the last row (column) is hovered, selected or edited, a faint **+** under the table (right of the header) adds one at the end. A new column is named *Column N*, ready to rename. On a touch screen, insert from the row's or column's menu.
 * Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.
 
 ## Pinning
@@ -1317,6 +1317,15 @@ body.tp-picking-columns .sb-table-widget.tp-table :is(td, th) {
 .tp-insert svg {
   width: 12px;
   height: 12px;
+}
+/* Under the last row while it is hovered, selected or edited: quiet (grey,
+   see-through, a dashed outline) until the pointer is on it */
+.tp-insert.tp-quiet:not(:hover) {
+  box-sizing: border-box;
+  color: color-mix(in srgb, var(--root-color) 45%, transparent);
+  background: color-mix(in srgb, var(--root-color) 6%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--root-color) 40%, transparent);
+  box-shadow: none;
 }
 /* The border a row (column) goes to: over the table, not taking the pointer */
 .tp-insert-line {

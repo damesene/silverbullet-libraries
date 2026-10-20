@@ -399,11 +399,13 @@ export class Selection implements Feature {
   private show(): void {
     this.unmark();
     for (const row of this.cells() ?? []) for (const cell of row) cell.classList.add("tp-selected");
+    this.host.selectionChanged();
   }
 
   private clear(): void {
     this.selection = undefined;
     this.unmark();
+    this.host.selectionChanged();
   }
 
   private unmark(): void {

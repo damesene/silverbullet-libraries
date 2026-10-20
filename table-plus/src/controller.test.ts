@@ -205,17 +205,24 @@ describe("Controller", () => {
     expect(inner.inInsertBand).toBe(false);
   });
 
-  it("shows the + inserting a row in a lane of its own left of the row grips, none over a grip", async () => {
-    await setup(PAGE);
-    // The table at x 100..400, y 100, its rows 30 high
+  // The table at x 100..400, y 100, its rows 30 high, its two columns 150 wide (jsdom has no layout)
+  const layOutTable = () => {
     const rect = (left: number, top: number, width: number, height: number) =>
       ({ left, top, right: left + width, bottom: top + height, width, height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const tr = this.closest("tr");
-      if (tr && this.closest(".sb-table-widget")) return rect(100, 100 + (tr as HTMLTableRowElement).rowIndex * 30, 300, 30);
+      if (tr && this.closest(".sb-table-widget")) {
+        const top = 100 + (tr as HTMLTableRowElement).rowIndex * 30;
+        return this instanceof HTMLTableCellElement ? rect(100 + this.cellIndex * 150, top, 150, 30) : rect(100, top, 300, 30);
+      }
       if (this.matches(".sb-table-widget, table")) return rect(100, 100, 300, 120);
       return rect(0, 0, 0, 0);
     });
+  };
+
+  it("shows the + inserting a row in a lane of its own left of the row grips, none over a grip", async () => {
+    await setup(PAGE);
+    layOutTable();
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     const mark = document.querySelector<HTMLElement>(".tp-insert")!;
     const move = (x: number, y: number) => document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX: x, clientY: y }));
@@ -236,6 +243,98 @@ describe("Controller", () => {
     mark.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
     await flush();
     expect(text).toBe(PAGE.replace("| Pear | 3 |\n", "| Pear | 3 |\n| | |\n"));
+  });
+
+  it("shows the + inserting a column in a lane of its own above the column grips, none over a grip; the toolbar keeps clear of it", async () => {
+    await setup(PAGE);
+    layOutTable();
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const mark = document.querySelector<HTMLElement>(".tp-insert:not(.tp-quiet)")!;
+    const move = (x: number, y: number) => document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX: x, clientY: y }));
+    // Over the column grip on the header's top edge: no +
+    move(250, 97);
+    expect(mark.classList.contains("tp-visible")).toBe(false);
+    // Above it: the + on the border nearest the pointer (between Name and Qty at 250), its centre 17px above the header
+    move(230, 85);
+    expect(mark.classList.contains("tp-visible")).toBe(true);
+    expect(parseFloat(mark.style.left) + mark.offsetWidth / 2).toBe(250);
+    expect(parseFloat(mark.style.top) + mark.offsetHeight / 2).toBe(83);
+    // Nearer the table's right edge: there, adding a column at the end
+    move(360, 80);
+    expect(parseFloat(mark.style.left) + mark.offsetWidth / 2).toBe(400);
+    mark.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    await flush();
+    expect(text).toContain("| Name | Qty | Column 3 |");
+    // The toolbar ends left of the + at the table's right edge
+    await controller.scan();
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const bar = document.querySelector<HTMLElement>(".tp-bar.tp-visible")!;
+    expect(parseFloat(bar.style.left) + bar.offsetWidth).toBeLessThanOrEqual(400 - 9 - 4);
+  });
+
+  it("shows a quiet + under the last row and right of the last column while a cell of it is hovered, edited or selected; lit under the pointer, it adds one", async () => {
+    await setup(PAGE);
+    layOutTable();
+    const row = document.querySelector<HTMLElement>('.tp-insert.tp-quiet[aria-label="Add a row"]')!;
+    const column = document.querySelector<HTMLElement>('.tp-insert.tp-quiet[aria-label="Add a column"]')!;
+    const line = document.querySelector<HTMLElement>(".tp-insert-line")!;
+    const shown = () => [row, column].map((mark) => mark.classList.contains("tp-visible"));
+    const hover = (r: number, c: number) => cell(r, c).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    hover(1, 0);
+    expect(shown()).toEqual([false, false]);
+    // Fig, Qty: the last row and the last column
+    hover(3, 1);
+    expect(shown()).toEqual([true, true]);
+    expect(line.classList.contains("tp-visible")).toBe(false);
+    hover(2, 1);
+    expect(shown()).toEqual([false, true]);
+    hover(3, 0);
+    expect(shown()).toEqual([true, false]);
+    // Edited: shown while the pointer is elsewhere
+    clickOn(cell(3, 0));
+    hover(1, 0);
+    expect(shown()).toEqual([true, false]);
+    key(editor.querySelector(".tp-cell-editor")!, "Escape");
+    await flush();
+    // A press in the band beside the table (no + of the pointer's there) adds nothing
+    hover(3, 0);
+    (controller as unknown as { inInsertBand: boolean }).inInsertBand = true;
+    editor.querySelector(".sb-table-widget")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    await flush();
+    expect(text).toBe(PAGE);
+    (controller as unknown as { inInsertBand: boolean }).inInsertBand = false;
+    // The pointer on it: the line where it adds; a press adds a row at the end
+    row.dispatchEvent(new PointerEvent("pointerenter"));
+    expect(line.classList.contains("tp-visible")).toBe(true);
+    row.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    await flush();
+    expect(text).toBe(`${PAGE}| | |
+`);
+    await controller.scan();
+    key(editor.querySelector(".tp-cell-editor")!, "Escape");
+    await flush();
+    hover(1, 1);
+    column.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    await flush();
+    expect(text).toContain("| Name | Qty | Column 3 |");
+  });
+
+  it("shows the quiet + of a cell only selected, the pointer away from the table", async () => {
+    // Select mode: a click selects
+    localStorage.removeItem("tablePlus.editMode");
+    await setup(PAGE);
+    const row = document.querySelector<HTMLElement>('.tp-insert.tp-quiet[aria-label="Add a row"]')!;
+    cell(3, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    clickOn(cell(3, 0));
+    expect(cell(3, 0).classList.contains("tp-selected")).toBe(true);
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+    // The pointer leaves the table: its controls go, the quiet + of the selection stays
+    (controller as unknown as { hideFloating(): void }).hideFloating();
+    expect(document.querySelector(".tp-bar")!.classList.contains("tp-visible")).toBe(false);
+    expect(row.classList.contains("tp-visible")).toBe(true);
+    // Another cell selected: it goes
+    clickOn(cell(1, 0));
+    expect(row.classList.contains("tp-visible")).toBe(false);
   });
 
   it("formats the table's markdown from the toolbar's menu; again, it writes nothing", async () => {
