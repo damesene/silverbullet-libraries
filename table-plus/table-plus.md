@@ -868,7 +868,7 @@ end
 }
 /* Only the top row casts it: from the filter row it would cover the header row */
 .sb-table-widget thead.tp-stuck tr:first-child td {
-  box-shadow: 0 -38px 0 0 var(--root-background-color, #fff);
+  box-shadow: 0 -42px 0 0 var(--root-background-color, #fff);
 }
 
 /* Pinned rows and columns stay in view (moved there by script); they need an

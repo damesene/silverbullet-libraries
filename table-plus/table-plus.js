@@ -642,7 +642,7 @@ function caretTextOffset(cell, x, y) {
 }
 
 // table-plus/src/core/layout.ts
-var STICKY_GAP = 38;
+var STICKY_GAP = 42;
 
 // table-plus/src/tags.ts
 var TAG_RE = /\s*<meta\b[^>]*>/gi;
@@ -9082,8 +9082,9 @@ var Controller = class {
     const shown = this.viewBounds(widget);
     bar.classList.add("tp-visible");
     const above = headerRect.top - bar.offsetHeight - BAR_GAP;
-    const fits = above >= shown.top + 2;
-    const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
+    const held = info.table.tHead?.classList.contains("tp-stuck") ?? false;
+    const fits = held || above >= shown.top + 2;
+    const top = fits ? Math.max(above, shown.top) : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
     this.place(bar, Math.min(rect.right, tableRect.right, shown.right) - bar.offsetWidth - (fits ? BAR_CLEAR : 6), top);
     this.positionTableMenu();
   }

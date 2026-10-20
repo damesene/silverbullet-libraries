@@ -2059,9 +2059,12 @@ export class Controller implements TableHost {
     const shown = this.viewBounds(widget);
     bar.classList.add("tp-visible");
     const above = headerRect.top - bar.offsetHeight - BAR_GAP;
-    // No room above the header: over the header's right end instead
-    const fits = above >= shown.top + 2;
-    const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
+    // No room above the header: over the header's right end instead. A header
+    // held at the top of the view has the room (STICKY_GAP): the toolbar goes
+    // there, so it never covers a column's name while the page scrolls
+    const held = info.table.tHead?.classList.contains("tp-stuck") ?? false;
+    const fits = held || above >= shown.top + 2;
+    const top = fits ? Math.max(above, shown.top) : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
     // At the table's right edge, or its box's when the table scrolls in it,
     // as far as it is in view: the page around a wide table may scroll
     // sideways too, taking the box's edge along. A box wider than its table

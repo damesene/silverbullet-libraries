@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
+import { STICKY_GAP } from "./core/layout.ts";
 import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashes, flush, key, press, renderPage, setText, setup, tableMenuItem, text, useTablePage } from "./testing/page.ts";
 
 describe("Controller", () => {
@@ -652,6 +653,29 @@ describe("Controller", () => {
       link.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
       link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 }));
       expect(reached).toEqual(["click", "mouseup", "click"]);
+    });
+
+    it("keeps the toolbar above a header held at the top while the page scrolls, not over a column's name", async () => {
+      await setup(PAGE);
+      layOut(5000);
+      // The table scrolled up past the top of the view: Sticky holds its header there
+      scroller.scrollTop = 1100;
+      const bar = document.querySelector<HTMLElement>(".tp-bar")!;
+      Object.defineProperty(bar, "offsetHeight", { configurable: true, value: 26 });
+      const header = cell(0, 0).parentElement!;
+      const held = SCROLLER_TOP + STICKY_GAP;
+      // Its own (a spy on the element would replace the prototype's mock for every element)
+      Object.defineProperty(header, "getBoundingClientRect", {
+        configurable: true,
+        value: () => ({ top: held, bottom: held + 30, left: 0, right: 800, width: 800, height: 30, x: 0, y: held, toJSON: () => ({}) }) as DOMRect,
+      });
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      scroller.dispatchEvent(new Event("scroll"));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      expect(document.querySelector("thead")!.classList.contains("tp-stuck")).toBe(true);
+      const top = parseFloat(bar.style.top);
+      expect(top).toBeGreaterThanOrEqual(SCROLLER_TOP);
+      expect(top + 26).toBeLessThanOrEqual(held);
     });
 
     it("keeps the toolbar below the top bar on a page too short to scroll", async () => {
