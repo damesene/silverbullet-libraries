@@ -681,12 +681,17 @@ export class Controller implements TableHost {
         const tables = node instanceof HTMLTableElement ? [node] : node.closest("table") ? [] : Array.from(node.getElementsByTagName("table"));
         for (const table of tables) {
           const widget = table.closest<HTMLElement>(WIDGET_SELECTOR);
-          if (!widget || this.renderedRows.has(table)) continue;
+          if (!widget || this.renderedRows.has(table) || this.ownTable(widget)) continue;
           const rows = this.rowsOf(table);
           for (const feature of this.features) feature.tableAdded?.(widget, table, rows);
         }
       }
     }
+  }
+
+  /** A table in one of Table Plus' floating elements (a theme's preview in a menu): not one of the page's */
+  private ownTable(widget: HTMLElement): boolean {
+    return !!widget.closest(".tp-floating");
   }
 
   /** Enhances every rendered table that is not enhanced yet */
@@ -698,7 +703,7 @@ export class Controller implements TableHost {
     const pending: Promise<void>[] = [];
     for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(WIDGET_SELECTOR))) {
       const table = renderedTable(widget);
-      if (!table || table.rows.length === 0) continue;
+      if (!table || table.rows.length === 0 || this.ownTable(widget)) continue;
       if (this.infos.get(widget)?.table === table || widget.dataset.tpUnsupported) continue;
       pending.push(this.enhance(widget, table));
     }

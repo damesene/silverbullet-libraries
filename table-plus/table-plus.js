@@ -6359,21 +6359,26 @@ function renderMenu(doc, title, entries, back) {
       }
       parts.push(code);
     }
-    const text = doc.createElement("p");
-    text.textContent = detail.text;
-    parts.push(text);
+    if (detail.text) {
+      const text = doc.createElement("p");
+      text.textContent = detail.text;
+      parts.push(text);
+    }
     for (const note of detail.notes ?? []) {
       const p = doc.createElement("p");
       p.className = "tp-menu-detail-note";
       p.textContent = note;
       parts.push(p);
     }
+    if (detail.content) parts.push(detail.content());
     bubble.replaceChildren(...parts);
     bubble.hidden = false;
     bubble.classList.remove("tp-left");
     bubble.style.top = `${item.offsetTop}px`;
     const view = doc.defaultView;
     if (view && bubble.getBoundingClientRect().right > view.innerWidth - 8) bubble.classList.add("tp-left");
+    const below = view ? bubble.getBoundingClientRect().bottom - (view.innerHeight - 8) : 0;
+    if (below > 0) bubble.style.top = `${item.offsetTop - below}px`;
   };
   const hideDetail = () => {
     if (bubble) bubble.hidden = true;
@@ -8686,23 +8691,33 @@ var Themes = class {
     const own = metaTheme(table);
     const ownStripes = metaStripes(table);
     const set = (choices) => () => void this.choose(widget, info, choices);
-    const item = (label, checked, run, hint) => ({ kind: "item", label, icon: "", checked, run, ...hint ? { hint } : {} });
-    const themes = () => [
-      // First the global theme (as "No type" leads the column types): the table's own theme and stripes go, it follows the settings
-      item(
-        "Global theme",
-        own === void 0 && ownStripes === void 0,
-        set({ theme: void 0, stripes: void 0 }),
-        `The table takes the Theme and Stripes settings (now ${themeLabel(this.theme)}, ${STRIPES_TITLES[this.stripes].toLowerCase()}), and changes with them`
-      ),
-      { kind: "separator" },
-      stripesRow,
-      { kind: "separator" },
-      // Then every theme, the setting's marked (default): one picked is the table's own, the setting's one too, whatever the setting becomes
-      ...allThemes(this.host.doc).map(
-        (theme) => item(`${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`, own === theme, set({ theme }), "This table keeps this theme, whatever the setting")
-      )
-    ];
+    const item = (label, checked, run, detail) => ({ kind: "item", label, icon: "", checked, run, ...detail ? { detail } : {} });
+    const themes = () => {
+      const preview = this.preview(ownStripes ?? this.stripes);
+      const showing = (theme) => () => {
+        if (theme === NATIVE_THEME) delete preview.dataset.tpTheme;
+        else preview.dataset.tpTheme = theme;
+        return preview;
+      };
+      const detail = (theme) => ({ title: themeLabel(theme), content: showing(theme) });
+      return [
+        // First the global theme (as "No type" leads the column types): the table's own theme and stripes go, it follows the settings
+        // The settings' theme after it, no preview (it is listed below, marked default)
+        { ...item("Global theme", own === void 0 && ownStripes === void 0, set({ theme: void 0, stripes: void 0 })), value: { text: themeLabel(this.theme) } },
+        { kind: "separator" },
+        stripesRow,
+        { kind: "separator" },
+        // Then every theme, the setting's marked (default): one picked is the table's own, the setting's one too, whatever the setting becomes
+        ...allThemes(this.host.doc).map(
+          (theme) => item(
+            `${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`,
+            own === theme,
+            set({ theme }),
+            detail(theme)
+          )
+        )
+      ];
+    };
     const stripesRow = {
       kind: "segmented",
       label: "Stripes",
@@ -8721,6 +8736,28 @@ var Themes = class {
         choices: { title: "Table theme", entries: themes }
       }
     ];
+  }
+  /** A small table to preview themes on (in a menu's bubble: not one of the page's), with these stripes */
+  preview(stripes) {
+    const { doc } = this.host;
+    const widget = doc.createElement("div");
+    widget.className = "sb-table-widget tp-theme-preview";
+    widget.setAttribute("aria-hidden", "true");
+    if (stripes !== "rows") widget.dataset.tpStripes = stripes;
+    const table = doc.createElement("table");
+    const row = (section, cells) => {
+      const tr = section.insertRow();
+      cells.forEach((text, i) => {
+        const td = tr.insertCell();
+        td.textContent = text;
+        if (i > 0) td.className = "tp-preview-number";
+      });
+    };
+    row(table.createTHead(), ["Name", "Qty", "Price"]);
+    const body = table.createTBody();
+    for (const cells of [["Pear", "3", "12.99"], ["Apple", "10", "4.50"], ["Fig", "2", "25.00"], ["Kiwi", "7", "6.10"]]) row(body, cells);
+    widget.append(table);
+    return widget;
   }
   /** The table's own choices written into its metadata row, as one edit (undefined: the setting's again) */
   async choose(shownWidget, shownInfo, choices) {
@@ -9956,12 +9993,16 @@ var Controller = class {
         const tables = node instanceof HTMLTableElement ? [node] : node.closest("table") ? [] : Array.from(node.getElementsByTagName("table"));
         for (const table of tables) {
           const widget = table.closest(WIDGET_SELECTOR);
-          if (!widget || this.renderedRows.has(table)) continue;
+          if (!widget || this.renderedRows.has(table) || this.ownTable(widget)) continue;
           const rows = this.rowsOf(table);
           for (const feature of this.features) feature.tableAdded?.(widget, table, rows);
         }
       }
     }
+  }
+  /** A table in one of Table Plus' floating elements (a theme's preview in a menu): not one of the page's */
+  ownTable(widget) {
+    return !!widget.closest(".tp-floating");
   }
   /** Enhances every rendered table that is not enhanced yet */
   async scan() {
@@ -9971,7 +10012,7 @@ var Controller = class {
     const pending = [];
     for (const widget of Array.from(this.doc.querySelectorAll(WIDGET_SELECTOR))) {
       const table = renderedTable(widget);
-      if (!table || table.rows.length === 0) continue;
+      if (!table || table.rows.length === 0 || this.ownTable(widget)) continue;
       if (this.infos.get(widget)?.table === table || widget.dataset.tpUnsupported) continue;
       pending.push(this.enhance(widget, table));
     }

@@ -17,7 +17,9 @@ import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feat
 import { WIDGET_SELECTOR } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable, type Table } from "../markdown.ts";
-import type { MenuEntry } from "../menu.ts";
+import type { MenuDetail, MenuEntry } from "../menu.ts";
+
+type MenuItem = Extract<MenuEntry, { readonly kind: "item" }>;
 import { withMeta } from "../meta.ts";
 import { allThemes, NATIVE_THEME, STRIPES, type Stripes, stripesName, themeLabel, themeName } from "../themes.ts";
 
@@ -110,24 +112,35 @@ export class Themes implements Feature {
     const own = metaTheme(table);
     const ownStripes = metaStripes(table);
     const set = (choices: Readonly<Record<string, string | undefined>>) => () => void this.choose(widget, info, choices);
-    const item = (label: string, checked: boolean, run: () => void, hint?: string): MenuEntry => ({ kind: "item", label, icon: "", checked, run, ...(hint ? { hint } : {}) });
+    const item = (label: string, checked: boolean, run: () => void, detail?: MenuDetail): MenuItem => ({ kind: "item", label, icon: "", checked, run, ...(detail ? { detail } : {}) });
     // Made as the list opens: finding the themes reads every style rule of the page
-    const themes = (): MenuEntry[] => [
+    const themes = (): MenuEntry[] => {
+      // One preview for the list, beside the item hovered (or focused), in its theme and the table's stripes
+      const preview = this.preview(ownStripes ?? this.stripes);
+      const showing = (theme: string) => () => {
+        if (theme === NATIVE_THEME) delete preview.dataset.tpTheme;
+        else preview.dataset.tpTheme = theme;
+        return preview;
+      };
+      const detail = (theme: string): MenuDetail => ({ title: themeLabel(theme), content: showing(theme) });
+      return [
       // First the global theme (as "No type" leads the column types): the table's own theme and stripes go, it follows the settings
-      item(
-        "Global theme",
-        own === undefined && ownStripes === undefined,
-        set({ theme: undefined, stripes: undefined }),
-        `The table takes the Theme and Stripes settings (now ${themeLabel(this.theme)}, ${STRIPES_TITLES[this.stripes].toLowerCase()}), and changes with them`,
-      ),
+      // The settings' theme after it, no preview (it is listed below, marked default)
+      { ...item("Global theme", own === undefined && ownStripes === undefined, set({ theme: undefined, stripes: undefined })), value: { text: themeLabel(this.theme) } },
       { kind: "separator" },
       stripesRow,
       { kind: "separator" },
       // Then every theme, the setting's marked (default): one picked is the table's own, the setting's one too, whatever the setting becomes
       ...allThemes(this.host.doc).map((theme) =>
-        item(`${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`, own === theme, set({ theme }), "This table keeps this theme, whatever the setting"),
+        item(
+          `${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`,
+          own === theme,
+          set({ theme }),
+          detail(theme),
+        ),
       ),
-    ];
+      ];
+    };
     const stripesRow: MenuEntry = {
       kind: "segmented",
       label: "Stripes",
@@ -145,6 +158,29 @@ export class Themes implements Feature {
         choices: { title: "Table theme", entries: themes },
       },
     ];
+  }
+
+  /** A small table to preview themes on (in a menu's bubble: not one of the page's), with these stripes */
+  private preview(stripes: Stripes): HTMLElement {
+    const { doc } = this.host;
+    const widget = doc.createElement("div");
+    widget.className = "sb-table-widget tp-theme-preview";
+    widget.setAttribute("aria-hidden", "true");
+    if (stripes !== "rows") widget.dataset.tpStripes = stripes;
+    const table = doc.createElement("table");
+    const row = (section: HTMLTableSectionElement, cells: readonly string[]) => {
+      const tr = section.insertRow();
+      cells.forEach((text, i) => {
+        const td = tr.insertCell();
+        td.textContent = text;
+        if (i > 0) td.className = "tp-preview-number";
+      });
+    };
+    row(table.createTHead(), ["Name", "Qty", "Price"]);
+    const body = table.createTBody();
+    for (const cells of [["Pear", "3", "12.99"], ["Apple", "10", "4.50"], ["Fig", "2", "25.00"], ["Kiwi", "7", "6.10"]]) row(body, cells);
+    widget.append(table);
+    return widget;
   }
 
   /** The table's own choices written into its metadata row, as one edit (undefined: the setting's again) */

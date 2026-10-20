@@ -38,8 +38,8 @@ describe("Themes", () => {
     item.click();
     // The list in the menu's place
     expect(document.querySelector(".tp-menu-title")!.textContent).toContain("Table theme");
-    expect(menuLabels()).toEqual(["Global theme", "—", "—", "Native", "Playground", "Minimal (default)", "Slate", "Grid", "Ocean", "Paper", "Contrast", "Compact", "Bold", "Soft", "Ledger"]);
-    expect(checked()).toEqual(["Global theme"]);
+    expect(menuLabels()).toEqual(["Global theme: Minimal", "—", "—", "Native", "Playground", "Minimal (default)", "Slate", "Grid", "Ocean", "Paper", "Contrast", "Compact", "Bold", "Soft", "Ledger"]);
+    expect(checked()).toEqual(["Global theme: Minimal"]);
     Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => b.textContent === "Paper")!.click();
     await flush();
     await controller.scan();
@@ -53,7 +53,7 @@ describe("Themes", () => {
     await controller.scan();
     expect(widget().dataset.tpTheme).toBeUndefined();
     tableMenuItem(/^Theme/)!.click();
-    Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => b.textContent === "Global theme")!.click();
+    Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => b.textContent?.startsWith("Global theme"))!.click();
     await flush();
     await controller.scan();
     expect(text).toBe(PAGE);
@@ -110,7 +110,7 @@ describe("Themes", () => {
     expect(text).toBe(`${PAGE}| <meta stripes="rows" theme="ocean"> |\n`);
     // Global theme: both go, in one edit
     tableMenuItem(/^Theme/)!.click();
-    pick("Global theme");
+    Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => b.textContent?.startsWith("Global theme"))!.click();
     await flush();
     await controller.scan();
     expect(text).toBe(PAGE);
@@ -124,11 +124,35 @@ describe("Themes", () => {
     tableMenuItem(/^Theme/)!.click();
     const menu = document.querySelector<HTMLElement>(".tp-menu")!;
     const current = document.activeElement as HTMLElement;
-    expect(current.textContent).toBe("Global theme");
+    expect(current.textContent).toBe("Global theme: Grid");
     expect(current.classList.contains("tp-menu-current")).toBe(true);
     expect(menu.classList.contains("tp-menu-still")).toBe(true);
     menu.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
     expect(menu.classList.contains("tp-menu-still")).toBe(false);
+  });
+
+  it("previews a theme beside the item hovered, one table for the list, not taken for one of the page's", async () => {
+    await setup(PAGE, { "tablePlus.metadata": true, "tablePlus.modules.themes.theme": "slate", "tablePlus.modules.themes.stripes": "columns" });
+    await flush();
+    tableMenuItem(/^Theme/)!.click();
+    const items = () => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item"));
+    const preview = () => document.querySelector<HTMLElement>(".tp-menu .tp-menu-detail .tp-theme-preview");
+    // Opened at the table's choice, Global theme: no bubble there (its theme is listed, marked default)
+    expect(preview()).toBeNull();
+    items().find((b) => b.textContent === "Slate (default)")!.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(preview()!.dataset.tpTheme).toBe("slate");
+    expect(preview()!.dataset.tpStripes).toBe("columns");
+    const first = preview();
+    items().find((b) => b.textContent === "Ocean")!.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(preview()!.dataset.tpTheme).toBe("ocean");
+    items().find((b) => b.textContent === "Native")!.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(preview()!.dataset.tpTheme).toBeUndefined();
+    expect(preview()).toBe(first);
+    expect(preview()!.querySelectorAll("tbody tr").length).toBe(4);
+    // Table Plus' own: not enhanced as a table of the page
+    await controller.scan();
+    expect(preview()!.classList.contains("tp-table")).toBe(false);
+    expect(preview()!.dataset.tpUnsupported).toBeUndefined();
   });
 
   it("offers a theme the page's styles define, in the menu and the setting", async () => {

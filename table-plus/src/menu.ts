@@ -6,9 +6,12 @@ export type MenuDetail = {
   readonly title: string;
   // Ways to write it, shown as code
   readonly code?: readonly string[];
-  readonly text: string;
+  // What it does (none: the title and content alone, a theme's preview)
+  readonly text?: string;
   // Lines after the text, less prominent
   readonly notes?: readonly string[];
+  // An element after them, made (or set) as the bubble shows: a theme's preview
+  readonly content?: () => HTMLElement;
 };
 
 export type MenuEntry =
@@ -94,21 +97,27 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
       }
       parts.push(code);
     }
-    const text = doc.createElement("p");
-    text.textContent = detail.text;
-    parts.push(text);
+    if (detail.text) {
+      const text = doc.createElement("p");
+      text.textContent = detail.text;
+      parts.push(text);
+    }
     for (const note of detail.notes ?? []) {
       const p = doc.createElement("p");
       p.className = "tp-menu-detail-note";
       p.textContent = note;
       parts.push(p);
     }
+    if (detail.content) parts.push(detail.content());
     bubble.replaceChildren(...parts);
     bubble.hidden = false;
     bubble.classList.remove("tp-left");
     bubble.style.top = `${item.offsetTop}px`;
     const view = doc.defaultView;
     if (view && bubble.getBoundingClientRect().right > view.innerWidth - 8) bubble.classList.add("tp-left");
+    // Inside the window: a tall bubble (a theme's preview) beside an item low in the menu goes up
+    const below = view ? bubble.getBoundingClientRect().bottom - (view.innerHeight - 8) : 0;
+    if (below > 0) bubble.style.top = `${item.offsetTop - below}px`;
   };
   const hideDetail = () => {
     if (bubble) bubble.hidden = true;

@@ -410,7 +410,7 @@ Every edit rewrites the whole table in your page, which takes a moment in a larg
 A theme sets how tables look: their header, the lines between rows and columns, the striping, corners, shadow and spacing. *Native* (the default) leaves tables as SilverBullet shows them.
 
 * **For every table**: the *Theme* setting (`tablePlus.modules.themes.theme`, in *Table Plus settings…* or `config.set("tablePlus.modules.themes", { theme = "slate" })`).
-* **For one table**: *Theme* in the ⋯ menu of its toolbar picks a theme of its own, stored in the table (`<meta theme="slate">`, needs *Store table metadata*, see [[#Table metadata]]). *Global theme*, first in that list, makes the table follow the settings again, its theme and its stripes; a theme (or stripes, the icons under it) picked stays the table's whatever the settings become, also the settings' own one (marked *(default)*).
+* **For one table**: *Theme* in the ⋯ menu of its toolbar picks a theme of its own, stored in the table (`<meta theme="slate">`, needs *Store table metadata*, see [[#Table metadata]]). Hovering a theme there (or moving to it with the arrow keys) shows a small table in it beside the list, with the table's stripes (not for *Global theme*: its theme is the one marked *(default)*). *Global theme*, first in that list, makes the table follow the settings again, its theme and its stripes; a theme (or stripes, the icons under it) picked stays the table's whatever the settings become, also the settings' own one (marked *(default)*).
 * **Light or dark**: each theme has both, and SilverBullet decides which one shows (its own light or dark mode).
 * **Stripes** are not the theme's: the *Stripes* setting (`tablePlus.modules.themes.stripes`) tints every other row (`rows`, the default, as SilverBullet does), every other column (`columns`) or nothing (`none`), in the theme's color; for one table, the three icons in *Theme* in its ⋯ menu (no stripes, rows, columns) choose (`<meta stripes="columns">`), *Global theme* there the setting's again. It works with *Native* too.
 * Built in: *Native*, *Playground* (the look of the Table Plus playground: a light header, soft striping), *Minimal* (a small-caps header, thin lines, no other fills), *Slate* (a card with rounded corners and a soft shadow, sans-serif type), *Grid* (a spreadsheet, every cell outlined, compact, sans-serif type), *Ocean* (a deep teal header, teal striping), *Paper* (warm tones, serif type), *Contrast* (high contrast: a black header, strong lines, roomy cells), *Compact* (small type, tight cells, for tables of data), *Bold* (thick lines, square corners, a hard shadow, yellow on black), *Soft* (airy: a pastel header, large corners, rounded type where the device has it), *Ledger* (an account book: lines between columns, green-bar stripes, figures in a monospace font, so they line up).
@@ -2353,6 +2353,30 @@ body.tp-picking-columns .sb-table-widget.tp-table :is(td, th) {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
   pointer-events: none;
 }
+/* A theme's preview in the Theme list's bubble: a small table, styled as a table
+   in the page is (SilverBullet's own rules for tables are the editor's only) */
+.tp-theme-preview {
+  display: block;
+  width: 240px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 4px 4px 0 0;
+  font-weight: normal;
+}
+.tp-theme-preview table {
+  width: 100%;
+  border-spacing: 0;
+}
+.tp-theme-preview td {
+  padding: 6px 8px;
+  white-space: nowrap;
+}
+.tp-theme-preview thead tr {
+  font-weight: bold;
+}
+.tp-theme-preview td.tp-preview-number {
+  text-align: right;
+}
 .tp-menu-detail.tp-left {
   left: auto;
   right: calc(100% + 8px);
@@ -2683,6 +2707,8 @@ body.tp-dragging * {
    html[data-theme="dark"] .sb-table-widget[data-tp-theme="mine"] { --tp-head-bg: #223; }
 
    Every variable is optional: one a theme leaves out is as SilverBullet has it.
+   The rules key on data-tp-theme (data-tp-stripes) alone, which only Table Plus
+   sets: the preview of a theme in the Theme list is a table of their own too.
    The rules below turn them into the table's look; :is(#sb-main, html) gives
    them the weight of SilverBullet's own table rules (#sb-main .cm-editor …), so
    a theme's spacing and header win over them, in SilverBullet and the playground. */
@@ -2696,7 +2722,7 @@ html {
 }
 /* The colors: SilverBullet's own variables, within the table, so its header,
    striping, the held header, pinned cells and selection follow the theme */
-:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] {
+:is(#sb-main, html) .sb-table-widget[data-tp-theme] {
   --editor-table-head-background-color: var(--tp-head-bg, var(--tp-sb-head-bg));
   --editor-table-head-color: var(--tp-head-color, var(--tp-sb-head-color));
   --editor-table-even-background-color: var(--tp-stripe, var(--tp-sb-stripe));
@@ -2712,17 +2738,17 @@ html {
   outline-offset: calc(-1 * var(--tp-outline, 0px));
 }
 /* Over the whole window (full screen): a box without corners or shadow */
-:is(#sb-main, html) .sb-table-widget.tp-table.tp-fullscreen[data-tp-theme] {
+:is(#sb-main, html) .sb-table-widget.tp-fullscreen[data-tp-theme] {
   border-radius: 0;
   box-shadow: none;
 }
-:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] thead tr {
+:is(#sb-main, html) .sb-table-widget[data-tp-theme] thead tr {
   font-weight: var(--tp-head-weight, bold);
   font-family: var(--tp-head-font, var(--tp-font));
   /* As SilverBullet colors it (colors.scss), also where nothing else does (the playground) */
   color: var(--editor-table-head-color, currentColor);
 }
-:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] thead tr:first-child > td {
+:is(#sb-main, html) .sb-table-widget[data-tp-theme] thead tr:first-child > td {
   padding: var(--tp-head-padding, var(--tp-padding, 11px 8px));
   font-size: var(--tp-head-size, 1em);
   text-transform: var(--tp-head-transform, none);
@@ -2730,29 +2756,29 @@ html {
   border-bottom: var(--tp-head-line, var(--tp-row-line, 0px)) solid var(--tp-border, transparent);
 }
 /* Lines between rows (the last one has the box's), between columns */
-:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] :is(tbody, tfoot) td {
+:is(#sb-main, html) .sb-table-widget[data-tp-theme] :is(tbody, tfoot) td {
   padding: var(--tp-padding, 8px);
   border-bottom: var(--tp-row-line, 0px) solid var(--tp-border, transparent);
 }
-:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] :is(tbody, tfoot):last-child tr:last-child > td {
+:is(#sb-main, html) .sb-table-widget[data-tp-theme] :is(tbody, tfoot):last-child tr:last-child > td {
   border-bottom-width: 0;
 }
-:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] tr > td + td {
+:is(#sb-main, html) .sb-table-widget[data-tp-theme] tr > td + td {
   border-left: var(--tp-column-line, 0px) solid var(--tp-border, transparent);
 }
 /* Stripes (the setting, or the table's stripes="…"), whatever the theme: it
    gives only their color. Rows are SilverBullet's own (no mark); none: every
    row as the others; columns: every other column of the body instead (not the
    header, nor pinned columns, tinted as they are) */
-:is(#sb-main, html) .sb-table-widget.tp-table:is([data-tp-stripes="none"], [data-tp-stripes="columns"]) {
+:is(#sb-main, html) .sb-table-widget:is([data-tp-stripes="none"], [data-tp-stripes="columns"]) {
   --tp-stripe-color: var(--tp-stripe, var(--tp-sb-stripe));
   --editor-table-even-background-color: transparent;
 }
-:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-stripes="columns"] :is(tbody, tfoot) td:nth-child(even):not(.tp-pin-left):not(.tp-pin-right) {
+:is(#sb-main, html) .sb-table-widget[data-tp-stripes="columns"] :is(tbody, tfoot) td:nth-child(even):not(.tp-pin-left):not(.tp-pin-right) {
   background-image: linear-gradient(var(--tp-stripe-color), var(--tp-stripe-color));
 }
 /* The row under the pointer: a tint over its striping (none if the theme sets none) */
-:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] tbody tr:not(.tp-large-spacer):hover {
+:is(#sb-main, html) .sb-table-widget[data-tp-theme] tbody tr:not(.tp-large-spacer):hover {
   background-image: linear-gradient(var(--tp-hover), var(--tp-hover));
 }
 
