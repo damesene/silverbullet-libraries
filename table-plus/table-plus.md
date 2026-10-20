@@ -1065,6 +1065,22 @@ end
     ),
     var(--root-background-color, #fff);
 }
+/* Pinned rows and the body cells of pinned columns: a light tint of the accent
+   color, so they show apart from the rows and columns that scroll (still
+   opaque, over the page color; a selected or edited cell's tint, an inset
+   shadow, shows over it) */
+.sb-table-widget.tp-table {
+  --tp-pinned-tint: color-mix(in srgb, var(--ui-accent-color, #464cfc) 12%, transparent);
+}
+.sb-table-widget.tp-table :is(tbody, tfoot) td:is(.tp-pin-left, .tp-pin-right),
+.sb-table-widget.tp-table :is(thead, tfoot) tr[data-tp-row] > td {
+  background: linear-gradient(var(--tp-pinned-tint), var(--tp-pinned-tint)), var(--root-background-color, #fff);
+}
+.sb-table-widget.tp-table tbody tr:nth-of-type(even) td:is(.tp-pin-left, .tp-pin-right) {
+  background: linear-gradient(var(--tp-pinned-tint), var(--tp-pinned-tint)),
+    linear-gradient(var(--editor-table-even-background-color, transparent), var(--editor-table-even-background-color, transparent)),
+    var(--root-background-color, #fff);
+}
 .sb-table-widget td.tp-pin-left.tp-pin-edge {
   box-shadow: 3px 0 4px -2px rgba(0, 0, 0, 0.3);
 }
