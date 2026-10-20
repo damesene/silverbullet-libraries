@@ -51,7 +51,7 @@ table-plus/
       metadata.ts      Remove metadata (toolbar and the page command)
       sticky.ts        sticky header and bottom-pinned rows: `position: sticky` by the browser for a table that fits its width (its box clipped, `tp-sticky-native`; smooth on a phone, where a header moved after scroll events lags), a transform after each scroll for one that scrolls in its box
       autoscroll.ts    middle-button autoscroll
-      history.ts       undo/redo scrolling (history markers)
+      history.ts       undo/redo scrolling (history markers: the editor's cursor put outside the table before each write, right after it, else right before it, where the edit does not start: CodeMirror keeps a cursor before text inserted at its place, which would put it in the table and show its markdown)
       expressions.ts   re-evaluating `${…}` cells after page:index
     formula/           formulas: tokenizer, parser, evaluator, stored form, reference shifting, autofix, help
       functions/       one function per file (SUM.ts …), registry index.ts

@@ -4,7 +4,10 @@
 // scrolls to it. Table Plus edits away from that cursor, so before each edit
 // it puts the cursor right after the table (outside it, so the table stays
 // rendered) and remembers that position: an undo or redo that lands there
-// undid a table edit, and the page is scrolled back to where it was.
+// undid a table edit, and the page is scrolled back to where it was. An edit
+// that starts right there (a row added at the end, nothing else changed)
+// would leave the cursor before what it inserts, in the table, which then
+// shows its markdown: the cursor goes right before the table instead.
 import type { Feature, TableHost } from "../core/feature.ts";
 import { EDITOR_SELECTOR } from "../dom.ts";
 
@@ -14,15 +17,29 @@ export class History implements Feature {
 
   constructor(private readonly host: TableHost) {}
 
-  async beforeWrite(text: string, from: number, to: number): Promise<((editFrom: number, lengthChange: number) => void) | undefined> {
+  async beforeWrite(
+    text: string,
+    from: number,
+    to: number,
+    change: { readonly from: number; readonly to: number },
+  ): Promise<((editFrom: number, lengthChange: number) => void) | undefined> {
     const { bridge } = this.host;
     if (!bridge.setSelection) return undefined;
-    const marker = to < text.length ? to + 1 : from > 0 ? from - 1 : undefined;
+    // Right after the table, else right before it; one the edit does not reach first
+    const places = [to < text.length ? to + 1 : undefined, from > 0 ? from - 1 : undefined].filter((p) => p !== undefined);
+    const reached = (p: number) => p >= change.from && p <= change.to;
+    const marker = places.find((p) => !reached(p)) ?? places[0];
     if (marker === undefined) return undefined;
     await bridge.setSelection(marker, marker);
-    this.remember(marker);
+    // None it does not reach (a table at the page's start, a row added at its end): after the edit, after what it inserted
+    const moveAfter = reached(marker);
+    if (!moveAfter) this.remember(marker);
     // Redo restores the cursor where the edit left it: the marker, moved by the edit
-    return (editFrom, lengthChange) => this.remember(marker + (marker > editFrom ? lengthChange : 0));
+    return (editFrom, lengthChange) => {
+      const moved = marker + (moveAfter || marker > editFrom ? lengthChange : 0);
+      if (moveAfter) void bridge.setSelection!(moved, moved);
+      this.remember(moved);
+    };
   }
 
   keyDown(e: KeyboardEvent): boolean {

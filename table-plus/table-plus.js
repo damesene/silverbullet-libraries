@@ -6421,14 +6421,21 @@ var History = class {
   host;
   // Editor cursor positions set before table edits
   markers = /* @__PURE__ */ new Set();
-  async beforeWrite(text, from, to) {
+  async beforeWrite(text, from, to, change) {
     const { bridge } = this.host;
     if (!bridge.setSelection) return void 0;
-    const marker = to < text.length ? to + 1 : from > 0 ? from - 1 : void 0;
+    const places = [to < text.length ? to + 1 : void 0, from > 0 ? from - 1 : void 0].filter((p) => p !== void 0);
+    const reached = (p) => p >= change.from && p <= change.to;
+    const marker = places.find((p) => !reached(p)) ?? places[0];
     if (marker === void 0) return void 0;
     await bridge.setSelection(marker, marker);
-    this.remember(marker);
-    return (editFrom, lengthChange) => this.remember(marker + (marker > editFrom ? lengthChange : 0));
+    const moveAfter = reached(marker);
+    if (!moveAfter) this.remember(marker);
+    return (editFrom, lengthChange) => {
+      const moved2 = marker + (moveAfter || marker > editFrom ? lengthChange : 0);
+      if (moveAfter) void bridge.setSelection(moved2, moved2);
+      this.remember(moved2);
+    };
   }
   keyDown(e) {
     const { bridge } = this.host;
@@ -8728,7 +8735,7 @@ var Controller = class {
       const spanTo = Math.max(...updates.map((update) => update.range.to));
       const after = [];
       for (const feature of this.features) {
-        const then = await feature.beforeWrite?.(text, spanFrom, spanTo);
+        const then = await feature.beforeWrite?.(text, spanFrom, spanTo, replace);
         if (then) after.push(then);
       }
       this.anchorAt(widget, info.key);

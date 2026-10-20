@@ -1572,7 +1572,7 @@ export class Controller implements TableHost {
       const spanTo = Math.max(...updates.map((update) => update.range.to));
       const after: ((editFrom: number, lengthChange: number) => void)[] = [];
       for (const feature of this.features) {
-        const then = await feature.beforeWrite?.(text, spanFrom, spanTo);
+        const then = await feature.beforeWrite?.(text, spanFrom, spanTo, replace);
         if (then) after.push(then);
       }
       this.anchorAt(widget, info.key);
