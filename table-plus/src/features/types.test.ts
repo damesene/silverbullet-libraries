@@ -35,10 +35,11 @@ describe("Column types", () => {
     const icon = cell(0, 1).querySelector(".tp-type-icon")!;
     expect(icon.nextElementSibling!.classList.contains("tp-filter-mark")).toBe(true);
     expect(icon.nextElementSibling!.nextElementSibling!.classList.contains("tp-sort")).toBe(true);
-    // Kept with the name's last word, so a narrow column never wraps the icons apart
-    const kept = icon.parentElement!;
-    expect(kept.classList.contains("tp-keep")).toBe(true);
-    expect(kept.firstChild!.textContent).toBe("Price ");
+    // On the header's one line beside the name, which the CSS cuts with an ellipsis where it does not fit (the icons stay)
+    const head = icon.parentElement!;
+    expect(head.classList.contains("tp-head")).toBe(true);
+    expect(head.firstElementChild!.classList.contains("tp-head-name")).toBe(true);
+    expect(head.firstElementChild!.textContent!.trim()).toBe("Price #currency-usd");
     expect(icon.innerHTML).toBe(iconHtml("currency"));
     expect((icon as HTMLElement).title).toContain("Currency (#currency-usd)");
     expect(cell(0, 0).querySelector(".tp-type-icon")).toBeNull();

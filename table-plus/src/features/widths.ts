@@ -81,7 +81,8 @@ export class Widths implements Feature {
       cell.style.width = width === undefined ? "" : `${width}px`;
       cell.style.minWidth = width === undefined ? "" : `${width}px`;
       cell.style.maxWidth = width === undefined ? "" : `${width}px`;
-      const box = cell.querySelector<HTMLElement>(":scope > .tp-cell-content");
+      // The content's box: a body cell's, the header's line (its name cut where the icons need the room)
+      const box = cell.querySelector<HTMLElement>(":scope > .tp-cell-content, :scope > .tp-head");
       if (box) {
         box.style.width = width === undefined ? "" : `${Math.max(0, width - padding)}px`;
         box.style.maxWidth = width === undefined ? "" : "none";

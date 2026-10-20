@@ -700,9 +700,10 @@ describe("Controller", () => {
       const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
       const table = widget.querySelector("table")!;
       Object.defineProperty(widget, "clientWidth", { configurable: true, value: 800 });
+      // A few frames: the sticky update runs in one, after other work queued for frames
       const settle = async () => {
         scroller.dispatchEvent(new Event("scroll"));
-        await new Promise((resolve) => requestAnimationFrame(resolve));
+        for (let i = 0; i < 3; i++) await new Promise((resolve) => requestAnimationFrame(resolve));
       };
       // Fits: the browser moves it (no transform), the script only marks it held
       Object.defineProperty(table, "offsetWidth", { configurable: true, value: 800 });

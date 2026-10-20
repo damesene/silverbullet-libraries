@@ -41,7 +41,7 @@ import {
   cellValue,
   EDITOR_SELECTOR,
   INTERACTIVE_SELECTOR,
-  keepIconsWithName,
+  layOutHeaderCell,
   NATIVE_ACTION_SELECTOR,
   positionHint,
   renderedTable,
@@ -789,8 +789,8 @@ export class Controller implements TableHost {
       cell.append(button);
     });
     for (const feature of this.features) feature.decorate?.(widget, info);
-    // Last: the icons the features added stay with the header's name
-    for (const cell of Array.from(rows[0]!.cells)) keepIconsWithName(cell);
+    // Last: the header's name on one line with the icons the features added
+    for (const cell of Array.from(rows[0]!.cells)) layOutHeaderCell(cell);
   }
 
   // ---- view: sort and filter --------------------------------------------

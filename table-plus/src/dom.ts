@@ -55,31 +55,33 @@ export function cellText(cell: Element): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-// The last word of a header's name, kept on one line with the icons after it
-export const KEEP_CLASS = "tp-keep";
+// A header's content on one line: its name (cut with an ellipsis where it does
+// not fit) and the icons after it (its type's, the filter mark, the sort
+// control), which always show
+export const HEAD_CLASS = "tp-head";
+const HEAD_NAME_CLASS = "tp-head-name";
+// Table Plus' elements in a header that sit out of the line (at the cell's edge)
+const OUT_OF_LINE = ["tp-pin-mark", "tp-col-resize"];
 
 /**
- * Keeps the icons after a header's name (its type's icon, the sort control) on
- * the line of the name's last word: a narrow column wraps the name between
- * words, never the icons onto a line of their own. Done once per rendering.
+ * Lays a header cell out on one line: its name in a box that the CSS cuts
+ * with an ellipsis, the icons after it (Table Plus' inline elements) beside
+ * it, both in a box no wider than the column may be. Done once per rendering.
  */
-export function keepIconsWithName(cell: HTMLTableCellElement): void {
-  if (cell.querySelector(`:scope > .${KEEP_CLASS}`)) return;
-  const nodes = Array.from(cell.childNodes);
-  let last = nodes.length - 1;
-  while (last >= 0 && !(nodes[last]!.nodeType === 3 && nodes[last]!.textContent!.trim() !== "")) last--;
-  // A name that ends in markup (a link, emphasis) is left as it is
-  if (last < 0) return;
-  // The pin mark sits out of the line, at the cell's edge
-  const after = nodes.slice(last + 1).filter((n) => !(n instanceof Element && n.classList.contains("tp-pin-mark")));
-  if (!after.some((n) => n instanceof Element && n.classList.contains(UI_CLASS))) return;
-  const text = nodes[last] as Text;
-  const word = /\S+\s*$/.exec(text.data)!;
-  const keep = cell.ownerDocument.createElement("span");
-  keep.className = KEEP_CLASS;
-  keep.append(text.data.slice(word.index), ...after);
-  text.data = text.data.slice(0, word.index);
-  cell.insertBefore(keep, text.nextSibling);
+export function layOutHeaderCell(cell: HTMLTableCellElement): void {
+  if (cell.querySelector(`:scope > .${HEAD_CLASS}`)) return;
+  const doc = cell.ownerDocument;
+  const head = doc.createElement("span");
+  head.className = HEAD_CLASS;
+  const name = doc.createElement("span");
+  name.className = HEAD_NAME_CLASS;
+  head.append(name);
+  for (const node of Array.from(cell.childNodes)) {
+    const ui = node instanceof Element && node.classList.contains(UI_CLASS);
+    if (ui && OUT_OF_LINE.some((c) => (node as Element).classList.contains(c))) continue;
+    (ui ? head : name).append(node);
+  }
+  cell.prepend(head);
 }
 
 /**

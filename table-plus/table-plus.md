@@ -857,9 +857,26 @@ end
   cursor: pointer;
 }
 
-/* The last word of a header's name and the icons after it: never wrapped apart */
-.tp-keep {
+/* A header on one line (layOutHeaderCell): its name cut with an ellipsis where
+   it does not fit the column (the maximum width, or the width set), the icons
+   after it always shown */
+.sb-table-widget.tp-table thead tr:first-child > td {
   white-space: nowrap;
+}
+.sb-table-widget.tp-table .tp-head {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: top;
+  max-width: var(--tp-cell-max-width, none);
+}
+.sb-table-widget.tp-table .tp-head-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-table-widget.tp-table .tp-head > .tp-ui {
+  flex: none;
 }
 /* Sort control: shown on header hover, always while it sorts */
 .tp-sort {
@@ -1073,11 +1090,7 @@ body.tp-navigating .sb-table-widget.tp-table * {
   width: max-content;
   max-width: var(--tp-cell-max-width, none);
 }
-/* SilverBullet keeps cells on one line (white-space: nowrap): the box wraps, and a header */
-.sb-table-widget.tp-table.tp-cells-wrap thead td {
-  max-width: var(--tp-cell-max-width, none);
-  white-space: normal;
-}
+/* SilverBullet keeps cells on one line (white-space: nowrap): the box wraps */
 .sb-table-widget.tp-cells-wrap .tp-cell-content {
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1153,11 +1166,6 @@ body.tp-resizing,
 body.tp-resizing * {
   cursor: col-resize !important;
   user-select: none;
-}
-/* A column with a width set: its header wraps within it too */
-.sb-table-widget.tp-table thead td.tp-sized {
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 /* The cell's popup: its editor over the cell, the whole text wrapped */

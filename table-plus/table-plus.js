@@ -615,22 +615,23 @@ function cellText(cell) {
   walk(cell);
   return text.replace(/\s+/g, " ").trim();
 }
-var KEEP_CLASS = "tp-keep";
-function keepIconsWithName(cell) {
-  if (cell.querySelector(`:scope > .${KEEP_CLASS}`)) return;
-  const nodes = Array.from(cell.childNodes);
-  let last = nodes.length - 1;
-  while (last >= 0 && !(nodes[last].nodeType === 3 && nodes[last].textContent.trim() !== "")) last--;
-  if (last < 0) return;
-  const after = nodes.slice(last + 1).filter((n) => !(n instanceof Element && n.classList.contains("tp-pin-mark")));
-  if (!after.some((n) => n instanceof Element && n.classList.contains(UI_CLASS))) return;
-  const text = nodes[last];
-  const word = /\S+\s*$/.exec(text.data);
-  const keep = cell.ownerDocument.createElement("span");
-  keep.className = KEEP_CLASS;
-  keep.append(text.data.slice(word.index), ...after);
-  text.data = text.data.slice(0, word.index);
-  cell.insertBefore(keep, text.nextSibling);
+var HEAD_CLASS = "tp-head";
+var HEAD_NAME_CLASS = "tp-head-name";
+var OUT_OF_LINE = ["tp-pin-mark", "tp-col-resize"];
+function layOutHeaderCell(cell) {
+  if (cell.querySelector(`:scope > .${HEAD_CLASS}`)) return;
+  const doc = cell.ownerDocument;
+  const head = doc.createElement("span");
+  head.className = HEAD_CLASS;
+  const name = doc.createElement("span");
+  name.className = HEAD_NAME_CLASS;
+  head.append(name);
+  for (const node of Array.from(cell.childNodes)) {
+    const ui = node instanceof Element && node.classList.contains(UI_CLASS);
+    if (ui && OUT_OF_LINE.some((c) => node.classList.contains(c))) continue;
+    (ui ? head : name).append(node);
+  }
+  cell.prepend(head);
 }
 function cellValue(cell) {
   return cell.dataset.tpValue ?? cellText(cell);
@@ -6627,7 +6628,7 @@ var Widths = class {
       cell.style.width = width === void 0 ? "" : `${width}px`;
       cell.style.minWidth = width === void 0 ? "" : `${width}px`;
       cell.style.maxWidth = width === void 0 ? "" : `${width}px`;
-      const box = cell.querySelector(":scope > .tp-cell-content");
+      const box = cell.querySelector(":scope > .tp-cell-content, :scope > .tp-head");
       if (box) {
         box.style.width = width === void 0 ? "" : `${Math.max(0, width - padding)}px`;
         box.style.maxWidth = width === void 0 ? "" : "none";
@@ -8451,7 +8452,7 @@ var Controller = class {
       cell.append(button);
     });
     for (const feature of this.features) feature.decorate?.(widget, info);
-    for (const cell of Array.from(rows[0].cells)) keepIconsWithName(cell);
+    for (const cell of Array.from(rows[0].cells)) layOutHeaderCell(cell);
   }
   // ---- view: sort and filter --------------------------------------------
   viewOf(info) {
