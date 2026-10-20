@@ -1,3 +1,45 @@
+// table-plus/src/themes.ts
+var BUILT_IN_THEMES = ["native", "playground", "minimal", "slate", "grid", "ocean", "paper", "contrast", "compact", "bold", "soft", "ledger"];
+var NATIVE_THEME = "native";
+var THEME_NAME_RE = /^[\w-]+$/;
+var THEME_SELECTOR_RE = /data-tp-theme\s*=\s*["']?([\w-]+)["']?\s*\]/g;
+function themeName(value) {
+  const name = typeof value === "string" ? value.trim() : "";
+  return THEME_NAME_RE.test(name) ? name : void 0;
+}
+function themeLabel(name) {
+  const words = name.replace(/[-_]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+function themesInStyles(doc) {
+  const found = /* @__PURE__ */ new Set();
+  const visit = (rules) => {
+    for (const rule of Array.from(rules)) {
+      if ("selectorText" in rule && typeof rule.selectorText === "string") {
+        for (const match of rule.selectorText.matchAll(THEME_SELECTOR_RE)) found.add(match[1]);
+      }
+      if ("cssRules" in rule && rule.cssRules) visit(rule.cssRules);
+    }
+  };
+  for (const sheet of Array.from(doc.styleSheets)) {
+    try {
+      visit(sheet.cssRules);
+    } catch {
+    }
+  }
+  return [...found];
+}
+var STRIPES = ["none", "rows", "columns"];
+function stripesName(value) {
+  return STRIPES.find((s) => s === value);
+}
+function stripesLabel(stripes) {
+  return themeLabel(stripes);
+}
+function allThemes(doc) {
+  return [.../* @__PURE__ */ new Set([...BUILT_IN_THEMES, ...themesInStyles(doc)])];
+}
+
 // table-plus/src/bridge.ts
 var pixels = (v) => {
   const n = typeof v === "string" ? Number(v) : v;
@@ -11,6 +53,7 @@ var FEATURE_NAMES = [
   "columnTypes",
   "selection",
   "lazy",
+  "themes",
   "export",
   "paste",
   "handles",
@@ -33,6 +76,7 @@ var MODULE_LABELS = {
   columnTypes: "Column types",
   selection: "Cell selection",
   lazy: "Lazy saving",
+  themes: "Themes",
   export: "Export",
   paste: "Paste from spreadsheets",
   handles: "Row and column handles",
@@ -51,6 +95,7 @@ var MODULE_DESCRIPTIONS = {
   columnTypes: "A header's hashtag formats its column (#currency, #stars\u2026)",
   selection: "A click selects a cell, as in a spreadsheet; drag or Shift to select more, to copy, paste over or empty them",
   lazy: "An icon in a table's toolbar switches it to saving its cells edited together, a moment after editing stops: quicker typing in large tables",
+  themes: "How tables look (header, lines, stripes, spacing): a theme for every table, another one for a table from its \u22EF menu",
   export: "Copy as CSV in a table's \u22EF menu",
   paste: "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
   handles: "Handles beside rows and above columns: drag to move them, click for their menu",
@@ -126,6 +171,28 @@ var SETTINGS = {
     default: 500,
     parse: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0
   },
+  // The tables' theme (the themes module); a table's metadata may choose another
+  theme: {
+    path: "tablePlus.modules.themes.theme",
+    label: "Theme",
+    hint: "How tables look: their header, lines, stripes and spacing. Native leaves them as SilverBullet shows them; a table's \u22EF menu can choose another theme for it",
+    default: NATIVE_THEME,
+    choices: BUILT_IN_THEMES,
+    choiceLabels: BUILT_IN_THEMES.map(themeLabel),
+    moreChoices: themesInStyles,
+    moreLabel: themeLabel,
+    parse: themeName
+  },
+  // Every other row or column tinted, in the theme's color (the themes module); a table's metadata may say otherwise
+  stripes: {
+    path: "tablePlus.modules.themes.stripes",
+    label: "Stripes",
+    hint: "Every other row (or column) is tinted, in the theme's color; the icons in Theme in a table's \u22EF menu can choose otherwise for that table",
+    default: "rows",
+    choices: STRIPES,
+    choiceLabels: STRIPES.map(stripesLabel),
+    parse: stripesName
+  },
   // Pixels; 0: no limit
   maxHeight: {
     path: "tablePlus.maxHeight",
@@ -169,6 +236,15 @@ var SETTINGS = {
     parse: pixels
   }
 };
+function settingChoices(key, doc, current) {
+  const setting = SETTINGS[key];
+  if (!setting.choices) return [];
+  const options = setting.choices.map((value, i) => ({ value, label: setting.choiceLabels?.[i] ?? value }));
+  const more = (value) => ({ value, label: setting.moreLabel?.(value) ?? value });
+  for (const value of setting.moreChoices?.(doc) ?? []) if (!options.some((o) => o.value === value)) options.push(more(value));
+  if (typeof current === "string" && current !== "" && !options.some((o) => o.value === current)) options.push(more(current));
+  return options;
+}
 var REQUIRED = [
   "getText",
   "replaceRange",
@@ -1511,6 +1587,11 @@ var ICONS = {
   columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
   columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
   duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  // No stripes: an empty table, struck through (rows and columns: its tinted lines)
+  stripesNone: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M5 18L19 6"/>'),
+  stripesRows: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18"/><path d="M4 10h16v4H4z" fill="currentColor" stroke="none" opacity="0.4"/>'),
+  stripesColumns: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><path d="M9.5 5h5v14h-5z" fill="currentColor" stroke="none" opacity="0.4"/>'),
+  theme: svg('<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.9 1.4-1.8l-.3-.8a1.7 1.7 0 0 1 1.6-2.4H17a4 4 0 0 0 4-4c0-4.9-4-9-9-9z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>'),
   lazy: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
   editMode: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
   selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),
@@ -1751,11 +1832,10 @@ var SettingsDialog = class {
       row.append(this.switch(value === true, (on) => this.change(setting.path, on)));
       return row;
     }
-    const choices = setting.choices;
-    if (choices) {
+    const choices = settingChoices(key, this.context.doc, value);
+    if (choices.length) {
       const select = this.el("select");
-      const names = setting.choiceLabels ?? choices;
-      choices.forEach((choice, i) => select.append(new Option(names[i] ?? choice, choice, false, choice === value)));
+      for (const choice of choices) select.append(new Option(choice.label, choice.value, false, choice.value === value));
       select.addEventListener("change", () => this.change(setting.path, select.value));
       row.append(select);
       return row;
@@ -6236,6 +6316,7 @@ function renderMenu(doc, title, entries, back) {
   const menu = doc.createElement("div");
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", title);
+  if (back) menu.dataset.tpList = "";
   const heading = doc.createElement("div");
   heading.className = "tp-menu-title";
   if (back) {
@@ -6395,8 +6476,17 @@ function renderMenu(doc, title, entries, back) {
   return menu;
 }
 function focusMenu(menu) {
-  menu.tabIndex = -1;
-  menu.focus({ preventScroll: true });
+  const current = menu.dataset.tpList !== void 0 ? menu.querySelector('.tp-menu-item[aria-checked="true"]') : null;
+  if (!current) {
+    menu.tabIndex = -1;
+    menu.focus({ preventScroll: true });
+    return;
+  }
+  menu.classList.add("tp-menu-still");
+  current.classList.add("tp-menu-current");
+  current.focus({ preventScroll: true });
+  menu.addEventListener("pointermove", () => menu.classList.remove("tp-menu-still"), { once: true });
+  current.addEventListener("blur", () => current.classList.remove("tp-menu-current"), { once: true });
 }
 
 // table-plus/src/features/grips.ts
@@ -7972,7 +8062,7 @@ var Metadata = class {
         label: "Remove metadata",
         icon: ICONS.trash,
         danger: true,
-        title: "Remove this table's <meta> tags: its stored settings (sorting, filters, pinning, name) and what its cells keep (formulas, which keep their results, names)",
+        title: "Remove this table's <meta> tags: its stored settings (sorting, filters, pinning, name, theme, stripes) and what its cells keep (formulas, which keep their results, names)",
         run: () => void this.removeFromTable(widget, info)
       }
     ];
@@ -7985,7 +8075,7 @@ var Metadata = class {
   async removeFromTable(shownWidget, shownInfo) {
     const shown = parseTable(shownInfo.source);
     const removed = [
-      ...shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name)"] : [],
+      ...shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name, theme, stripes)"] : [],
       ...described(this.host.metadataParts([shown]), [shown], (p) => `its ${plural(p.count, p.what)}${p.note ? `: ${p.note}` : ""}`)
     ];
     if (!await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
@@ -8518,6 +8608,126 @@ var Lazy = class {
   onVisibilityChange = () => {
     if (this.host.doc.visibilityState === "hidden" && this.held.size && !this.host.editing) void this.flushAll();
   };
+};
+
+// table-plus/src/features/themes.ts
+var STRIPES_ICONS = { none: ICONS.stripesNone, rows: ICONS.stripesRows, columns: ICONS.stripesColumns };
+var STRIPES_TITLES = {
+  none: "No stripes",
+  rows: "Striped rows: every other row tinted",
+  columns: "Striped columns: every other column tinted"
+};
+function metaTheme(table) {
+  return themeName(table.meta?.theme);
+}
+function metaStripes(table) {
+  return stripesName(table.meta?.stripes);
+}
+var Themes = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // The settings, read when Table Plus starts and again as tables are enhanced
+  theme = NATIVE_THEME;
+  stripes = "rows";
+  start() {
+    void this.readSettings();
+  }
+  stop() {
+    for (const widget of this.widgets()) {
+      delete widget.dataset.tpTheme;
+      delete widget.dataset.tpStripes;
+    }
+  }
+  // Before the browser lays the table out: its metadata row's choices as rendered (<meta theme="…" stripes="…">), else the settings'
+  tableAdded(widget, _table, rows) {
+    const meta = rows[rows.length - 1]?.querySelector("meta");
+    this.mark(widget, themeName(meta?.getAttribute("theme")) ?? this.theme, stripesName(meta?.getAttribute("stripes")) ?? this.stripes);
+  }
+  enhanced(widget, info) {
+    this.markFor(widget, info);
+    void this.readSettings();
+  }
+  markFor(widget, info) {
+    const table = parseTable(info.source);
+    this.mark(widget, metaTheme(table) ?? this.theme, metaStripes(table) ?? this.stripes);
+  }
+  async readSettings() {
+    const [theme, stripes] = await Promise.all([this.host.setting("theme"), this.host.setting("stripes")]);
+    if (theme === this.theme && stripes === this.stripes) return;
+    this.theme = theme;
+    this.stripes = stripes;
+    for (const widget of this.widgets()) {
+      const info = this.host.infoOf(widget);
+      if (info) this.markFor(widget, info);
+    }
+  }
+  /** The theme on the table (native: none, SilverBullet's own look), and its stripes unless they are the rows (SilverBullet's own) */
+  mark(widget, theme, stripes) {
+    if (theme === NATIVE_THEME) delete widget.dataset.tpTheme;
+    else if (widget.dataset.tpTheme !== theme) widget.dataset.tpTheme = theme;
+    if (stripes === "rows") delete widget.dataset.tpStripes;
+    else if (widget.dataset.tpStripes !== stripes) widget.dataset.tpStripes = stripes;
+  }
+  widgets() {
+    return Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`));
+  }
+  /**
+   * Theme in the table's ⋯ menu: Global theme first (the table's own theme
+   * and stripes go: it follows the settings), the stripes (three icons: none,
+   * rows, columns), then every theme; a stripes or a theme picked is stored in
+   * the table's metadata row, also the settings' one (kept whatever the
+   * settings become). As names are, only where the table can have metadata.
+   */
+  toolbarButtons(widget, info) {
+    if (!info.metaRow && !this.host.metadataEnabled) return [];
+    const table = parseTable(info.source);
+    const own = metaTheme(table);
+    const ownStripes = metaStripes(table);
+    const set = (choices) => () => void this.choose(widget, info, choices);
+    const item = (label, checked, run, hint) => ({ kind: "item", label, icon: "", checked, run, ...hint ? { hint } : {} });
+    const themes = () => [
+      // First the global theme (as "No type" leads the column types): the table's own theme and stripes go, it follows the settings
+      item(
+        "Global theme",
+        own === void 0 && ownStripes === void 0,
+        set({ theme: void 0, stripes: void 0 }),
+        `The table takes the Theme and Stripes settings (now ${themeLabel(this.theme)}, ${STRIPES_TITLES[this.stripes].toLowerCase()}), and changes with them`
+      ),
+      { kind: "separator" },
+      stripesRow,
+      { kind: "separator" },
+      // Then every theme, the setting's marked (default): one picked is the table's own, the setting's one too, whatever the setting becomes
+      ...allThemes(this.host.doc).map(
+        (theme) => item(`${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`, own === theme, set({ theme }), "This table keeps this theme, whatever the setting")
+      )
+    ];
+    const stripesRow = {
+      kind: "segmented",
+      label: "Stripes",
+      // The table's own marked, none while it follows the setting (as a theme picked is; Global theme: the setting's again)
+      options: STRIPES.map((s) => ({ icon: STRIPES_ICONS[s], title: STRIPES_TITLES[s], active: s === ownStripes, run: set({ stripes: s }) }))
+    };
+    return [
+      {
+        label: "Theme",
+        title: "How this table looks: the Theme and Stripes settings (Global theme), or a theme and stripes of its own (stored in the table)",
+        icon: ICONS.theme,
+        value: own ? themeLabel(own) : `${themeLabel(this.theme)} (global)`,
+        // Not used: the item opens its choices
+        run: () => {
+        },
+        choices: { title: "Table theme", entries: themes }
+      }
+    ];
+  }
+  /** The table's own choices written into its metadata row, as one edit (undefined: the setting's again) */
+  async choose(shownWidget, shownInfo, choices) {
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    await this.host.write(widget, (table) => Object.entries(choices).reduce((t, [name, value]) => withMeta(t, name, value), table));
+    this.host.focusEditor(widget);
+  }
 };
 
 // table-plus/src/paste.ts
@@ -9476,6 +9686,7 @@ var Controller = class {
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
       optional("lazy", () => new Lazy(this)),
+      optional("themes", () => new Themes(this)),
       optional("export", () => new Export(this)),
       // Its icon last in the toolbar, before the menu
       optional("fullScreen", () => new FullScreen(this)),
@@ -11176,6 +11387,8 @@ var Controller = class {
    * the destructive ones last, after a separator
    */
   openTableMenu(widget, anchor, items) {
+    const place = { kind: "table", anchor };
+    const back = { icon: ICONS.arrowLeft, run: () => this.openTableMenu(widget, anchor, items) };
     const entry = (item) => ({
       kind: "item",
       label: item.label,
@@ -11183,25 +11396,23 @@ var Controller = class {
       hint: item.title,
       ...item.value ? { value: { text: item.value } } : {},
       ...item.danger ? { danger: true } : {},
-      run: item.run
+      run: item.choices ? () => this.showMenu(widget, item.choices.title, item.choices.entries(), place, back) : item.run
     });
     const safe = items.filter((item) => !item.danger).map(entry);
     const danger = items.filter((item) => item.danger).map(entry);
-    this.showMenu(widget, "Table", [...safe, ...safe.length && danger.length ? [{ kind: "separator" }] : [], ...danger], { kind: "table", anchor });
+    this.showMenu(widget, "Table", [...safe, ...safe.length && danger.length ? [{ kind: "separator" }] : [], ...danger], place);
   }
   /** A menu of the toolbar or of cells: its items close it when run; Escape or a press elsewhere closes it */
-  showMenu(widget, title, entries, place) {
+  showMenu(widget, title, entries, place, back) {
     this.closeTableMenu(false);
+    const close = (run) => () => {
+      this.closeTableMenu(false);
+      run();
+    };
     const closing = entries.map(
-      (entry) => entry.kind === "item" ? {
-        ...entry,
-        run: () => {
-          this.closeTableMenu(false);
-          entry.run();
-        }
-      } : entry
+      (entry) => entry.kind === "item" ? { ...entry, run: close(entry.run) } : entry.kind === "segmented" ? { ...entry, options: entry.options.map((option) => ({ ...option, run: close(option.run) })) } : entry
     );
-    const element = renderMenu(this.doc, title, closing);
+    const element = renderMenu(this.doc, title, closing, back);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     this.doc.body.append(element);

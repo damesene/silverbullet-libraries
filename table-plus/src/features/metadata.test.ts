@@ -168,7 +168,7 @@ describe("Table metadata", () => {
     };
     tableMenuItem(/^Remove metadata$/)!.click();
     await flush();
-    expect(questions[0]).toContain("its stored settings (sorting, filters, pinning, name), and its 1 formula: those cells keep their current results");
+    expect(questions[0]).toContain("its stored settings (sorting, filters, pinning, name, theme, stripes), and its 1 formula: those cells keep their current results");
     expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n");
 
     // A table with formulas only: the button shows, and the command counts it

@@ -6,7 +6,7 @@
 // where SilverBullet keeps them (the CONFIG page's managed block,
 // configpage.ts) and the configuration is loaded again. Modules are created
 // when Table Plus starts, so turning one on or off saves and reloads the page.
-import { type Bridge, FEATURE_NAMES, type FeatureName, MODULE_DESCRIPTIONS, MODULE_LABELS, moduleOnByDefault, SETTINGS } from "./bridge.ts";
+import { type Bridge, FEATURE_NAMES, type FeatureName, MODULE_DESCRIPTIONS, MODULE_LABELS, moduleOnByDefault, settingChoices, SETTINGS } from "./bridge.ts";
 import { UI_CLASS } from "./dom.ts";
 import { ICONS } from "./icons.ts";
 
@@ -251,11 +251,10 @@ export class SettingsDialog {
       row.append(this.switch(value === true, (on) => this.change(setting.path, on)));
       return row;
     }
-    const choices = (setting as { choices?: readonly string[] }).choices;
-    if (choices) {
+    const choices = settingChoices(key, this.context.doc, value);
+    if (choices.length) {
       const select = this.el("select");
-      const names = (setting as { choiceLabels?: readonly string[] }).choiceLabels ?? choices;
-      choices.forEach((choice, i) => select.append(new Option(names[i] ?? choice, choice, false, choice === value)));
+      for (const choice of choices) select.append(new Option(choice.label, choice.value, false, choice.value === value));
       select.addEventListener("change", () => this.change(setting.path, select.value));
       row.append(select);
       return row;

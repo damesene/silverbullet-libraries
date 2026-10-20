@@ -48,6 +48,8 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", title);
 
+  // A list to pick from (a submenu: Type, a table's Theme): focusMenu starts at its choice
+  if (back) menu.dataset.tpList = "";
   const heading = doc.createElement("div");
   heading.className = "tp-menu-title";
   if (back) {
@@ -214,8 +216,22 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
   return menu;
 }
 
-/** Focuses the menu itself: arrow keys then reach its entries, none looks selected yet */
+/**
+ * Focuses the menu itself: arrow keys then reach its entries, none looks
+ * selected yet. A list to pick from starts at its choice instead (the item
+ * checked): focused and highlighted, while the item that came under the
+ * pointer as the list opened in the menu's place is not, until the pointer moves.
+ */
 export function focusMenu(menu: HTMLElement): void {
-  menu.tabIndex = -1;
-  menu.focus({ preventScroll: true });
+  const current = menu.dataset.tpList !== undefined ? menu.querySelector<HTMLElement>('.tp-menu-item[aria-checked="true"]') : null;
+  if (!current) {
+    menu.tabIndex = -1;
+    menu.focus({ preventScroll: true });
+    return;
+  }
+  menu.classList.add("tp-menu-still");
+  current.classList.add("tp-menu-current");
+  current.focus({ preventScroll: true });
+  menu.addEventListener("pointermove", () => menu.classList.remove("tp-menu-still"), { once: true });
+  current.addEventListener("blur", () => current.classList.remove("tp-menu-current"), { once: true });
 }

@@ -38,6 +38,7 @@ import { CellPopup } from "./features/popup.ts";
 import { Metadata } from "./features/metadata.ts";
 import { Names } from "./features/names.ts";
 import { Lazy } from "./features/lazy.ts";
+import { Themes } from "./features/themes.ts";
 import { Paste } from "./features/paste.ts";
 import { Selection } from "./features/selection.ts";
 import { Sticky } from "./features/sticky.ts";
@@ -70,7 +71,7 @@ import {
   type Table,
   type TableRange,
 } from "./markdown.ts";
-import { focusMenu, type MenuEntry, renderMenu } from "./menu.ts";
+import { focusMenu, type MenuBack, type MenuEntry, renderMenu } from "./menu.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { appendColumnAt, appendRowAt } from "./pins.ts";
 import { keepTags } from "./tags.ts";
@@ -370,6 +371,7 @@ export class Controller implements TableHost {
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
       optional("lazy", () => new Lazy(this)),
+      optional("themes", () => new Themes(this)),
       optional("export", () => new Export(this)),
       // Its icon last in the toolbar, before the menu
       optional("fullScreen", () => new FullScreen(this)),
@@ -2389,6 +2391,9 @@ export class Controller implements TableHost {
    * the destructive ones last, after a separator
    */
   private openTableMenu(widget: HTMLElement, anchor: HTMLElement, items: readonly ToolbarButton[]): void {
+    const place = { kind: "table" as const, anchor };
+    // An item with choices shows them in the menu's place, the back arrow (or ArrowLeft) the menu again
+    const back = { icon: ICONS.arrowLeft, run: () => this.openTableMenu(widget, anchor, items) };
     const entry = (item: ToolbarButton): MenuEntry => ({
       kind: "item",
       label: item.label,
@@ -2396,11 +2401,11 @@ export class Controller implements TableHost {
       hint: item.title,
       ...(item.value ? { value: { text: item.value } } : {}),
       ...(item.danger ? { danger: true } : {}),
-      run: item.run,
+      run: item.choices ? () => this.showMenu(widget, item.choices!.title, item.choices!.entries(), place, back) : item.run,
     });
     const safe = items.filter((item) => !item.danger).map(entry);
     const danger = items.filter((item) => item.danger).map(entry);
-    this.showMenu(widget, "Table", [...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], { kind: "table", anchor });
+    this.showMenu(widget, "Table", [...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], place);
   }
 
   /** A menu of the toolbar or of cells: its items close it when run; Escape or a press elsewhere closes it */
@@ -2409,20 +2414,21 @@ export class Controller implements TableHost {
     title: string,
     entries: readonly MenuEntry[],
     place: { readonly kind: "table" | "cell"; readonly anchor?: HTMLElement; readonly point?: { x: number; y: number } },
+    back?: MenuBack,
   ): void {
     this.closeTableMenu(false);
+    const close = (run: () => void) => () => {
+      this.closeTableMenu(false);
+      run();
+    };
     const closing = entries.map((entry): MenuEntry =>
       entry.kind === "item"
-        ? {
-            ...entry,
-            run: () => {
-              this.closeTableMenu(false);
-              entry.run();
-            },
-          }
-        : entry,
+        ? { ...entry, run: close(entry.run) }
+        : entry.kind === "segmented"
+          ? { ...entry, options: entry.options.map((option) => ({ ...option, run: close(option.run) })) }
+          : entry,
     );
-    const element = renderMenu(this.doc, title, closing);
+    const element = renderMenu(this.doc, title, closing, back);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     this.doc.body.append(element);

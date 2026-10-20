@@ -22,6 +22,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Column types**: `| Price #currency |` shows `12.99` as `€12.99`, `#stars` a rating as stars, `#check` yes / no as ✅ / ❌. See [[#Column types]].
 * **Formulas**: type `=SUM(B1:B3)` or `=SUM([qty])` into a cell; the result is written into the markdown. See [[#Formulas]].
 * **Pin rows and columns** to the edges, where they stay in view (needs *Store table metadata*). See [[#Pinning]].
+* **Themes**: how tables look (header, lines, stripes, spacing), for all tables in the settings or for one in its ⋯ menu; your own in a `space-style` block. See [[#Themes]].
 * **Change how Enter or filters work**: *Configuration: Open*, category *Table Plus*. See [[#Settings]].
 
 ## Editing cells
@@ -404,6 +405,67 @@ Every edit rewrites the whole table in your page, which takes a moment in a larg
 * Leaving the page saves them: opening another page writes them into this page; switching to another tab or app saves them at once; closing the tab saves them, and the browser asks whether to leave.
 * A cell changed elsewhere meanwhile (in the markdown, on another device) keeps that change, and a message says the edit there was not saved.
 
+## Themes
+
+A theme sets how tables look: their header, the lines between rows and columns, the striping, corners, shadow and spacing. *Native* (the default) leaves tables as SilverBullet shows them.
+
+* **For every table**: the *Theme* setting (`tablePlus.modules.themes.theme`, in *Table Plus settings…* or `config.set("tablePlus.modules.themes", { theme = "slate" })`).
+* **For one table**: *Theme* in the ⋯ menu of its toolbar picks a theme of its own, stored in the table (`<meta theme="slate">`, needs *Store table metadata*, see [[#Table metadata]]). *Global theme*, first in that list, makes the table follow the settings again, its theme and its stripes; a theme (or stripes, the icons under it) picked stays the table's whatever the settings become, also the settings' own one (marked *(default)*).
+* **Light or dark**: each theme has both, and SilverBullet decides which one shows (its own light or dark mode).
+* **Stripes** are not the theme's: the *Stripes* setting (`tablePlus.modules.themes.stripes`) tints every other row (`rows`, the default, as SilverBullet does), every other column (`columns`) or nothing (`none`), in the theme's color; for one table, the three icons in *Theme* in its ⋯ menu (no stripes, rows, columns) choose (`<meta stripes="columns">`), *Global theme* there the setting's again. It works with *Native* too.
+* Built in: *Native*, *Playground* (the look of the Table Plus playground: a light header, soft striping), *Minimal* (a small-caps header, thin lines, no other fills), *Slate* (a card with rounded corners and a soft shadow, sans-serif type), *Grid* (a spreadsheet, every cell outlined, compact, sans-serif type), *Ocean* (a deep teal header, teal striping), *Paper* (warm tones, serif type), *Contrast* (high contrast: a black header, strong lines, roomy cells), *Compact* (small type, tight cells, for tables of data), *Bold* (thick lines, square corners, a hard shadow, yellow on black), *Soft* (airy: a pastel header, large corners, rounded type where the device has it), *Ledger* (an account book: lines between columns, green-bar stripes, figures in a monospace font, so they line up).
+* The `themes` module can be turned off (see [[#Modules]]): tables look as SilverBullet shows them, and a theme stored in a table is kept but not used.
+
+### Your own theme
+
+A theme is a `space-style` block on any page of your space; Table Plus finds it there and offers it in the setting and in a table's menu by its name. Set the variables you want, in a block for the light look and one for the dark; any you leave out stay as SilverBullet has them:
+
+```css
+.sb-table-widget[data-tp-theme="sand"] {
+  --tp-head-bg: #f3ead8;
+  --tp-head-color: #4a3b2a;
+  --tp-stripe: #fbf7ef;
+  --tp-border: #e6dcc8;
+  --tp-row-line: 1px;
+  --tp-radius: 8px;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="sand"] {
+  --tp-head-bg: #3b3326;
+  --tp-head-color: #f3ead8;
+  --tp-stripe: rgba(243, 234, 216, 0.05);
+  --tp-border: #4b4234;
+}
+```
+
+A theme's name is letters, digits, `-` and `_`; menus show it capitalized (`sand` is *Sand*).
+
+| Variable | What it sets | Example |
+|---|---|---|
+| `--tp-head-bg` | The header's background | `#f1f5f9` |
+| `--tp-head-color` | The header's text color (`currentColor`: as the rows) | `#334155` |
+| `--tp-head-weight` | The header's font weight | `600` |
+| `--tp-head-size` | The header's font size | `0.8em` |
+| `--tp-head-transform` | The header's letter case | `uppercase` |
+| `--tp-head-spacing` | The header's letter spacing | `0.05em` |
+| `--tp-head-padding` | The header cells' padding (else as `--tp-padding`) | `10px 12px` |
+| `--tp-stripe` | The color of stripes (rows, columns or none is the *Stripes* setting's) | `#f8fafc` |
+| `--tp-hover` | The row under the pointer | `rgba(0, 0, 0, 0.04)` |
+| `--tp-color` | The rows' text color | `#1f2937` |
+| `--tp-accent` | Selection, pinned rows and columns, formula marks | `#2563eb` |
+| `--tp-border` | The color of every line below | `#e5e7eb` |
+| `--tp-row-line` | Lines between rows | `1px` |
+| `--tp-head-line` | The line under the header (else as `--tp-row-line`) | `2px` |
+| `--tp-column-line` | Lines between columns | `1px` |
+| `--tp-outline` | A line around the table | `1px` |
+| `--tp-radius` | The table's corners | `8px` |
+| `--tp-shadow` | The table's shadow | `0 2px 8px rgba(0, 0, 0, 0.1)` |
+| `--tp-padding` | The cells' padding (density) | `6px 10px` |
+| `--tp-font-size` | The table's font size | `0.9em` |
+| `--tp-font` | The table's font (fonts on the device; none downloaded) | `ui-monospace, monospace` |
+| `--tp-head-font` | The header's font (else as `--tp-font`) | `Georgia, serif` |
+
+The header's background and its text color go together: SilverBullet's header is dark with light text, so a light header needs `--tp-head-color` too. For more than these, a theme's block can style the table further (`.sb-table-widget[data-tp-theme="sand"] td { … }`).
+
 ## Large tables
 
 * **Sticky header**: while you scroll past a long table, its header stays at the top of the view, with the toolbar above it.
@@ -482,6 +544,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `filters` | Rows can be filtered: the toolbar's filter icon shows a filter field under each header, *Filter* in a column menu opens that column's filter, *Filter: = value* in the cell menu filters by a cell's value; with *Store table metadata* the filters are stored in the table. Its setting `smart` (default `true`): fields understand `>10`, `/pattern/`, `=text`, `a\|b` and `!filter`; `false`: everything typed is text to find. Off: no filtering; filters stored in a table are kept but not used. See [[#Filtering]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
 | `selection` | Dragging across cells, Shift+click and Shift+arrows select them; Ctrl+C copies them, Delete empties them (whole rows or columns already empty: deletes them); *Copy*, *Clear* and *Delete N rows / columns* in the cell menu. A click selects a cell, a second one edits it; the toolbar's *Edit mode* button edits on the first click. Off: a click always edits; Shift+click opens the cell as Shift+Enter does. |
+| `themes` | Tables look as their theme sets: the *Theme* setting (`theme`, default `native`), or a table's own from *Theme* in its ⋯ menu; stripes from *Stripes* (`stripes`: `rows`, the default, `columns` or `none`), or as the icons in *Theme* in a table's ⋯ menu say. See [[#Themes]]. Off: tables look as SilverBullet shows them (striped); a theme stored in a table is kept but not used. |
 | `lazy` | The toolbar's lazy saving icon (a clock) switches a table to saving its cells edited together, a moment after editing stops. Setting `delay` (milliseconds, default `500`). See [[#Lazy saving]]. Off: every cell is saved as you leave it. |
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
@@ -515,15 +578,15 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 | <meta sort.qty="desc" pin-bottom="1"> |
 ```
 
-* `sort.qty` is the sorting (by the column Qty, `asc` or `desc`), `filter.qty` a column's filter (as typed), `pin-top`, `pin-bottom`, `pin-left` and `pin-right` how many rows (columns) at each edge are pinned, `name` the table's name (see [[#Table names]]).
+* `sort.qty` is the sorting (by the column Qty, `asc` or `desc`), `filter.qty` a column's filter (as typed), `pin-top`, `pin-bottom`, `pin-left` and `pin-right` how many rows (columns) at each edge are pinned, `name` the table's name (see [[#Table names]]), `theme` its own theme and `stripes` its stripes (`rows`, `columns` or `none`, see [[#Themes]]).
 
 * The row is hidden in SilverBullet. Browsers never show `<meta>`, and other markdown renderers (GitHub, Obsidian) drop it, leaving at most an empty row.
 * It is always the last row: new rows go above it, and it is not sorted, filtered or moved.
 * Attributes of a column name it after a dot: `sort.qty`, `filter.status`, `width.notes` (its width in pixels). Names are keys, as for formula references (see [[#References]]): the column `Unit price` is `sort.unit_price`, and any spelling with that key names it; a column with a name of its own goes by it. With several columns of the same name, the occurrence is added: `filter.qty:2` is the second column named Qty. They follow their column when it is renamed or moved, and are removed with it.
 * A filter is stored as typed, once you leave its field; a `|` in it is written `\|`, as everywhere in a table: `filter.status="=open\|blocked"`.
-* When nothing is left in it (no sorting, no filter, nothing pinned, no name), the row is removed.
+* When nothing is left in it (no sorting, no filter, nothing pinned, no name, no theme, no stripes), the row is removed.
 * With the setting off, a table without a `<meta>` row gets none. A table with one keeps using it: its sorting and filters are still stored, and its rows and columns can be unpinned, but nothing new can be pinned. When the row is left empty, it is removed.
-* To remove metadata: *Remove metadata* in the ⋯ menu of a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row (a sorting and filters stored there end: the rows show as written; the table's name goes too) and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
+* To remove metadata: *Remove metadata* in the ⋯ menu of a table's toolbar removes that table's `<meta>` tags; the *Table Plus: Remove table metadata* command removes them from all tables on the page (it says how many). That is the metadata row (a sorting and filters stored there end: the rows show as written; the table's name, theme and stripes go too) and the formulas stored in cells (see [[#Formulas]]): those cells keep their current results as plain values. Both ask first, saying how many formulas go, and one Ctrl+Z brings everything back.
 * SilverBullet indexes the row like any other: a query over the table's rows (`index.tag "table"`) also returns it, with the `<meta …>` text in its first column.
 
 ## How your markdown is kept
@@ -715,6 +778,31 @@ config.define("tablePlus", {
               default = 500,
               description = "In lazy saving, the cells edited are saved this many milliseconds after no cell is being edited.",
               ui = { category = "Table Plus: Modules", label = "Saves after (ms)", priority = 6.8 },
+            },
+          },
+        },
+        themes = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Tables look as their theme sets (header, lines, stripes, spacing): the Theme setting, or a table's own from Theme in its ⋯ menu. Off: tables look as SilverBullet shows them.",
+              ui = { category = "Table Plus: Modules", label = "Themes", priority = 6.7 },
+            },
+            theme = {
+              type = "string",
+              default = "native",
+              description = "The theme of every table (a table's ⋯ menu can choose another for it). Built in: native (SilverBullet's look), playground, minimal, slate, grid, ocean, paper, contrast, compact, bold, soft, ledger; or the name of your own theme (see the library page, Themes).",
+              ui = { category = "Table Plus: Modules", label = "Theme", priority = 6.6 },
+            },
+            stripes = {
+              type = "string",
+              enum = { "none", "rows", "columns" },
+              default = "rows",
+              description = "Every other row (rows, as SilverBullet does) or column (columns) of a table is tinted, in its theme's color, or nothing (none). The icons in Theme in a table's ⋯ menu can choose otherwise for that table.",
+              ui = { category = "Table Plus: Modules", label = "Stripes", priority = 6.5 },
             },
           },
         },
@@ -2217,6 +2305,14 @@ body.tp-picking-columns .sb-table-widget.tp-table :is(td, th) {
   background: color-mix(in srgb, var(--ui-accent-color) 14%, transparent);
   outline: none;
 }
+/* A list opened in the menu's place: its choice highlighted (focusMenu), not
+   the item that came under the pointer, until the pointer moves */
+.tp-menu.tp-menu-still .tp-menu-item:hover:not(:focus-visible) {
+  background: none;
+}
+.tp-menu-item.tp-menu-current {
+  background: color-mix(in srgb, var(--ui-accent-color) 14%, transparent);
+}
 .tp-menu-item[aria-disabled="true"] {
   cursor: default;
   opacity: 0.45;
@@ -2578,5 +2674,344 @@ body.tp-dragging,
 body.tp-dragging * {
   cursor: grabbing !important;
   user-select: none;
+}
+/* ---- Themes (the themes module) ----------------------------------------------
+   A table with data-tp-theme="<name>" takes its look from --tp-* variables,
+   set by the theme for that name (below, or a space-style block of your own):
+
+   .sb-table-widget[data-tp-theme="mine"] { --tp-head-bg: #eef; --tp-row-line: 1px; }
+   html[data-theme="dark"] .sb-table-widget[data-tp-theme="mine"] { --tp-head-bg: #223; }
+
+   Every variable is optional: one a theme leaves out is as SilverBullet has it.
+   The rules below turn them into the table's look; :is(#sb-main, html) gives
+   them the weight of SilverBullet's own table rules (#sb-main .cm-editor …), so
+   a theme's spacing and header win over them, in SilverBullet and the playground. */
+
+/* SilverBullet's colors as the page has them, for a theme that leaves one out */
+html {
+  --tp-sb-head-bg: var(--editor-table-head-background-color);
+  --tp-sb-head-color: var(--editor-table-head-color);
+  --tp-sb-stripe: var(--editor-table-even-background-color);
+  --tp-sb-accent: var(--ui-accent-color);
+}
+/* The colors: SilverBullet's own variables, within the table, so its header,
+   striping, the held header, pinned cells and selection follow the theme */
+:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] {
+  --editor-table-head-background-color: var(--tp-head-bg, var(--tp-sb-head-bg));
+  --editor-table-head-color: var(--tp-head-color, var(--tp-sb-head-color));
+  --editor-table-even-background-color: var(--tp-stripe, var(--tp-sb-stripe));
+  --ui-accent-color: var(--tp-accent, var(--tp-sb-accent));
+  color: var(--tp-color, currentColor);
+  font-size: var(--tp-font-size, 1em);
+  /* No fallback: without --tp-font the declaration is invalid, so the font is inherited (as SilverBullet's) */
+  font-family: var(--tp-font);
+  /* The table's box: its corners, its shadow, a line around it (inside the box, so it follows the corners) */
+  border-radius: var(--tp-radius, 4px 4px 0 0);
+  box-shadow: var(--tp-shadow, none);
+  outline: var(--tp-outline, 0px) solid var(--tp-border, transparent);
+  outline-offset: calc(-1 * var(--tp-outline, 0px));
+}
+/* Over the whole window (full screen): a box without corners or shadow */
+:is(#sb-main, html) .sb-table-widget.tp-table.tp-fullscreen[data-tp-theme] {
+  border-radius: 0;
+  box-shadow: none;
+}
+:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] thead tr {
+  font-weight: var(--tp-head-weight, bold);
+  font-family: var(--tp-head-font, var(--tp-font));
+  /* As SilverBullet colors it (colors.scss), also where nothing else does (the playground) */
+  color: var(--editor-table-head-color, currentColor);
+}
+:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] thead tr:first-child > td {
+  padding: var(--tp-head-padding, var(--tp-padding, 11px 8px));
+  font-size: var(--tp-head-size, 1em);
+  text-transform: var(--tp-head-transform, none);
+  letter-spacing: var(--tp-head-spacing, normal);
+  border-bottom: var(--tp-head-line, var(--tp-row-line, 0px)) solid var(--tp-border, transparent);
+}
+/* Lines between rows (the last one has the box's), between columns */
+:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] :is(tbody, tfoot) td {
+  padding: var(--tp-padding, 8px);
+  border-bottom: var(--tp-row-line, 0px) solid var(--tp-border, transparent);
+}
+:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] :is(tbody, tfoot):last-child tr:last-child > td {
+  border-bottom-width: 0;
+}
+:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] tr > td + td {
+  border-left: var(--tp-column-line, 0px) solid var(--tp-border, transparent);
+}
+/* Stripes (the setting, or the table's stripes="…"), whatever the theme: it
+   gives only their color. Rows are SilverBullet's own (no mark); none: every
+   row as the others; columns: every other column of the body instead (not the
+   header, nor pinned columns, tinted as they are) */
+:is(#sb-main, html) .sb-table-widget.tp-table:is([data-tp-stripes="none"], [data-tp-stripes="columns"]) {
+  --tp-stripe-color: var(--tp-stripe, var(--tp-sb-stripe));
+  --editor-table-even-background-color: transparent;
+}
+:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-stripes="columns"] :is(tbody, tfoot) td:nth-child(even):not(.tp-pin-left):not(.tp-pin-right) {
+  background-image: linear-gradient(var(--tp-stripe-color), var(--tp-stripe-color));
+}
+/* The row under the pointer: a tint over its striping (none if the theme sets none) */
+:is(#sb-main, html) .sb-table-widget.tp-table[data-tp-theme] tbody tr:not(.tp-large-spacer):hover {
+  background-image: linear-gradient(var(--tp-hover), var(--tp-hover));
+}
+
+/* playground: the look of Table Plus' playground (a light header, soft striping) */
+.sb-table-widget[data-tp-theme="playground"] {
+  --tp-head-bg: #e8e8ee;
+  --tp-head-color: currentColor;
+  --tp-stripe: #f4f4f8;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="playground"] {
+  --tp-head-bg: #2e2f38;
+  --tp-stripe: #26272e;
+}
+
+/* minimal: a quiet small-caps header over a line, thin lines between rows, barely tinted stripes */
+.sb-table-widget[data-tp-theme="minimal"] {
+  --tp-head-bg: transparent;
+  --tp-head-color: #6b7280;
+  --tp-head-weight: 600;
+  --tp-head-size: 0.78em;
+  --tp-head-transform: uppercase;
+  --tp-head-spacing: 0.06em;
+  --tp-stripe: rgba(0, 0, 0, 0.025);
+  --tp-border: #e5e7eb;
+  --tp-row-line: 1px;
+  --tp-head-line: 2px;
+  --tp-hover: rgba(0, 0, 0, 0.03);
+  --tp-radius: 0;
+  --tp-padding: 10px 12px;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="minimal"] {
+  --tp-head-color: #9ca3af;
+  --tp-stripe: rgba(255, 255, 255, 0.03);
+  --tp-border: #30333b;
+  --tp-hover: rgba(255, 255, 255, 0.04);
+}
+
+/* slate: a card with rounded corners and a soft shadow, a cool grey header */
+.sb-table-widget[data-tp-theme="slate"] {
+  --tp-head-bg: #f1f5f9;
+  --tp-head-color: #334155;
+  --tp-head-weight: 600;
+  --tp-stripe: #f8fafc;
+  --tp-border: #e2e8f0;
+  --tp-row-line: 1px;
+  --tp-outline: 1px;
+  --tp-radius: 10px;
+  --tp-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 14px rgba(15, 23, 42, 0.06);
+  --tp-hover: #eef2f7;
+  --tp-padding: 9px 14px;
+  --tp-head-padding: 11px 14px;
+  --tp-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="slate"] {
+  --tp-head-bg: #1e293b;
+  --tp-head-color: #cbd5e1;
+  --tp-stripe: rgba(148, 163, 184, 0.05);
+  --tp-border: #334155;
+  --tp-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+  --tp-hover: rgba(148, 163, 184, 0.08);
+}
+
+/* grid: a spreadsheet, every cell outlined, compact */
+.sb-table-widget[data-tp-theme="grid"] {
+  --tp-head-bg: #f3f4f6;
+  --tp-head-color: #111827;
+  --tp-head-weight: 600;
+  --tp-stripe: #f9fafb;
+  --tp-border: #d1d5db;
+  --tp-row-line: 1px;
+  --tp-column-line: 1px;
+  --tp-outline: 1px;
+  --tp-radius: 2px;
+  --tp-padding: 4px 8px;
+  --tp-head-padding: 6px 8px;
+  --tp-font-size: 0.92em;
+  --tp-hover: rgba(37, 99, 235, 0.06);
+  --tp-accent: #2563eb;
+  --tp-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="grid"] {
+  --tp-head-bg: #262a33;
+  --tp-head-color: #e5e7eb;
+  --tp-stripe: rgba(255, 255, 255, 0.03);
+  --tp-border: #3a3f4b;
+  --tp-hover: rgba(96, 165, 250, 0.08);
+  --tp-accent: #60a5fa;
+}
+
+/* ocean: a deep teal header, light teal striping, rounded */
+.sb-table-widget[data-tp-theme="ocean"] {
+  --tp-head-bg: #0e7490;
+  --tp-head-color: #ffffff;
+  --tp-head-weight: 600;
+  --tp-stripe: #ecfeff;
+  --tp-radius: 8px;
+  --tp-shadow: 0 2px 10px rgba(14, 116, 144, 0.15);
+  --tp-hover: rgba(14, 116, 144, 0.07);
+  --tp-accent: #0891b2;
+  --tp-padding: 9px 12px;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="ocean"] {
+  --tp-head-bg: #155e75;
+  --tp-head-color: #ecfeff;
+  --tp-stripe: rgba(34, 211, 238, 0.06);
+  --tp-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  --tp-hover: rgba(34, 211, 238, 0.1);
+  --tp-accent: #22d3ee;
+}
+
+/* paper: warm tones, a header over a double-weight line, lines between rows */
+.sb-table-widget[data-tp-theme="paper"] {
+  --tp-head-bg: #f5efe6;
+  --tp-head-color: #5b4636;
+  --tp-head-weight: 600;
+  --tp-stripe: #fbf8f3;
+  --tp-border: #e8dccb;
+  --tp-row-line: 1px;
+  --tp-head-line: 2px;
+  --tp-outline: 1px;
+  --tp-radius: 6px;
+  --tp-hover: #f7f1e8;
+  --tp-accent: #b45309;
+  --tp-padding: 8px 12px;
+  --tp-font: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="paper"] {
+  --tp-head-bg: #3a3128;
+  --tp-head-color: #f0e2cf;
+  --tp-stripe: rgba(240, 226, 207, 0.04);
+  --tp-border: #4a3f34;
+  --tp-hover: rgba(240, 226, 207, 0.07);
+  --tp-accent: #f59e0b;
+}
+
+/* contrast: high contrast for reading: a black header, strong lines, roomy cells */
+.sb-table-widget[data-tp-theme="contrast"] {
+  --tp-head-bg: #111827;
+  --tp-head-color: #ffffff;
+  --tp-head-weight: 700;
+  --tp-stripe: #eef0f3;
+  --tp-color: #000000;
+  --tp-border: #374151;
+  --tp-row-line: 1px;
+  --tp-outline: 2px;
+  --tp-radius: 4px;
+  --tp-hover: #e2e5ea;
+  --tp-accent: #1d4ed8;
+  --tp-padding: 10px 12px;
+  --tp-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="contrast"] {
+  --tp-head-bg: #f9fafb;
+  --tp-head-color: #000000;
+  --tp-stripe: rgba(255, 255, 255, 0.09);
+  --tp-color: #ffffff;
+  --tp-border: #d1d5db;
+  --tp-hover: rgba(255, 255, 255, 0.14);
+  --tp-accent: #93c5fd;
+}
+
+/* compact: for tables of data: small type, tight cells, no lines, soft stripes */
+.sb-table-widget[data-tp-theme="compact"] {
+  --tp-head-bg: #f3f4f6;
+  --tp-head-color: #374151;
+  --tp-head-weight: 600;
+  --tp-stripe: #f9fafb;
+  --tp-hover: rgba(0, 0, 0, 0.04);
+  --tp-radius: 3px;
+  --tp-padding: 2px 6px;
+  --tp-head-padding: 4px 6px;
+  --tp-font-size: 0.85em;
+  --tp-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="compact"] {
+  --tp-head-bg: #23262d;
+  --tp-head-color: #d1d5db;
+  --tp-stripe: rgba(255, 255, 255, 0.03);
+  --tp-hover: rgba(255, 255, 255, 0.05);
+}
+
+/* bold: thick black lines, square corners, a hard offset shadow, an upper-case header on yellow accents */
+.sb-table-widget[data-tp-theme="bold"] {
+  --tp-head-bg: #111111;
+  --tp-head-color: #fde047;
+  --tp-head-weight: 800;
+  --tp-head-transform: uppercase;
+  --tp-head-spacing: 0.04em;
+  --tp-head-font: "Arial Black", "Helvetica Neue", Arial, ui-sans-serif, sans-serif;
+  --tp-stripe: #fefce8;
+  --tp-border: #111111;
+  --tp-row-line: 2px;
+  --tp-outline: 3px;
+  --tp-radius: 0;
+  --tp-shadow: 6px 6px 0 #111111;
+  --tp-hover: #fef9c3;
+  --tp-accent: #ca8a04;
+  --tp-padding: 10px 14px;
+  --tp-font: "Helvetica Neue", Arial, ui-sans-serif, sans-serif;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="bold"] {
+  --tp-head-bg: #fde047;
+  --tp-head-color: #111111;
+  --tp-stripe: rgba(253, 224, 71, 0.06);
+  --tp-border: #fde047;
+  --tp-shadow: 6px 6px 0 rgba(253, 224, 71, 0.35);
+  --tp-hover: rgba(253, 224, 71, 0.1);
+  --tp-accent: #fde047;
+}
+
+/* soft: airy and rounded: a pastel violet header, large corners, a deep soft shadow, no lines */
+.sb-table-widget[data-tp-theme="soft"] {
+  --tp-head-bg: #ede9fe;
+  --tp-head-color: #5b21b6;
+  --tp-head-weight: 600;
+  --tp-stripe: #faf7ff;
+  --tp-hover: #f3ecff;
+  --tp-radius: 16px;
+  --tp-shadow: 0 8px 24px rgba(91, 33, 182, 0.12);
+  --tp-accent: #7c3aed;
+  --tp-padding: 12px 16px;
+  --tp-font: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="soft"] {
+  --tp-head-bg: #2e1065;
+  --tp-head-color: #e9d5ff;
+  --tp-stripe: rgba(167, 139, 250, 0.06);
+  --tp-hover: rgba(167, 139, 250, 0.1);
+  --tp-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --tp-accent: #a78bfa;
+}
+
+/* ledger: an account book: lines between columns, a heavy rule under a small-caps
+   header, green-bar stripes, figures in a monospace font, so they line up */
+.sb-table-widget[data-tp-theme="ledger"] {
+  --tp-head-bg: #f0fdf4;
+  --tp-head-color: #14532d;
+  --tp-head-weight: 700;
+  --tp-head-size: 0.8em;
+  --tp-head-transform: uppercase;
+  --tp-head-spacing: 0.05em;
+  --tp-stripe: #f0fdf4;
+  --tp-border: #86efac;
+  --tp-column-line: 1px;
+  --tp-head-line: 3px;
+  --tp-outline: 1px;
+  --tp-radius: 2px;
+  --tp-hover: #dcfce7;
+  --tp-accent: #15803d;
+  --tp-padding: 6px 12px;
+  --tp-font-size: 0.92em;
+  --tp-font: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+html[data-theme="dark"] .sb-table-widget[data-tp-theme="ledger"] {
+  --tp-head-bg: #052e16;
+  --tp-head-color: #bbf7d0;
+  --tp-stripe: rgba(74, 222, 128, 0.06);
+  --tp-border: #166534;
+  --tp-hover: rgba(74, 222, 128, 0.1);
+  --tp-accent: #4ade80;
 }
 ```

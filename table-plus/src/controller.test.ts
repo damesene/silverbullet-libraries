@@ -81,6 +81,7 @@ describe("Controller", () => {
     const menu = document.querySelector(".tp-menu")!;
     expect(Array.from(menu.querySelectorAll(".tp-menu-item, .tp-menu-separator")).map((e) => e.textContent || "—")).toEqual([
       "Name table: prices",
+      "Theme: Native (global)",
       "Copy as CSV",
       "Format table",
       "Edit markdown",

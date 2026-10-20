@@ -70,7 +70,10 @@ export function renderPage(page: string, into: HTMLElement, moves: number[]): vo
     if (model.meta) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
-      td.append(document.createElement("meta"));
+      // With its attributes, as SilverBullet renders it (verified)
+      const meta = document.createElement("meta");
+      for (const [name, value] of Object.entries(model.meta)) meta.setAttribute(name, value);
+      td.append(meta);
       tr.append(td);
       tbody.append(tr);
     }

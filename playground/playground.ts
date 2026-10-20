@@ -1,7 +1,7 @@
 // A page without SilverBullet: markdown in a textarea, tables rendered the way
 // SilverBullet renders them, and Table Plus on top through a mock Bridge.
 import type { Bridge } from "../table-plus/src/bridge.ts";
-import { FEATURE_NAMES, MODULE_LABELS, moduleOnByDefault, SETTINGS } from "../table-plus/src/bridge.ts";
+import { FEATURE_NAMES, MODULE_LABELS, moduleOnByDefault, settingChoices, SETTINGS } from "../table-plus/src/bridge.ts";
 import { init, openSettings } from "../table-plus/src/index.ts";
 import { findTables, parseTable } from "../table-plus/src/markdown.ts";
 import libraryPage from "../table-plus/table-plus.md";
@@ -266,7 +266,7 @@ function settingControl(key: Key): HTMLLabelElement {
     label.append(SETTINGS[key].label, input);
   } else {
     input = document.createElement("select");
-    for (const option of (setting as { choices?: readonly string[] }).choices ?? []) input.append(new Option(option, option, false, option === current));
+    for (const option of settingChoices(key, document, current)) input.append(new Option(option.label, option.value, false, option.value === current));
     input.addEventListener("change", () => {
       settings[setting.path] = input.value;
       settingsChanged();

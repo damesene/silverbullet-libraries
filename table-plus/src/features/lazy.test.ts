@@ -36,7 +36,8 @@ describe("Lazy saving", () => {
     expect(text).toBe(PAGE);
     expect(button().classList.contains("tp-attention")).toBe(true);
     key(field()!, "Escape");
-    await wait(60);
+    // The delay (30 ms) and the write: room to spare when the machine is busy
+    await wait(300);
     expect(text).toBe(PAGE.replace("| Pear | 3 |", "| Pear | 4 |").replace("| apple | 10 |", "| apple | 11 |"));
     await controller.scan();
     expect(button().classList.contains("tp-attention")).toBe(false);

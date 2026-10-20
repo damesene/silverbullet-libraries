@@ -1,5 +1,7 @@
 // The SilverBullet API Table Plus uses, handed over by the library page's
 // Space Lua (`editor.*` and `config.get`), so no SilverBullet internals are needed.
+import { BUILT_IN_THEMES, NATIVE_THEME, STRIPES, type Stripes, stripesLabel, stripesName, themeLabel, themeName, themesInStyles } from "./themes.ts";
+
 export type Bridge = {
   readonly getText: () => string | Promise<string>;
   readonly replaceRange: (from: number, to: number, text: string) => unknown;
@@ -45,6 +47,10 @@ type Setting<T> = {
   // A choice: the values it takes, and what the settings dialog calls them
   readonly choices?: readonly T[];
   readonly choiceLabels?: readonly string[];
+  // More values found at run time (themes the page's styles define), offered after those
+  readonly moreChoices?: (doc: Document) => readonly T[];
+  // What the settings dialog calls a value of moreChoices
+  readonly moreLabel?: (value: T) => string;
 };
 
 // A number of pixels, 0 or more (0: no limit)
@@ -66,6 +72,7 @@ export const FEATURE_NAMES = [
   "columnTypes",
   "selection",
   "lazy",
+  "themes",
   "export",
   "paste",
   "handles",
@@ -95,6 +102,7 @@ export const MODULE_LABELS: Readonly<Record<FeatureName, string>> = {
   columnTypes: "Column types",
   selection: "Cell selection",
   lazy: "Lazy saving",
+  themes: "Themes",
   export: "Export",
   paste: "Paste from spreadsheets",
   handles: "Row and column handles",
@@ -115,6 +123,7 @@ export const MODULE_DESCRIPTIONS: Readonly<Record<FeatureName, string>> = {
   columnTypes: "A header's hashtag formats its column (#currency, #stars…)",
   selection: "A click selects a cell, as in a spreadsheet; drag or Shift to select more, to copy, paste over or empty them",
   lazy: "An icon in a table's toolbar switches it to saving its cells edited together, a moment after editing stops: quicker typing in large tables",
+  themes: "How tables look (header, lines, stripes, spacing): a theme for every table, another one for a table from its ⋯ menu",
   export: "Copy as CSV in a table's ⋯ menu",
   paste: "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
   handles: "Handles beside rows and above columns: drag to move them, click for their menu",
@@ -198,6 +207,28 @@ export const SETTINGS = {
     default: 500,
     parse: (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined),
   } satisfies Setting<number>,
+  // The tables' theme (the themes module); a table's metadata may choose another
+  theme: {
+    path: "tablePlus.modules.themes.theme",
+    label: "Theme",
+    hint: "How tables look: their header, lines, stripes and spacing. Native leaves them as SilverBullet shows them; a table's ⋯ menu can choose another theme for it",
+    default: NATIVE_THEME as string,
+    choices: BUILT_IN_THEMES as readonly string[],
+    choiceLabels: BUILT_IN_THEMES.map(themeLabel),
+    moreChoices: themesInStyles,
+    moreLabel: themeLabel,
+    parse: themeName,
+  } satisfies Setting<string>,
+  // Every other row or column tinted, in the theme's color (the themes module); a table's metadata may say otherwise
+  stripes: {
+    path: "tablePlus.modules.themes.stripes",
+    label: "Stripes",
+    hint: "Every other row (or column) is tinted, in the theme's color; the icons in Theme in a table's ⋯ menu can choose otherwise for that table",
+    default: "rows",
+    choices: STRIPES,
+    choiceLabels: STRIPES.map(stripesLabel),
+    parse: stripesName,
+  } satisfies Setting<Stripes>,
   // Pixels; 0: no limit
   maxHeight: {
     path: "tablePlus.maxHeight",
@@ -241,6 +272,26 @@ export const SETTINGS = {
     parse: pixels,
   } satisfies Setting<number>,
 };
+
+/**
+ * A choice setting's options, for the settings dialog and the playground: its
+ * choices, those found at run time, and the value set if it is none of them
+ * (a theme whose style is gone), each with what to call it
+ */
+export function settingChoices(key: keyof typeof SETTINGS, doc: Document, current: unknown): { readonly value: string; readonly label: string }[] {
+  const setting = SETTINGS[key] as {
+    readonly choices?: readonly string[];
+    readonly choiceLabels?: readonly string[];
+    readonly moreChoices?: (doc: Document) => readonly string[];
+    readonly moreLabel?: (value: string) => string;
+  };
+  if (!setting.choices) return [];
+  const options = setting.choices.map((value, i) => ({ value, label: setting.choiceLabels?.[i] ?? value }));
+  const more = (value: string) => ({ value, label: setting.moreLabel?.(value) ?? value });
+  for (const value of setting.moreChoices?.(doc) ?? []) if (!options.some((o) => o.value === value)) options.push(more(value));
+  if (typeof current === "string" && current !== "" && !options.some((o) => o.value === current)) options.push(more(current));
+  return options;
+}
 
 export type SettingValue<K extends keyof typeof SETTINGS> = NonNullable<
   ReturnType<(typeof SETTINGS)[K]["parse"]>

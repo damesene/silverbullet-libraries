@@ -50,7 +50,7 @@ export class Metadata implements Feature {
         label: "Remove metadata",
         icon: ICONS.trash,
         danger: true,
-        title: "Remove this table's <meta> tags: its stored settings (sorting, filters, pinning, name) and what its cells keep (formulas, which keep their results, names)",
+        title: "Remove this table's <meta> tags: its stored settings (sorting, filters, pinning, name, theme, stripes) and what its cells keep (formulas, which keep their results, names)",
         run: () => void this.removeFromTable(widget, info),
       },
     ];
@@ -64,7 +64,7 @@ export class Metadata implements Feature {
   private async removeFromTable(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
     const shown = parseTable(shownInfo.source);
     const removed = [
-      ...(shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name)"] : []),
+      ...(shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name, theme, stripes)"] : []),
       ...described(this.host.metadataParts([shown]), [shown], (p) => `its ${plural(p.count, p.what)}${p.note ? `: ${p.note}` : ""}`),
     ];
     if (!(await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`))) return;

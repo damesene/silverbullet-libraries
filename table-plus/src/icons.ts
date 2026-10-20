@@ -33,6 +33,11 @@ export const ICONS = {
   columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
   columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
   duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  // No stripes: an empty table, struck through (rows and columns: its tinted lines)
+  stripesNone: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M5 18L19 6"/>'),
+  stripesRows: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18"/><path d="M4 10h16v4H4z" fill="currentColor" stroke="none" opacity="0.4"/>'),
+  stripesColumns: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><path d="M9.5 5h5v14h-5z" fill="currentColor" stroke="none" opacity="0.4"/>'),
+  theme: svg('<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.9 1.4-1.8l-.3-.8a1.7 1.7 0 0 1 1.6-2.4H17a4 4 0 0 0 4-4c0-4.9-4-9-9-9z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>'),
   lazy: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
   editMode: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
   selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),

@@ -87,6 +87,9 @@ export type ToolbarButton = {
   readonly value?: string;
   // In the menu: destructive, last and red
   readonly danger?: boolean;
+  // In the menu: opens a list to pick from in its place (a back arrow returns) instead of running `run`;
+  // the entries are made when it opens, not with the toolbar (which is made on every hover)
+  readonly choices?: { readonly title: string; readonly entries: () => readonly MenuEntry[] };
 };
 
 export type WriteOptions = {
