@@ -83,6 +83,16 @@ describe("Column widths", () => {
     expect(text).toContain('<meta width.qty="100">');
   });
 
+  it("keeps the handle in a header cell being edited (it shows there, quiet, as on hover)", async () => {
+    await setup(PAGE);
+    localStorage.setItem("tablePlus.editMode", "on");
+    cell(0, 0).dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    cell(0, 0).dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+    expect(cell(0, 0).querySelector(".tp-cell-editor")).not.toBeNull();
+    expect(handle(0).parentElement).toBe(cell(0, 0));
+    expect(cell(0, 0).querySelector(".tp-head")).toBeNull();
+  });
+
   it("holds a width for the view only without the metadata setting", async () => {
     await setup(PAGE);
     drag(1, 80, [40]);

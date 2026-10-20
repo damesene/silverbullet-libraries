@@ -364,7 +364,7 @@ Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; m
 * **Insert with +**: with a mouse or a pen, hover just left of the row grips, or just above the column grips: a **+** shows on the border nearest the pointer and inserts a row (column) there. On the last border it adds one at the end; while a cell of the last row (column) is hovered, selected or edited, a faint **+** under the table (right of the header) adds one at the end. A new column is named *Column N*, ready to rename. On a touch screen, insert from the row's or column's menu.
 * **Numbered column**: *Insert numbered column left* in a column's menu adds a column `#` with `=ROW()` in every row: it numbers the rows as written (sorting or filtering the view does not renumber them), rows added later get the formula too, and inserting, deleting or moving rows numbers them again. Add as many as you like. It needs the *Store table metadata* setting, as every new formula.
 * Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.
-* **Column width**: drag the right edge of a column's header (the pointer shows ↔ there) to set its width; text wraps (or is cut) within it, see [[#Cells (`tablePlus.cells`)]]. Double-click that edge, or *Auto width* in the column's menu, for the automatic width again (as wide as the text, up to the maximum column width). With the *Store table metadata* setting the width is stored in the table (`width.price="180"`, see [[#Table metadata]]) and follows the column when it is renamed or moved; without it, it holds until the page is opened again.
+* **Column width**: drag the right edge of a column's header (a faint dashed line shows there while the header cell is hovered, selected or edited; the pointer shows ↔ on it) to set its width; text wraps (or is cut) within it, see [[#Cells (`tablePlus.cells`)]]. Double-click that edge, or *Auto width* in the column's menu, for the automatic width again (as wide as the text, up to the maximum column width). With the *Store table metadata* setting the width is stored in the table (`width.price="180"`, see [[#Table metadata]]) and follows the column when it is renamed or moved; without it, it holds until the page is opened again.
 
 ## Pinning
 
@@ -1156,6 +1156,15 @@ body.tp-navigating .sb-table-widget.tp-table * {
 .sb-table-widget .tp-col-resize:hover::after,
 .sb-table-widget .tp-col-resize.tp-active::after {
   background: var(--ui-accent-color);
+}
+/* While its header cell is hovered, selected or edited: quiet (a grey dashed
+   line) until the pointer is on it, as the quiet + */
+@media not (pointer: coarse) {
+  .sb-table-widget.tp-table thead tr:first-child > td:is(:hover, .tp-selected, .tp-editing) > .tp-col-resize:not(:hover):not(.tp-active)::after {
+    width: 0;
+    background: none;
+    border-right: 1px dashed color-mix(in srgb, var(--root-color) 45%, transparent);
+  }
 }
 @media (pointer: coarse) {
   .sb-table-widget .tp-col-resize {

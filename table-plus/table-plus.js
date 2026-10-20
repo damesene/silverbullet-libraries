@@ -855,7 +855,9 @@ var CellEditing = class {
       input.className = `${UI_CLASS} tp-cell-editor`;
       input.size = 1;
       input.spellcheck = true;
-      while (cell.firstChild) kept.append(cell.firstChild);
+      for (const node of Array.from(cell.childNodes)) {
+        if (!(node instanceof Element && node.classList.contains(OUT_OF_LINE_CLASS))) kept.append(node);
+      }
       cell.append(input);
       field = input;
     }

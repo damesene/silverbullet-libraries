@@ -7,7 +7,7 @@
 import { escapeCell, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import { columnAfterMove, moveColumn, moveRow, setCell } from "../ops.ts";
 import { appendRowAt, clampColumnMove, clampRowMove } from "../pins.ts";
-import { UI_CLASS } from "../dom.ts";
+import { OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
 import type { CellEditor, CellField, Feature, FocusTarget, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
 import { STICKY_GAP } from "./layout.ts";
 import { insertRowWith, MOVE_BLOCKED } from "./structure.ts";
@@ -149,7 +149,10 @@ export class CellEditing {
       // A small intrinsic width, so the field never widens the column
       input.size = 1;
       input.spellcheck = true;
-      while (cell.firstChild) kept.append(cell.firstChild);
+      // What sits out of the cell's line (a pin mark, a width handle) stays, the rest makes room for the field
+      for (const node of Array.from(cell.childNodes)) {
+        if (!(node instanceof Element && node.classList.contains(OUT_OF_LINE_CLASS))) kept.append(node);
+      }
       cell.append(input);
       field = input;
     }
