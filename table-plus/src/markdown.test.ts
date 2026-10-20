@@ -179,3 +179,16 @@ describe("minimalEdit", () => {
     expect(minimalEdit("abxc", "abc")).toEqual({ from: 2, to: 3, insert: "" });
   });
 });
+
+describe("parseTable's memory", () => {
+  it("gives the same table for the same text (tables are never changed), a new one once the text changes", () => {
+    const text = "| A |\n|---|\n| 1 |";
+    const table = parseTable(text);
+    expect(parseTable(text)).toBe(table);
+    expect(parseTable(`${text} `)).not.toBe(table);
+    // Kept among the last ones parsed, then parsed anew
+    for (let i = 0; i < 20; i++) parseTable(`| A |\n|---|\n| ${i} |`);
+    expect(parseTable(text)).not.toBe(table);
+    expect(parseTable(text)).toEqual(table);
+  });
+});

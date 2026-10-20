@@ -267,7 +267,21 @@ function findTables(text) {
   }
   return tables;
 }
+var PARSED_KEPT = 16;
+var parsed = /* @__PURE__ */ new Map();
 function parseTable(text) {
+  const kept = parsed.get(text);
+  if (kept) {
+    parsed.delete(text);
+    parsed.set(text, kept);
+    return kept;
+  }
+  const table = parseTableText(text);
+  parsed.set(text, table);
+  if (parsed.size > PARSED_KEPT) parsed.delete(parsed.keys().next().value);
+  return table;
+}
+function parseTableText(text) {
   let lines = text.split(/\r?\n/);
   const last = lines.length > 2 ? lines[lines.length - 1] : void 0;
   const meta = last === void 0 ? void 0 : parseMetaRow(last);
@@ -1716,12 +1730,12 @@ var SettingsDialog = class {
     input.step = "1";
     input.value = String(value);
     input.addEventListener("input", () => {
-      const parsed2 = setting.parse(input.value.trim() === "" ? void 0 : Number(input.value));
-      input.classList.toggle("tp-settings-invalid", parsed2 === void 0);
-      if (parsed2 === void 0) this.invalid.add(setting.path);
+      const parsed3 = setting.parse(input.value.trim() === "" ? void 0 : Number(input.value));
+      input.classList.toggle("tp-settings-invalid", parsed3 === void 0);
+      if (parsed3 === void 0) this.invalid.add(setting.path);
       else {
         this.invalid.delete(setting.path);
-        this.values.set(setting.path, parsed2);
+        this.values.set(setting.path, parsed3);
       }
       this.update();
     });
@@ -3958,9 +3972,9 @@ var Parser = class {
     };
   }
 };
-var parsed = /* @__PURE__ */ new Map();
+var parsed2 = /* @__PURE__ */ new Map();
 function parse(formula) {
-  let result = parsed.get(formula);
+  let result = parsed2.get(formula);
   if (result) return result;
   const { tokens, error } = tokenize(formula);
   if (error) result = error;
@@ -3973,8 +3987,8 @@ function parse(formula) {
       result = e;
     }
   }
-  if (parsed.size > 500) parsed.clear();
-  parsed.set(formula, result);
+  if (parsed2.size > 500) parsed2.clear();
+  parsed2.set(formula, result);
   return result;
 }
 function autofixFormula(formula) {
@@ -4764,8 +4778,8 @@ function pageTables(tables, here, replace, others) {
       const list = isHere ? tables() : others?.tables(page);
       if (!list) return void 0;
       names = { tables: /* @__PURE__ */ new Map(), cells: /* @__PURE__ */ new Map() };
-      for (const { range, table: parsed2 } of list) {
-        const table = isHere && replace && range.from === replace.from ? replace.table : parsed2;
+      for (const { range, table: parsed3 } of list) {
+        const table = isHere && replace && range.from === replace.from ? replace.table : parsed3;
         const own = metaName(table)?.toLowerCase();
         if (own && !names.tables.has(own)) names.tables.set(own, table);
         for (const [name, cell] of namedCells(table)) if (!names.cells.has(name)) names.cells.set(name, { table, ...cell });

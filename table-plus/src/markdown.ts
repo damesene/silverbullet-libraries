@@ -176,7 +176,27 @@ export function findTables(text: string): TableRange[] {
   return tables;
 }
 
+// The tables parsed last, by their text: many parts read the table shown (its
+// metadata, its names, its cells) on every view and toolbar, and a table is
+// never changed once parsed (edits make new ones)
+const PARSED_KEPT = 16;
+const parsed = new Map<string, Table>();
+
 export function parseTable(text: string): Table {
+  const kept = parsed.get(text);
+  if (kept) {
+    // The most recent last
+    parsed.delete(text);
+    parsed.set(text, kept);
+    return kept;
+  }
+  const table = parseTableText(text);
+  parsed.set(text, table);
+  if (parsed.size > PARSED_KEPT) parsed.delete(parsed.keys().next().value!);
+  return table;
+}
+
+function parseTableText(text: string): Table {
   let lines = text.split(/\r?\n/);
   const last = lines.length > 2 ? lines[lines.length - 1]! : undefined;
   const meta = last === undefined ? undefined : parseMetaRow(last);
