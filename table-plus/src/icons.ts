@@ -1,7 +1,9 @@
 // Small line icons (24x24, drawn with currentColor) for handles and menus
 
+// Sized like a letter until the library's CSS sizes it: SilverBullet loads the
+// CSS after the script, and an SVG without a size shows 300x150 meanwhile
 const svg = (body: string, fill = false) =>
-  `<svg viewBox="0 0 24 24" aria-hidden="true" ${
+  `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" ${
     fill
       ? 'fill="currentColor"'
       : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'

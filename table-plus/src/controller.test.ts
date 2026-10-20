@@ -63,6 +63,14 @@ describe("Controller", () => {
     expect(cell(1, 1).classList.contains("tp-named")).toBe(true);
   });
 
+  it("sizes every icon it adds before the library's CSS loads (an SVG without a size shows 300x150)", async () => {
+    await setup('| Name | Done #check |\n|---|---|\n| Pear | yes |\n| <meta filter.name="P"> |\n', { "tablePlus.metadata": true });
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const icons = Array.from(document.querySelectorAll("svg"));
+    expect(icons.length).toBeGreaterThan(3);
+    for (const icon of icons) expect([icon.getAttribute("width"), icon.getAttribute("height")]).toEqual(["1em", "1em"]);
+  });
+
   it("keeps the toolbar to icons, the rest in its ⋯ menu, destructive last", async () => {
     await setup('| A |\n|---|\n| 1 |\n| <meta name="prices"> |\n', { "tablePlus.metadata": true });
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
