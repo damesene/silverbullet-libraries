@@ -319,6 +319,35 @@ describe("Controller", () => {
     expect(text).toContain("| Name | Qty | Column 3 |");
   });
 
+  it("draws the line of the + under the pointer, though both quiet + show (the last cell of the last row)", async () => {
+    await setup(PAGE);
+    layOutTable();
+    const row = document.querySelector<HTMLElement>('.tp-insert.tp-quiet[aria-label="Add a row"]')!;
+    const column = document.querySelector<HTMLElement>('.tp-insert.tp-quiet[aria-label="Add a column"]')!;
+    const line = document.querySelector<HTMLElement>(".tp-insert-line")!;
+    const across = () => line.classList.contains("tp-visible") && line.style.height === "2px" && line.style.width !== "2px";
+    const down = () => line.classList.contains("tp-visible") && line.style.width === "2px" && line.style.height !== "2px";
+    const hoverLast = () => cell(3, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    hoverLast();
+    expect([row, column].map((m) => m.classList.contains("tp-visible"))).toEqual([true, true]);
+    // On the row's +: the line across the table, also once the + are shown again
+    row.dispatchEvent(new PointerEvent("pointerenter"));
+    expect(across()).toBe(true);
+    hoverLast();
+    expect(across()).toBe(true);
+    row.dispatchEvent(new PointerEvent("pointerleave"));
+    expect(line.classList.contains("tp-visible")).toBe(false);
+    // On the column's +: the line down the table
+    column.dispatchEvent(new PointerEvent("pointerenter"));
+    hoverLast();
+    expect(down()).toBe(true);
+    column.dispatchEvent(new PointerEvent("pointerleave"));
+    // The pointer's own + under the last row (in the lane left of the grips): its line, the column's quiet + notwithstanding
+    document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX: 80, clientY: 215 }));
+    expect(document.querySelector(".tp-insert:not(.tp-quiet)")!.classList.contains("tp-visible")).toBe(true);
+    expect(across()).toBe(true);
+  });
+
   it("shows the quiet + of a cell only selected, the pointer away from the table", async () => {
     // Select mode: a click selects
     localStorage.removeItem("tablePlus.editMode");

@@ -205,6 +205,8 @@ export class Controller implements TableHost {
   // while that row (column) is hovered, selected or edited; lit up under the
   // pointer. A + the pointer brings up on the same axis takes their place.
   private readonly quietMarks: Readonly<Record<"row" | "column", HTMLButtonElement>>;
+  // The quiet + under the pointer: its line shows
+  private quietHovered: "row" | "column" | undefined;
   // Features that keep their own state and work through this controller
   // (core/feature.ts): those turned on, filled in when Table Plus starts
   private readonly features: Feature[] = [];
@@ -287,8 +289,12 @@ export class Controller implements TableHost {
       const mark = this.quietMarks[axis];
       mark.addEventListener("click", () => this.insertAtEnd(axis));
       // Lit up under the pointer (the CSS), with the line where it adds
-      mark.addEventListener("pointerenter", () => this.lineAtEnd(axis));
+      mark.addEventListener("pointerenter", () => {
+        this.quietHovered = axis;
+        this.lineAtEnd(axis);
+      });
       mark.addEventListener("pointerleave", () => {
+        if (this.quietHovered === axis) this.quietHovered = undefined;
         if (!this.insertAt) this.insertLine.classList.remove("tp-visible");
       });
     }
@@ -1690,16 +1696,18 @@ export class Controller implements TableHost {
     axis: "row" | "column",
     edge: number,
     shown: { left: number; right: number; top: number; bottom: number },
+    // The line is one for all the +: drawn for the one it belongs to (the pointer's, or the quiet one under the pointer)
+    withLine = true,
   ): void {
     const line = this.insertLine;
-    line.classList.add("tp-visible");
+    if (withLine) line.classList.add("tp-visible");
     if (axis === "row") {
       const center = shown.left - INSERT_LANE_AT;
-      Object.assign(line.style, { left: `${center}px`, top: `${edge - 1}px`, width: `${shown.right - center}px`, height: "2px" });
+      if (withLine) Object.assign(line.style, { left: `${center}px`, top: `${edge - 1}px`, width: `${shown.right - center}px`, height: "2px" });
       this.place(mark, center - mark.offsetWidth / 2, edge - mark.offsetHeight / 2);
     } else {
       const center = info.table.rows[0]!.getBoundingClientRect().top - INSERT_LANE_AT;
-      Object.assign(line.style, { left: `${edge - 1}px`, top: `${center}px`, width: "2px", height: `${shown.bottom - center}px` });
+      if (withLine) Object.assign(line.style, { left: `${edge - 1}px`, top: `${center}px`, width: "2px", height: `${shown.bottom - center}px` });
       this.place(mark, edge - mark.offsetWidth / 2, center - mark.offsetHeight / 2);
     }
   }
@@ -1781,13 +1789,15 @@ export class Controller implements TableHost {
         mark.classList.remove("tp-visible");
         continue;
       }
-      const line = this.insertLine.classList.contains("tp-visible");
       // Shown before it is placed: hidden, it has no size to centre by
       mark.classList.add("tp-visible");
-      this.placeInsert(mark, info, axis, end.edge, end.shown);
-      // The line shows only while the pointer is on a quiet + (or with the pointer's own +)
-      if (!line && !mark.matches(":hover")) this.insertLine.classList.remove("tp-visible");
+      this.placeInsert(mark, info, axis, end.edge, end.shown, false);
     }
+    // The line: the pointer's +'s (left as it is), else the quiet + under the pointer's, else none
+    if (this.insertAt) return;
+    const hovered = this.quietHovered;
+    if (hovered && this.quietMarks[hovered].classList.contains("tp-visible")) this.lineAtEnd(hovered);
+    else this.insertLine.classList.remove("tp-visible");
   }
 
   /** The pointer on a quiet +: the line where it adds */
