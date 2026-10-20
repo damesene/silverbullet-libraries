@@ -896,8 +896,8 @@ function withoutTagsWith(cell, attributes) {
   return [withoutTags(cell), ...kept].filter((part) => part !== "").join(" ");
 }
 function keepTags(value, from, taken = /* @__PURE__ */ new Set()) {
-  const own2 = new Set(cellTags(value).flatMap(attributesOf));
-  const kept = cellTags(from).filter((tag) => !attributesOf(tag).some((name) => own2.has(name) || taken.has(name)));
+  const own = new Set(cellTags(value).flatMap(attributesOf));
+  const kept = cellTags(from).filter((tag) => !attributesOf(tag).some((name) => own.has(name) || taken.has(name)));
   return [value.trim(), ...kept].filter((part) => part !== "").join(" ");
 }
 
@@ -1868,10 +1868,10 @@ var SettingsDialog = class {
     block.append(row);
     const keys = Object.keys(SETTINGS).filter((key) => moduleOf(key) === name);
     if (keys.length > 0) {
-      const own2 = this.el("div", "tp-settings-module-settings");
-      for (const key of keys) own2.append(this.row(key));
-      block.append(own2);
-      this.moduleSettings.set(name, own2);
+      const own = this.el("div", "tp-settings-module-settings");
+      for (const key of keys) own.append(this.row(key));
+      block.append(own);
+      this.moduleSettings.set(name, own);
     }
     return block;
   }
@@ -1903,7 +1903,7 @@ var SettingsDialog = class {
     if (this.note) {
       this.note.textContent = !this.context.canSave ? "Settings cannot be saved here." : this.invalid.size > 0 ? "A number is not valid." : modules ? "Modules apply once the page reloads." : "";
     }
-    for (const [name, own2] of this.moduleSettings) own2.hidden = this.values.get(enabledPath(name)) !== true;
+    for (const [name, own] of this.moduleSettings) own.hidden = this.values.get(enabledPath(name)) !== true;
     for (const input of Array.from(this.backdrop?.querySelectorAll("input, select") ?? [])) {
       input.disabled = this.saving;
     }
@@ -2185,11 +2185,11 @@ function homeOf(code) {
 }
 function formatMoney(n, code, locale) {
   const options = { style: "currency", currency: code, currencyDisplay: "narrowSymbol" };
-  const own2 = numberFormat(locale, options).formatToParts(n);
+  const own = numberFormat(locale, options).formatToParts(n);
   const home = numberFormat(homeOf(code), options).formatToParts(n);
-  const symbol = own2.find((p) => p.type === "currency")?.value ?? code;
-  const sign = own2.filter((p) => p.type === "minusSign" || p.type === "plusSign").map((p) => p.value).join("");
-  const digits = own2.filter((p) => !["currency", "minusSign", "plusSign", "literal"].includes(p.type)).map((p) => p.value).join("");
+  const symbol = own.find((p) => p.type === "currency")?.value ?? code;
+  const sign = own.filter((p) => p.type === "minusSign" || p.type === "plusSign").map((p) => p.value).join("");
+  const digits = own.filter((p) => !["currency", "minusSign", "plusSign", "literal"].includes(p.type)).map((p) => p.value).join("");
   const symbolFirst = home.findIndex((p) => p.type === "currency") < home.findIndex((p) => p.type === "integer");
   const gap = home.find((p) => p.type === "literal" && /^\s+$/.test(p.value))?.value ?? "";
   return symbolFirst ? `${sign}${symbol}${gap}${digits}` : `${sign}${digits}${gap}${symbol}`;
@@ -2223,7 +2223,7 @@ function trimZeros(s) {
   return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
 }
 
-// table-plus/src/formula/values.ts
+// table-plus/src/formulas/values.ts
 var ERROR_CODES = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NUM!", "#N/A", "#CYCLE!", "#ERROR!"];
 var FormulaError = class {
   constructor(code, detail) {
@@ -2384,7 +2384,7 @@ function sameValue(a, b) {
   return toText(a).toLowerCase() === toText(b).toLowerCase();
 }
 
-// table-plus/src/formula/dates.ts
+// table-plus/src/formulas/dates.ts
 var DAY = 864e5;
 function timeOfDay(ms) {
   return (ms % DAY + DAY) % DAY;
@@ -3133,6 +3133,45 @@ function namedCells(table) {
   return cells;
 }
 
+// table-plus/src/formulas/cell.ts
+var FORMULA_TAG_RE = /<meta\s+f\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
+function formulaOf(cell) {
+  if (!cell.includes("<")) return void 0;
+  const match = Array.from(cell.matchAll(FORMULA_TAG_RE)).pop();
+  if (!match) return void 0;
+  const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
+  const rest = cell.slice(0, match.index) + cell.slice(match.index + match[0].length);
+  const name = cellNameOf(rest);
+  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value: withoutTags(rest), ...name ? { name } : {} };
+}
+function formulaCell(value, formula, name) {
+  const tag = `<meta f="${escapeMetaValue(formula)}">`;
+  const shown = escapeCell(value);
+  return withCellName(shown === "" ? tag : `${shown} ${tag}`, name);
+}
+function isFormulaInput(text) {
+  const trimmed = text.trim();
+  return trimmed.startsWith("=") && trimmed.length > 1;
+}
+function isErrorText(text) {
+  return ERROR_CODES.includes(text.trim());
+}
+function hasFormulas(table) {
+  return table.rows.some((row, r) => r > 0 && row.cells.some((cell) => formulaOf(cell) !== void 0));
+}
+function formulaCount(table) {
+  return table.rows.reduce((n, row, r) => n + (r === 0 ? 0 : row.cells.filter((cell) => formulaOf(cell)).length), 0);
+}
+function forFormulas(table, each) {
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    for (const cell of row.cells) {
+      const stored = formulaOf(cell);
+      if (stored) each(stored.formula);
+    }
+  });
+}
+
 // table-plus/src/columns.ts
 var HASHTAG_RE2 = /(^|\s)#[^\s#]+/g;
 function columnName(header) {
@@ -3177,7 +3216,7 @@ function sameColumnId(a, b) {
   return columnKey(a.name) === columnKey(b.name) && a.nth === b.nth;
 }
 
-// table-plus/src/formula/functions/helpers.ts
+// table-plus/src/formulas/arguments.ts
 function withNumbers(args, f, keepTime = false) {
   const ns = numbers(args);
   if (isError(ns)) return ns;
@@ -3208,7 +3247,7 @@ function booleans(args) {
   return result;
 }
 
-// table-plus/src/formula/functions/sum.ts
+// table-plus/src/formulas/builtin/sum.ts
 var sum_default = {
   name: "SUM",
   syntax: "SUM(number1, [number2], \u2026)",
@@ -3217,7 +3256,7 @@ var sum_default = {
   call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a + b, 0), true)
 };
 
-// table-plus/src/formula/functions/average.ts
+// table-plus/src/formulas/builtin/average.ts
 var average_default = {
   name: "AVERAGE",
   syntax: "AVERAGE(number1, [number2], \u2026)",
@@ -3230,7 +3269,7 @@ var average_default = {
   )
 };
 
-// table-plus/src/formula/functions/min.ts
+// table-plus/src/formulas/builtin/min.ts
 var min_default = {
   name: "MIN",
   syntax: "MIN(number1, [number2], \u2026)",
@@ -3239,7 +3278,7 @@ var min_default = {
   call: (args) => extremeDate(args, false) ?? withNumbers(args, (ns) => ns.length ? Math.min(...ns) : 0, true)
 };
 
-// table-plus/src/formula/functions/max.ts
+// table-plus/src/formulas/builtin/max.ts
 var max_default = {
   name: "MAX",
   syntax: "MAX(number1, [number2], \u2026)",
@@ -3248,7 +3287,7 @@ var max_default = {
   call: (args) => extremeDate(args, true) ?? withNumbers(args, (ns) => ns.length ? Math.max(...ns) : 0, true)
 };
 
-// table-plus/src/formula/functions/product.ts
+// table-plus/src/formulas/builtin/product.ts
 var product_default = {
   name: "PRODUCT",
   syntax: "PRODUCT(number1, [number2], \u2026)",
@@ -3257,7 +3296,7 @@ var product_default = {
   call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a * b, 1))
 };
 
-// table-plus/src/formula/functions/count.ts
+// table-plus/src/formulas/builtin/count.ts
 var count_default = {
   name: "COUNT",
   syntax: "COUNT(value1, [value2], \u2026)",
@@ -3275,7 +3314,7 @@ var count_default = {
   }
 };
 
-// table-plus/src/formula/functions/counta.ts
+// table-plus/src/formulas/builtin/counta.ts
 var counta_default = {
   name: "COUNTA",
   syntax: "COUNTA(value1, [value2], \u2026)",
@@ -3284,7 +3323,7 @@ var counta_default = {
   call: (args) => flatten(args).filter((v) => v !== null && v !== "").length
 };
 
-// table-plus/src/formula/functions/round.ts
+// table-plus/src/formulas/builtin/round.ts
 var round_default = {
   name: "ROUND",
   syntax: "ROUND(number, [digits])",
@@ -3301,7 +3340,7 @@ var round_default = {
   }
 };
 
-// table-plus/src/formula/functions/abs.ts
+// table-plus/src/formulas/builtin/abs.ts
 var abs_default = {
   name: "ABS",
   syntax: "ABS(number)",
@@ -3314,7 +3353,7 @@ var abs_default = {
   }
 };
 
-// table-plus/src/formula/functions/if.ts
+// table-plus/src/formulas/builtin/if.ts
 var if_default = {
   name: "IF",
   syntax: "IF(condition, value_if_true, [value_if_false])",
@@ -3328,7 +3367,7 @@ var if_default = {
   }
 };
 
-// table-plus/src/formula/functions/iferror.ts
+// table-plus/src/formulas/builtin/iferror.ts
 var iferror_default = {
   name: "IFERROR",
   syntax: "IFERROR(value, value_if_error)",
@@ -3341,7 +3380,7 @@ var iferror_default = {
   }
 };
 
-// table-plus/src/formula/functions/and.ts
+// table-plus/src/formulas/builtin/and.ts
 var and_default = {
   name: "AND",
   syntax: "AND(logical1, [logical2], \u2026)",
@@ -3353,7 +3392,7 @@ var and_default = {
   }
 };
 
-// table-plus/src/formula/functions/or.ts
+// table-plus/src/formulas/builtin/or.ts
 var or_default = {
   name: "OR",
   syntax: "OR(logical1, [logical2], \u2026)",
@@ -3365,7 +3404,7 @@ var or_default = {
   }
 };
 
-// table-plus/src/formula/functions/not.ts
+// table-plus/src/formulas/builtin/not.ts
 var not_default = {
   name: "NOT",
   syntax: "NOT(logical)",
@@ -3378,7 +3417,7 @@ var not_default = {
   }
 };
 
-// table-plus/src/formula/functions/concat.ts
+// table-plus/src/formulas/builtin/concat.ts
 var concat_default = {
   name: "CONCAT",
   syntax: "CONCAT(text1, [text2], \u2026)",
@@ -3391,7 +3430,7 @@ var concat_default = {
   }
 };
 
-// table-plus/src/formula/functions/today.ts
+// table-plus/src/formulas/builtin/today.ts
 var today_default = {
   name: "TODAY",
   syntax: "TODAY()",
@@ -3401,7 +3440,7 @@ var today_default = {
   call: () => formatDate(now(false))
 };
 
-// table-plus/src/formula/functions/now.ts
+// table-plus/src/formulas/builtin/now.ts
 var now_default = {
   name: "NOW",
   syntax: "NOW()",
@@ -3411,7 +3450,7 @@ var now_default = {
   call: () => formatDate(now(true))
 };
 
-// table-plus/src/formula/functions/date.ts
+// table-plus/src/formulas/builtin/date.ts
 var date_default2 = {
   name: "DATE",
   syntax: "DATE(year, month, day)",
@@ -3429,7 +3468,7 @@ var date_default2 = {
   }
 };
 
-// table-plus/src/formula/functions/time.ts
+// table-plus/src/formulas/builtin/time.ts
 var time_default2 = {
   name: "TIME",
   syntax: "TIME(hour, [minute], [second])",
@@ -3446,7 +3485,7 @@ var time_default2 = {
   }
 };
 
-// table-plus/src/formula/functions/int.ts
+// table-plus/src/formulas/builtin/int.ts
 var int_default = {
   name: "INT",
   syntax: "INT(number)",
@@ -3461,7 +3500,7 @@ var int_default = {
   }
 };
 
-// table-plus/src/formula/functions/text.ts
+// table-plus/src/formulas/builtin/text.ts
 function parseFormat(format) {
   const parts = [];
   let i = 0;
@@ -3572,7 +3611,7 @@ var text_default = {
   }
 };
 
-// table-plus/src/formula/functions/xlookup.ts
+// table-plus/src/formulas/builtin/xlookup.ts
 var xlookup_default = {
   name: "XLOOKUP",
   syntax: "XLOOKUP(value, lookup_range, result_range, [if_not_found])",
@@ -3595,7 +3634,7 @@ var xlookup_default = {
   }
 };
 
-// table-plus/src/formula/functions/dateadd.ts
+// table-plus/src/formulas/builtin/dateadd.ts
 var dateadd_default = {
   name: "DATEADD",
   syntax: "DATEADD(date, amount, unit)",
@@ -3613,7 +3652,7 @@ var dateadd_default = {
   }
 };
 
-// table-plus/src/formula/functions/datedif.ts
+// table-plus/src/formulas/builtin/datedif.ts
 var datedif_default = {
   name: "DATEDIF",
   syntax: "DATEDIF(start, end, unit)",
@@ -3631,7 +3670,7 @@ var datedif_default = {
   }
 };
 
-// table-plus/src/formula/functions/year.ts
+// table-plus/src/formulas/builtin/year.ts
 var year_default = {
   name: "YEAR",
   syntax: "YEAR(date)",
@@ -3644,7 +3683,7 @@ var year_default = {
   }
 };
 
-// table-plus/src/formula/functions/month.ts
+// table-plus/src/formulas/builtin/month.ts
 var month_default = {
   name: "MONTH",
   syntax: "MONTH(date)",
@@ -3657,7 +3696,7 @@ var month_default = {
   }
 };
 
-// table-plus/src/formula/functions/day.ts
+// table-plus/src/formulas/builtin/day.ts
 var day_default = {
   name: "DAY",
   syntax: "DAY(date)",
@@ -3670,7 +3709,7 @@ var day_default = {
   }
 };
 
-// table-plus/src/formula/functions/hour.ts
+// table-plus/src/formulas/builtin/hour.ts
 var hour_default = {
   name: "HOUR",
   syntax: "HOUR(time)",
@@ -3683,7 +3722,7 @@ var hour_default = {
   }
 };
 
-// table-plus/src/formula/functions/minute.ts
+// table-plus/src/formulas/builtin/minute.ts
 var minute_default = {
   name: "MINUTE",
   syntax: "MINUTE(time)",
@@ -3696,7 +3735,7 @@ var minute_default = {
   }
 };
 
-// table-plus/src/formula/functions/second.ts
+// table-plus/src/formulas/builtin/second.ts
 var second_default = {
   name: "SECOND",
   syntax: "SECOND(time)",
@@ -3709,7 +3748,7 @@ var second_default = {
   }
 };
 
-// table-plus/src/formula/functions/weekday.ts
+// table-plus/src/formulas/builtin/weekday.ts
 var weekday_default = {
   name: "WEEKDAY",
   syntax: "WEEKDAY(date, [type])",
@@ -3728,7 +3767,7 @@ var weekday_default = {
   }
 };
 
-// table-plus/src/formula/functions/row.ts
+// table-plus/src/formulas/builtin/row.ts
 var row_default = {
   name: "ROW",
   syntax: "ROW()",
@@ -3738,7 +3777,7 @@ var row_default = {
   call: (_args, { row }) => row
 };
 
-// table-plus/src/formula/functions/index.ts
+// table-plus/src/formulas/builtin/index.ts
 var ALL2 = [
   sum_default,
   average_default,
@@ -3774,95 +3813,31 @@ var ALL2 = [
   row_default
 ];
 var BUILT_IN_FUNCTIONS = Object.fromEntries(ALL2.map((f) => [f.name, f]));
-var own = /* @__PURE__ */ new Map();
+
+// table-plus/src/formulas/registry.ts
+var custom = /* @__PURE__ */ new Map();
 function functionNamed(name) {
-  return own.get(name) ?? BUILT_IN_FUNCTIONS[name];
+  return custom.get(name) ?? BUILT_IN_FUNCTIONS[name];
 }
 function functionNames() {
-  return Array.from(/* @__PURE__ */ new Set([...Object.keys(BUILT_IN_FUNCTIONS), ...own.keys()]));
+  return Array.from(/* @__PURE__ */ new Set([...Object.keys(BUILT_IN_FUNCTIONS), ...custom.keys()]));
 }
-function isOwnFunction(name) {
-  return own.has(name);
+function isCustomFunction(name) {
+  return custom.has(name);
+}
+function isBuiltInFunction(name) {
+  return name in BUILT_IN_FUNCTIONS;
 }
 var anew = false;
-function defineOwnFunctions(functions) {
-  own = new Map([...anew ? [] : own, ...functions.map((f) => [f.name, f])]);
+function defineCustomFunctions(functions) {
+  custom = new Map([...anew ? [] : custom, ...functions.map((f) => [f.name, f])]);
   anew = false;
 }
-function ownFunctionsAnew() {
+function customFunctionsAnew() {
   anew = true;
 }
 
-// table-plus/src/formula/index.ts
-var FORMULA_TAG_RE = /<meta\s+f\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
-function formulaOf(cell) {
-  if (!cell.includes("<")) return void 0;
-  const match = Array.from(cell.matchAll(FORMULA_TAG_RE)).pop();
-  if (!match) return void 0;
-  const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
-  const rest = cell.slice(0, match.index) + cell.slice(match.index + match[0].length);
-  const name = cellNameOf(rest);
-  return { formula: formula.startsWith("=") ? formula : `=${formula}`, value: withoutTags(rest), ...name ? { name } : {} };
-}
-function formulaCell(value, formula, name) {
-  const tag = `<meta f="${escapeMetaValue(formula)}">`;
-  const shown = escapeCell(value);
-  return withCellName(shown === "" ? tag : `${shown} ${tag}`, name);
-}
-function isFormulaInput(text) {
-  const trimmed = text.trim();
-  return trimmed.startsWith("=") && trimmed.length > 1;
-}
-function isErrorText(text) {
-  return ERROR_CODES.includes(text.trim());
-}
-function columnLetters(column) {
-  let s = "";
-  for (let n = column + 1; n > 0; n = Math.floor((n - 1) / 26)) {
-    s = String.fromCharCode(65 + (n - 1) % 26) + s;
-  }
-  return s;
-}
-function columnIndex(letters) {
-  let n = 0;
-  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
-  return n - 1;
-}
-function cellName(row, column) {
-  return `${columnLetters(column)}${row + 1}`;
-}
-function areaText(area) {
-  const start = cellName(area.top, area.left);
-  return area.top === area.bottom && area.left === area.right ? start : `${start}:${cellName(area.bottom, area.right)}`;
-}
-function columnRefText(id, thisRow) {
-  const name = id && columnKey(id.name);
-  if (!id || !name) return void 0;
-  return `[${thisRow ? "@" : ""}${name}${id.nth > 1 ? `:${id.nth}` : ""}]`;
-}
-function withColumnKeys(formula, headers) {
-  let result = formula;
-  for (const ref of references(formula).reverse()) {
-    if (ref.kind !== "column" || ref.table) continue;
-    const column = referencedColumn(headers, ref.name);
-    const text = column === void 0 ? void 0 : columnRefText(columnIdOf(headers, column), ref.thisRow);
-    if (text) result = result.slice(0, ref.from) + text + result.slice(ref.to);
-  }
-  return result;
-}
-function referencedColumnId(headers, written) {
-  const exact = { name: written, nth: 1 };
-  if (findColumn(headers, exact) !== void 0) return exact;
-  const match = /^(.*\S)\s*:\s*([1-9]\d*)$/.exec(written);
-  return match ? { name: match[1], nth: Number(match[2]) } : exact;
-}
-function referencedColumn(headers, written) {
-  return findColumn(headers, referencedColumnId(headers, written));
-}
-function parseCellName(text) {
-  const m = CELL_RE.exec(text);
-  return m ? { row: Number(m[2]) - 1, column: columnIndex(m[1]) } : void 0;
-}
+// table-plus/src/formulas/tokens.ts
 var REF_ERROR = "#REF!";
 var OPERATORS = ["<=", ">=", "<>", "+", "-", "*", "/", "^", "&", "=", "<", ">", "(", ")", ",", ";", ":", "%"];
 function tokenize(formula) {
@@ -3942,6 +3917,55 @@ function tokenize(formula) {
   }
   return { tokens };
 }
+
+// table-plus/src/formulas/references.ts
+function columnLetters(column) {
+  let s = "";
+  for (let n = column + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+    s = String.fromCharCode(65 + (n - 1) % 26) + s;
+  }
+  return s;
+}
+function columnIndex(letters) {
+  let n = 0;
+  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+function cellName(row, column) {
+  return `${columnLetters(column)}${row + 1}`;
+}
+function areaText(area) {
+  const start = cellName(area.top, area.left);
+  return area.top === area.bottom && area.left === area.right ? start : `${start}:${cellName(area.bottom, area.right)}`;
+}
+function columnRefText(id, thisRow) {
+  const name = id && columnKey(id.name);
+  if (!id || !name) return void 0;
+  return `[${thisRow ? "@" : ""}${name}${id.nth > 1 ? `:${id.nth}` : ""}]`;
+}
+function withColumnKeys(formula, headers) {
+  let result = formula;
+  for (const ref of references(formula).reverse()) {
+    if (ref.kind !== "column" || ref.table) continue;
+    const column = referencedColumn(headers, ref.name);
+    const text = column === void 0 ? void 0 : columnRefText(columnIdOf(headers, column), ref.thisRow);
+    if (text) result = result.slice(0, ref.from) + text + result.slice(ref.to);
+  }
+  return result;
+}
+function referencedColumnId(headers, written) {
+  const exact = { name: written, nth: 1 };
+  if (findColumn(headers, exact) !== void 0) return exact;
+  const match = /^(.*\S)\s*:\s*([1-9]\d*)$/.exec(written);
+  return match ? { name: match[1], nth: Number(match[2]) } : exact;
+}
+function referencedColumn(headers, written) {
+  return findColumn(headers, referencedColumnId(headers, written));
+}
+function parseCellName(text) {
+  const m = CELL_RE.exec(text);
+  return m ? { row: Number(m[2]) - 1, column: columnIndex(m[1]) } : void 0;
+}
 function references(formula) {
   const { tokens } = tokenize(formula);
   const result = [];
@@ -3981,6 +4005,70 @@ function isRowName(tokens, i) {
 function tableRefOf(token) {
   return token.page === void 0 ? { name: token.name } : { name: token.name, page: token.page };
 }
+function namedReferences(formula) {
+  const { tokens } = tokenize(formula);
+  const result = [];
+  tokens.forEach((token, i) => {
+    if (token.kind === "named") {
+      result.push({ name: token.name, page: token.page });
+      return;
+    }
+    if (token.kind !== "name" || parseCellName(token.text) || /^(true|false)$/i.test(token.text)) return;
+    const next = tokens[i + 1];
+    if (next?.kind === "op" && next.text === "(" || next?.kind === "column") return;
+    const previous = tokens[i - 1];
+    if (previous?.kind === "table" || previous?.kind === "op" && previous.text === ":") return;
+    result.push({ name: token.text });
+  });
+  return result;
+}
+function referredCellNames(table) {
+  const names = /* @__PURE__ */ new Set();
+  forFormulas(table, (formula) => {
+    for (const ref of namedReferences(formula)) if (ref.page === void 0) names.add(ref.name.toLowerCase());
+  });
+  return names;
+}
+function cellNamesOf(table) {
+  return new Set(namedCells(table).keys());
+}
+function referredPages(table) {
+  const pages = /* @__PURE__ */ new Set();
+  forFormulas(table, (formula) => {
+    for (const page of formulaPages(formula)) pages.add(page);
+  });
+  return pages;
+}
+function formulaPages(formula) {
+  return [
+    ...references(formula).flatMap((ref) => ref.table?.page ? [ref.table.page] : []),
+    ...namedReferences(formula).flatMap((ref) => ref.page ? [ref.page] : [])
+  ];
+}
+function callsCustomFunctions(table) {
+  let calls = false;
+  forFormulas(table, (formula) => {
+    const { tokens } = tokenize(formula);
+    tokens.forEach((token, i) => {
+      const next = tokens[i + 1];
+      if (token.kind !== "name" || next?.kind !== "op" || next.text !== "(") return;
+      const name = token.text.toUpperCase();
+      if (isCustomFunction(name) || !isBuiltInFunction(name)) calls = true;
+    });
+  });
+  return calls;
+}
+function referredTableNames(table) {
+  const names = /* @__PURE__ */ new Set();
+  forFormulas(table, (formula) => {
+    for (const token of tokenize(formula).tokens) {
+      if (token.kind === "table" && token.page === void 0) names.add(token.name.toLowerCase());
+    }
+  });
+  return names;
+}
+
+// table-plus/src/formulas/parser.ts
 var Parser = class {
   constructor(formula, tokens) {
     this.formula = formula;
@@ -4147,6 +4235,26 @@ function parse(formula) {
   parsed2.set(formula, result);
   return result;
 }
+function wholeColumnNames(node, names) {
+  switch (node.kind) {
+    case "column":
+      if (!node.thisRow && !node.table) names.add(node.name);
+      break;
+    case "call":
+      for (const arg of node.args) wholeColumnNames(arg, names);
+      break;
+    case "unary":
+      wholeColumnNames(node.arg, names);
+      break;
+    case "binary":
+      wholeColumnNames(node.left, names);
+      wholeColumnNames(node.right, names);
+      break;
+  }
+  return names;
+}
+
+// table-plus/src/formulas/autofix.ts
 function autofixFormula(formula) {
   const unchanged = { formula, fixes: [] };
   if (!isError(parse(formula))) return unchanged;
@@ -4194,24 +4302,8 @@ function autofixFormula(formula) {
   if (fixes.length === 0 || isError(parse(fixed))) return unchanged;
   return { formula: fixed, fixes };
 }
-function wholeColumnNames(node, names) {
-  switch (node.kind) {
-    case "column":
-      if (!node.thisRow && !node.table) names.add(node.name);
-      break;
-    case "call":
-      for (const arg of node.args) wholeColumnNames(arg, names);
-      break;
-    case "unary":
-      wholeColumnNames(node.arg, names);
-      break;
-    case "binary":
-      wholeColumnNames(node.left, names);
-      wholeColumnNames(node.right, names);
-      break;
-  }
-  return names;
-}
+
+// table-plus/src/formulas/evaluate.ts
 var DECIMAL_COMMA_RE = /\d,\d/;
 var Book = class {
   constructor(source) {
@@ -4407,8 +4499,8 @@ var Sheet = class {
   /** A named cell's value: in this table, else on this table's page (or `page`) */
   named(name, page) {
     if (page === void 0 || page === this.page) {
-      const own2 = this.cellNamed(name);
-      if (own2) return this.value(own2.row, own2.column);
+      const own = this.cellNamed(name);
+      if (own) return this.value(own.row, own.column);
     }
     const found = this.book.cell(name, page ?? this.page);
     if (!found) return new FormulaError("#NAME?", `there is no cell named ${name}${page ? ` on ${page}` : " on this page"}`);
@@ -4526,9 +4618,6 @@ function compare(a, b) {
   const tb = toText(b).toLowerCase();
   return ta < tb ? -1 : ta > tb ? 1 : 0;
 }
-function hasFormulas(table) {
-  return table.rows.some((row, r) => r > 0 && row.cells.some((cell) => formulaOf(cell) !== void 0));
-}
 function recalculate(table, tables) {
   if (!hasFormulas(table)) return table;
   const book = new Book(tables);
@@ -4545,6 +4634,22 @@ function recalculate(table, tables) {
   });
   return result;
 }
+function formulaErrors(table, tables) {
+  const errors = /* @__PURE__ */ new Map();
+  if (!hasFormulas(table)) return errors;
+  const sheet = new Sheet(table, new Book(tables));
+  table.rows.forEach((row, r) => {
+    if (r === 0) return;
+    row.cells.forEach((cell, c) => {
+      const stored = formulaOf(cell);
+      const result = stored && sheet.result(r - 1, c, stored.formula);
+      if (isError(result)) errors.set(`${r},${c}`, `${result.code} ${result.detail}`);
+    });
+  });
+  return errors;
+}
+
+// table-plus/src/formulas/edits.ts
 function calculatedFormula(table, column, except = /* @__PURE__ */ new Set()) {
   let formula;
   for (let r = 1; r < table.rows.length; r++) {
@@ -4571,9 +4676,6 @@ function withCalculatedCells(table, row, added = /* @__PURE__ */ new Set([row]))
   });
   return result;
 }
-function formulaCount(table) {
-  return table.rows.reduce((n, row, r) => n + (r === 0 ? 0 : row.cells.filter((cell) => formulaOf(cell)).length), 0);
-}
 function formulasAfterEdit(before, after, edit) {
   let table = after;
   if (edit.rowMap) {
@@ -4587,91 +4689,6 @@ function formulasAfterEdit(before, after, edit) {
     for (const r of added) table = withCalculatedCells(table, r, added);
   }
   return recalculate(shiftReferences(before, table, edit.rowMap, edit.columnMap), edit.tables);
-}
-function namedReferences(formula) {
-  const { tokens } = tokenize(formula);
-  const result = [];
-  tokens.forEach((token, i) => {
-    if (token.kind === "named") {
-      result.push({ name: token.name, page: token.page });
-      return;
-    }
-    if (token.kind !== "name" || parseCellName(token.text) || /^(true|false)$/i.test(token.text)) return;
-    const next = tokens[i + 1];
-    if (next?.kind === "op" && next.text === "(" || next?.kind === "column") return;
-    const previous = tokens[i - 1];
-    if (previous?.kind === "table" || previous?.kind === "op" && previous.text === ":") return;
-    result.push({ name: token.text });
-  });
-  return result;
-}
-function referredCellNames(table) {
-  const names = /* @__PURE__ */ new Set();
-  forFormulas(table, (formula) => {
-    for (const ref of namedReferences(formula)) if (ref.page === void 0) names.add(ref.name.toLowerCase());
-  });
-  return names;
-}
-function cellNamesOf(table) {
-  return new Set(namedCells(table).keys());
-}
-function forFormulas(table, each) {
-  table.rows.forEach((row, r) => {
-    if (r === 0) return;
-    for (const cell of row.cells) {
-      const stored = formulaOf(cell);
-      if (stored) each(stored.formula);
-    }
-  });
-}
-function referredPages(table) {
-  const pages = /* @__PURE__ */ new Set();
-  forFormulas(table, (formula) => {
-    for (const page of formulaPages(formula)) pages.add(page);
-  });
-  return pages;
-}
-function formulaPages(formula) {
-  return [
-    ...references(formula).flatMap((ref) => ref.table?.page ? [ref.table.page] : []),
-    ...namedReferences(formula).flatMap((ref) => ref.page ? [ref.page] : [])
-  ];
-}
-function callsOwnFunctions(table) {
-  let calls = false;
-  forFormulas(table, (formula) => {
-    const { tokens } = tokenize(formula);
-    tokens.forEach((token, i) => {
-      const next = tokens[i + 1];
-      if (token.kind !== "name" || next?.kind !== "op" || next.text !== "(") return;
-      const name = token.text.toUpperCase();
-      if (isOwnFunction(name) || !BUILT_IN_FUNCTIONS[name]) calls = true;
-    });
-  });
-  return calls;
-}
-function referredTableNames(table) {
-  const names = /* @__PURE__ */ new Set();
-  forFormulas(table, (formula) => {
-    for (const token of tokenize(formula).tokens) {
-      if (token.kind === "table" && token.page === void 0) names.add(token.name.toLowerCase());
-    }
-  });
-  return names;
-}
-function formulaErrors(table, tables) {
-  const errors = /* @__PURE__ */ new Map();
-  if (!hasFormulas(table)) return errors;
-  const sheet = new Sheet(table, new Book(tables));
-  table.rows.forEach((row, r) => {
-    if (r === 0) return;
-    row.cells.forEach((cell, c) => {
-      const stored = formulaOf(cell);
-      const result = stored && sheet.result(r - 1, c, stored.formula);
-      if (isError(result)) errors.set(`${r},${c}`, `${result.code} ${result.detail}`);
-    });
-  });
-  return errors;
 }
 function mapSpan(a, b, map) {
   const mapped = [];
@@ -4749,15 +4766,15 @@ function isTo(ref, name) {
 function shiftReferences(before, after, rowMap, columnMap) {
   if (!hasFormulas(after)) return after;
   const edit = { before, after, rowMap, columnMap };
-  const own2 = before.meta?.name?.trim();
+  const own = before.meta?.name?.trim();
   const renamed = newName(edit);
-  return withFormulas(after, (formula) => renameIn(rewriteReferences(formula, (ref) => !ref.table || isTo(ref, own2), edit), own2, renamed));
+  return withFormulas(after, (formula) => renameIn(rewriteReferences(formula, (ref) => !ref.table || isTo(ref, own), edit), own, renamed));
 }
-function renameIn(formula, own2, renamed) {
-  if (!renamed || !own2) return formula;
+function renameIn(formula, own, renamed) {
+  if (!renamed || !own) return formula;
   let result = formula;
   for (const token of tokenize(formula).tokens.reverse()) {
-    if (token.kind === "table" && token.page === void 0 && token.name.toLowerCase() === own2.toLowerCase()) {
+    if (token.kind === "table" && token.page === void 0 && token.name.toLowerCase() === own.toLowerCase()) {
       result = `${result.slice(0, token.from)}${renamed}!${result.slice(token.to)}`;
     }
   }
@@ -4770,6 +4787,8 @@ function followTable(table, before, after, rowMap, columnMap) {
   const renamed = newName(edit);
   return withFormulas(table, (formula) => renameIn(rewriteReferences(formula, (ref) => isTo(ref, name), edit), name, renamed));
 }
+
+// table-plus/src/formulas/help.ts
 var REFERENCE_HELP = {
   syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column] \xB7 table!A1 \xB7 table![Column] \xB7 cell_name",
   description: "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell. Click or drag in the table to insert one, click a header for its column."
@@ -4936,7 +4955,7 @@ function metadataAfterEdit(before, after, edit) {
   return edit.pins ? withMetaPins(followed, edit.pins) : followed;
 }
 
-// table-plus/src/formula/page.ts
+// table-plus/src/formulas/page.ts
 function pageTables(tables, here, replace, others) {
   const pages = /* @__PURE__ */ new Map();
   const namesOf2 = (page) => {
@@ -4949,8 +4968,8 @@ function pageTables(tables, here, replace, others) {
       names = { tables: /* @__PURE__ */ new Map(), cells: /* @__PURE__ */ new Map() };
       for (const { range, table: parsed3 } of list) {
         const table = isHere && replace && range.from === replace.from ? replace.table : parsed3;
-        const own2 = metaName(table)?.toLowerCase();
-        if (own2 && !names.tables.has(own2)) names.tables.set(own2, table);
+        const own = metaName(table)?.toLowerCase();
+        if (own && !names.tables.has(own)) names.tables.set(own, table);
         for (const [name, cell] of namedCells(table)) if (!names.cells.has(name)) names.cells.set(name, { table, ...cell });
       }
       pages.set(key, names);
@@ -4980,11 +4999,11 @@ function isAffected(referred, affected) {
   return [...referred.tables].some((n) => affected.tables.has(n)) || [...referred.cells].some((n) => affected.cells.has(n));
 }
 function tablesWritten(all, source) {
-  const own2 = all.find((t) => t.range.text === source)?.table;
-  if (!own2) return all.map((t) => t.table);
-  const result = [own2];
-  const affected = affectedBy(own2);
-  const rest = all.filter((t) => t.table !== own2).map((t) => ({ table: t.table, referred: referredBy(t.table) }));
+  const own = all.find((t) => t.range.text === source)?.table;
+  if (!own) return all.map((t) => t.table);
+  const result = [own];
+  const affected = affectedBy(own);
+  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredBy(t.table) }));
   for (let found = true; found; ) {
     found = false;
     for (let i = rest.length - 1; i >= 0; i--) {
@@ -5933,23 +5952,23 @@ ${error}` : stored.formula;
   enhanced(widget) {
     this.recheck(widget, false);
   }
-  /** Another page whose tables formulas read was changed, or the user's own functions were defined anew */
+  /** Another page whose tables formulas read was changed, or the custom functions were defined anew */
   tablesChanged() {
     this.recheck(void 0, true);
   }
   /**
    * Checks again whether the tables that refer to other tables (but `except`)
-   * are out of date; `ownFunctions`: those that call own functions too (they
+   * are out of date; `withCustom`: those that call custom functions too (they
    * were defined anew, which an edit of a table does not do)
    */
-  recheck(except, ownFunctions2) {
+  recheck(except, withCustom) {
     const tables = this.tableSource();
     for (const other of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = other === except ? void 0 : this.host.infoOf(other);
       if (!info || !this.withFormulas.has(info.table)) continue;
       const model = parseTable(info.source);
       const refersElsewhere = referredTableNames(model).size > 0 || referredPages(model).size > 0 || referredCellNames(model).size > 0;
-      if (!refersElsewhere && !(ownFunctions2 && callsOwnFunctions(model))) continue;
+      if (!refersElsewhere && !(withCustom && callsCustomFunctions(model))) continue;
       if (recalculate(model, tables) !== model) this.stale.add(info.table);
       else this.stale.delete(info.table);
       this.markCells(info, model, tables);
@@ -5966,7 +5985,7 @@ ${error}` : stored.formula;
         place: "icon",
         icon: ICONS.recalculate,
         attention: stale,
-        title: stale ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, TODAY() moved on, or a function of your own changed)" : "Recalculate the formulas (their results are up to date)",
+        title: stale ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, TODAY() moved on, or a custom function changed)" : "Recalculate the formulas (their results are up to date)",
         // A write recalculates: an edit that changes nothing else
         run: () => void this.host.write(this.host.widgetForKey(info.key) ?? widget, (t) => t)
       }
@@ -8342,10 +8361,10 @@ Row name: ${row}` : `Row name: ${row}`;
     if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
     if (!problem && name) {
       const text = await this.host.bridge.getText();
-      const own2 = locateBySource(text, shownInfo.hint, shownInfo.source);
+      const own = locateBySource(text, shownInfo.hint, shownInfo.source);
       const taken = findTables(text).some(
         (range) => parseTable(range.text).rows.some(
-          (r, ri) => ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own2 && range.from === own2.from && ri === row && ci === column))
+          (r, ri) => ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column))
         )
       );
       if (taken) problem = `another cell on this page is named ${name}`;
@@ -8724,7 +8743,7 @@ var Themes = class {
   toolbarButtons(widget, info) {
     if (!info.metaRow && !this.host.metadataEnabled) return [];
     const table = parseTable(info.source);
-    const own2 = metaTheme(table);
+    const own = metaTheme(table);
     const ownStripes = metaStripes(table);
     const set = (choices) => () => void this.choose(widget, info, choices);
     const item = (label, checked, run, detail) => ({ kind: "item", label, icon: "", checked, run, ...detail ? { detail } : {} });
@@ -8739,7 +8758,7 @@ var Themes = class {
       return [
         // First the global theme (as "No type" leads the column types): the table's own theme and stripes go, it follows the settings
         // The settings' theme after it, no preview (it is listed below, marked default)
-        { ...item("Global theme", own2 === void 0 && ownStripes === void 0, set({ theme: void 0, stripes: void 0 })), value: { text: themeLabel(this.theme) } },
+        { ...item("Global theme", own === void 0 && ownStripes === void 0, set({ theme: void 0, stripes: void 0 })), value: { text: themeLabel(this.theme) } },
         { kind: "separator" },
         stripesRow,
         { kind: "separator" },
@@ -8747,7 +8766,7 @@ var Themes = class {
         ...allThemes(this.host.doc).map(
           (theme) => item(
             `${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`,
-            own2 === theme,
+            own === theme,
             set({ theme }),
             detail(theme)
           )
@@ -8765,7 +8784,7 @@ var Themes = class {
         label: "Theme",
         title: "How this table looks: the Theme and Stripes settings (Global theme), or a theme and stripes of its own (stored in the table)",
         icon: ICONS.theme,
-        value: own2 ? themeLabel(own2) : `${themeLabel(this.theme)} (global)`,
+        value: own ? themeLabel(own) : `${themeLabel(this.theme)} (global)`,
         // Not used: the item opens its choices
         run: () => {
         },
@@ -11644,7 +11663,7 @@ var Controller = class {
   }
 };
 
-// table-plus/src/formula/functions/own.ts
+// table-plus/src/formulas/custom.ts
 var HELPERS = {
   FormulaError,
   TimeValue,
@@ -11662,7 +11681,7 @@ var HELPERS = {
   parseDate
 };
 var NAME_RE2 = /^[A-Za-z][A-Za-z0-9_.]*$/;
-function ownFunctions(definitions) {
+function customFunctions(definitions) {
   let list = definitions;
   if (isObject(list) && !Array.isArray(list) && "default" in list) list = list.default;
   if (typeof list === "function") {
@@ -11676,13 +11695,13 @@ function ownFunctions(definitions) {
   const functions = [];
   const problems = [];
   list.forEach((definition, i) => {
-    const f = ownFunction(definition);
+    const f = customFunction(definition);
     if (typeof f === "string") problems.push(`function ${i + 1}: ${f}`);
     else functions.push(f);
   });
   return { functions, problems };
 }
-function ownFunction(definition) {
+function customFunction(definition) {
   if (!isObject(definition)) return "not an object";
   const { name, syntax, description, minArgs = 0, maxArgs, call } = definition;
   if (typeof name !== "string" || !NAME_RE2.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and . starting with a letter`;
@@ -11752,13 +11771,13 @@ function removeAllMetadata() {
   void controller?.removeAllMetadata();
 }
 function defineFunctions(definitions) {
-  const { functions, problems } = ownFunctions(definitions);
-  defineOwnFunctions(functions);
+  const { functions, problems } = customFunctions(definitions);
+  defineCustomFunctions(functions);
   definitionsChanged();
-  return problems.length ? `Table Plus: own functions not defined: ${problems.join("; ")}` : void 0;
+  return problems.length ? `Table Plus: custom functions not defined: ${problems.join("; ")}` : void 0;
 }
 function resetDefinitions() {
-  ownFunctionsAnew();
+  customFunctionsAnew();
 }
 var checkQueued = false;
 function definitionsChanged() {

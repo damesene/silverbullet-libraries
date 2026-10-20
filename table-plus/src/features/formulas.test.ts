@@ -2,8 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
-import { clearOwnFunctions, defineOwnFunctions, functionNamed } from "../formula/functions/index.ts";
-import { toNumber, type Value } from "../formula/values.ts";
+import { clearCustomFunctions, defineCustomFunctions, functionNamed } from "../formulas/registry.ts";
+import { toNumber, type Value } from "../formulas/values.ts";
 import { defineFunctions, resetDefinitions } from "../index.ts";
 
 describe("Formulas", () => {
@@ -186,10 +186,10 @@ describe("Formulas", () => {
     expect(recalc()!.classList.contains("tp-attention")).toBe(false);
   });
 
-  describe("own functions", () => {
+  describe("custom functions", () => {
     const GLOBAL_KEY = "__tablePlus";
     afterEach(() => {
-      clearOwnFunctions();
+      clearCustomFunctions();
       delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
     });
     const recalc = () => document.querySelector<HTMLElement>('.tp-bar button[aria-label="Recalculate"]');
@@ -233,7 +233,7 @@ describe("Formulas", () => {
     });
 
     it("says what is wrong with definitions, and defines the others", () => {
-      expect(defineFunctions([{ name: "OK", call: () => 1 }, { name: "NOCALL" }])).toBe("Table Plus: own functions not defined: function 2: NOCALL has no call function");
+      expect(defineFunctions([{ name: "OK", call: () => 1 }, { name: "NOCALL" }])).toBe("Table Plus: custom functions not defined: function 2: NOCALL has no call function");
       expect(defineFunctions([{ name: "OKAY", call: () => 1 }])).toBeUndefined();
       expect(functionNamed("OK")).toBeDefined();
     });
@@ -595,12 +595,12 @@ describe("Formulas", () => {
       cellMenuItem(cell(1, 1), /^Name cell/)!.click();
       await flush();
       expect(flashes.pop()).toBe("Table Plus: sum is a function's name");
-      // One of the user's own too
-      defineOwnFunctions([{ name: "VAT", syntax: "VAT()", description: "", minArgs: 0, call: () => 1 }]);
+      // A custom one's too
+      defineCustomFunctions([{ name: "VAT", syntax: "VAT()", description: "", minArgs: 0, call: () => 1 }]);
       prompt.mockReturnValue("vat");
       cellMenuItem(cell(1, 1), /^Name cell/)!.click();
       await flush();
-      clearOwnFunctions();
+      clearCustomFunctions();
       expect(flashes.pop()).toBe("Table Plus: vat is a function's name");
       expect(text).toBe('| A | B |\n|---|---|\n| 1 <meta cn="one"> | 2 |\n');
     });

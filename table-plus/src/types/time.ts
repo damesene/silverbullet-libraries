@@ -1,4 +1,4 @@
-import { DAY_SECONDS, formatClock, parseClock } from "../formula/values.ts";
+import { DAY_SECONDS, formatClock, parseClock } from "../formulas/values.ts";
 import { lineIcon } from "../icons.ts";
 import { dateTimeFormat, numberOf } from "./helpers.ts";
 import type { ColumnType } from "./types.ts";

@@ -8,8 +8,8 @@
 // results (formula/page.ts: pages not read are `unread`).
 import type { Feature, TableHost, WidgetInfo, WritePage } from "../core/feature.ts";
 import { WIDGET_SELECTOR } from "../dom.ts";
-import { referredPages } from "../formula/index.ts";
-import { tablesWritten } from "../formula/page.ts";
+import { referredPages } from "../formulas/index.ts";
+import { tablesWritten } from "../formulas/page.ts";
 import { type OtherPages, type PageTable, pageTablesOf, parseTable, type Table } from "../markdown.ts";
 
 // At most this many other pages are read for one page's formulas (pages that refer on and on)

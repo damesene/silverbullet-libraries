@@ -17,7 +17,7 @@ import {
   type Area,
   areaText,
   autofixFormula,
-  callsOwnFunctions,
+  callsCustomFunctions,
   columnRefText,
   completeFunction,
   formulaCell,
@@ -41,8 +41,8 @@ import {
   referenceSlot,
   type TableSource,
   withColumnKeys,
-} from "../formula/index.ts";
-import { addAffected, affectedBy, isAffected, pageTables, referredBy } from "../formula/page.ts";
+} from "../formulas/index.ts";
+import { addAffected, affectedBy, isAffected, pageTables, referredBy } from "../formulas/page.ts";
 import { ICONS } from "../icons.ts";
 import { escapeCell, type PageTable, pageTablesOf, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
@@ -312,24 +312,24 @@ export class Formulas implements Feature {
     this.recheck(widget, false);
   }
 
-  /** Another page whose tables formulas read was changed, or the user's own functions were defined anew */
+  /** Another page whose tables formulas read was changed, or the custom functions were defined anew */
   tablesChanged(): void {
     this.recheck(undefined, true);
   }
 
   /**
    * Checks again whether the tables that refer to other tables (but `except`)
-   * are out of date; `ownFunctions`: those that call own functions too (they
+   * are out of date; `withCustom`: those that call custom functions too (they
    * were defined anew, which an edit of a table does not do)
    */
-  private recheck(except: HTMLElement | undefined, ownFunctions: boolean): void {
+  private recheck(except: HTMLElement | undefined, withCustom: boolean): void {
     const tables = this.tableSource();
     for (const other of Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = other === except ? undefined : this.host.infoOf(other);
       if (!info || !this.withFormulas.has(info.table)) continue;
       const model = parseTable(info.source);
       const refersElsewhere = referredTableNames(model).size > 0 || referredPages(model).size > 0 || referredCellNames(model).size > 0;
-      if (!refersElsewhere && !(ownFunctions && callsOwnFunctions(model))) continue;
+      if (!refersElsewhere && !(withCustom && callsCustomFunctions(model))) continue;
       if (recalculate(model, tables) !== model) this.stale.add(info.table);
       else this.stale.delete(info.table);
       // An error's reason may have changed (another page read)
@@ -349,7 +349,7 @@ export class Formulas implements Feature {
         icon: ICONS.recalculate,
         attention: stale,
         title: stale
-          ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, TODAY() moved on, or a function of your own changed)"
+          ? "Recalculate: some formula results are out of date (the table was changed outside Table Plus, TODAY() moved on, or a custom function changed)"
           : "Recalculate the formulas (their results are up to date)",
         // A write recalculates: an edit that changes nothing else
         run: () => void this.host.write(this.host.widgetForKey(info.key) ?? widget, (t) => t),

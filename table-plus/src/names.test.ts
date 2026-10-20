@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { columnIdOf, columnKey, findColumn } from "./columns.ts";
-import { formulaCell, formulaOf, recalculate, referencedColumn } from "./formula/index.ts";
+import { formulaCell, formulaOf, recalculate, referencedColumn } from "./formulas/index.ts";
 import { parseMetaRow, parseTable } from "./markdown.ts";
 import { nameOf, nameProblem, withCellName, withName, withoutName } from "./names.ts";
 

@@ -11,7 +11,7 @@
 // is moved or sorted.
 import { columnIdOf, columnKey } from "../columns.ts";
 import type { CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { functionNamed } from "../formula/functions/index.ts";
+import { functionNamed } from "../formulas/registry.ts";
 import { ICONS } from "../icons.ts";
 import { findTables, locateBySource, parseTable, type Table } from "../markdown.ts";
 import { metaName, sameTableName, tableNameProblem, withMetaName } from "../meta.ts";

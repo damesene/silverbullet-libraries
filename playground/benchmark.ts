@@ -3,8 +3,8 @@
 // (the page before it comes back with Restore page, or Ctrl+Z), and a log of
 // what Table Plus spent its time on for each action: its core's phases and
 // each module's hooks (profile.ts), grouped by the action that started them.
-import { pageTables } from "../table-plus/src/formula/page.ts";
-import { cellName, formulaCell, recalculate } from "../table-plus/src/formula/index.ts";
+import { pageTables } from "../table-plus/src/formulas/page.ts";
+import { cellName, formulaCell, recalculate } from "../table-plus/src/formulas/index.ts";
 import { type PageTable, pageTablesOf, serializeTable } from "../table-plus/src/markdown.ts";
 import type { ProfileEntry } from "./profile.ts";
 import { TYPES } from "../table-plus/src/types/index.ts";

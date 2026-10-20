@@ -15,7 +15,7 @@
 // scroll (in the frame the core updates what follows the layout).
 import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
-import { columnLetters } from "../formula/index.ts";
+import { columnLetters } from "../formulas/index.ts";
 import { ICONS } from "../icons.ts";
 
 const FULL_CLASS = "tp-fullscreen";

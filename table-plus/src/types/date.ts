@@ -1,4 +1,4 @@
-import { parseDate } from "../formula/dates.ts";
+import { parseDate } from "../formulas/dates.ts";
 import { lineIcon } from "../icons.ts";
 import { dateTimeFormat } from "./helpers.ts";
 import type { ColumnType } from "./types.ts";
