@@ -3,7 +3,8 @@ import libraryPage from "../../table-plus.md?raw";
 import { FUNCTIONS } from "./functions/index.ts";
 import { FormulaError, parseClock, toText, type Value } from "./values.ts";
 
-const call = (name: string, ...args: Value[]) => FUNCTIONS[name]!.call(args);
+// Called in the first cell (A1); ROW() tests set the place itself
+const call = (name: string, ...args: Value[]) => FUNCTIONS[name]!.call(args, { row: 1, column: 1 });
 const toTime = (text: string) => parseClock(text)!;
 
 describe("FUNCTIONS", () => {

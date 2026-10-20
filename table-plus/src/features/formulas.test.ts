@@ -30,6 +30,54 @@ describe("Formulas", () => {
     expect(cell(3, 1).title).toBe("=SUM(B1:B2)");
   });
 
+  it("inserts a numbered column (=ROW() in every row) from a column's menu; rows added or moved are numbered again", async () => {
+    const openColumnMenu = (column: number) => {
+      cell(1, column).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    };
+    const item = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label);
+    await setup("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Apple | 10 |\n");
+    openColumnMenu(0);
+    // With inserting and moving the column, after Move right
+    const labels = Array.from(document.querySelectorAll(".tp-menu-item")).map((b) => b.textContent);
+    expect(labels[labels.indexOf("Move right") + 1]).toBe("Insert numbered column left");
+    item("Insert numbered column left")!.click();
+    await flush();
+    await controller.scan();
+    expect(text).toBe('| # | Name | Qty |\n|---|---|---|\n| 1 <meta f="=ROW()"> | Pear | 3 |\n| 2 <meta f="=ROW()"> | Apple | 10 |\n');
+    // Another, right of Name: as many as wanted
+    openColumnMenu(2);
+    item("Insert numbered column left")!.click();
+    await flush();
+    await controller.scan();
+    expect(text).toContain('| 2 <meta f="=ROW()"> | Apple | 2 <meta f="=ROW()"> | 10 |');
+    // A row added at the start: a calculated column fills it, every row is numbered again
+    cell(1, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    (controller as unknown as { insertAt: unknown }).insertAt = { key: "Test#0", axis: "row", at: 1, beside: { before: 1 } };
+    document.querySelector<HTMLElement>(".tp-insert")!.click();
+    await flush();
+    await controller.scan();
+    key(field(), "Escape");
+    await flush();
+    expect(text).toBe(
+      '| # | Name | # | Qty |\n|---|---|---|---|\n| 1 <meta f="=ROW()"> | | 1 <meta f="=ROW()"> | |\n| 2 <meta f="=ROW()"> | Pear | 2 <meta f="=ROW()"> | 3 |\n| 3 <meta f="=ROW()"> | Apple | 3 <meta f="=ROW()"> | 10 |\n',
+    );
+  });
+
+  it("offers a numbered column only with the metadata setting on (a new formula)", async () => {
+    await setup("| Name |\n|---|\n| Pear |\n", { "tablePlus.metadata": false });
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    const entry = Array.from(document.querySelectorAll<HTMLButtonElement>(".tp-menu-item")).find((b) => b.textContent === "Insert numbered column left")!;
+    expect(entry.getAttribute("aria-disabled")).toBe("true");
+    expect(entry.title).toBe(FORMULAS_NEED_METADATA);
+    entry.click();
+    await flush();
+    expect(text).toBe("| Name |\n|---|\n| Pear |\n");
+  });
+
   it("edits a formula cell as its formula and recalculates on every edit", async () => {
     await setup('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Apple | 10 |\n| Total | 13 <meta f="=SUM([Qty])"> |\n');
     clickOn(cell(3, 1));

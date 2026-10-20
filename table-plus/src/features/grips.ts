@@ -783,6 +783,8 @@ export class Grips implements Feature {
         run: act(() => moveColumnTo(host, widget, info, column, column + 1)),
         disabled: columnMoveBlocked(column + 1),
       },
+      // The features' (a numbered column), closing the menu when run
+      ...host.columnMenuInsertEntries(widget, info, column).map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry)),
       { kind: "separator" },
       {
         kind: "item",

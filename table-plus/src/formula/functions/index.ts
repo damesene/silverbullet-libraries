@@ -34,9 +34,10 @@ import hour from "./hour.ts";
 import minute from "./minute.ts";
 import second from "./second.ts";
 import weekday from "./weekday.ts";
+import row from "./row.ts";
 import type { FormulaFunction } from "./types.ts";
 
-export type { FormulaFunction } from "./types.ts";
+export type { FormulaFunction, FunctionContext } from "./types.ts";
 
 const ALL: readonly FormulaFunction[] = [
   sum,
@@ -70,6 +71,7 @@ const ALL: readonly FormulaFunction[] = [
   int,
   text,
   xlookup,
+  row,
 ];
 
 /** The functions by name */

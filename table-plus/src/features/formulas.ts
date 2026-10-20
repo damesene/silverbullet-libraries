@@ -43,8 +43,11 @@ import {
 import { addAffected, affectedBy, isAffected, pageTables, referredBy } from "../formula/page.ts";
 import { ICONS } from "../icons.ts";
 import { escapeCell, type PageTable, pageTablesOf, parseTable, type Table, unescapeCell } from "../markdown.ts";
+import type { MenuEntry } from "../menu.ts";
 import { metaName } from "../meta.ts";
 import { namedRows } from "../names.ts";
+import { insertColumn, setCell } from "../ops.ts";
+import { insertColumnAt } from "../pins.ts";
 import { withoutTags } from "../tags.ts";
 
 // New formulas are stored in the table (a <meta f> tag), as other metadata
@@ -126,6 +129,46 @@ export class Formulas implements Feature {
       }
     }
     return written;
+  }
+
+  /**
+   * "Insert numbered column left" in a column's menu: a column "#" with =ROW()
+   * in every row, a calculated column (rows added later get it too). As many
+   * as wanted. New formulas need the metadata setting.
+   */
+  columnMenuInsertEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
+    const insert = insertColumnAt(info.pins, info.columns, column);
+    const blocked = !this.host.metadataEnabled
+      ? FORMULAS_NEED_METADATA
+      : insert.at > column
+        ? "Columns pinned to the left stay at the left"
+        : insert.at < column
+          ? "Columns pinned to the right stay at the right"
+          : undefined;
+    return [
+      {
+        kind: "item",
+        label: "Insert numbered column left",
+        icon: ICONS.columnLeft,
+        hint: "A column numbering the rows: =ROW() in each",
+        disabled: blocked,
+        run: () => void this.insertNumbered(widget, info, column),
+      },
+    ];
+  }
+
+  private insertNumbered(widget: HTMLElement, info: WidgetInfo, column: number): Promise<unknown> {
+    const insert = insertColumnAt(info.pins, info.columns, column);
+    return this.host.write(
+      widget,
+      (t) => {
+        let table = setCell(insertColumn(t, insert.at), 0, insert.at, "#");
+        // The write step calculates them
+        for (let row = 1; row < table.rows.length; row++) table = setCell(table, row, insert.at, formulaCell("", "=ROW()"));
+        return table;
+      },
+      { columnMap: (c) => (c >= insert.at ? c + 1 : c), pins: insert.pins },
+    );
   }
 
   /** Remove metadata removes the formulas: their cells keep their results */

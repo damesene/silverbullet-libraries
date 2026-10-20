@@ -348,6 +348,15 @@ describe("references", () => {
   });
 });
 
+describe("ROW()", () => {
+  it("is the row the formula is in, counted as A1 counts (1: the first row under the header)", () => {
+    expect(evaluate(FRUIT, "=ROW()", { row: 1, column: 2 })).toBe("1");
+    expect(evaluate(FRUIT, "=ROW()", { row: 4, column: 2 })).toBe("4");
+    // A number as any other
+    expect(evaluate(FRUIT, "=ROW()*10+[@qty]", { row: 2, column: 2 })).toBe("30");
+  });
+});
+
 describe("calculated columns", () => {
   const ROWS = [
     "| Item | Qty | Price | Amount |",

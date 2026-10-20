@@ -2993,6 +2993,16 @@ var weekday_default = {
   }
 };
 
+// table-plus/src/formula/functions/row.ts
+var row_default = {
+  name: "ROW",
+  syntax: "ROW()",
+  description: "The row of the cell the formula is in, counted in the table as written: 1 is the first row under the header. =ROW() in every row of a column numbers the rows.",
+  minArgs: 0,
+  maxArgs: 0,
+  call: (_args, { row }) => row
+};
+
 // table-plus/src/formula/functions/index.ts
 var ALL2 = [
   sum_default,
@@ -3025,7 +3035,8 @@ var ALL2 = [
   weekday_default,
   int_default,
   text_default,
-  xlookup_default
+  xlookup_default,
+  row_default
 ];
 var FUNCTIONS = Object.fromEntries(ALL2.map((f) => [f.name, f]));
 
@@ -3695,7 +3706,9 @@ var Sheet = class {
             const value = this.evaluate(arg, row, column);
             const reference = arg.kind === "area" || arg.kind === "column" && arg.thisRow;
             return reference && !isRange(value) && !isError(value) ? [value] : value;
-          })
+          }),
+          // Where it is calculated, as A1 counts (row: the body's, from 1)
+          { row: row + 1, column: column + 1 }
         );
       }
       case "unary": {
@@ -5001,6 +5014,37 @@ var Formulas = class {
       }
     }
     return written;
+  }
+  /**
+   * "Insert numbered column left" in a column's menu: a column "#" with =ROW()
+   * in every row, a calculated column (rows added later get it too). As many
+   * as wanted. New formulas need the metadata setting.
+   */
+  columnMenuInsertEntries(widget, info, column) {
+    const insert = insertColumnAt(info.pins, info.columns, column);
+    const blocked = !this.host.metadataEnabled ? FORMULAS_NEED_METADATA : insert.at > column ? "Columns pinned to the left stay at the left" : insert.at < column ? "Columns pinned to the right stay at the right" : void 0;
+    return [
+      {
+        kind: "item",
+        label: "Insert numbered column left",
+        icon: ICONS.columnLeft,
+        hint: "A column numbering the rows: =ROW() in each",
+        disabled: blocked,
+        run: () => void this.insertNumbered(widget, info, column)
+      }
+    ];
+  }
+  insertNumbered(widget, info, column) {
+    const insert = insertColumnAt(info.pins, info.columns, column);
+    return this.host.write(
+      widget,
+      (t) => {
+        let table = setCell(insertColumn(t, insert.at), 0, insert.at, "#");
+        for (let row = 1; row < table.rows.length; row++) table = setCell(table, row, insert.at, formulaCell("", "=ROW()"));
+        return table;
+      },
+      { columnMap: (c) => c >= insert.at ? c + 1 : c, pins: insert.pins }
+    );
   }
   /** Remove metadata removes the formulas: their cells keep their results */
   metadataPart(tables) {
@@ -6343,6 +6387,7 @@ var Grips = class {
         run: act(() => moveColumnTo(host, widget, info, column, column + 1)),
         disabled: columnMoveBlocked(column + 1)
       },
+      ...host.columnMenuInsertEntries(widget, info, column).map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry),
       { kind: "separator" },
       {
         kind: "item",
@@ -8078,6 +8123,9 @@ var Controller = class {
   }
   columnMenuTopEntries(widget, info, column) {
     return this.features.flatMap((f) => f.columnMenuTopEntries?.(widget, info, column) ?? []);
+  }
+  columnMenuInsertEntries(widget, info, column) {
+    return this.features.flatMap((f) => f.columnMenuInsertEntries?.(widget, info, column) ?? []);
   }
   rowMenuEntries(widget, info, row, column) {
     return this.features.flatMap((f) => f.rowMenuEntries?.(widget, info, row, column) ?? []);

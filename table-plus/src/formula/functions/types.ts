@@ -18,6 +18,18 @@ export type FormulaFunction = {
    * is the list of its cells' values, an empty cell is null, an error is a
    * FormulaError value. Returns one value. The helpers in values.ts convert
    * arguments the way spreadsheets do and pass errors on.
+   *
+   * `context` is where the formula is calculated (ROW() needs it); most
+   * functions leave it out. A result depends on the arguments and the context
+   * only, nothing else.
    */
-  readonly call: (args: readonly Value[]) => Scalar;
+  readonly call: (args: readonly Value[], context: FunctionContext) => Scalar;
+};
+
+/** Where a formula is calculated */
+export type FunctionContext = {
+  // Its cell's row as A1 counts rows: 1 is the first row under the header
+  readonly row: number;
+  // Its cell's column: 1 is the first (A)
+  readonly column: number;
 };

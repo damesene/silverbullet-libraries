@@ -238,6 +238,8 @@ export interface TableHost {
   ): MenuEntry[];
   /** The entries features add at the top of a column's menu (see Feature.columnMenuTopEntries) */
   columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
+  /** The entries features add with inserting and moving a column (see Feature.columnMenuInsertEntries) */
+  columnMenuInsertEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
   /** The entries features add to a row's menu, for the cell in `column` (see Feature.rowMenuEntries) */
   rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[];
   /** A setting's value, its default when unset or not valid */
@@ -310,6 +312,8 @@ export interface Feature {
   selected?(info: WidgetInfo): readonly CellRef[] | undefined;
   /** Entries at the top of a column's menu, before its sorting (naming the column); they close the menu when run */
   columnMenuTopEntries?(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
+  /** Entries with inserting and moving the column in its menu, after them (a numbered column); they close the menu when run */
+  columnMenuInsertEntries?(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
   /** Entries at the top of a row's menu, about its cell in `column` (the one under the pointer or edited); they close the menu when run */
   rowMenuEntries?(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[];
   /** Buttons for the table's toolbar, shown while the pointer is over the table */

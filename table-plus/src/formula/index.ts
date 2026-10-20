@@ -888,6 +888,8 @@ class Sheet {
             const reference = arg.kind === "area" || (arg.kind === "column" && arg.thisRow);
             return reference && !isRange(value) && !isError(value) ? [value] : value;
           }),
+          // Where it is calculated, as A1 counts (row: the body's, from 1)
+          { row: row + 1, column: column + 1 },
         );
       }
       case "unary": {
