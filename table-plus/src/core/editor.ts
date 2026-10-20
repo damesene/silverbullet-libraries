@@ -50,6 +50,8 @@ export type EditorContext = {
   releaseRow(): void;
   // The editor of a cell of the table closed
   editingEnded(widget: HTMLElement): void;
+  // A cell's editor opened: its field's focus makes SilverBullet scroll elsewhere on a touch screen (core/touch-keyboard.ts)
+  editingStarted(): void;
 };
 
 export class CellEditing {
@@ -156,6 +158,7 @@ export class CellEditing {
         void this.step(e.shiftKey ? -1 : 1);
       }
     });
+    this.context.editingStarted();
     field.focus({ preventScroll: true });
     if (select) field.select();
     else field.setSelectionRange(field.value.length, field.value.length);
@@ -413,6 +416,12 @@ export class CellEditing {
     if (cell) this.open(widget, info, cell, pending.select);
   }
 
+  /** The view changed its size (an on-screen keyboard showed): the cell being edited is scrolled into it again */
+  revealActive(): void {
+    const active = this.editor;
+    if (active?.cell.isConnected) this.reveal(active.widget, active.cell);
+  }
+
   /**
    * Scrolls so that the cell is fully visible: a wide table sideways, the page
    * up or down, keeping a body cell clear of the header held at the top
@@ -434,7 +443,8 @@ export class CellEditing {
     const scroller = this.host.scrollParentOf(widget);
     if (!scroller) return;
     rect = cell.getBoundingClientRect();
-    const view = scroller.getBoundingClientRect();
+    // The part of the page in view, above an on-screen keyboard
+    const view = this.host.viewBounds(widget);
     const top = view.top + (headHeight ? STICKY_GAP + headHeight : 0);
     if (rect.top < top) scroller.scrollTop -= top - rect.top;
     else if (rect.bottom > view.bottom) scroller.scrollTop += rect.bottom - view.bottom;

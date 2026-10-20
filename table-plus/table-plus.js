@@ -569,6 +569,7 @@ function pinColumn(pins, columns, column, pin) {
 // table-plus/src/dom.ts
 var WIDGET_SELECTOR = ".sb-table-widget";
 var EDITOR_SELECTOR = ".cm-content";
+var SCROLLER_SELECTOR = ".cm-scroller";
 var NATIVE_ACTION_SELECTOR = "a[data-ref], [data-mention-name], button[data-onclick], span.sb-task-state";
 var INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
 var UI_CLASS = "tp-ui";
@@ -858,6 +859,7 @@ var CellEditing = class {
         void this.step(e.shiftKey ? -1 : 1);
       }
     });
+    this.context.editingStarted();
     field.focus({ preventScroll: true });
     if (select) field.select();
     else field.setSelectionRange(field.value.length, field.value.length);
@@ -1075,6 +1077,11 @@ var CellEditing = class {
     const cell = this.host.cellAt(info, pending);
     if (cell) this.open(widget, info, cell, pending.select);
   }
+  /** The view changed its size (an on-screen keyboard showed): the cell being edited is scrolled into it again */
+  revealActive() {
+    const active = this.editor;
+    if (active?.cell.isConnected) this.reveal(active.widget, active.cell);
+  }
   /**
    * Scrolls so that the cell is fully visible: a wide table sideways, the page
    * up or down, keeping a body cell clear of the header held at the top
@@ -1094,7 +1101,7 @@ var CellEditing = class {
     const scroller = this.host.scrollParentOf(widget);
     if (!scroller) return;
     rect = cell.getBoundingClientRect();
-    const view = scroller.getBoundingClientRect();
+    const view = this.host.viewBounds(widget);
     const top = view.top + (headHeight ? STICKY_GAP + headHeight : 0);
     if (rect.top < top) scroller.scrollTop -= top - rect.top;
     else if (rect.bottom > view.bottom) scroller.scrollTop += rect.bottom - view.bottom;
@@ -1103,6 +1110,80 @@ var CellEditing = class {
   setNavigating(on) {
     this.host.doc.body.classList.toggle("tp-navigating", on);
   }
+};
+
+// table-plus/src/core/touch-keyboard.ts
+var HOLD_MS = 600;
+function virtualKeyboard(win) {
+  return win.navigator.virtualKeyboard;
+}
+var TouchKeyboard = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // The last press was a touch: SilverBullet's editor's focus would bring up the keyboard
+  pressedByTouch = false;
+  // Until when the cell being edited is brought back into view (HOLD_MS)
+  heldUntil = 0;
+  start() {
+    const win = this.host.doc.defaultView;
+    win.addEventListener("pointerdown", this.onPointerDown, true);
+    win.addEventListener("scroll", this.onScroll, true);
+    for (const type of ["touchstart", "wheel", "mousedown"]) win.addEventListener(type, this.userScrolls, { capture: true, passive: true });
+    win.addEventListener("resize", this.onViewResize);
+    win.visualViewport?.addEventListener("resize", this.onViewResize);
+    virtualKeyboard(win)?.addEventListener("geometrychange", this.onViewResize);
+  }
+  stop() {
+    const win = this.host.doc.defaultView;
+    win.removeEventListener("pointerdown", this.onPointerDown, true);
+    win.removeEventListener("scroll", this.onScroll, true);
+    for (const type of ["touchstart", "wheel", "mousedown"]) win.removeEventListener(type, this.userScrolls, true);
+    win.removeEventListener("resize", this.onViewResize);
+    win.visualViewport?.removeEventListener("resize", this.onViewResize);
+    virtualKeyboard(win)?.removeEventListener("geometrychange", this.onViewResize);
+  }
+  /** A cell's editor opened: its field's focus makes SilverBullet scroll to its cursor */
+  editorOpened() {
+    this.hold();
+  }
+  /**
+   * Instead of handing the focus back to SilverBullet's editor after a touch:
+   * let go of it (the keyboard goes). True when it did.
+   */
+  letGoOfFocus() {
+    if (!this.pressedByTouch) return false;
+    const active = this.host.doc.activeElement;
+    if (active instanceof HTMLElement && active !== this.host.doc.body) active.blur();
+    return true;
+  }
+  hold() {
+    this.heldUntil = Date.now() + HOLD_MS;
+  }
+  onPointerDown = (e) => {
+    this.pressedByTouch = e.pointerType === "touch";
+    if (!this.pressedByTouch || !this.host.inTable(e.target)) return;
+    const active = this.host.doc.activeElement;
+    if (active instanceof HTMLElement && active.matches(EDITOR_SELECTOR)) active.blur();
+  };
+  // A scroll that is not the user's while the cell is held: the cell comes back
+  onScroll = () => {
+    if (Date.now() < this.heldUntil && this.host.editing()) this.host.revealEditing();
+  };
+  // The user scrolls or presses (a touch, a wheel, a press on a scrollbar): the
+  // page is theirs (a press that opens a cell's editor holds it again)
+  userScrolls = () => {
+    this.heldUntil = 0;
+  };
+  onViewResize = () => {
+    if (this.host.editing()) {
+      this.host.viewResized();
+      this.hold();
+    }
+    this.host.revealEditing();
+    this.host.doc.defaultView.requestAnimationFrame?.(() => this.host.revealEditing());
+  };
 };
 
 // table-plus/src/features/autoscroll.ts
@@ -7344,6 +7425,8 @@ var INSERT_BAND = 16;
 var INSERT_REACH = 6;
 var LONG_PRESS_MS = 550;
 var STORE_SORT_DELAY_MS = 400;
+var ANCHOR_MS = 1e3;
+var INSERT_CLICK_MS = 1e3;
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
 function placeAtEnd(parent, rows) {
   let next = null;
@@ -7365,7 +7448,17 @@ var Controller = class {
       movingRows: () => this.movingRows,
       holdRow: (widget, info, row) => this.holdRow(widget, info, row),
       releaseRow: () => this.releaseRow(),
-      editingEnded: (widget) => this.editingEnded(widget)
+      editingEnded: (widget) => this.editingEnded(widget),
+      editingStarted: () => this.touchKeyboard.editorOpened()
+    });
+    this.touchKeyboard = new TouchKeyboard({
+      doc,
+      inTable: (target) => this.enhancedWidgetOf(target) !== void 0,
+      editing: () => this.cellEditor.active !== void 0,
+      revealEditing: () => this.cellEditor.revealActive(),
+      // The cell being edited wins over keeping a table written in its place:
+      // the keyboard shows as the next cell opens after a write (Enter)
+      viewResized: () => this.dropAnchor()
     });
     this.bar = this.floating("div", "tp-bar");
     this.insertMark = this.floatingButton("tp-insert", "Insert here", ICONS.plus);
@@ -7388,7 +7481,15 @@ var Controller = class {
   scrollLefts = /* @__PURE__ */ new Map();
   // The same for tables taller than the maximum height setting, scrolled inside
   scrollTops = /* @__PURE__ */ new Map();
+  // A table being written, and where it was in the page's view (its top below
+  // the scroller's): the editor renders it anew and may scroll the page while
+  // it measures the new rendering, which would leave the user elsewhere
+  anchor;
+  // When a press inserted with the +: the click that ends it is no click on what is under the pointer then
+  insertPressAt = 0;
   cellEditor;
+  // Countermeasures to SilverBullet and the on-screen keyboard on touch screens (a workaround, see its file)
+  touchKeyboard;
   hoverWidget;
   hoverCell;
   hideTimer;
@@ -7434,6 +7535,7 @@ var Controller = class {
   }
   start() {
     const win = this.doc.defaultView;
+    this.touchKeyboard.start();
     win.addEventListener("mousedown", this.onMouseDown, true);
     win.addEventListener("click", this.onClick, true);
     win.addEventListener("contextmenu", this.onContextMenu, true);
@@ -7446,6 +7548,9 @@ var Controller = class {
     this.doc.addEventListener("pointermove", this.onPointerMove, { passive: true });
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
     this.doc.addEventListener("pointerout", this.onPointerOut, { passive: true });
+    win.addEventListener("mouseup", this.onMouseUp, true);
+    win.addEventListener("wheel", this.dropAnchor, { capture: true, passive: true });
+    win.addEventListener("touchstart", this.dropAnchor, { capture: true, passive: true });
     this.insertMark.addEventListener("click", () => this.insertHere());
     this.observer = new MutationObserver(() => this.queueScan());
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
@@ -7516,6 +7621,12 @@ var Controller = class {
     win.removeEventListener("blur", this.onBlur);
     this.doc.removeEventListener("pointermove", this.onPointerMove);
     this.doc.removeEventListener("mousemove", this.onMouseMove);
+    this.doc.removeEventListener("pointerout", this.onPointerOut);
+    win.removeEventListener("mouseup", this.onMouseUp, true);
+    win.removeEventListener("wheel", this.dropAnchor, true);
+    win.removeEventListener("touchstart", this.dropAnchor, true);
+    this.touchKeyboard.stop();
+    this.anchor = void 0;
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
@@ -7760,7 +7871,9 @@ var Controller = class {
       if (scrollLeft) widget.scrollLeft = scrollLeft;
       const scrollTop = this.scrollTops.get(info.key);
       if (scrollTop) widget.scrollTop = scrollTop;
+      this.keepAnchor(info.key, widget);
       this.cellEditor.takePending(widget, info);
+      this.anchorAgain(widget, info.key);
       for (const feature of this.features) feature.enhanced?.(widget, info);
       this.reshowInsert(widget, info);
       this.queueStickyUpdate();
@@ -8121,6 +8234,8 @@ var Controller = class {
     return row?.contains(UI_CLASS) || row?.contains("tp-meta-row") ? void 0 : cell;
   }
   onMouseDown = (e) => {
+    this.dropAnchor();
+    this.insertPressAt = 0;
     if (Date.now() - this.longPressAt < 1e3) {
       e.preventDefault();
       e.stopPropagation();
@@ -8130,10 +8245,14 @@ var Controller = class {
       this.closeTableMenu(false);
     }
     for (const feature of this.features) if (feature.mouseDown?.(e)) return;
-    if (e.button === 0 && this.inInsertBand && !(e.target instanceof Node && this.isFloating(e.target))) {
+    const onMark = e.target instanceof Node && this.insertMark.contains(e.target);
+    if (e.button === 0 && (onMark || this.inInsertBand && !(e.target instanceof Node && this.isFloating(e.target)))) {
       e.preventDefault();
       e.stopPropagation();
-      if (this.insertAt) this.insertHere();
+      if (this.insertAt) {
+        this.insertPressAt = Date.now();
+        this.insertHere();
+      }
       return;
     }
     if (e.button !== 0) return;
@@ -8187,7 +8306,19 @@ var Controller = class {
     const within = cellText(cell) === source ? caretTextOffset(cell, e.clientX, e.clientY) : void 0;
     void this.showMarkdown(info, { ...ref, within: within ?? 0 });
   }
+  // The end of a press that inserted with the +: it reaches nothing
+  onMouseUp = (e) => {
+    if (e.button !== 0 || !this.insertPressAt || Date.now() - this.insertPressAt > INSERT_CLICK_MS) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
   onClick = (e) => {
+    if (e.button === 0 && e.detail !== 0 && this.insertPressAt && Date.now() - this.insertPressAt <= INSERT_CLICK_MS) {
+      this.insertPressAt = 0;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     const hit = this.enhancedWidgetOf(e.target);
     if (!hit) return;
     const [widget, info] = hit;
@@ -8222,6 +8353,49 @@ var Controller = class {
       this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
       this.scrollTops.set(scrolled.key, e.target.scrollTop);
     }
+    if (this.anchor && e.target === this.anchor.scroller) this.keepAnchor(this.anchor.key);
+  };
+  // ---- keeping a table written in its place ----------------------------------
+  /** Before a write: where the table is in the page's view */
+  anchorAt(widget, key) {
+    const scroller = widget.isConnected ? this.scrollParentOf(widget) : void 0;
+    this.anchor = scroller && {
+      key,
+      scroller,
+      offset: widget.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+      until: Date.now() + ANCHOR_MS
+    };
+  }
+  /** The table rendered anew is scrolled to where it was, so the row edited stays under the user's eyes */
+  keepAnchor(key, widget = this.widgetForKey(key)) {
+    const anchor = this.anchor;
+    if (!anchor || anchor.key !== key || !widget) return;
+    if (Date.now() > anchor.until || !anchor.scroller.isConnected) {
+      this.anchor = void 0;
+      return;
+    }
+    const offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
+    if (Math.abs(offset - anchor.offset) >= 1) anchor.scroller.scrollTop += offset - anchor.offset;
+  }
+  /**
+   * After the table's own scrolling (the cell to edit next revealed): kept
+   * there, also once the editor has measured the new rendering, in the next
+   * frames
+   */
+  anchorAgain(widget, key) {
+    const anchor = this.anchor;
+    if (!anchor || anchor.key !== key) return;
+    anchor.offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
+    const keep = () => this.keepAnchor(key);
+    const win = this.doc.defaultView;
+    win.requestAnimationFrame?.(() => {
+      keep();
+      win.requestAnimationFrame(keep);
+    });
+    setTimeout(keep, 100);
+  }
+  dropAnchor = () => {
+    this.anchor = void 0;
   };
   /**
    * Keeps the toolbar, grips and an open menu on what they belong to while the
@@ -8245,15 +8419,11 @@ var Controller = class {
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
   isShown(widget, info, element) {
     const rect = element.getBoundingClientRect();
-    const view = this.scrollParentOf(widget)?.getBoundingClientRect();
+    const view = this.viewBounds(widget);
     const box = this.innerBox(widget);
     const head = info.table.tHead;
-    const top = Math.max(
-      view?.top ?? 0,
-      box.top,
-      head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity
-    );
-    const bottom = Math.min(view?.bottom ?? this.doc.defaultView.innerHeight, box.bottom);
+    const top = Math.max(view.top, box.top, head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity);
+    const bottom = Math.min(view.bottom, box.bottom);
     return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
   }
   // ---- layout: what follows scrolling ------------------------------------------
@@ -8291,7 +8461,18 @@ var Controller = class {
     }
     return void 0;
   }
+  viewBounds(element) {
+    const win = this.doc.defaultView;
+    const scroller = this.scrollParentOf(element) ?? element.closest(SCROLLER_SELECTOR) ?? void 0;
+    const rect = scroller?.getBoundingClientRect();
+    const view = rect && rect.height > 0 ? rect : { left: 0, right: win.innerWidth, top: 0, bottom: win.innerHeight };
+    const visual = win.visualViewport;
+    const visibleBottom = visual && visual.height > 0 ? visual.offsetTop + visual.height : Infinity;
+    const visibleTop = visual && visual.height > 0 ? visual.offsetTop : -Infinity;
+    return { left: view.left, right: view.right, top: Math.max(view.top, visibleTop), bottom: Math.min(view.bottom, visibleBottom) };
+  }
   onKeyDown = (e) => {
+    this.dropAnchor();
     if (e.key === "Escape" && this.tableMenu) {
       e.preventDefault();
       e.stopPropagation();
@@ -8389,6 +8570,7 @@ var Controller = class {
     return tr.cells[ref.column];
   }
   focusEditor(widget) {
+    if (this.touchKeyboard.letGoOfFocus()) return;
     widget.closest(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
   // ---- writing markdown --------------------------------------------------
@@ -8448,6 +8630,7 @@ var Controller = class {
         const then = await feature.beforeWrite?.(text, spanFrom, spanTo);
         if (then) after.push(then);
       }
+      this.anchorAt(widget, info.key);
       await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
       this.pageText = written;
       for (const then of after) then(replace.from, written.length - text.length);
@@ -8754,13 +8937,12 @@ var Controller = class {
     const rect = widget.getBoundingClientRect();
     const tableRect = info.table.getBoundingClientRect();
     const headerRect = info.table.rows[0].getBoundingClientRect();
-    const viewTop = this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0;
+    const shown = this.viewBounds(widget);
     bar.classList.add("tp-visible");
     const above = headerRect.top - bar.offsetHeight - BAR_GAP;
-    const fits = above >= viewTop + 2;
+    const fits = above >= shown.top + 2;
     const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
-    const viewRight = this.scrollParentOf(widget)?.getBoundingClientRect().right ?? this.doc.defaultView.innerWidth;
-    this.place(bar, Math.min(rect.right, tableRect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
+    this.place(bar, Math.min(rect.right, tableRect.right, shown.right) - bar.offsetWidth - (fits ? 0 : 6), top);
     this.positionTableMenu();
   }
   /**

@@ -378,4 +378,226 @@ describe("Controller", () => {
     expect(cursorMoves.length).toBe(1);
     expect(flashes.length).toBe(1);
   });
+
+  describe("in the page's view, as SilverBullet lays it out", () => {
+    // The page scrolls in CodeMirror's scroller below the top bar (top 55, 500
+    // high); the table is 1000px down the page, 300 high, its rows 30 high.
+    // jsdom has no layout: the rectangles follow the scroller's scrollTop.
+    const SCROLLER_TOP = 55;
+    let scroller: HTMLElement;
+    let viewHeight: number;
+    const layOut = (pageHeight: number) => {
+      scroller = document.createElement("div");
+      scroller.className = "cm-scroller";
+      scroller.style.overflowY = "auto";
+      document.body.append(scroller);
+      scroller.append(editor);
+      viewHeight = 500;
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => pageHeight });
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => Math.min(pageHeight, viewHeight) });
+      const rect = (top: number, height: number) =>
+        ({ top, bottom: top + height, left: 0, right: 800, width: 800, height, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        if (this === scroller) return rect(SCROLLER_TOP, viewHeight);
+        const widget = this.closest(".sb-table-widget");
+        if (!widget || !widget.isConnected) return rect(0, 0);
+        const tableTop = SCROLLER_TOP + (pageHeight > 500 ? 1000 : 5) - scroller.scrollTop;
+        if (this === widget || this.tagName === "TABLE") return rect(tableTop, 300);
+        const tr = this.closest("tr");
+        return tr ? rect(tableTop + tr.rowIndex * 30, 30) : rect(0, 0);
+      });
+    };
+    const top = () => editor.querySelector<HTMLElement>(".sb-table-widget")!.getBoundingClientRect().top;
+    // What SilverBullet's editor does while it measures a table rendered anew: the page jumps
+    const jumpAfterWrite = () => {
+      const bridge = controller.bridge as { replaceRange: (from: number, to: number, insert: string) => unknown };
+      const replace = bridge.replaceRange.bind(bridge);
+      bridge.replaceRange = async (from, to, insert) => {
+        await replace(from, to, insert);
+        scroller.scrollTop = 0;
+        setTimeout(() => {
+          scroller.scrollTop = 4000;
+          scroller.dispatchEvent(new Event("scroll"));
+        }, 0);
+      };
+    };
+
+    it("keeps a table written where it was in the view, though the editor scrolls the page as it renders it anew", async () => {
+      await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
+      layOut(5000);
+      scroller.scrollTop = 900;
+      const before = top();
+      jumpAfterWrite();
+      clickOn(cell(3, 1));
+      editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "7";
+      key(editor.querySelector(".tp-cell-editor")!, "Enter");
+      await flush();
+      await controller.scan();
+      expect(text).toContain("| Fig | 7 |");
+      expect(top()).toBe(before);
+      // The editor's later scrolling too
+      await flush();
+      await flush();
+      expect(top()).toBe(before);
+      // The user scrolls: the page is theirs again
+      window.dispatchEvent(new WheelEvent("wheel"));
+      scroller.scrollTop = 100;
+      scroller.dispatchEvent(new Event("scroll"));
+      expect(scroller.scrollTop).toBe(100);
+    });
+
+    it("keeps the + adding a row low on a long page from scrolling the page, and swallows the click that ends the press", async () => {
+      await setup(PAGE);
+      layOut(5000);
+      scroller.scrollTop = 900;
+      const before = top();
+      jumpAfterWrite();
+      const inner = controller as unknown as { insertAt: unknown };
+      const mark = document.querySelector<HTMLElement>(".tp-insert")!;
+      inner.insertAt = { key: "Test#0", axis: "row", at: 4, beside: { after: 3 } };
+      mark.classList.add("tp-visible");
+      const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+      mark.dispatchEvent(down);
+      expect(down.defaultPrevented).toBe(true);
+      await flush();
+      await controller.scan();
+      expect(text).toBe(PAGE.replace("| Fig | 2 |\n", "| Fig | 2 |\n| | |\n"));
+      expect(top()).toBe(before);
+      // The press ends over whatever is there now (a link, say): it reaches nothing
+      const link = document.createElement("a");
+      link.dataset.ref = "Elsewhere";
+      editor.append(link);
+      const reached: string[] = [];
+      for (const type of ["mouseup", "click"]) link.addEventListener(type, () => reached.push(type));
+      link.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+      link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 }));
+      expect(reached).toEqual([]);
+      expect(text).toBe(PAGE.replace("| Fig | 2 |\n", "| Fig | 2 |\n| | |\n"));
+      // The next click is a click
+      link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 }));
+      expect(reached).toEqual(["click"]);
+      // Another press right after the + is not swallowed
+      inner.insertAt = { key: "Test#0", axis: "row", at: 1, beside: {} };
+      mark.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+      link.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+      link.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+      link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 }));
+      expect(reached).toEqual(["click", "mouseup", "click"]);
+    });
+
+    it("keeps the toolbar below the top bar on a page too short to scroll", async () => {
+      await setup(PAGE);
+      layOut(300);
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      const bar = document.querySelector<HTMLElement>(".tp-bar.tp-visible")!;
+      // No room above the header (just below the top bar): over the header instead
+      expect(parseFloat(bar.style.top)).toBeGreaterThanOrEqual(SCROLLER_TOP);
+    });
+
+    // A workaround, not a feature: what SilverBullet and the browser do on a phone, countered
+    describe("on a touch screen, against SilverBullet and the on-screen keyboard (core/touch-keyboard.ts)", () => {
+      it("hands the focus back to the editor when a cell editor closes, but not on a touch screen (its keyboard would scroll the page to the editor's cursor)", async () => {
+        await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
+        // Left unchanged with Enter: the table is not rendered anew
+        const edit = (pointerType: string) => {
+          cell(1, 1).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType }));
+          clickOn(cell(1, 1));
+          const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+          expect(document.activeElement).toBe(field);
+          key(field, "Enter");
+        };
+        edit("mouse");
+        await flush();
+        expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+        expect(document.activeElement).toBe(editor);
+        edit("touch");
+        await flush();
+        expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+        expect(document.activeElement).toBe(document.body);
+        // The editor focused (SilverBullet focuses it when the page opens): a touch on the table takes its focus
+        editor.focus();
+        cell(2, 0).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+        expect(document.activeElement).toBe(document.body);
+        // A mouse press leaves it
+        editor.focus();
+        cell(2, 0).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }));
+        expect(document.activeElement).toBe(editor);
+      });
+
+      it("scrolls the cell being edited back into view when an on-screen keyboard shrinks the view", async () => {
+        await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
+        layOut(5000);
+        // The last row at the bottom of the view
+        scroller.scrollTop = 1000 + 3 * 30 + 30 - 500;
+        clickOn(cell(3, 1));
+        const field = editor.querySelector<HTMLElement>(".tp-cell-editor")!;
+        expect(field.closest("td")!.getBoundingClientRect().bottom).toBe(SCROLLER_TOP + 500);
+        // The keyboard shows: SilverBullet shrinks its layout to what is above it
+        viewHeight = 250;
+        window.dispatchEvent(new Event("resize"));
+        expect(field.closest("td")!.getBoundingClientRect().bottom).toBe(SCROLLER_TOP + 250);
+        expect(editor.querySelector(".tp-cell-editor")).toBe(field);
+      });
+
+      it("shows the cell Enter moved to above a keyboard that shows after the write, though the table written is kept in its place", async () => {
+        await setup(PAGE);
+        layOut(5000);
+        // The last row at the bottom of the view
+        scroller.scrollTop = 1000 + 3 * 30 + 30 - 500;
+        clickOn(cell(2, 1));
+        const field = editor.querySelector<HTMLInputElement>(".tp-cell-editor")!;
+        field.value = "11";
+        key(field, "Enter");
+        await flush();
+        await controller.scan();
+        const td = editor.querySelector(".tp-cell-editor")!.closest("td")!;
+        expect(td).toBe(cell(3, 1));
+        // The keyboard shows for the new field, and the page scrolls to show it: the table written is not held against that
+        viewHeight = 250;
+        window.dispatchEvent(new Event("resize"));
+        scroller.dispatchEvent(new Event("scroll"));
+        await flush();
+        expect(td.getBoundingClientRect().bottom).toBeLessThanOrEqual(SCROLLER_TOP + 250);
+      });
+
+      it("brings the cell being edited back when SilverBullet scrolls to its own cursor as the field takes the focus", async () => {
+        await setup(PAGE);
+        layOut(5000);
+        scroller.scrollTop = 900;
+        clickOn(cell(3, 1));
+        const td = editor.querySelector(".tp-cell-editor")!.closest("td")!;
+        const shown = td.getBoundingClientRect().top;
+        // SilverBullet: its editor's content has the focus (the field is in it), so it scrolls to its cursor, at the page's start
+        scroller.scrollTop = 0;
+        scroller.dispatchEvent(new Event("scroll"));
+        expect(td.getBoundingClientRect().top).toBeLessThanOrEqual(SCROLLER_TOP + 500);
+        expect(td.getBoundingClientRect().bottom).toBeGreaterThanOrEqual(SCROLLER_TOP);
+        expect(scroller.scrollTop).toBeGreaterThan(0);
+        // The user scrolls: theirs
+        window.dispatchEvent(new Event("touchstart"));
+        scroller.scrollTop = 0;
+        scroller.dispatchEvent(new Event("scroll"));
+        expect(scroller.scrollTop).toBe(0);
+        expect(shown).toBeGreaterThan(SCROLLER_TOP);
+      });
+
+      it("scrolls the cell being edited above a keyboard that only shrinks the visual viewport", async () => {
+        const visual = Object.assign(new EventTarget(), { offsetTop: 0, height: 768 });
+        Object.defineProperty(window, "visualViewport", { configurable: true, value: visual });
+        try {
+          await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
+          layOut(5000);
+          scroller.scrollTop = 1000 + 3 * 30 + 30 - 500;
+          clickOn(cell(3, 1));
+          const td = editor.querySelector(".tp-cell-editor")!.closest("td")!;
+          // The layout keeps its size, the keyboard covers all but the top 300px of the window
+          visual.height = 300;
+          visual.dispatchEvent(new Event("resize"));
+          expect(td.getBoundingClientRect().bottom).toBe(300);
+        } finally {
+          Reflect.deleteProperty(window, "visualViewport");
+        }
+      });
+    });
+  });
 });

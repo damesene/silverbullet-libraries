@@ -18,6 +18,7 @@ import type {
 } from "./core/feature.ts";
 import { CellEditing } from "./core/editor.ts";
 import { insertColumnWith, insertRowWith } from "./core/structure.ts";
+import { TouchKeyboard } from "./core/touch-keyboard.ts";
 import { Autoscroll } from "./features/autoscroll.ts";
 import { ColumnTypes } from "./features/types.ts";
 import { Export } from "./features/export.ts";
@@ -42,6 +43,7 @@ import {
   NATIVE_ACTION_SELECTOR,
   positionHint,
   renderedTable,
+  SCROLLER_SELECTOR,
   UI_CLASS,
   WIDGET_SELECTOR,
 } from "./dom.ts";
@@ -111,6 +113,15 @@ const LONG_PRESS_MS = 550;
 // A sorting is stored (metadata setting) once the clicks have settled
 const STORE_SORT_DELAY_MS = 400;
 
+// After a write, how long a table rendered anew is kept where it was in the
+// page's view, against the editor's own scrolling as it measures the new
+// rendering (until the user scrolls, presses or types)
+const ANCHOR_MS = 1000;
+
+// The click that ends a press that inserted (the + takes the press, the table
+// is rendered anew under the pointer) is swallowed within this time
+const INSERT_CLICK_MS = 1000;
+
 
 
 const NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
@@ -146,7 +157,15 @@ export class Controller implements TableHost {
   private readonly scrollLefts = new Map<string, number>();
   // The same for tables taller than the maximum height setting, scrolled inside
   private readonly scrollTops = new Map<string, number>();
+  // A table being written, and where it was in the page's view (its top below
+  // the scroller's): the editor renders it anew and may scroll the page while
+  // it measures the new rendering, which would leave the user elsewhere
+  private anchor: { readonly key: string; readonly scroller: HTMLElement; offset: number; readonly until: number } | undefined;
+  // When a press inserted with the +: the click that ends it is no click on what is under the pointer then
+  private insertPressAt = 0;
   private readonly cellEditor: CellEditing;
+  // Countermeasures to SilverBullet and the on-screen keyboard on touch screens (a workaround, see its file)
+  private readonly touchKeyboard: TouchKeyboard;
   private hoverWidget: HTMLElement | undefined;
   private hoverCell: HTMLTableCellElement | undefined;
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -203,6 +222,16 @@ export class Controller implements TableHost {
       holdRow: (widget, info, row) => this.holdRow(widget, info, row),
       releaseRow: () => this.releaseRow(),
       editingEnded: (widget) => this.editingEnded(widget),
+      editingStarted: () => this.touchKeyboard.editorOpened(),
+    });
+    this.touchKeyboard = new TouchKeyboard({
+      doc,
+      inTable: (target) => this.enhancedWidgetOf(target) !== undefined,
+      editing: () => this.cellEditor.active !== undefined,
+      revealEditing: () => this.cellEditor.revealActive(),
+      // The cell being edited wins over keeping a table written in its place:
+      // the keyboard shows as the next cell opens after a write (Enter)
+      viewResized: () => this.dropAnchor(),
     });
     this.bar = this.floating("div", "tp-bar");
     this.insertMark = this.floatingButton("tp-insert", "Insert here", ICONS.plus);
@@ -215,6 +244,8 @@ export class Controller implements TableHost {
 
   start(): void {
     const win = this.doc.defaultView!;
+    // Before the controller's own listeners: a press that opens a cell's editor holds it in view after it ends the hold
+    this.touchKeyboard.start();
     win.addEventListener("mousedown", this.onMouseDown, true);
     win.addEventListener("click", this.onClick, true);
     win.addEventListener("contextmenu", this.onContextMenu, true);
@@ -227,7 +258,12 @@ export class Controller implements TableHost {
     this.doc.addEventListener("pointermove", this.onPointerMove, { passive: true });
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
     this.doc.addEventListener("pointerout", this.onPointerOut, { passive: true });
+    win.addEventListener("mouseup", this.onMouseUp, true);
+    // The user scrolls: a table written is no longer kept in its place
+    win.addEventListener("wheel", this.dropAnchor, { capture: true, passive: true });
+    win.addEventListener("touchstart", this.dropAnchor, { capture: true, passive: true });
 
+    // A click without a press (the keyboard); a press is taken in onMouseDown
     this.insertMark.addEventListener("click", () => this.insertHere());
 
     this.observer = new MutationObserver(() => this.queueScan());
@@ -303,6 +339,12 @@ export class Controller implements TableHost {
     win.removeEventListener("blur", this.onBlur);
     this.doc.removeEventListener("pointermove", this.onPointerMove);
     this.doc.removeEventListener("mousemove", this.onMouseMove);
+    this.doc.removeEventListener("pointerout", this.onPointerOut);
+    win.removeEventListener("mouseup", this.onMouseUp, true);
+    win.removeEventListener("wheel", this.dropAnchor, true);
+    win.removeEventListener("touchstart", this.dropAnchor, true);
+    this.touchKeyboard.stop();
+    this.anchor = undefined;
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
@@ -584,7 +626,10 @@ export class Controller implements TableHost {
       if (scrollLeft) widget.scrollLeft = scrollLeft;
       const scrollTop = this.scrollTops.get(info.key);
       if (scrollTop) widget.scrollTop = scrollTop;
+      // Where it was in the page's view, then the cell to edit next scrolled into view from there
+      this.keepAnchor(info.key, widget);
       this.cellEditor.takePending(widget, info);
+      this.anchorAgain(widget, info.key);
       for (const feature of this.features) feature.enhanced?.(widget, info);
       this.reshowInsert(widget, info);
       this.queueStickyUpdate();
@@ -1011,6 +1056,9 @@ export class Controller implements TableHost {
   }
 
   private onMouseDown = (e: MouseEvent): void => {
+    this.dropAnchor();
+    // Only the press that inserted has its end swallowed
+    this.insertPressAt = 0;
     // The mouse events a touch screen fires after a long press that opened a cell menu
     if (Date.now() - this.longPressAt < 1000) {
       e.preventDefault();
@@ -1022,12 +1070,18 @@ export class Controller implements TableHost {
       this.closeTableMenu(false);
     }
     for (const feature of this.features) if (feature.mouseDown?.(e)) return;
-    // A press in the band beside the table that misses the + (or where none shows) is the +'s: SilverBullet
-    // would put the cursor into the table and show its markdown
-    if (e.button === 0 && this.inInsertBand && !(e.target instanceof Node && this.isFloating(e.target))) {
+    // A press on the +, or in the band beside the table that misses it (or where none shows), is the +'s:
+    // SilverBullet would put the cursor into the table and show its markdown. It inserts at once, and the
+    // click that ends it is swallowed: the table rendered anew (the page maybe scrolled) puts something
+    // else under the pointer, e.g. a link, which the click would follow
+    const onMark = e.target instanceof Node && this.insertMark.contains(e.target);
+    if (e.button === 0 && (onMark || (this.inInsertBand && !(e.target instanceof Node && this.isFloating(e.target))))) {
       e.preventDefault();
       e.stopPropagation();
-      if (this.insertAt) this.insertHere();
+      if (this.insertAt) {
+        this.insertPressAt = Date.now();
+        this.insertHere();
+      }
       return;
     }
     if (e.button !== 0) return;
@@ -1086,7 +1140,21 @@ export class Controller implements TableHost {
     void this.showMarkdown(info, { ...ref, within: within ?? 0 });
   }
 
+  // The end of a press that inserted with the +: it reaches nothing
+  private onMouseUp = (e: MouseEvent): void => {
+    if (e.button !== 0 || !this.insertPressAt || Date.now() - this.insertPressAt > INSERT_CLICK_MS) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   private onClick = (e: MouseEvent): void => {
+    // detail 0: a click from the keyboard, no press
+    if (e.button === 0 && e.detail !== 0 && this.insertPressAt && Date.now() - this.insertPressAt <= INSERT_CLICK_MS) {
+      this.insertPressAt = 0;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     const hit = this.enhancedWidgetOf(e.target);
     if (!hit) return;
     const [widget, info] = hit;
@@ -1125,6 +1193,55 @@ export class Controller implements TableHost {
       this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
       this.scrollTops.set(scrolled.key, e.target.scrollTop);
     }
+    // The editor scrolled the page while it measured a table written: it goes back
+    if (this.anchor && e.target === this.anchor.scroller) this.keepAnchor(this.anchor.key);
+  };
+
+  // ---- keeping a table written in its place ----------------------------------
+
+  /** Before a write: where the table is in the page's view */
+  private anchorAt(widget: HTMLElement, key: string): void {
+    const scroller = widget.isConnected ? this.scrollParentOf(widget) : undefined;
+    this.anchor = scroller && {
+      key,
+      scroller,
+      offset: widget.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+      until: Date.now() + ANCHOR_MS,
+    };
+  }
+
+  /** The table rendered anew is scrolled to where it was, so the row edited stays under the user's eyes */
+  private keepAnchor(key: string, widget = this.widgetForKey(key)): void {
+    const anchor = this.anchor;
+    if (!anchor || anchor.key !== key || !widget) return;
+    if (Date.now() > anchor.until || !anchor.scroller.isConnected) {
+      this.anchor = undefined;
+      return;
+    }
+    const offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
+    if (Math.abs(offset - anchor.offset) >= 1) anchor.scroller.scrollTop += offset - anchor.offset;
+  }
+
+  /**
+   * After the table's own scrolling (the cell to edit next revealed): kept
+   * there, also once the editor has measured the new rendering, in the next
+   * frames
+   */
+  private anchorAgain(widget: HTMLElement, key: string): void {
+    const anchor = this.anchor;
+    if (!anchor || anchor.key !== key) return;
+    anchor.offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
+    const keep = () => this.keepAnchor(key);
+    const win = this.doc.defaultView!;
+    win.requestAnimationFrame?.(() => {
+      keep();
+      win.requestAnimationFrame(keep);
+    });
+    setTimeout(keep, 100);
+  }
+
+  private dropAnchor = (): void => {
+    this.anchor = undefined;
   };
 
   /**
@@ -1151,16 +1268,12 @@ export class Controller implements TableHost {
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
   private isShown(widget: HTMLElement, info: WidgetInfo, element: Element): boolean {
     const rect = element.getBoundingClientRect();
-    const view = this.scrollParentOf(widget)?.getBoundingClientRect();
+    const view = this.viewBounds(widget);
     const box = this.innerBox(widget);
     const head = info.table.tHead;
     // A body cell under the header held at the top is out of view
-    const top = Math.max(
-      view?.top ?? 0,
-      box.top,
-      head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity,
-    );
-    const bottom = Math.min(view?.bottom ?? this.doc.defaultView!.innerHeight, box.bottom);
+    const top = Math.max(view.top, box.top, head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity);
+    const bottom = Math.min(view.bottom, box.bottom);
     return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
   }
 
@@ -1206,7 +1319,23 @@ export class Controller implements TableHost {
     return undefined;
   }
 
+  viewBounds(element: HTMLElement): { left: number; right: number; top: number; bottom: number } {
+    const win = this.doc.defaultView!;
+    // A page too short to scroll has no scroll parent, but its view still starts below the top bar
+    const scroller = this.scrollParentOf(element) ?? element.closest<HTMLElement>(SCROLLER_SELECTOR) ?? undefined;
+    const rect = scroller?.getBoundingClientRect();
+    // Not laid out (in tests): the window
+    const view = rect && rect.height > 0 ? rect : { left: 0, right: win.innerWidth, top: 0, bottom: win.innerHeight };
+    // An on-screen keyboard that only shrinks the visual viewport covers the page's bottom
+    const visual = win.visualViewport;
+    const visibleBottom = visual && visual.height > 0 ? visual.offsetTop + visual.height : Infinity;
+    const visibleTop = visual && visual.height > 0 ? visual.offsetTop : -Infinity;
+    return { left: view.left, right: view.right, top: Math.max(view.top, visibleTop), bottom: Math.min(view.bottom, visibleBottom) };
+  }
+
   private onKeyDown = (e: KeyboardEvent): void => {
+    // Keys may scroll (PageDown, a cell editor moving to the next cell): a table written is not held in place against them
+    this.dropAnchor();
     if (e.key === "Escape" && this.tableMenu) {
       e.preventDefault();
       e.stopPropagation();
@@ -1323,6 +1452,8 @@ export class Controller implements TableHost {
   }
 
   focusEditor(widget: HTMLElement): void {
+    // Not after a touch (core/touch-keyboard.ts)
+    if (this.touchKeyboard.letGoOfFocus()) return;
     widget.closest<HTMLElement>(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
 
@@ -1397,6 +1528,7 @@ export class Controller implements TableHost {
         const then = await feature.beforeWrite?.(text, spanFrom, spanTo);
         if (then) after.push(then);
       }
+      this.anchorAt(widget, info.key);
       await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
       this.pageText = written;
       for (const then of after) then(replace.from, written.length - text.length);
@@ -1754,18 +1886,18 @@ export class Controller implements TableHost {
     const tableRect = info.table.getBoundingClientRect();
     // The header as shown, which may be held at the top of the view
     const headerRect = info.table.rows[0]!.getBoundingClientRect();
-    const viewTop = this.scrollParentOf(widget)?.getBoundingClientRect().top ?? 0;
+    // The page's view: below SilverBullet's top bar, also on a page too short to scroll
+    const shown = this.viewBounds(widget);
     bar.classList.add("tp-visible");
     const above = headerRect.top - bar.offsetHeight - BAR_GAP;
     // No room above the header: over the header's right end instead
-    const fits = above >= viewTop + 2;
+    const fits = above >= shown.top + 2;
     const top = fits ? above : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
     // At the table's right edge, or its box's when the table scrolls in it,
     // as far as it is in view: the page around a wide table may scroll
     // sideways too, taking the box's edge along. A box wider than its table
     // (a renderer's block) does not take the toolbar past the table.
-    const viewRight = this.scrollParentOf(widget)?.getBoundingClientRect().right ?? this.doc.defaultView!.innerWidth;
-    this.place(bar, Math.min(rect.right, tableRect.right, viewRight) - bar.offsetWidth - (fits ? 0 : 6), top);
+    this.place(bar, Math.min(rect.right, tableRect.right, shown.right) - bar.offsetWidth - (fits ? 0 : 6), top);
     this.positionTableMenu();
   }
 

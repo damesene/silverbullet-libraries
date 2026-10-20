@@ -214,6 +214,12 @@ export interface TableHost {
   scrollsInside(widget: HTMLElement): boolean;
   /** The element the page scrolls in, around an element */
   scrollParentOf(element: HTMLElement): HTMLElement | undefined;
+  /**
+   * Where the page is in view around an element: its scroller (below the
+   * editor's top bar, also while the page is too short to scroll), or the
+   * window, cut to what an on-screen keyboard leaves visible
+   */
+  viewBounds(element: HTMLElement): { left: number; right: number; top: number; bottom: number };
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
   shownRect(widget: HTMLElement, info: WidgetInfo): { left: number; right: number; top: number; bottom: number };
   /** The body rows as rendered, in the order of the markdown, hidden ones included */

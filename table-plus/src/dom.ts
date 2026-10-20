@@ -7,6 +7,10 @@ export const WIDGET_SELECTOR = ".sb-table-widget";
 // CodeMirror's editable area: focusing it hands the keyboard back to the editor
 export const EDITOR_SELECTOR = ".cm-content";
 
+// CodeMirror's scroller: the page's view, below SilverBullet's top bar, even
+// while the page is too short to scroll
+export const SCROLLER_SELECTOR = ".cm-scroller";
+
 // Elements inside a table with SilverBullet's own click behaviour (links,
 // mentions, command buttons, extended task states); their clicks are left alone
 export const NATIVE_ACTION_SELECTOR =
