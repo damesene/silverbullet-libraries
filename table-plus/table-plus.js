@@ -1399,6 +1399,7 @@ var ICONS = {
     true
   ),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  columnWidth: svg('<path d="M4 4v16M20 4v16M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3"/>'),
   expand: svg('<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'),
   rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
   rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
@@ -6567,6 +6568,197 @@ var History = class {
   }
 };
 
+// table-plus/src/features/widths.ts
+var MIN_WIDTH = 40;
+var Widths = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // Widths set for the view only (no metadata stored), by table and column; undefined: automatic
+  viewed = /* @__PURE__ */ new Map();
+  drag;
+  stopDrag;
+  stop() {
+    this.stopDrag?.();
+  }
+  pointerBusy() {
+    return this.drag ? "drag" : void 0;
+  }
+  /** The widths of a table's columns: those set for the view, else those stored */
+  widthsOf(info) {
+    const widths = /* @__PURE__ */ new Map();
+    for (const [column, value] of columnMeta(parseTable(info.source), "width")) {
+      const n = Number(value);
+      if (Number.isFinite(n) && n > 0) widths.set(column, Math.max(MIN_WIDTH, Math.round(n)));
+    }
+    for (const [column, width] of this.viewed.get(info.key) ?? []) {
+      if (width === void 0) widths.delete(column);
+      else widths.set(column, width);
+    }
+    return widths;
+  }
+  // ---- the handles and the widths shown ----------------------------------------
+  decorate(_widget, info) {
+    Array.from(info.table.rows[0].cells).forEach((cell, column) => {
+      const handle = this.host.doc.createElement("span");
+      handle.className = `${UI_CLASS} tp-col-resize`;
+      handle.dataset.tpColumn = String(column);
+      handle.title = "Drag to set the column's width; double-click for automatic";
+      cell.append(handle);
+    });
+  }
+  // After the cells are laid out (their content boxes made): the widths set
+  viewApplied(_widget, info) {
+    const widths = this.widthsOf(info);
+    for (let column = 0; column < info.columns; column++) this.apply(info, column, widths.get(column));
+  }
+  /**
+   * A column `width` pixels wide (undefined: automatic): every cell of it, and
+   * the content box of every body cell sized to fit inside (it is otherwise as
+   * wide as its text, up to the maximum column width)
+   */
+  apply(info, column, width, padding = this.paddingOf(info, column)) {
+    for (const tr of [info.table.rows[0], ...this.host.bodyRows(info)]) {
+      const cell = tr.cells[column];
+      if (!cell || cell.classList.contains("tp-editing")) continue;
+      cell.classList.toggle("tp-sized", width !== void 0);
+      cell.style.boxSizing = width === void 0 ? "" : "border-box";
+      cell.style.width = width === void 0 ? "" : `${width}px`;
+      cell.style.minWidth = width === void 0 ? "" : `${width}px`;
+      cell.style.maxWidth = width === void 0 ? "" : `${width}px`;
+      const box = cell.querySelector(":scope > .tp-cell-content");
+      if (box) {
+        box.style.width = width === void 0 ? "" : `${Math.max(0, width - padding)}px`;
+        box.style.maxWidth = width === void 0 ? "" : "none";
+      }
+    }
+  }
+  /** A cell's padding left and right (the same in the column's header and body cells) */
+  paddingOf(info, column) {
+    const header = info.table.rows[0].cells[column];
+    if (!header) return 0;
+    const style = this.host.doc.defaultView.getComputedStyle(header);
+    return (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+  }
+  // ---- dragging -----------------------------------------------------------------
+  mouseDown(e) {
+    const handle = e.target instanceof Element ? e.target.closest(".tp-col-resize") : null;
+    const hit = handle && this.host.enhancedWidgetOf(handle);
+    if (!handle || !hit || e.button !== 0) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    this.stopDrag?.();
+    const editing = this.host.editing;
+    if (editing) editing.field.blur();
+    const [, info] = hit;
+    const column = Number(handle.dataset.tpColumn);
+    const header = info.table.rows[0].cells[column];
+    if (!header) return true;
+    const startWidth = Math.round(header.getBoundingClientRect().width);
+    this.drag = { key: info.key, column, startX: e.clientX, startWidth, padding: this.paddingOf(info, column), width: startWidth };
+    handle.classList.add("tp-active");
+    const doc = this.host.doc;
+    doc.body.classList.add("tp-resizing");
+    const win = doc.defaultView;
+    let frame = 0;
+    const show = () => {
+      frame = 0;
+      const drag = this.drag;
+      const now2 = drag && this.current(drag.key);
+      if (!drag || !now2) return;
+      this.apply(now2[1], drag.column, drag.width, drag.padding);
+      this.host.tableResized(now2[1]);
+    };
+    const move = (ev) => {
+      const drag = this.drag;
+      if (!drag) return;
+      if (ev.buttons === 0) {
+        end(ev);
+        return;
+      }
+      ev.preventDefault();
+      drag.width = Math.max(MIN_WIDTH, Math.round(drag.startWidth + ev.clientX - drag.startX));
+      if (!frame) frame = win.requestAnimationFrame ? win.requestAnimationFrame(show) : (show(), 0);
+    };
+    const end = (ev) => {
+      const drag = this.drag;
+      if (frame && win.cancelAnimationFrame) win.cancelAnimationFrame(frame);
+      this.stopDrag?.();
+      const now2 = drag && this.current(drag.key);
+      if (!drag || !now2) return;
+      const [current, nowInfo] = now2;
+      if (drag.width !== drag.startWidth) {
+        void this.set(current, nowInfo, drag.column, drag.width);
+        return;
+      }
+      if (ev.detail >= 2) void this.set(current, nowInfo, drag.column, void 0);
+      else {
+        this.viewApplied(current, nowInfo);
+        this.host.tableResized(nowInfo);
+      }
+    };
+    this.stopDrag = () => {
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", end, true);
+      handle.classList.remove("tp-active");
+      doc.body.classList.remove("tp-resizing");
+      this.drag = void 0;
+      this.stopDrag = void 0;
+    };
+    win.addEventListener("mousemove", move, true);
+    win.addEventListener("mouseup", end, true);
+    return true;
+  }
+  /** The table with `key` as rendered now: a write renders it anew */
+  current(key) {
+    const widget = this.host.widgetForKey(key);
+    const info = widget && this.host.infoOf(widget);
+    return widget && info ? [widget, info] : void 0;
+  }
+  /** A column's width set (undefined: automatic): stored in the table where it can be, else for the view */
+  async set(widget, info, column, width) {
+    const view = this.viewed.get(info.key) ?? /* @__PURE__ */ new Map();
+    view.set(column, width);
+    this.viewed.set(info.key, view);
+    this.viewApplied(widget, info);
+    this.host.tableResized(info);
+    if (!(info.metaRow || this.host.metadataEnabled)) return;
+    const result = await this.host.write(widget, (t) => {
+      const widths = columnMeta(t, "width");
+      if (width === void 0) widths.delete(column);
+      else widths.set(column, String(width));
+      return withColumnMeta(t, "width", widths);
+    });
+    if (result !== "failed") this.viewed.get(info.key)?.delete(column);
+  }
+  /** Columns moved, inserted or deleted: the widths set for the view go with them */
+  columnsMoved(key, map) {
+    const view = this.viewed.get(key);
+    if (!view) return;
+    const moved2 = /* @__PURE__ */ new Map();
+    for (const [column, width] of view) {
+      const target = map(column);
+      if (target !== void 0) moved2.set(target, width);
+    }
+    this.viewed.set(key, moved2);
+  }
+  // ---- the column menu ------------------------------------------------------------
+  columnMenuEntries(widget, info, column) {
+    const width = this.widthsOf(info).get(column);
+    if (width === void 0) return [];
+    return [
+      {
+        kind: "item",
+        label: "Auto width",
+        icon: ICONS.columnWidth,
+        hint: `The column is ${width}px wide: make it as wide as its text`,
+        run: () => void this.set(widget, info, column, void 0)
+      }
+    ];
+  }
+};
+
 // table-plus/src/features/popup.ts
 var CellPopup = class {
   constructor(host) {
@@ -7856,6 +8048,7 @@ var Controller = class {
       optional("sticky", () => new Sticky(this)),
       optional("autoscroll", () => new Autoscroll(this)),
       optional("handles", () => new Grips(this)),
+      optional("widths", () => new Widths(this)),
       // Recalculate first in the toolbar
       optional("formulas", () => new Formulas(this)),
       optional("pageLinks", () => new PageLinks(this)),
@@ -8003,6 +8196,11 @@ var Controller = class {
   }
   metadataParts(tables) {
     return this.features.flatMap((f) => f.metadataPart?.(tables) ?? []);
+  }
+  tableResized(info) {
+    this.pinColumns(info);
+    this.queueStickyUpdate();
+    this.queueOverflowCheck();
   }
   toolbarChanged() {
     const widget = this.hoverWidget;

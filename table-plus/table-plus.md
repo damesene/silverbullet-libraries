@@ -364,6 +364,7 @@ Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; m
 * **Insert with +**: with a mouse or a pen, hover just left of the row grips, or just above the column grips: a **+** shows on the border nearest the pointer and inserts a row (column) there. On the last border it adds one at the end; while a cell of the last row (column) is hovered, selected or edited, a faint **+** under the table (right of the header) adds one at the end. A new column is named *Column N*, ready to rename. On a touch screen, insert from the row's or column's menu.
 * **Numbered column**: *Insert numbered column left* in a column's menu adds a column `#` with `=ROW()` in every row: it numbers the rows as written (sorting or filtering the view does not renumber them), rows added later get the formula too, and inserting, deleting or moving rows numbers them again. Add as many as you like. It needs the *Store table metadata* setting, as every new formula.
 * Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.
+* **Column width**: drag the right edge of a column's header (the pointer shows ↔ there) to set its width; text wraps (or is cut) within it, see [[#Cells (`tablePlus.cells`)]]. Double-click that edge, or *Auto width* in the column's menu, for the automatic width again (as wide as the text, up to the maximum column width). With the *Store table metadata* setting the width is stored in the table (`width.price="180"`, see [[#Table metadata]]) and follows the column when it is renamed or moved; without it, it holds until the page is opened again.
 
 ## Pinning
 
@@ -464,6 +465,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
+| `widths` | A column's width set by dragging the right edge of its header, *Auto width* in the column's menu; with *Store table metadata* stored in the table. Off: columns are as wide as their text; widths stored in tables are kept but not used. |
 | `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
 | `autoscroll` | The middle mouse button over a table scrolls it. |
 
@@ -493,7 +495,7 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 
 * The row is hidden in SilverBullet. Browsers never show `<meta>`, and other markdown renderers (GitHub, Obsidian) drop it, leaving at most an empty row.
 * It is always the last row: new rows go above it, and it is not sorted, filtered or moved.
-* Attributes of a column name it after a dot: `sort.qty`, `filter.status`. Names are keys, as for formula references (see [[#References]]): the column `Unit price` is `sort.unit_price`, and any spelling with that key names it; a column with a name of its own goes by it. With several columns of the same name, the occurrence is added: `filter.qty:2` is the second column named Qty. They follow their column when it is renamed or moved, and are removed with it.
+* Attributes of a column name it after a dot: `sort.qty`, `filter.status`, `width.notes` (its width in pixels). Names are keys, as for formula references (see [[#References]]): the column `Unit price` is `sort.unit_price`, and any spelling with that key names it; a column with a name of its own goes by it. With several columns of the same name, the occurrence is added: `filter.qty:2` is the second column named Qty. They follow their column when it is renamed or moved, and are removed with it.
 * A filter is stored as typed, once you leave its field; a `|` in it is written `\|`, as everywhere in a table: `filter.status="=open\|blocked"`.
 * When nothing is left in it (no sorting, no filter, nothing pinned, no name), the row is removed.
 * With the setting off, a table without a `<meta>` row gets none. A table with one keeps using it: its sorting and filters are still stored, and its rows and columns can be unpinned, but nothing new can be pinned. When the row is left empty, it is removed.
@@ -732,6 +734,18 @@ config.define("tablePlus", {
               default = true,
               description = "The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus (insert, duplicate, pin, sort, type, delete…).",
               ui = { category = "Table Plus: Modules", label = "Row and column handles", priority = 4 },
+            },
+          },
+        },
+        widths = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Column widths: drag the right edge of a column's header to set its width, double-click it (or Auto width in the column's menu) for the automatic width; with Store table metadata the width is stored in the table. Off: columns are as wide as their text; stored widths are kept but not used.",
+              ui = { category = "Table Plus: Modules", label = "Column widths", priority = 3.5 },
             },
           },
         },
@@ -1101,6 +1115,51 @@ body.tp-navigating .sb-table-widget.tp-table * {
   width: 12px;
   height: 12px;
 }
+/* The widths module: a handle on a header cell's right edge sets the column's
+   width (a line shows on it while hovered or dragged) */
+.sb-table-widget.tp-table thead tr:first-child > td:not(.tp-pin-left):not(.tp-pin-right) {
+  position: relative;
+}
+.sb-table-widget .tp-col-resize {
+  /* Inside its cell, at its right edge: past it, the table clips it (the last
+     column) or a pinned neighbour covers it (pinned cells stack) */
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  z-index: 2;
+  width: 8px;
+  cursor: col-resize;
+}
+.sb-table-widget .tp-col-resize::after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  right: 0;
+  width: 2px;
+  border-radius: 1px;
+}
+.sb-table-widget .tp-col-resize:hover::after,
+.sb-table-widget .tp-col-resize.tp-active::after {
+  background: var(--ui-accent-color);
+}
+@media (pointer: coarse) {
+  .sb-table-widget .tp-col-resize {
+    pointer-events: none;
+  }
+}
+body.tp-resizing,
+body.tp-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+/* A column with a width set: its header wraps within it too */
+.sb-table-widget.tp-table thead td.tp-sized {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* The cell's popup: its editor over the cell, the whole text wrapped */
 .tp-floating.tp-cell-popup.tp-visible {
   display: block !important;

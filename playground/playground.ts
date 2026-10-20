@@ -247,6 +247,7 @@ const MODULE_LABELS: Record<FeatureName, string> = {
   export: "Export",
   paste: "Paste",
   handles: "Handles",
+  widths: "Column widths",
   sticky: "Sticky header",
   autoscroll: "Middle-button scrolling",
 };

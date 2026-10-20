@@ -52,6 +52,7 @@ export const FEATURE_NAMES = [
   "export",
   "paste",
   "handles",
+  "widths",
   "sticky",
   "autoscroll",
 ] as const;

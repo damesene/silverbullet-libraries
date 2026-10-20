@@ -28,6 +28,7 @@ import { Filters } from "./features/filters.ts";
 import { Formulas } from "./features/formulas.ts";
 import { Grips } from "./features/grips.ts";
 import { History } from "./features/history.ts";
+import { Widths } from "./features/widths.ts";
 import { CellPopup } from "./features/popup.ts";
 import { Metadata } from "./features/metadata.ts";
 import { Names } from "./features/names.ts";
@@ -333,6 +334,7 @@ export class Controller implements TableHost {
       optional("sticky", () => new Sticky(this)),
       optional("autoscroll", () => new Autoscroll(this)),
       optional("handles", () => new Grips(this)),
+      optional("widths", () => new Widths(this)),
       // Recalculate first in the toolbar
       optional("formulas", () => new Formulas(this)),
       optional("pageLinks", () => new PageLinks(this)),
@@ -501,6 +503,13 @@ export class Controller implements TableHost {
 
   metadataParts(tables: readonly Table[]): MetadataPart[] {
     return this.features.flatMap((f) => f.metadataPart?.(tables) ?? []);
+  }
+
+  tableResized(info: WidgetInfo): void {
+    // Pinned columns stick at offsets from the widths of those further out
+    this.pinColumns(info);
+    this.queueStickyUpdate();
+    this.queueOverflowCheck();
   }
 
   toolbarChanged(): void {

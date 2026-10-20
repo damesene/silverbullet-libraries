@@ -193,6 +193,8 @@ export interface TableHost {
   metadataParts(tables: readonly Table[]): MetadataPart[];
   /** What a feature's toolbar buttons show changed: the toolbar in view is shown again */
   toolbarChanged(): void;
+  /** A table changed its size (a column's width): what follows its layout (pinned columns' offsets, the held header, the controls, cut cells) follows */
+  tableResized(info: WidgetInfo): void;
   /** Asks for a text (SilverBullet's dialog, else the browser's); undefined: cancelled */
   promptText(message: string, value?: string): Promise<string | undefined>;
   /** Hands the keyboard back to SilverBullet's editor */
