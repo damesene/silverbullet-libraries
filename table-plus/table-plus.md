@@ -1159,8 +1159,12 @@ end
 }
 
 /* Ctrl held in a cell editor: arrows move between cells */
-body.tp-navigating .sb-table-widget.tp-table,
-body.tp-navigating .sb-table-widget.tp-table * {
+/* Ctrl held in a cell editor: the move cursor on the cell under the pointer
+   (a class on that cell only: one on an ancestor of every cell made the
+   browser recalculate the whole page's style on every press of Ctrl) */
+.sb-table-widget.tp-table.tp-navigating-here,
+.sb-table-widget.tp-table :is(td, th).tp-navigating-here,
+.sb-table-widget.tp-table :is(td, th).tp-navigating-here * {
   cursor: move !important;
 }
 

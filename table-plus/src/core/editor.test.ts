@@ -185,8 +185,17 @@ describe("Cell editor", () => {
       const td = field.closest("td")!;
       return { field, at: [(td.parentElement as HTMLTableRowElement).rowIndex, td.cellIndex] };
     };
+    // The move cursor on the cell under the pointer only (jsdom does not hit-test: told which)
+    let under: Element = cell(2, 1);
+    document.elementFromPoint = () => under;
+    document.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 10, pointerType: "mouse" }));
+    expect(cell(2, 1).classList.contains("tp-navigating-here")).toBe(false);
     key(editing().field, "Control");
-    expect(document.body.classList.contains("tp-navigating")).toBe(true);
+    expect(cell(2, 1).classList.contains("tp-navigating-here")).toBe(true);
+    expect(document.body.classList.contains("tp-navigating")).toBe(false);
+    under = cell(1, 1);
+    document.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 30, pointerType: "mouse" }));
+    expect([cell(2, 1), cell(1, 1)].map((c) => c.classList.contains("tp-navigating-here"))).toEqual([false, true]);
 
     key(editing().field, "ArrowDown", { ctrlKey: true });
     await flush();
@@ -211,7 +220,8 @@ describe("Cell editor", () => {
     expect(editing().at).toEqual([0, 0]);
 
     window.dispatchEvent(new KeyboardEvent("keyup", { key: "Control" }));
-    expect(document.body.classList.contains("tp-navigating")).toBe(false);
+    expect(editor.querySelectorAll(".tp-navigating-here").length).toBe(0);
+    delete (document as { elementFromPoint?: unknown }).elementFromPoint;
   });
 
   it("moves rows and columns with Ctrl+Alt+arrows, the editor following", async () => {

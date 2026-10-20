@@ -1347,7 +1347,7 @@ var CellEditing = class {
   }
   // While Ctrl is held in a cell editor, arrows move between cells: the pointer shows it
   setNavigating(on) {
-    this.host.doc.body.classList.toggle("tp-navigating", on);
+    this.context.navigating(on);
   }
 };
 
@@ -9010,6 +9010,7 @@ function placeAtEnd(parent, rows) {
     next = tr;
   }
 }
+var NAVIGATING_CLASS = "tp-navigating-here";
 var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
@@ -9023,7 +9024,11 @@ var Controller = class {
       holdRow: (widget, info, row) => this.holdRow(widget, info, row),
       releaseRow: () => this.releaseRow(),
       editingEnded: (widget) => this.editingEnded(widget),
-      editingStarted: () => this.touchKeyboard.editorOpened()
+      editingStarted: () => this.touchKeyboard.editorOpened(),
+      navigating: (on) => {
+        this.navigating = on;
+        this.markNavigating();
+      }
     });
     this.touchKeyboard = new TouchKeyboard({
       doc,
@@ -9073,6 +9078,9 @@ var Controller = class {
   touchKeyboard;
   hoverWidget;
   hoverCell;
+  // Ctrl held in a cell editor, and the element under the pointer showing the move cursor
+  navigating = false;
+  navigatingAt;
   hideTimer;
   scanQueued = false;
   // Set by stop(): work already scheduled then does nothing
@@ -9547,6 +9555,7 @@ var Controller = class {
       this.cellEditor.takePending(widget, info);
       this.anchorAgain(widget, info.key);
       for (const feature of this.features) feature.enhanced?.(widget, info);
+      if (this.navigating) this.markNavigating();
       this.reshowInsert(widget, info);
       this.queueStickyUpdate();
       void this.refreshSettings();
@@ -10185,6 +10194,7 @@ var Controller = class {
       this.cellHovered(widget, info, cell);
     } else this.endHover(true);
     if (this.insertAt || this.inInsertBand) this.insertUnderPointer();
+    if (this.navigating) this.markNavigating();
   }
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
   isShown(widget, info, element) {
@@ -10273,8 +10283,25 @@ var Controller = class {
     this.lastPointer = void 0;
     this.inInsertBand = this.hideInsert();
   };
+  /**
+   * While Ctrl is held in a cell editor the pointer shows the move cursor over
+   * a table: on the cell under it only (the table where it is between cells),
+   * moved with it. A class on an ancestor of every cell (body) made the browser
+   * recalculate the whole page's style on every press and release of Ctrl.
+   */
+  markNavigating() {
+    const pointer = this.lastPointer;
+    const under = this.navigating && pointer ? this.doc.elementFromPoint?.(pointer.clientX, pointer.clientY) : null;
+    const table = `${WIDGET_SELECTOR}.tp-table`;
+    const target = under?.closest(`${table} td, ${table} th`) ?? under?.closest(table) ?? void 0;
+    if (target === this.navigatingAt) return;
+    this.navigatingAt?.classList.remove(NAVIGATING_CLASS);
+    target?.classList.add(NAVIGATING_CLASS);
+    this.navigatingAt = target;
+  }
   onPointerMove = (e) => {
     this.lastPointer = { pointerType: e.pointerType, clientX: e.clientX, clientY: e.clientY };
+    if (this.navigating) this.markNavigating();
     const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
     this.inInsertBand = !this.tableMenu && busy !== "drag" ? this.showInsert(e, !busy) : this.hideInsert();
   };

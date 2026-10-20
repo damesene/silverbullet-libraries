@@ -158,6 +158,9 @@ function placeAtEnd(parent: Element, rows: readonly HTMLTableRowElement[]): void
   }
 }
 
+// The element under the pointer while Ctrl is held in a cell editor (the move cursor, CSS)
+const NAVIGATING_CLASS = "tp-navigating-here";
+
 export class Controller implements TableHost {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
   // The page's text as last read
@@ -189,6 +192,9 @@ export class Controller implements TableHost {
   private readonly touchKeyboard: TouchKeyboard;
   private hoverWidget: HTMLElement | undefined;
   private hoverCell: HTMLTableCellElement | undefined;
+  // Ctrl held in a cell editor, and the element under the pointer showing the move cursor
+  private navigating = false;
+  private navigatingAt: HTMLElement | undefined;
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
   private scanQueued = false;
   // Set by stop(): work already scheduled then does nothing
@@ -258,6 +264,10 @@ export class Controller implements TableHost {
       releaseRow: () => this.releaseRow(),
       editingEnded: (widget) => this.editingEnded(widget),
       editingStarted: () => this.touchKeyboard.editorOpened(),
+      navigating: (on) => {
+        this.navigating = on;
+        this.markNavigating();
+      },
     });
     this.touchKeyboard = new TouchKeyboard({
       doc,
@@ -756,6 +766,8 @@ export class Controller implements TableHost {
       this.cellEditor.takePending(widget, info);
       this.anchorAgain(widget, info.key);
       for (const feature of this.features) feature.enhanced?.(widget, info);
+      // The cell showing the move cursor was rendered anew (Ctrl+arrows saved a cell)
+      if (this.navigating) this.markNavigating();
       this.reshowInsert(widget, info);
       this.queueStickyUpdate();
       void this.refreshSettings();
@@ -1504,6 +1516,8 @@ export class Controller implements TableHost {
     } else this.endHover(true);
     // The table moved under a pointer that did not: the + where the pointer is now
     if (this.insertAt || this.inInsertBand) this.insertUnderPointer();
+    // Another cell under a pointer that did not move
+    if (this.navigating) this.markNavigating();
   }
 
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
@@ -1617,8 +1631,26 @@ export class Controller implements TableHost {
     this.inInsertBand = this.hideInsert();
   };
 
+  /**
+   * While Ctrl is held in a cell editor the pointer shows the move cursor over
+   * a table: on the cell under it only (the table where it is between cells),
+   * moved with it. A class on an ancestor of every cell (body) made the browser
+   * recalculate the whole page's style on every press and release of Ctrl.
+   */
+  private markNavigating(): void {
+    const pointer = this.lastPointer;
+    const under = this.navigating && pointer ? this.doc.elementFromPoint?.(pointer.clientX, pointer.clientY) : null;
+    const table = `${WIDGET_SELECTOR}.tp-table`;
+    const target = under?.closest<HTMLElement>(`${table} td, ${table} th`) ?? under?.closest<HTMLElement>(table) ?? undefined;
+    if (target === this.navigatingAt) return;
+    this.navigatingAt?.classList.remove(NAVIGATING_CLASS);
+    target?.classList.add(NAVIGATING_CLASS);
+    this.navigatingAt = target;
+  }
+
   private onPointerMove = (e: PointerEvent): void => {
     this.lastPointer = { pointerType: e.pointerType, clientX: e.clientX, clientY: e.clientY };
+    if (this.navigating) this.markNavigating();
     const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
     this.inInsertBand = !this.tableMenu && busy !== "drag" ? this.showInsert(e, !busy) : this.hideInsert();
   };

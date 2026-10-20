@@ -66,6 +66,8 @@ export type EditorContext = {
   editingEnded(widget: HTMLElement): void;
   // A cell's editor opened: its field's focus makes SilverBullet scroll elsewhere on a touch screen (core/touch-keyboard.ts)
   editingStarted(): void;
+  // Ctrl held (or let go) in a cell editor: arrows move between cells, the pointer shows it
+  navigating(on: boolean): void;
 };
 
 export class CellEditing {
@@ -551,6 +553,6 @@ export class CellEditing {
 
   // While Ctrl is held in a cell editor, arrows move between cells: the pointer shows it
   setNavigating(on: boolean): void {
-    this.host.doc.body.classList.toggle("tp-navigating", on);
+    this.context.navigating(on);
   }
 }
