@@ -7386,11 +7386,23 @@ var Sticky = class {
       if (!info || !head || renderedTable(widget) !== info.table) continue;
       const scroller = this.host.scrollParentOf(widget)?.getBoundingClientRect();
       const inside = this.host.scrollsInside(widget);
+      const foot = info.table.tFoot;
+      const native = !inside && widget.clientWidth > 0 && info.table.offsetWidth <= widget.clientWidth + 1;
+      widget.classList.toggle("tp-sticky-native", native);
+      if (native) {
+        const table2 = info.table.getBoundingClientRect();
+        head.style.transform = "";
+        head.classList.toggle("tp-stuck", head.getBoundingClientRect().top > table2.top + 0.5);
+        if (foot) {
+          foot.style.transform = "";
+          foot.classList.toggle("tp-stuck", foot.rows.length > 0 && foot.getBoundingClientRect().bottom < table2.bottom - 0.5);
+        }
+        continue;
+      }
       const box = this.host.innerBox(widget);
       const pageTop = (scroller?.top ?? 0) + STICKY_GAP;
       const boxTop = inside ? box.top : -Infinity;
       const table = info.table.getBoundingClientRect();
-      const foot = info.table.tFoot;
       const footHeight = foot?.offsetHeight ?? 0;
       let footTop = table.bottom - footHeight;
       if (foot && footHeight > 0) {

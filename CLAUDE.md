@@ -49,7 +49,7 @@ table-plus/
       paste.ts         paste from spreadsheets (Ctrl+V overwrite, Ctrl+Shift+V new rows)
       grips.ts         row/column grips (click selects the line, Shift+click / Select rows pick a range), drag to move, row and column menus (with submenus and a back arrow)
       metadata.ts      Remove metadata (toolbar and the page command)
-      sticky.ts        sticky header and bottom-pinned rows
+      sticky.ts        sticky header and bottom-pinned rows: `position: sticky` by the browser for a table that fits its width (its box clipped, `tp-sticky-native`; smooth on a phone, where a header moved after scroll events lags), a transform after each scroll for one that scrolls in its box
       autoscroll.ts    middle-button autoscroll
       history.ts       undo/redo scrolling (history markers)
       expressions.ts   re-evaluating `${…}` cells after page:index

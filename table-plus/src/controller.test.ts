@@ -693,6 +693,34 @@ describe("Controller", () => {
       expect(reached).toEqual(["click", "mouseup", "click"]);
     });
 
+    it("leaves holding the header to the browser (position: sticky) for a table that fits its width, to the script for a wide one", async () => {
+      await setup(PAGE);
+      layOut(5000);
+      scroller.scrollTop = 1100;
+      const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
+      const table = widget.querySelector("table")!;
+      Object.defineProperty(widget, "clientWidth", { configurable: true, value: 800 });
+      const settle = async () => {
+        scroller.dispatchEvent(new Event("scroll"));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      };
+      // Fits: the browser moves it (no transform), the script only marks it held
+      Object.defineProperty(table, "offsetWidth", { configurable: true, value: 800 });
+      Object.defineProperty(document.querySelector("thead")!, "getBoundingClientRect", {
+        configurable: true,
+        value: () => new DOMRect(0, SCROLLER_TOP + STICKY_GAP, 800, 30),
+      });
+      await settle();
+      expect(widget.classList.contains("tp-sticky-native")).toBe(true);
+      expect(document.querySelector<HTMLElement>("thead")!.style.transform).toBe("");
+      expect(document.querySelector("thead")!.classList.contains("tp-stuck")).toBe(true);
+      // Wider than its box (it scrolls sideways in it): moved by the script
+      Object.defineProperty(table, "offsetWidth", { configurable: true, value: 1200 });
+      await settle();
+      expect(widget.classList.contains("tp-sticky-native")).toBe(false);
+      expect(document.querySelector<HTMLElement>("thead")!.style.transform).toMatch(/^translateY\(/);
+    });
+
     it("keeps the toolbar above a header held at the top while the page scrolls, not over a column's name", async () => {
       await setup(PAGE);
       layOut(5000);

@@ -849,7 +849,30 @@ end
   display: none !important;
 }
 
-/* Header held at the top of the view while the table scrolls past (moved by script) */
+/* A table that fits its width, without a maximum height (the script sets
+   tp-sticky-native): its box is clipped, not scrolled, so it captures no
+   sticky positioning, and the header (with the rows pinned to the top) and the
+   rows pinned to the bottom stick to the page, moved by the browser itself
+   (smooth on a phone too). The gap above the header is STICKY_GAP in the
+   script; keep both in step. */
+.sb-table-widget.tp-table.tp-sticky-native {
+  overflow: clip !important;
+}
+.sb-table-widget.tp-sticky-native thead,
+.sb-table-widget.tp-sticky-native thead.tp-stuck {
+  position: sticky;
+  top: 42px;
+  z-index: 3;
+}
+.sb-table-widget.tp-sticky-native tfoot,
+.sb-table-widget.tp-sticky-native tfoot.tp-stuck {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+}
+
+/* Header held at the top of the view while the table scrolls past (moved by
+   script, or by the browser with tp-sticky-native) */
 .sb-table-widget thead.tp-stuck {
   /* above the rows it is moved over */
   position: relative;
