@@ -53,6 +53,7 @@ export const FEATURE_NAMES = [
   "paste",
   "handles",
   "widths",
+  "longText",
   "sticky",
   "autoscroll",
 ] as const;
@@ -115,20 +116,20 @@ export const SETTINGS = {
   } satisfies Setting<number>,
   // Text longer than a cell's maximum width: wrapped onto more lines, or cut with an ellipsis (…)
   cellOverflow: {
-    path: "tablePlus.cells.overflow",
+    path: "tablePlus.modules.longText.overflow",
     default: "wrap",
     choices: ["wrap", "ellipsis"],
     parse: (v) => (v === "wrap" || v === "ellipsis" ? v : undefined),
   } satisfies Setting<"wrap" | "ellipsis">,
   // A column's maximum width in pixels; 0: no limit
   cellMaxWidth: {
-    path: "tablePlus.cells.maxWidth",
+    path: "tablePlus.modules.longText.maxWidth",
     default: 500,
     parse: pixels,
   } satisfies Setting<number>,
   // A wrapped cell's maximum height in pixels, the rest cut; 0: no limit
   cellMaxHeight: {
-    path: "tablePlus.cells.maxHeight",
+    path: "tablePlus.modules.longText.maxHeight",
     default: 200,
     parse: pixels,
   } satisfies Setting<number>,

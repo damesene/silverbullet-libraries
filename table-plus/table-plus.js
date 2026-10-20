@@ -53,20 +53,20 @@ var SETTINGS = {
   },
   // Text longer than a cell's maximum width: wrapped onto more lines, or cut with an ellipsis (…)
   cellOverflow: {
-    path: "tablePlus.cells.overflow",
+    path: "tablePlus.modules.longText.overflow",
     default: "wrap",
     choices: ["wrap", "ellipsis"],
     parse: (v) => v === "wrap" || v === "ellipsis" ? v : void 0
   },
   // A column's maximum width in pixels; 0: no limit
   cellMaxWidth: {
-    path: "tablePlus.cells.maxWidth",
+    path: "tablePlus.modules.longText.maxWidth",
     default: 500,
     parse: pixels
   },
   // A wrapped cell's maximum height in pixels, the rest cut; 0: no limit
   cellMaxHeight: {
-    path: "tablePlus.cells.maxHeight",
+    path: "tablePlus.modules.longText.maxHeight",
     default: 200,
     parse: pixels
   }
@@ -6762,6 +6762,94 @@ var Widths = class {
   }
 };
 
+// table-plus/src/features/longtext.ts
+var LongText = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  limits;
+  reading;
+  checkQueued = false;
+  // Tables resized (a sidebar, a column's width, fonts loaded): cells that are cut may change
+  resizeObserver;
+  stopped = false;
+  start() {
+    const win = this.host.doc.defaultView;
+    win.addEventListener("resize", this.queueCheck);
+    this.resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => this.queueCheck()) : void 0;
+    void this.host.doc.fonts?.ready.then(() => this.queueCheck());
+    void this.readSettings();
+  }
+  stop() {
+    this.stopped = true;
+    this.host.doc.defaultView.removeEventListener("resize", this.queueCheck);
+    this.resizeObserver?.disconnect();
+    for (const widget of Array.from(this.host.doc.querySelectorAll(WIDGET_SELECTOR))) this.clear(widget);
+  }
+  // A table rendered (or its view applied): its limits, and a check once laid out
+  viewApplied(widget) {
+    this.apply(widget);
+    this.resizeObserver?.observe(widget);
+    this.queueCheck();
+  }
+  enhanced() {
+    void this.readSettings();
+  }
+  /** Reads the settings; changed, every table gets them */
+  readSettings() {
+    this.reading ??= (async () => {
+      const limits = {
+        overflow: await this.host.setting("cellOverflow"),
+        maxWidth: await this.host.setting("cellMaxWidth"),
+        maxHeight: await this.host.setting("cellMaxHeight")
+      };
+      const before = this.limits;
+      this.limits = limits;
+      if (this.stopped || before && before.overflow === limits.overflow && before.maxWidth === limits.maxWidth && before.maxHeight === limits.maxHeight) return;
+      for (const widget of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+        const info = this.host.infoOf(widget);
+        if (info && renderedTable(widget) === info.table) this.apply(widget);
+      }
+      this.queueCheck();
+    })().finally(() => this.reading = void 0);
+    return this.reading;
+  }
+  apply(widget) {
+    const { overflow, maxWidth, maxHeight } = this.limits ?? {
+      overflow: SETTINGS.cellOverflow.default,
+      maxWidth: SETTINGS.cellMaxWidth.default,
+      maxHeight: SETTINGS.cellMaxHeight.default
+    };
+    widget.classList.add("tp-long-text");
+    widget.classList.toggle("tp-cells-wrap", overflow === "wrap");
+    widget.classList.toggle("tp-cells-ellipsis", overflow === "ellipsis");
+    widget.style.setProperty("--tp-cell-max-width", maxWidth > 0 ? `${maxWidth}px` : "none");
+    widget.style.setProperty("--tp-cell-max-height", maxHeight > 0 ? `${maxHeight}px` : "none");
+  }
+  clear(widget) {
+    widget.classList.remove("tp-long-text", "tp-cells-wrap", "tp-cells-ellipsis");
+    widget.style.removeProperty("--tp-cell-max-width");
+    widget.style.removeProperty("--tp-cell-max-height");
+    for (const cell of Array.from(widget.querySelectorAll(".tp-cut"))) cell.classList.remove("tp-cut");
+  }
+  /** Once laid out: the cells whose content does not fit (cut) are marked */
+  queueCheck = () => {
+    if (this.checkQueued) return;
+    this.checkQueued = true;
+    const run = () => {
+      this.checkQueued = false;
+      if (this.stopped) return;
+      const boxes = Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table .tp-cell-content`));
+      const cut = boxes.map((box) => box.scrollWidth > box.clientWidth + 1 || box.scrollHeight > box.clientHeight + 1);
+      boxes.forEach((box, i) => box.parentElement?.classList.toggle("tp-cut", cut[i]));
+    };
+    const win = this.host.doc.defaultView;
+    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
+    else setTimeout(run, 0);
+  };
+};
+
 // table-plus/src/features/popup.ts
 var CellPopup = class {
   constructor(host) {
@@ -7946,15 +8034,6 @@ var Controller = class {
   views = /* @__PURE__ */ new Map();
   // The maximum table height setting, in pixels; 0: no limit
   maxHeight = 0;
-  // The cells settings: long text wrapped or cut with an ellipsis, a column's maximum width, a wrapped cell's maximum height (pixels, 0: no limit)
-  cells = {
-    overflow: SETTINGS.cellOverflow.default,
-    maxWidth: SETTINGS.cellMaxWidth.default,
-    maxHeight: SETTINGS.cellMaxHeight.default
-  };
-  overflowQueued = false;
-  // Tables resized (a sidebar, fonts loaded, the content): cells that are cut may change
-  resizeObserver;
   // The metadata setting, for menus that offer pinning
   metadataOn = false;
   // Sideways scroll of each wide table, carried over to its next rendering
@@ -8035,9 +8114,6 @@ var Controller = class {
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
     this.doc.addEventListener("pointerout", this.onPointerOut, { passive: true });
     win.addEventListener("mouseup", this.onMouseUp, true);
-    win.addEventListener("resize", this.onResize);
-    this.resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => this.queueOverflowCheck()) : void 0;
-    void this.doc.fonts?.ready.then(() => this.queueOverflowCheck());
     win.addEventListener("wheel", this.dropAnchor, { capture: true, passive: true });
     win.addEventListener("touchstart", this.dropAnchor, { capture: true, passive: true });
     this.insertMark.addEventListener("click", () => this.insertHere());
@@ -8073,6 +8149,7 @@ var Controller = class {
       optional("autoscroll", () => new Autoscroll(this)),
       optional("handles", () => new Grips(this)),
       optional("widths", () => new Widths(this)),
+      optional("longText", () => new LongText(this)),
       // Recalculate first in the toolbar
       optional("formulas", () => new Formulas(this)),
       optional("pageLinks", () => new PageLinks(this)),
@@ -8126,8 +8203,6 @@ var Controller = class {
     this.doc.removeEventListener("mousemove", this.onMouseMove);
     this.doc.removeEventListener("pointerout", this.onPointerOut);
     win.removeEventListener("mouseup", this.onMouseUp, true);
-    win.removeEventListener("resize", this.onResize);
-    this.resizeObserver?.disconnect();
     this.cellEditor.close();
     win.removeEventListener("wheel", this.dropAnchor, true);
     win.removeEventListener("touchstart", this.dropAnchor, true);
@@ -8224,7 +8299,6 @@ var Controller = class {
   tableResized(info) {
     this.pinColumns(info);
     this.queueStickyUpdate();
-    this.queueOverflowCheck();
   }
   toolbarChanged() {
     const widget = this.hoverWidget;
@@ -8290,13 +8364,10 @@ var Controller = class {
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   async refreshSettings() {
     const maxHeight = await this.setting("maxHeight");
-    const cells = { overflow: await this.setting("cellOverflow"), maxWidth: await this.setting("cellMaxWidth"), maxHeight: await this.setting("cellMaxHeight") };
     this.metadataOn = await this.setting("metadata");
     this.cellEditor.selectOnClick = await this.setting("selectOnClick");
-    const sameCells2 = cells.overflow === this.cells.overflow && cells.maxWidth === this.cells.maxWidth && cells.maxHeight === this.cells.maxHeight;
-    if (this.stopped || maxHeight === this.maxHeight && sameCells2) return;
+    if (this.stopped || maxHeight === this.maxHeight) return;
     this.maxHeight = maxHeight;
-    this.cells = cells;
     for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
       if (info && renderedTable(widget) === info.table) this.applyView(widget, info);
@@ -8381,7 +8452,6 @@ var Controller = class {
       if (stored && !this.views.has(info.key)) this.views.set(info.key, withSort(DEFAULT_VIEW, stored.column, stored.direction));
       const replaced = this.hoverWidget && !this.hoverWidget.isConnected && this.infos.get(this.hoverWidget)?.key === info.key;
       this.infos.set(widget, info);
-      this.resizeObserver?.observe(widget);
       if (replaced) this.hoverWidget = widget;
       this.decorate(widget, info);
       this.applyView(widget, info);
@@ -8648,17 +8718,12 @@ var Controller = class {
     return active?.cell === cell && cell.dataset.tpValue === void 0 ? active.field.value : cellValue(cell);
   }
   /**
-   * The cells settings on a table: each body cell's content in a box of its
-   * own (Table Plus' own elements stay outside it), which the CSS limits to the
-   * maximum width, and wraps (up to the maximum height) or cuts with an
-   * ellipsis. Idempotent: run again after a feature replaced a cell's content.
+   * Each body cell's content in a box of its own (Table Plus' own elements
+   * stay outside it), as wide as its text: what modules size and limit (the
+   * longText module: wrapped or cut at a maximum width; widths: a width set).
+   * Idempotent: run again after a feature replaced a cell's content.
    */
-  layOutCells(widget, info) {
-    const { overflow, maxWidth, maxHeight } = this.cells;
-    widget.classList.toggle("tp-cells-wrap", overflow === "wrap");
-    widget.classList.toggle("tp-cells-ellipsis", overflow === "ellipsis");
-    widget.style.setProperty("--tp-cell-max-width", maxWidth > 0 ? `${maxWidth}px` : "none");
-    widget.style.setProperty("--tp-cell-max-height", maxHeight > 0 ? `${maxHeight}px` : "none");
+  layOutCells(info) {
     for (const tr of this.bodyRows(info)) {
       for (const cell of Array.from(tr.cells)) {
         if (cell.classList.contains("tp-editing")) continue;
@@ -8673,25 +8738,9 @@ var Controller = class {
         box.append(...loose);
       }
     }
-    this.queueOverflowCheck();
-  }
-  /** Once laid out: the cells whose content does not fit (cut) are marked, for the + to show it whole (the cell's popup) */
-  queueOverflowCheck() {
-    if (this.overflowQueued) return;
-    this.overflowQueued = true;
-    const run = () => {
-      this.overflowQueued = false;
-      if (this.stopped) return;
-      const boxes = Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table .tp-cell-content`));
-      const cut = boxes.map((box) => box.scrollWidth > box.clientWidth + 1 || box.scrollHeight > box.clientHeight + 1);
-      boxes.forEach((box, i) => box.parentElement?.classList.toggle("tp-cut", cut[i]));
-    };
-    const win = this.doc.defaultView;
-    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
   }
   applyView(widget, info) {
-    this.layOutCells(widget, info);
+    this.layOutCells(info);
     const view = this.viewOf(info);
     const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
@@ -8967,8 +9016,6 @@ var Controller = class {
     });
     setTimeout(keep, 100);
   }
-  // The window resized: cells that are cut may change
-  onResize = () => this.queueOverflowCheck();
   dropAnchor = () => {
     this.anchor = void 0;
   };

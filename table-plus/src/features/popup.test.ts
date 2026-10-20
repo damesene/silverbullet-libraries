@@ -15,6 +15,7 @@ describe("Long text in cells and the cell's popup", () => {
     await setup(PAGE);
     const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
     expect(widget.classList.contains("tp-cells-wrap")).toBe(true);
+    expect(widget.classList.contains("tp-long-text")).toBe(true);
     expect(widget.style.getPropertyValue("--tp-cell-max-width")).toBe("500px");
     expect(widget.style.getPropertyValue("--tp-cell-max-height")).toBe("200px");
     const box = cell(1, 1).querySelector(":scope > .tp-cell-content")!;
@@ -25,13 +26,29 @@ describe("Long text in cells and the cell's popup", () => {
   });
 
   it("cuts with an ellipsis, without limits, as set", async () => {
-    await setup(PAGE, { "tablePlus.cells.overflow": "ellipsis", "tablePlus.cells.maxWidth": 0, "tablePlus.cells.maxHeight": 0 });
+    await setup(PAGE, { "tablePlus.modules.longText.overflow": "ellipsis", "tablePlus.modules.longText.maxWidth": 0, "tablePlus.modules.longText.maxHeight": 0 });
     await controller.scan();
     const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
     expect(widget.classList.contains("tp-cells-ellipsis")).toBe(true);
     expect(widget.classList.contains("tp-cells-wrap")).toBe(false);
     expect(widget.style.getPropertyValue("--tp-cell-max-width")).toBe("none");
     expect(widget.style.getPropertyValue("--tp-cell-max-height")).toBe("none");
+  });
+
+  it("leaves cells as SilverBullet shows them with the longText module off: no limits, nothing marked cut (the content box stays, for widths)", async () => {
+    await setup(PAGE, { "tablePlus.modules.longText.enabled": false });
+    const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
+    expect(widget.classList.contains("tp-cells-wrap")).toBe(false);
+    expect(widget.classList.contains("tp-cells-ellipsis")).toBe(false);
+    // None of the module's CSS applies (it is for tables marked so)
+    expect(widget.classList.contains("tp-long-text")).toBe(false);
+    expect(widget.style.getPropertyValue("--tp-cell-max-width")).toBe("");
+    const box = cell(1, 1).querySelector<HTMLElement>(".tp-cell-content")!;
+    expect(box).not.toBeNull();
+    Object.defineProperty(box, "scrollHeight", { configurable: true, value: 400 });
+    window.dispatchEvent(new Event("resize"));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(cell(1, 1).classList.contains("tp-cut")).toBe(false);
   });
 
   it("marks a cell cut when its text is taller (wider) than its box, once laid out and when the window resizes", async () => {

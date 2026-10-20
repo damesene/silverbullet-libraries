@@ -232,7 +232,7 @@ const LABELS: Record<Key, string> = {
   ctrlEnterAddsRow: "Ctrl+Enter adds a row",
   smartFilters: "smart",
   expressionsDelay: "Refresh ${…} cells after (ms)",
-  cellOverflow: "Long text",
+  cellOverflow: "overflow",
   cellMaxWidth: "Max column width (px)",
   cellMaxHeight: "Max cell height (px)",
 };
@@ -248,6 +248,7 @@ const MODULE_LABELS: Record<FeatureName, string> = {
   paste: "Paste",
   handles: "Handles",
   widths: "Column widths",
+  longText: "Long text",
   sticky: "Sticky header",
   autoscroll: "Middle-button scrolling",
 };

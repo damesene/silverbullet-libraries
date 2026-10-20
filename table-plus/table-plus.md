@@ -41,7 +41,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Enter | Save, edit the cell below (with the `save` setting: only save) |
 | Ctrl+Enter | Save, add a row below, edit it |
 | Esc | Cancel; the cell stays selected (marked) for the keys of [[#Copying cells]], a second Esc ends that |
-| F2 | Go on in the cell's popup: the whole text wrapped (a long text or formula), see [[#Cells (`tablePlus.cells`)]] |
+| F2 | Go on in the cell's popup: the whole text wrapped (a long text or formula), see [[#Long text in cells (`tablePlus.modules.longText`)]] |
 | Tab | Save, edit the next cell |
 | Shift+Tab | Save, edit the previous cell |
 | Ctrl+arrows | Save, edit the cell beside |
@@ -364,7 +364,7 @@ Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; m
 * **Insert with +**: with a mouse or a pen, hover just left of the row grips, or just above the column grips: a **+** shows on the border nearest the pointer and inserts a row (column) there. On the last border it adds one at the end; while a cell of the last row (column) is hovered, selected or edited, a faint **+** under the table (right of the header) adds one at the end. A new column is named *Column N*, ready to rename. On a touch screen, insert from the row's or column's menu.
 * **Numbered column**: *Insert numbered column left* in a column's menu adds a column `#` with `=ROW()` in every row: it numbers the rows as written (sorting or filtering the view does not renumber them), rows added later get the formula too, and inserting, deleting or moving rows numbers them again. Add as many as you like. It needs the *Store table metadata* setting, as every new formula.
 * Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.
-* **Column width**: drag the right edge of a column's header (a faint dashed line shows there while the header cell is hovered, selected or edited; the pointer shows ↔ on it) to set its width; text wraps (or is cut) within it, see [[#Cells (`tablePlus.cells`)]]. Double-click that edge, or *Auto width* in the column's menu, for the automatic width again (as wide as the text, up to the maximum column width). With the *Store table metadata* setting the width is stored in the table (`width.price="180"`, see [[#Table metadata]]) and follows the column when it is renamed or moved; without it, it holds until the page is opened again.
+* **Column width**: drag the right edge of a column's header (a faint dashed line shows there while the header cell is hovered, selected or edited; the pointer shows ↔ on it) to set its width; text wraps (or is cut) within it, see [[#Long text in cells (`tablePlus.modules.longText`)]]. Double-click that edge, or *Auto width* in the column's menu, for the automatic width again (as wide as the text, up to the maximum column width). With the *Store table metadata* setting the width is stored in the table (`width.price="180"`, see [[#Table metadata]]) and follows the column when it is renamed or moved; without it, it holds until the page is opened again.
 
 ## Pinning
 
@@ -436,7 +436,9 @@ Setting a part replaces what an earlier `config.set` of the same part set: set e
   * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
   * `false`: Ctrl+Enter works like Enter.
 
-### Cells (`tablePlus.cells`)
+### Long text in cells (`tablePlus.modules.longText`)
+
+The `longText` module (see [[#Modules]]); off, cells show as SilverBullet renders them: on one line, as wide as their text.
 
 * **Long text in cells** (`overflow`), default `wrap`
   * `wrap`: text longer than the column's maximum width wraps onto more lines, up to the maximum cell height; the rest is cut and fades out.
@@ -465,6 +467,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
+| `longText` | Long text wraps (up to a maximum cell height) or is cut with an ellipsis at a maximum column width; a cut cell shows an expand button for its popup. Settings: see [[#Long text in cells (`tablePlus.modules.longText`)]]. Off: cells on one line, as wide as their text (F2 still opens a cell's popup while editing). |
 | `widths` | A column's width set by dragging the right edge of its header, *Auto width* in the column's menu; with *Store table metadata* stored in the table. Off: columns are as wide as their text; widths stored in tables are kept but not used. |
 | `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
 | `autoscroll` | The middle mouse button over a table scrolls it. |
@@ -579,31 +582,6 @@ config.define("tablePlus", {
           default = true,
           description = "Ctrl+Enter in a cell editor saves the cell, adds an empty row below and edits it. Off: Ctrl+Enter works like Enter.",
           ui = { category = "Table Plus", label = "Ctrl+Enter adds a row", priority = 2 },
-        },
-      },
-    },
-    cells = {
-      type = "object",
-      additionalProperties = false,
-      properties = {
-        overflow = {
-          type = "string",
-          enum = { "wrap", "ellipsis" },
-          default = "wrap",
-          description = "Text longer than a column's maximum width. wrap: it wraps onto more lines, up to the maximum cell height. ellipsis: it stays on one line, cut with …. A cell whose text is cut shows an expand button that shows it whole (F2 while editing it).",
-          ui = { category = "Table Plus", label = "Long text in cells", priority = 1.5 },
-        },
-        maxWidth = {
-          type = "number",
-          default = 500,
-          description = "A column's maximum width in pixels: longer text wraps or is cut (Long text in cells). 0: no limit, a cell is as wide as its text.",
-          ui = { category = "Table Plus", label = "Maximum column width (px)", priority = 1.4 },
-        },
-        maxHeight = {
-          type = "number",
-          default = 200,
-          description = "A wrapped cell's maximum height in pixels; the rest is cut (the expand button shows it). 0: no limit.",
-          ui = { category = "Table Plus", label = "Maximum cell height (px)", priority = 1.3 },
         },
       },
     },
@@ -737,6 +715,37 @@ config.define("tablePlus", {
             },
           },
         },
+        longText = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Long text in cells: it wraps (up to a maximum cell height) or is cut with an ellipsis at a maximum column width, and a cell whose text is cut shows an expand button for its popup. Off: cells show as SilverBullet renders them, on one line, as wide as their text.",
+              ui = { category = "Table Plus: Modules", label = "Long text in cells", priority = 3.45 },
+            },
+            overflow = {
+              type = "string",
+              enum = { "wrap", "ellipsis" },
+              default = "wrap",
+              description = "Text longer than a column's maximum width. wrap: it wraps onto more lines, up to the maximum cell height. ellipsis: it stays on one line, cut with …. A cell whose text is cut shows an expand button that shows it whole (F2 while editing it).",
+              ui = { category = "Table Plus: Modules", label = "Long text in cells", priority = 3.4 },
+            },
+            maxWidth = {
+              type = "number",
+              default = 500,
+              description = "A column's maximum width in pixels: longer text wraps or is cut (Long text in cells). 0: no limit, a cell is as wide as its text.",
+              ui = { category = "Table Plus: Modules", label = "Maximum column width (px)", priority = 3.3 },
+            },
+            maxHeight = {
+              type = "number",
+              default = 200,
+              description = "A wrapped cell's maximum height in pixels; the rest is cut (the expand button shows it). 0: no limit.",
+              ui = { category = "Table Plus: Modules", label = "Maximum cell height (px)", priority = 3.2 },
+            },
+          },
+        },
         widths = {
           type = "object",
           additionalProperties = false,
@@ -857,9 +866,9 @@ end
   cursor: pointer;
 }
 
-/* A header on one line (layOutHeaderCell): its name cut with an ellipsis where
-   it does not fit the column (the maximum width, or the width set), the icons
-   after it always shown */
+/* A header on one line (layOutHeaderCell): its name, then the icons after it,
+   which always show; where the name does not fit (a width set), it is cut
+   (with an ellipsis by the longText module) */
 .sb-table-widget.tp-table thead tr:first-child > td {
   white-space: nowrap;
 }
@@ -867,12 +876,10 @@ end
   display: inline-flex;
   align-items: center;
   vertical-align: top;
-  max-width: var(--tp-cell-max-width, none);
 }
 .sb-table-widget.tp-table .tp-head-name {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .sb-table-widget.tp-table .tp-head > .tp-ui {
@@ -1079,16 +1086,28 @@ body.tp-navigating .sb-table-widget.tp-table * {
   outline: none;
 }
 
-/* Long text in cells (tablePlus.cells): a body cell's content is in a box as
-   wide as its text, at most the maximum width (--tp-cell-max-width, set by the
-   script); longer text wraps (up to the maximum height, the rest cut and
-   faded) or is cut with an ellipsis. An inline block, so the column's
-   alignment still applies. */
+/* A body cell's content is in a box as wide as its text (layOutCells), which
+   modules size and limit. An inline block, so the column's alignment still
+   applies. Alone it shows the cell as SilverBullet does. */
 .sb-table-widget.tp-table .tp-cell-content {
   display: inline-block;
   vertical-align: top;
   width: max-content;
+}
+
+/* The longText module (tablePlus.modules.longText): only on the tables it
+   marks tp-long-text. The box, and a header's line, at most the maximum width
+   (--tp-cell-max-width, set by the script); longer text wraps (tp-cells-wrap:
+   up to the maximum height, the rest cut and faded) or is cut with an ellipsis
+   (tp-cells-ellipsis); a header's name, or the text of a column with a width
+   set, cut with an ellipsis. Off: none of this, cells as SilverBullet shows them. */
+.sb-table-widget.tp-long-text .tp-cell-content,
+.sb-table-widget.tp-long-text .tp-head {
   max-width: var(--tp-cell-max-width, none);
+}
+.sb-table-widget.tp-long-text .tp-head-name,
+.sb-table-widget.tp-long-text td.tp-sized > .tp-cell-content {
+  text-overflow: ellipsis;
 }
 /* SilverBullet keeps cells on one line (white-space: nowrap): the box wraps */
 .sb-table-widget.tp-cells-wrap .tp-cell-content {
@@ -1175,6 +1194,12 @@ body.tp-resizing,
 body.tp-resizing * {
   cursor: col-resize !important;
   user-select: none;
+}
+
+/* A column with a width set: its cells' text never spills over (cut; with an
+   ellipsis by the longText module) */
+.sb-table-widget.tp-table td.tp-sized > .tp-cell-content {
+  overflow: hidden;
 }
 
 /* The cell's popup: its editor over the cell, the whole text wrapped */
