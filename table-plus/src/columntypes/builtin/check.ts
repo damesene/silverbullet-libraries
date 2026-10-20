@@ -1,6 +1,6 @@
 import { lineIcon } from "../../icons.ts";
 import { numberOf } from "../format.ts";
-import type { ColumnType } from "../type.ts";
+import { columnType } from "../type.ts";
 
 const YES = new Set(["yes", "y", "true", "x", "✓", "✔", "✅", "done", "ok"]);
 const NO = new Set(["no", "n", "false", "✗", "❌", "-"]);
@@ -14,7 +14,7 @@ function yesOrNo(text: string): boolean | undefined {
   return n === undefined ? undefined : n > 0;
 }
 
-export default {
+export default columnType({
   name: "check",
   syntax: "#check",
   description: "Yes or no as a check mark: yes, true, x, ✅ or a number above 0 shows ✅; no, false, ❌, 0 or a number below it shows ❌.",
@@ -27,4 +27,4 @@ export default {
     { value: "yes", label: "✅ yes" },
     { value: "no", label: "❌ no" },
   ],
-} satisfies ColumnType;
+});

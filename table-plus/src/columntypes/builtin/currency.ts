@@ -1,6 +1,6 @@
 import { lineIcon } from "../../icons.ts";
 import { notANumber, numberFormat, numberOf } from "../format.ts";
-import type { ColumnType } from "../type.ts";
+import { columnType } from "../type.ts";
 
 /**
  * The language a currency is written in at home, for where its sign goes: a
@@ -43,14 +43,14 @@ function formatMoney(n: number, code: string, locale: string | undefined): strin
   return symbolFirst ? `${sign}${symbol}${gap}${digits}` : `${sign}${digits}${gap}${symbol}`;
 }
 
-export default {
+export default columnType({
   name: "currency",
   syntax: "#currency, #currency-usd",
   description:
     "An amount of money: the currency's three-letter code after the dash (default EUR). Its sign goes where the currency's country writes it: $12.99, 12.99 €, 12.99 Kč.",
   icon: lineIcon('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>'),
-  param: /^[a-z]{3}$/i,
+  params: { code: { kind: "text", pattern: /^[a-z]{3}$/i, default: "eur" } },
   aliases: { euro: "eur", eur: "eur", usd: "usd", czk: "czk", gbp: "gbp" },
   check: notANumber,
-  format: (text, param, locale) => formatMoney(numberOf(text)!, (param ?? "eur").toUpperCase(), locale),
-} satisfies ColumnType;
+  format: (text, { code }, locale) => formatMoney(numberOf(text)!, code.toUpperCase(), locale),
+});

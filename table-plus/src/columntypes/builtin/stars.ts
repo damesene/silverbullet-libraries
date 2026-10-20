@@ -1,29 +1,25 @@
 import { lineIcon } from "../../icons.ts";
 import { numberOf } from "../format.ts";
-import type { ColumnType } from "../type.ts";
+import { columnType } from "../type.ts";
 
-const most = (param: string | undefined) => Number(param ?? 5);
-
-export default {
+export default columnType({
   name: "stars",
   syntax: "#stars, #stars-10",
   description: "A rating as stars: a whole number from 0 to the most stars after the dash (default 5).",
   icon: lineIcon('<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9z"/>'),
-  param: /^[1-9]\d?$/,
+  params: { max: { kind: "number", integer: true, min: 1, max: 99, default: 5 } },
   aliases: { evaluation: "5" },
-  check: (text, param) => {
+  check: (text, { max }) => {
     const n = numberOf(text);
-    return n !== undefined && Number.isInteger(n) && n >= 0 && n <= most(param)
-      ? undefined
-      : `"${text}" is not a whole number from 0 to ${most(param)}`;
+    return n !== undefined && Number.isInteger(n) && n >= 0 && n <= max ? undefined : `"${text}" is not a whole number from 0 to ${max}`;
   },
-  format: (text, param) => {
+  format: (text, { max }) => {
     const n = numberOf(text)!;
-    return "★".repeat(n) + "☆".repeat(most(param) - n);
+    return "★".repeat(n) + "☆".repeat(max - n);
   },
-  choices: (param) =>
-    Array.from({ length: most(param) + 1 }, (_, n) => ({
+  choices: ({ max }) =>
+    Array.from({ length: max + 1 }, (_, n) => ({
       value: String(n),
-      label: `${n} ${"★".repeat(n)}${"☆".repeat(most(param) - n)}`,
+      label: `${n} ${"★".repeat(n)}${"☆".repeat(max - n)}`,
     })),
-} satisfies ColumnType;
+});

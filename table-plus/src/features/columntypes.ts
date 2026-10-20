@@ -56,6 +56,19 @@ function hiddenTagsCss(): string {
   return `${selectors.join(",\n")} {\n  display: none;\n}\n`;
 }
 
+/**
+ * What a type's method gives for a column, or why it failed: a custom type is
+ * the user's code, and one that throws (or gives what a type does not) marks
+ * the cell instead of breaking the table
+ */
+function attempt<T>(typed: TypedColumn, call: () => T): T | string {
+  try {
+    return call();
+  } catch (e) {
+    return `#${typed.tag} failed: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
 /** The values the open cell editor offers: the type's, those shown for what is typed, the one the arrows are on */
 type Picking = {
   readonly editor: CellEditor;
@@ -153,8 +166,8 @@ export class ColumnTypes implements Feature {
   /** A type with values to offer: a list of them under the cell, picked with the mouse or the arrows and Enter */
   editorOpened(editor: CellEditor): void {
     const typed = this.typeOfEdited(editor);
-    const choices = typed?.type.choices?.(typed.param);
-    if (!choices?.length) return;
+    const choices = typed && attempt(typed, () => typed.type.choices?.(typed.params));
+    if (!choices || typeof choices === "string" || !choices.length) return;
     this.picking = { editor, choices, shown: [], active: -1 };
     editor.field.addEventListener("input", () => {
       if (this.picking?.editor === editor) this.showChoices();
@@ -262,7 +275,7 @@ export class ColumnTypes implements Feature {
     const column = this.typeOfEdited(editor);
     const text = typed.trim();
     if (!column || text === "" || text.startsWith("=")) return undefined;
-    const error = column.type.check(text, column.param);
+    const error = attempt(column, () => column.type.check(text, column.params));
     if (error) void this.host.bridge.flash(`Table Plus: ${error} (#${column.tag}); saved as typed`, "info");
     return undefined;
   }
@@ -295,15 +308,20 @@ export class ColumnTypes implements Feature {
         const text = unescapeCell(withoutTags(raw)).trim();
         // Only plain values: a cell with markup (a link, emphasis) is left as it is
         if (text === "" || cellText(cell) !== text) continue;
-        const { type, param } = typed;
-        const error = type.check(text, param);
-        cell.dataset.tpValue = error ? text : (type.sortValue?.(text, param) ?? text);
-        if (error) {
+        const { type, params } = typed;
+        // What the cell shows, or why it is not a value of the type (or why the type failed on it)
+        const shown = attempt(typed, () => {
+          const error = type.check(text, params);
+          return error === undefined ? { value: type.sortValue?.(text, params) ?? text, shown: type.format(text, params) } : error;
+        });
+        if (typeof shown === "string") {
+          cell.dataset.tpValue = text;
           cell.classList.add("tp-type-invalid");
-          cell.title = cell.title ? `${cell.title}\n${error}` : error;
+          cell.title = cell.title ? `${cell.title}\n${shown}` : shown;
           continue;
         }
-        this.show(cell, type.format(text, param));
+        cell.dataset.tpValue = shown.value;
+        this.show(cell, shown.shown);
       }
     });
   }

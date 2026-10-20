@@ -2143,6 +2143,11 @@ function formatNumber(n, locale, options = {}) {
   return numberFormat(locale, options).format(n);
 }
 
+// table-plus/src/columntypes/type.ts
+function columnType(type) {
+  return type;
+}
+
 // table-plus/src/columntypes/builtin/check.ts
 var YES = /* @__PURE__ */ new Set(["yes", "y", "true", "x", "\u2713", "\u2714", "\u2705", "done", "ok"]);
 var NO = /* @__PURE__ */ new Set(["no", "n", "false", "\u2717", "\u274C", "-"]);
@@ -2153,7 +2158,7 @@ function yesOrNo(text) {
   const n = numberOf(t);
   return n === void 0 ? void 0 : n > 0;
 }
-var check_default = {
+var check_default = columnType({
   name: "check",
   syntax: "#check",
   description: "Yes or no as a check mark: yes, true, x, \u2705 or a number above 0 shows \u2705; no, false, \u274C, 0 or a number below it shows \u274C.",
@@ -2166,7 +2171,7 @@ var check_default = {
     { value: "yes", label: "\u2705 yes" },
     { value: "no", label: "\u274C no" }
   ]
-};
+});
 
 // table-plus/src/columntypes/builtin/currency.ts
 var homes = /* @__PURE__ */ new Map();
@@ -2194,16 +2199,16 @@ function formatMoney(n, code, locale) {
   const gap = home.find((p) => p.type === "literal" && /^\s+$/.test(p.value))?.value ?? "";
   return symbolFirst ? `${sign}${symbol}${gap}${digits}` : `${sign}${digits}${gap}${symbol}`;
 }
-var currency_default = {
+var currency_default = columnType({
   name: "currency",
   syntax: "#currency, #currency-usd",
   description: "An amount of money: the currency's three-letter code after the dash (default EUR). Its sign goes where the currency's country writes it: $12.99, 12.99 \u20AC, 12.99 K\u010D.",
   icon: lineIcon('<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>'),
-  param: /^[a-z]{3}$/i,
+  params: { code: { kind: "text", pattern: /^[a-z]{3}$/i, default: "eur" } },
   aliases: { euro: "eur", eur: "eur", usd: "usd", czk: "czk", gbp: "gbp" },
   check: notANumber,
-  format: (text, param, locale) => formatMoney(numberOf(text), (param ?? "eur").toUpperCase(), locale)
-};
+  format: (text, { code }, locale) => formatMoney(numberOf(text), code.toUpperCase(), locale)
+});
 
 // table-plus/src/format.ts
 function formatLuaNumber(n) {
@@ -2523,111 +2528,103 @@ function partOf(date, part) {
 }
 
 // table-plus/src/columntypes/builtin/date.ts
-var date_default = {
+var date_default = columnType({
   name: "date",
   syntax: "#date, #date-long",
   description: "A date written as 2025-11-06 (with a time: 2025-11-06 14:30), shown as the locale writes it: short, medium (default) or long after the dash.",
   icon: lineIcon('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
-  param: /^(short|medium|long)$/i,
+  params: { style: { kind: "choice", values: ["short", "medium", "long"], default: "medium" } },
   // Read as formulas read dates
   check: (text) => parseDate(text) ? void 0 : `"${text}" is not a date written as 2025-11-06`,
-  format: (text, param, locale) => {
+  format: (text, { style }, locale) => {
     const { ms, time } = parseDate(text);
-    const dateStyle = param?.toLowerCase() ?? "medium";
+    const dateStyle = style;
     const timeStyle = ms % 6e4 !== 0 ? "medium" : "short";
     return dateTimeFormat(locale, { dateStyle, ...time ? { timeStyle } : {}, timeZone: "UTC" }).format(new Date(ms));
   }
-};
+});
 
 // table-plus/src/columntypes/builtin/link.ts
-var link_default = {
+var link_default = columnType({
   name: "link",
   syntax: "#link",
   description: "A web address as a link, shown without its https://.",
   icon: lineIcon('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
   check: (text) => /^https?:\/\/\S+$/.test(text.trim()) ? void 0 : `"${text}" is not a web address starting with http:// or https://`,
   format: (text) => ({ text: text.trim().replace(/^https?:\/\//, "").replace(/\/$/, ""), href: text.trim() })
-};
+});
 
 // table-plus/src/columntypes/builtin/number.ts
-var number_default = {
+var number_default = columnType({
   name: "number",
   syntax: "#number, #number-2",
   description: "A number with thousands separators: the decimal places after the dash (default: as written).",
   icon: lineIcon('<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>'),
-  param: /^\d$/,
+  params: { digits: { kind: "number", integer: true, min: 0, max: 9 } },
   aliases: { int: "0", float: "2" },
   check: notANumber,
-  format: (text, param, locale) => {
-    const digits = param === void 0 ? void 0 : Number(param);
-    return formatNumber(numberOf(text), locale, {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits ?? 10
-    });
-  }
-};
+  format: (text, { digits }, locale) => formatNumber(numberOf(text), locale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits ?? 10
+  })
+});
 
 // table-plus/src/columntypes/builtin/percent.ts
 function fraction(text) {
   const n = numberOf(text);
   return text.includes("%") ? n / 100 : n;
 }
-var percent_default = {
+var percent_default = columnType({
   name: "percent",
   syntax: "#percent, #percent-1",
   description: "A fraction as a percentage, 0.15 is 15 % (15 % stays 15 %): the decimal places after the dash (default 0).",
   icon: lineIcon('<path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>'),
-  param: /^\d$/,
+  params: { digits: { kind: "number", integer: true, min: 0, max: 9, default: 0 } },
   check: notANumber,
-  format: (text, param, locale) => {
-    const digits = Number(param ?? 0);
-    return formatNumber(fraction(text), locale, { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits });
-  },
+  format: (text, { digits }, locale) => formatNumber(fraction(text), locale, { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits }),
   sortValue: (text) => String(fraction(text))
-};
+});
 
 // table-plus/src/columntypes/builtin/progress.ts
-var most = (param) => Number(param ?? 100);
-var progress_default = {
+var progress_default = columnType({
   name: "progress",
   syntax: "#progress, #progress-10",
   description: "Progress as a bar: a number from 0 to the maximum after the dash (default 100).",
   icon: lineIcon('<rect x="2" y="8" width="20" height="8" rx="4"/><path d="M6 12h5"/>'),
-  param: /^[1-9]\d*$/,
+  params: { max: { kind: "number", integer: true, min: 1, default: 100 } },
   aliases: { gauge: "100" },
-  check: (text, param) => {
+  check: (text, { max }) => {
     const n = numberOf(text);
-    return n !== void 0 && n >= 0 && n <= most(param) ? void 0 : `"${text}" is not a number from 0 to ${most(param)}`;
+    return n !== void 0 && n >= 0 && n <= max ? void 0 : `"${text}" is not a number from 0 to ${max}`;
   },
-  format: (text, param, locale) => {
-    const share = numberOf(text) / most(param);
+  format: (text, { max }, locale) => {
+    const share = numberOf(text) / max;
     const filled = Math.round(share * 10);
     return `${"\u25B0".repeat(filled)}${"\u25B1".repeat(10 - filled)} ${formatNumber(share, locale, { style: "percent" })}`;
   }
-};
+});
 
 // table-plus/src/columntypes/builtin/stars.ts
-var most2 = (param) => Number(param ?? 5);
-var stars_default = {
+var stars_default = columnType({
   name: "stars",
   syntax: "#stars, #stars-10",
   description: "A rating as stars: a whole number from 0 to the most stars after the dash (default 5).",
   icon: lineIcon('<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9z"/>'),
-  param: /^[1-9]\d?$/,
+  params: { max: { kind: "number", integer: true, min: 1, max: 99, default: 5 } },
   aliases: { evaluation: "5" },
-  check: (text, param) => {
+  check: (text, { max }) => {
     const n = numberOf(text);
-    return n !== void 0 && Number.isInteger(n) && n >= 0 && n <= most2(param) ? void 0 : `"${text}" is not a whole number from 0 to ${most2(param)}`;
+    return n !== void 0 && Number.isInteger(n) && n >= 0 && n <= max ? void 0 : `"${text}" is not a whole number from 0 to ${max}`;
   },
-  format: (text, param) => {
+  format: (text, { max }) => {
     const n = numberOf(text);
-    return "\u2605".repeat(n) + "\u2606".repeat(most2(param) - n);
+    return "\u2605".repeat(n) + "\u2606".repeat(max - n);
   },
-  choices: (param) => Array.from({ length: most2(param) + 1 }, (_, n) => ({
+  choices: ({ max }) => Array.from({ length: max + 1 }, (_, n) => ({
     value: String(n),
-    label: `${n} ${"\u2605".repeat(n)}${"\u2606".repeat(most2(param) - n)}`
+    label: `${n} ${"\u2605".repeat(n)}${"\u2606".repeat(max - n)}`
   }))
-};
+});
 
 // table-plus/src/columntypes/builtin/time.ts
 function secondsOf(text) {
@@ -2638,7 +2635,7 @@ function fractionSeconds(text) {
   const fraction2 = numberOf(text);
   return fraction2 === void 0 ? void 0 : Math.round(fraction2 * DAY_SECONDS);
 }
-var time_default = {
+var time_default = columnType({
   name: "time",
   syntax: "#time",
   description: "A time of day written as 14:30 or 14:30:15 (or as a fraction of a day, 0.5 is 12:00), shown as the locale writes times.",
@@ -2652,7 +2649,7 @@ var time_default = {
   },
   // The time written in full (09:05, 12:00 for 0.5): sorts by the time, and filters and copies still find 9:05
   sortValue: (text) => formatClock(secondsOf(text))
-};
+});
 
 // table-plus/src/columntypes/builtin/trend.ts
 var ARROWS = { "+": "\u{1F53C}", "-": "\u{1F53D}", "=": "\u27A1\uFE0F" };
@@ -2662,7 +2659,7 @@ function arrowOf(text) {
   const n = numberOf(t);
   return n === void 0 ? void 0 : n > 0 ? ARROWS["+"] : n < 0 ? ARROWS["-"] : ARROWS["="];
 }
-var trend_default = {
+var trend_default = columnType({
   name: "trend",
   syntax: "#trend",
   description: "A trend as an arrow: + or a number above 0 shows \u{1F53C}, - or one below 0 shows \u{1F53D}, = or 0 shows \u27A1\uFE0F.",
@@ -2670,19 +2667,19 @@ var trend_default = {
   check: (text) => arrowOf(text) ? void 0 : `"${text}" is not +, -, = or a number`,
   format: (text) => arrowOf(text),
   choices: () => Object.entries(ARROWS).map(([value, arrow]) => ({ value, label: `${arrow} ${value}` }))
-};
+});
 
 // table-plus/src/columntypes/builtin/unit.ts
-var unit_default = {
+var unit_default = columnType({
   name: "unit",
   syntax: "#unit-kg",
   description: "A number with a unit: the unit after the dash.",
   icon: lineIcon('<path d="M3 16 16 3l5 5L8 21z"/><path d="M7 12l2 2M10 9l2 2M13 6l2 2"/>'),
-  param: /^[^\s#]+$/,
+  params: { unit: { kind: "text" } },
   aliases: { kg: "kg", km: "km", watt: "W" },
-  check: (text, param) => param === void 0 ? "#unit needs a unit, e.g. #unit-kg" : notANumber(text),
-  format: (text, param, locale) => `${formatNumber(numberOf(text), locale, { maximumFractionDigits: 10 })} ${param}`
-};
+  check: (text, { unit }) => unit === void 0 ? "#unit needs a unit, e.g. #unit-kg" : notANumber(text),
+  format: (text, { unit }, locale) => `${formatNumber(numberOf(text), locale, { maximumFractionDigits: 10 })} ${unit}`
+});
 
 // table-plus/src/columntypes/builtin/index.ts
 var BUILT_IN_TYPES = [currency_default, number_default, percent_default, unit_default, stars_default, check_default, date_default, time_default, trend_default, progress_default, link_default];
@@ -2691,18 +2688,49 @@ var BUILT_IN_TYPES = [currency_default, number_default, percent_default, unit_de
 var ALL = BUILT_IN_TYPES;
 var TYPES = new Map(ALL.map((t) => [t.name, t]));
 var ALIASES = new Map(
-  ALL.flatMap((t) => Object.entries(t.aliases ?? {}).map(([alias, param]) => [alias, { type: t, param: param || void 0 }]))
+  ALL.flatMap((t) => Object.entries(t.aliases ?? {}).map(([alias, written]) => [alias, { type: t, written: written || void 0 }]))
 );
 var HASHTAG_RE = /(^|\s)#([^\s#]+)/g;
 function typeOfTag(tag) {
   const lower = tag.toLowerCase();
   const alias = ALIASES.get(lower);
-  if (alias) return { ...alias, tag };
   const dash = lower.indexOf("-");
-  const type = TYPES.get(dash < 0 ? lower : lower.slice(0, dash));
-  const param = dash < 0 ? void 0 : tag.slice(dash + 1);
-  if (!type || param !== void 0 && !type.param?.test(param)) return void 0;
-  return { type, param, tag };
+  const type = alias?.type ?? TYPES.get(dash < 0 ? lower : lower.slice(0, dash));
+  if (!type) return void 0;
+  const params = readParams(type.params ?? {}, alias ? alias.written : dash < 0 ? void 0 : tag.slice(dash + 1));
+  return params && { type, params, tag };
+}
+function readParams(specs, written) {
+  const names = Object.keys(specs);
+  if (written !== void 0 && names.length === 0) return void 0;
+  const parts = written === void 0 ? [] : written.split("-");
+  if (parts.length > names.length) parts.splice(names.length - 1, Infinity, parts.slice(names.length - 1).join("-"));
+  const params = {};
+  for (const [i, name] of names.entries()) {
+    const spec = specs[name];
+    const part = parts[i];
+    if (part === void 0) {
+      params[name] = spec.default;
+      continue;
+    }
+    const value = paramValue(spec, part);
+    if (value === void 0) return void 0;
+    params[name] = value;
+  }
+  return params;
+}
+function paramValue(spec, part) {
+  switch (spec.kind) {
+    case "number": {
+      const n = /^\d+(\.\d+)?$/.test(part) ? Number(part) : NaN;
+      const fits = Number.isFinite(n) && (!spec.integer || Number.isInteger(n)) && n >= (spec.min ?? -Infinity) && n <= (spec.max ?? Infinity);
+      return fits ? n : void 0;
+    }
+    case "choice":
+      return spec.values.find((value) => value.toLowerCase() === part.toLowerCase());
+    case "text":
+      return part !== "" && (!spec.pattern || spec.pattern.test(part)) ? part : void 0;
+  }
 }
 function columnTypeOf(header) {
   for (const match of header.matchAll(HASHTAG_RE)) {
@@ -2719,7 +2747,7 @@ function withColumnType(header, tag) {
 function typeTagPatterns() {
   return {
     exact: [...ALL.map((t) => t.name), ...ALIASES.keys()],
-    prefixes: ALL.filter((t) => t.param).map((t) => `${t.name}-`)
+    prefixes: ALL.filter((t) => Object.keys(t.params ?? {}).length > 0).map((t) => `${t.name}-`)
   };
 }
 
@@ -2749,6 +2777,13 @@ function hiddenTagsCss() {
   display: none;
 }
 `;
+}
+function attempt(typed, call) {
+  try {
+    return call();
+  } catch (e) {
+    return `#${typed.tag} failed: ${e instanceof Error ? e.message : String(e)}`;
+  }
 }
 var ColumnTypes = class {
   constructor(host) {
@@ -2824,8 +2859,8 @@ var ColumnTypes = class {
   /** A type with values to offer: a list of them under the cell, picked with the mouse or the arrows and Enter */
   editorOpened(editor) {
     const typed = this.typeOfEdited(editor);
-    const choices = typed?.type.choices?.(typed.param);
-    if (!choices?.length) return;
+    const choices = typed && attempt(typed, () => typed.type.choices?.(typed.params));
+    if (!choices || typeof choices === "string" || !choices.length) return;
     this.picking = { editor, choices, shown: [], active: -1 };
     editor.field.addEventListener("input", () => {
       if (this.picking?.editor === editor) this.showChoices();
@@ -2920,7 +2955,7 @@ var ColumnTypes = class {
     const column = this.typeOfEdited(editor);
     const text = typed.trim();
     if (!column || text === "" || text.startsWith("=")) return void 0;
-    const error = column.type.check(text, column.param);
+    const error = attempt(column, () => column.type.check(text, column.params));
     if (error) void this.host.bridge.flash(`Table Plus: ${error} (#${column.tag}); saved as typed`, "info");
     return void 0;
   }
@@ -2948,16 +2983,20 @@ var ColumnTypes = class {
         if (raw === void 0 || !cell) continue;
         const text = unescapeCell(withoutTags(raw)).trim();
         if (text === "" || cellText(cell) !== text) continue;
-        const { type, param } = typed;
-        const error = type.check(text, param);
-        cell.dataset.tpValue = error ? text : type.sortValue?.(text, param) ?? text;
-        if (error) {
+        const { type, params } = typed;
+        const shown = attempt(typed, () => {
+          const error = type.check(text, params);
+          return error === void 0 ? { value: type.sortValue?.(text, params) ?? text, shown: type.format(text, params) } : error;
+        });
+        if (typeof shown === "string") {
+          cell.dataset.tpValue = text;
           cell.classList.add("tp-type-invalid");
           cell.title = cell.title ? `${cell.title}
-${error}` : error;
+${shown}` : shown;
           continue;
         }
-        this.show(cell, type.format(text, param));
+        cell.dataset.tpValue = shown.value;
+        this.show(cell, shown.shown);
       }
     });
   }

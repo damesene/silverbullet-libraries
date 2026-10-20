@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import libraryPage from "../../table-plus.md?raw";
 import { dateTimeFormat, numberFormat } from "./format.ts";
 import { columnTypeOf, typeOfTag, TYPES, withColumnType } from "./index.ts";
+import { readParams } from "./registry.ts";
 
 const type = (name: string) => TYPES.get(name)!;
-const show = (name: string, text: string, param?: string, locale = "en-US") => type(name).format(text, param, locale);
-const check = (name: string, text: string, param?: string) => type(name).check(text, param);
+// The parameters a type gets for what is written after its name's dash (#stars-10: "10"), as a header gives them
+const paramsOf = (name: string, written?: string) => typeOfTag(written === undefined ? name : `${name}-${written}`)!.params;
+const show = (name: string, text: string, written?: string, locale = "en-US") => type(name).format(text, paramsOf(name, written), locale);
+const check = (name: string, text: string, written?: string) => type(name).check(text, paramsOf(name, written));
 
 describe("formatters", () => {
   it("are made once per locale and options (making one is slow, a column formats every cell)", () => {
@@ -28,19 +31,37 @@ describe("TYPES", () => {
 
 describe("column types in headers", () => {
   it("reads the type from a header's hashtag, with its parameter", () => {
-    expect(columnTypeOf("Price #currency-usd")).toMatchObject({ type: type("currency"), param: "usd", tag: "currency-usd" });
-    expect(columnTypeOf("#stars Rating")).toMatchObject({ type: type("stars"), param: undefined });
+    expect(columnTypeOf("Price #currency-usd")).toMatchObject({ type: type("currency"), params: { code: "usd" }, tag: "currency-usd" });
+    expect(columnTypeOf("#stars Rating")).toMatchObject({ type: type("stars"), params: { max: 5 } });
     expect(columnTypeOf("Done #todo #check")).toMatchObject({ type: type("check") });
     expect(columnTypeOf("Price")).toBeUndefined();
   });
 
   it("knows MdTableRender's hashtags, and ignores hashtags that are not types", () => {
-    expect(columnTypeOf("Price #euro")).toMatchObject({ type: type("currency"), param: "eur" });
-    expect(columnTypeOf("Weight #kg")).toMatchObject({ type: type("unit"), param: "kg" });
-    expect(columnTypeOf("Ok #logical")).toMatchObject({ type: type("check"), param: undefined });
+    expect(columnTypeOf("Price #euro")).toMatchObject({ type: type("currency"), params: { code: "eur" } });
+    expect(columnTypeOf("Weight #kg")).toMatchObject({ type: type("unit"), params: { unit: "kg" } });
+    expect(columnTypeOf("Ok #logical")).toMatchObject({ type: type("check"), params: {} });
     expect(typeOfTag("constructor")).toBeUndefined();
     expect(typeOfTag("stars-x")).toBeUndefined(); // not a parameter #stars takes
     expect(typeOfTag("check-1")).toBeUndefined(); // #check takes none
+  });
+
+  it("reads a type's parameters, so the type gets them as values", () => {
+    expect(paramsOf("stars", "10")).toEqual({ max: 10 });
+    expect(paramsOf("date", "LONG")).toEqual({ style: "long" }); // as listed
+    expect(paramsOf("number")).toEqual({ digits: undefined }); // no default
+    expect(paramsOf("percent")).toEqual({ digits: 0 });
+    expect(paramsOf("progress", "10")).toEqual({ max: 10 }); // also #gauge: 100
+    expect(paramsOf("unit", "m-s")).toEqual({ unit: "m-s" }); // the last takes the rest
+    // Not the type's: out of range, not whole, not one of the words, a dash on a type that takes none
+    for (const tag of ["stars-0", "stars-100", "stars-2.5", "date-full", "number-10", "currency-dollar", "check-1", "stars-"]) {
+      expect(typeOfTag(tag), tag).toBeUndefined();
+    }
+    const specs = { from: { kind: "number", default: 1 }, to: { kind: "number" }, label: { kind: "text" } } as const;
+    expect(readParams(specs, "2-5-a-b")).toEqual({ from: 2, to: 5, label: "a-b" });
+    expect(readParams(specs, "2")).toEqual({ from: 2, to: undefined, label: undefined });
+    expect(readParams(specs, undefined)).toEqual({ from: 1, to: undefined, label: undefined });
+    expect(readParams(specs, "x")).toBeUndefined();
   });
 
   it("sets and removes a header's type, keeping its other hashtags", () => {
@@ -78,12 +99,12 @@ describe("the types", () => {
     expect(check("stars", "2.5")).toBeDefined();
     expect([show("check", "yes"), show("check", "X"), show("check", "0")]).toEqual(["✅", "✅", "❌"]);
     expect(check("check", "maybe")).toBe('"maybe" is not yes, no or a number');
-    expect(type("check").sortValue!("yes", undefined)).toBe("1");
+    expect(type("check").sortValue!("yes", paramsOf("check"))).toBe("1");
     expect([show("trend", "+"), show("trend", "-"), show("trend", "=")]).toEqual(["🔼", "🔽", "➡️"]);
     // A number by its sign; the list offers only +, - and =
     expect([show("trend", "3"), show("trend", "+2,5 %"), show("trend", "-0.1"), show("trend", "0")]).toEqual(["🔼", "🔼", "🔽", "➡️"]);
     expect(check("trend", "up")).toBe('"up" is not +, -, = or a number');
-    expect(type("trend").choices!(undefined).map((c) => c.value)).toEqual(["+", "-", "="]);
+    expect(type("trend").choices!(paramsOf("trend")).map((c) => c.value)).toEqual(["+", "-", "="]);
     // #check: a number above 0 is yes, 0 or below no; not in its list either
     expect([show("check", "1"), show("check", "42"), show("check", "0,5"), show("check", "0"), show("check", "-3")]).toEqual([
       "✅",
@@ -92,8 +113,8 @@ describe("the types", () => {
       "❌",
       "❌",
     ]);
-    expect(type("check").sortValue!("7", undefined)).toBe("1");
-    expect(type("check").choices!(undefined).map((c) => c.value)).toEqual(["yes", "no"]);
+    expect(type("check").sortValue!("7", paramsOf("check"))).toBe("1");
+    expect(type("check").choices!(paramsOf("check")).map((c) => c.value)).toEqual(["yes", "no"]);
     expect(show("progress", "30")).toBe("▰▰▰▱▱▱▱▱▱▱ 30%");
     expect(show("progress", "5", "10")).toBe("▰▰▰▰▰▱▱▱▱▱ 50%");
   });
@@ -115,7 +136,7 @@ describe("the types", () => {
     expect(check("time", "24:00")).toBe('"24:00" is not a time written as 14:30');
     expect(check("time", "1.5")).toBeDefined();
     // Written in full, so it sorts by the time and a filter for 9:05 still finds it
-    expect(["9:05", "14:30:15", "0.5"].map((t) => type("time").sortValue!(t, undefined))).toEqual(["09:05", "14:30:15", "12:00"]);
+    expect(["9:05", "14:30:15", "0.5"].map((t) => type("time").sortValue!(t, paramsOf("time")))).toEqual(["09:05", "14:30:15", "12:00"]);
     expect(check("date", "2025-02-30")).toBe('"2025-02-30" is not a date written as 2025-11-06');
     expect(check("date", "6.11.2025")).toBeDefined();
   });
@@ -126,8 +147,8 @@ describe("the types", () => {
   });
 
   it("offers values for the editor", () => {
-    expect(type("stars").choices!("3").map((c) => c.value)).toEqual(["0", "1", "2", "3"]);
-    expect(type("check").choices!(undefined)).toEqual([
+    expect(type("stars").choices!(paramsOf("stars", "3")).map((c) => c.value)).toEqual(["0", "1", "2", "3"]);
+    expect(type("check").choices!(paramsOf("check"))).toEqual([
       { value: "yes", label: "✅ yes" },
       { value: "no", label: "❌ no" },
     ]);

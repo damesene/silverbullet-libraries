@@ -15,7 +15,7 @@ describe("Column types", () => {
     return span.innerHTML;
   };
   const iconHtml = (name: string) => asRendered(TYPES.get(name)!.icon!);
-  const usd = (n: number) => TYPES.get("currency")!.format(String(n), "usd") as string;
+  const usd = (n: number) => TYPES.get("currency")!.format(String(n), { code: "usd" }) as string;
   const PAGE = [
     "| Item | Price #currency-usd | Rating #stars | Done #check |",
     "|---|---|---|---|",

@@ -1,7 +1,7 @@
 import { DAY_SECONDS, formatClock, parseClock } from "../../formulas/values.ts";
 import { lineIcon } from "../../icons.ts";
 import { dateTimeFormat, numberOf } from "../format.ts";
-import type { ColumnType } from "../type.ts";
+import { columnType } from "../type.ts";
 
 /**
  * The seconds since midnight of a time of day, read as formulas read times
@@ -18,7 +18,7 @@ function fractionSeconds(text: string): number | undefined {
   return fraction === undefined ? undefined : Math.round(fraction * DAY_SECONDS);
 }
 
-export default {
+export default columnType({
   name: "time",
   syntax: "#time",
   description: "A time of day written as 14:30 or 14:30:15 (or as a fraction of a day, 0.5 is 12:00), shown as the locale writes times.",
@@ -33,4 +33,4 @@ export default {
   },
   // The time written in full (09:05, 12:00 for 0.5): sorts by the time, and filters and copies still find 9:05
   sortValue: (text) => formatClock(secondsOf(text)!),
-} satisfies ColumnType;
+});

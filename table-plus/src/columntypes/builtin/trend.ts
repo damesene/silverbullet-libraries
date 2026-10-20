@@ -1,6 +1,6 @@
 import { lineIcon } from "../../icons.ts";
 import { numberOf } from "../format.ts";
-import type { ColumnType } from "../type.ts";
+import { columnType } from "../type.ts";
 
 const ARROWS: Readonly<Record<string, string>> = { "+": "🔼", "-": "🔽", "=": "➡️" };
 
@@ -12,7 +12,7 @@ function arrowOf(text: string): string | undefined {
   return n === undefined ? undefined : n > 0 ? ARROWS["+"] : n < 0 ? ARROWS["-"] : ARROWS["="];
 }
 
-export default {
+export default columnType({
   name: "trend",
   syntax: "#trend",
   description: "A trend as an arrow: + or a number above 0 shows 🔼, - or one below 0 shows 🔽, = or 0 shows ➡️.",
@@ -20,4 +20,4 @@ export default {
   check: (text) => (arrowOf(text) ? undefined : `"${text}" is not +, -, = or a number`),
   format: (text) => arrowOf(text)!,
   choices: () => Object.entries(ARROWS).map(([value, arrow]) => ({ value, label: `${arrow} ${value}` })),
-} satisfies ColumnType;
+});
