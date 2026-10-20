@@ -107,6 +107,8 @@ export class CellEditing {
   ): void {
     const ref = this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
+    // Measured below: in the document (a large table keeps only the rows in view there)
+    if (ref.row > 0) this.host.rowNeeded(info, cell.parentElement as HTMLTableRowElement);
     this.context.holdRow(widget, info, ref.row);
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
     // The cell's hidden tags are not edited as text: they are kept (tags.ts)

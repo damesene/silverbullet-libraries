@@ -53,7 +53,8 @@ const pixels = (v: unknown): number | undefined => {
 
 /**
  * The modules: the features that can be turned off, each with
- * `tablePlus.modules.<name>.enabled` (default true); read when Table Plus starts
+ * `tablePlus.modules.<name>.enabled` (default true, but MODULES_OFF_BY_DEFAULT);
+ * read when Table Plus starts
  */
 export const FEATURE_NAMES = [
   "formulas",
@@ -69,8 +70,17 @@ export const FEATURE_NAMES = [
   "longText",
   "sticky",
   "autoscroll",
+  "largeTables",
 ] as const;
 export type FeatureName = (typeof FEATURE_NAMES)[number];
+
+// Modules off until turned on (as config.define on the library page says)
+const MODULES_OFF_BY_DEFAULT: ReadonlySet<FeatureName> = new Set(["largeTables"]);
+
+/** Whether a module is on when its setting is not set */
+export function moduleOnByDefault(name: FeatureName): boolean {
+  return !MODULES_OFF_BY_DEFAULT.has(name);
+}
 
 // The modules' names in the settings dialog (as in config.define's ui labels on the library page)
 export const MODULE_LABELS: Readonly<Record<FeatureName, string>> = {
@@ -87,6 +97,7 @@ export const MODULE_LABELS: Readonly<Record<FeatureName, string>> = {
   longText: "Long text in cells",
   sticky: "Sticky header",
   autoscroll: "Middle-button scrolling",
+  largeTables: "Large tables",
 };
 
 // What each module does, in a few words (the settings dialog shows it beside the module's name)
@@ -104,6 +115,7 @@ export const MODULE_DESCRIPTIONS: Readonly<Record<FeatureName, string>> = {
   longText: "Text wider than a maximum column width wraps or is cut, the expand button shows it whole",
   sticky: "A table's header stays in view while the page scrolls past it",
   autoscroll: "The middle mouse button over a table scrolls it in the direction the pointer moves",
+  largeTables: "Tables with many rows scroll in a box of their own (Maximum table height, else the window's height), and only the rows in view are in the page: editing stays quick",
 };
 
 /**
@@ -195,6 +207,14 @@ export const SETTINGS = {
     hint: "Text wider than this wraps or is cut, as set above; 0: no limit",
     default: 500,
     parse: pixels,
+  } satisfies Setting<number>,
+  // From how many rows a table is a large one (the largeTables module)
+  largeTablesMinRows: {
+    path: "tablePlus.modules.largeTables.minRows",
+    label: "Applies from (rows)",
+    hint: "A table with at least this many rows gets its own box, and only the rows in view are kept in the page",
+    default: 200,
+    parse: (v) => (typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : undefined),
   } satisfies Setting<number>,
   // A wrapped cell's maximum height in pixels, the rest cut; 0: no limit
   cellMaxHeight: {

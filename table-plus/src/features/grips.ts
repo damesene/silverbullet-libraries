@@ -97,7 +97,7 @@ export class Grips implements Feature {
   private cellsOf(target: HandleTarget, axis: Axis): HTMLTableCellElement[] {
     const { info } = target;
     if (axis === "row") {
-      const tr = target.row === undefined ? undefined : info.table.querySelector<HTMLTableRowElement>(`tr[data-tp-row="${target.row}"]`);
+      const tr = target.row === undefined ? undefined : this.host.bodyRows(info)[target.row - 1];
       return tr ? Array.from(tr.cells) : [];
     }
     return [info.table.rows[0]!, ...this.host.bodyRows(info)].flatMap((tr) => tr.cells[target.column] ?? []);
@@ -384,15 +384,38 @@ export class Grips implements Feature {
         : Array.from(header.cells).map((_, c) => rows.flatMap((tr) => tr.cells[c] ?? []));
     const index = axis === "row" ? from - 1 : from;
     const carried = items[index] ?? [];
-    const size = (cells: readonly HTMLTableCellElement[]) => {
-      const r = cells[0]?.getBoundingClientRect();
-      return r ? (axis === "row" ? r.height : r.width) : 0;
+    // The dragged row stays in the document while the table scrolls (a large table keeps only the rows in view there)
+    const carriedRow = axis === "row" ? (carried[0]?.parentElement as HTMLTableRowElement | undefined) : undefined;
+    if (carriedRow) {
+      this.host.rowNeeded(info, carriedRow);
+      this.host.holdInDocument(info, carriedRow);
+    }
+    // Where each row (column) was, in the table's own coordinates: the page or
+    // the table's box may scroll while dragging. Rows out of the document (a
+    // large table's) are where rows of their size would be, after those in it.
+    const tableAt = () => {
+      const r = table.getBoundingClientRect();
+      return axis === "row" ? r.top : r.left;
     };
-    const carriedSize = size(carried);
-    const starts = items.map((cells) => {
-      const r = cells[0]?.getBoundingClientRect();
-      return r ? (axis === "row" ? r.top : r.left) : 0;
+    const origin = tableAt();
+    const measured = items.map((cells) => {
+      const cell = cells[0];
+      if (!cell?.isConnected) return undefined;
+      const r = cell.getBoundingClientRect();
+      return axis === "row" ? { start: r.top - origin, size: r.height } : { start: r.left - origin, size: r.width };
     });
+    const known = measured.filter((m): m is { start: number; size: number } => !!m);
+    const typical = known.length ? known.reduce((sum, m) => sum + m.size, 0) / known.length : 0;
+    const firstKnown = measured.findIndex((m) => m);
+    const lastKnown = measured.findLastIndex((m) => m);
+    const places = measured.map((m, i) => {
+      if (m) return m;
+      if (firstKnown < 0) return { start: i * typical, size: typical };
+      if (i < firstKnown) return { start: measured[firstKnown]!.start - (firstKnown - i) * typical, size: typical };
+      const last = measured[lastKnown]!;
+      return { start: last.start + last.size + (i - lastKnown - 1) * typical, size: typical };
+    });
+    const carriedSize = places[index]?.size ?? 0;
     const ghost = this.ghostOf(axis, carried);
     const start = carried[0]!.getBoundingClientRect();
     carried.forEach((el) => el.classList.add("tp-dragged"));
@@ -407,10 +430,10 @@ export class Grips implements Feature {
       grab ??= pointer - (axis === "row" ? start.top : start.left);
       if (axis === "row") this.host.place(ghost, start.left, pointer - grab);
       else this.host.place(ghost, pointer - grab, start.top);
-      // The slot the copy's middle is over, in the places the rows (columns) had
-      const middle = pointer - grab + carriedSize / 2;
+      // The slot the copy's middle is over, in the places the rows (columns) had (in the table, as it is scrolled now)
+      const middle = pointer - grab + carriedSize / 2 - tableAt();
       let slot = 0;
-      for (let i = 0; i < items.length; i++) if (middle >= starts[i]! + size(items[i]!) / 2) slot = i;
+      for (let i = 0; i < places.length; i++) if (middle >= places[i]!.start + places[i]!.size / 2) slot = i;
       const asked = axis === "row" ? slot + 1 : slot;
       to = axis === "row" ? clampRowMove(info.pins, info.rows, from, asked) : clampColumnMove(info.pins, info.columns, from, asked);
       const target = axis === "row" ? to - 1 : to;
@@ -426,6 +449,7 @@ export class Grips implements Feature {
       ghost.remove();
       doc.body.classList.remove("tp-dragging");
       this.dragging = false;
+      if (carriedRow) this.host.holdInDocument(info, undefined);
       this.hideGrips();
       if (!commit || to === from) return;
       if (axis === "row") void moveRowTo(this.host, widget, info, from, to);

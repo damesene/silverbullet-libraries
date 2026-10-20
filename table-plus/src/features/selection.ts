@@ -298,6 +298,7 @@ export class Selection implements Feature {
     const widget = this.host.widgetForKey(selection.key);
     const info = widget && this.host.infoOf(widget);
     const cell = info && this.host.cellAt(info, to);
+    if (cell && info && to.row > 0) this.host.rowNeeded(info, cell.parentElement as HTMLTableRowElement);
     cell?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }
 

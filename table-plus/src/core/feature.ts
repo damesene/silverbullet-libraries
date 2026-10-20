@@ -227,6 +227,17 @@ export interface TableHost {
   cellAt(info: WidgetInfo, cell: CellRef, includeHidden?: boolean): HTMLTableCellElement | undefined;
   /** Shows a table's rows again as sorted and filtered, e.g. after cells changed their text */
   applyView(widget: HTMLElement, info: WidgetInfo): void;
+  /**
+   * A body row about to be measured, edited or scrolled to: put back into the
+   * document if a feature keeps it out (only the rows in view of a large table are there)
+   */
+  rowNeeded(info: WidgetInfo, row: HTMLTableRowElement): void;
+  /** A feature put body rows back into the document (a large table scrolled): the features that lay out rows follow */
+  rowsAttached(info: WidgetInfo, rows: readonly HTMLTableRowElement[]): void;
+  /** A body row that stays in the document whatever scrolls (a row being dragged); undefined: none any more */
+  holdInDocument(info: WidgetInfo, row: HTMLTableRowElement | undefined): void;
+  /** The row held in the document (holdInDocument), if any */
+  heldInDocument(info: WidgetInfo): HTMLTableRowElement | undefined;
   /** Whether a table is taller than its box (the maximum height setting) and scrolls inside it */
   scrollsInside(widget: HTMLElement): boolean;
   /** The element the page scrolls in, around an element */
@@ -360,6 +371,23 @@ export interface Feature {
   hidesRows?(info: WidgetInfo): boolean;
   /** The table's view was applied: rows sorted and hidden, the header marked */
   viewApplied?(widget: HTMLElement, info: WidgetInfo): void;
+  /**
+   * SilverBullet put a table into the page, before the browser lays it out:
+   * its rows as rendered (the header first). A feature may take rows out of
+   * the document; Table Plus keeps them (bodyRows, shownRows, cellAt still
+   * have them) and its features read them as before, but for their layout.
+   */
+  tableAdded?(widget: HTMLElement, table: HTMLTableElement, rows: readonly HTMLTableRowElement[]): void;
+  /**
+   * The body rows shown, in their order (sorted and filtered; not those pinned
+   * to the top or bottom), placed into the table's body by the feature instead
+   * of Table Plus (true): e.g. only those in view, the others out of the document
+   */
+  placeRows?(widget: HTMLElement, info: WidgetInfo, body: HTMLTableSectionElement, shown: readonly HTMLTableRowElement[]): boolean;
+  /** A body row out of the document is needed (rowNeeded): the feature that took it out puts it back */
+  rowNeeded?(info: WidgetInfo, row: HTMLTableRowElement): void;
+  /** Body rows were put back into the document (rowsAttached): laid out now, they can be measured */
+  rowsAttached?(info: WidgetInfo, rows: readonly HTMLTableRowElement[]): void;
   /** The view a table's metadata stored ends (Remove metadata): state read from it goes */
   viewForgotten?(key: string): void;
   /** Columns of the table with `key` moved or were deleted (`map`: their new indexes, undefined: deleted) */

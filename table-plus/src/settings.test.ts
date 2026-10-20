@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { SETTINGS } from "./bridge.ts";
+import { FEATURE_NAMES, SETTINGS } from "./bridge.ts";
 import { MANAGED_MARKER } from "./configpage.ts";
 import { dialogKeys } from "./settings.ts";
 import { cell, controller, editor, flashes, flush, key, PAGE, setup, useTablePage } from "./testing/page.ts";
@@ -64,7 +64,10 @@ describe("The settings dialog", () => {
     let reloaded = 0;
     await setup(PAGE, {}, { saveSettings: (values) => void saved.push(values), reloadUI: () => void reloaded++ });
     await controller.openSettings();
-    expect(dialog()!.querySelectorAll("input[data-tp-module]").length).toBe(13);
+    expect(dialog()!.querySelectorAll("input[data-tp-module]").length).toBe(FEATURE_NAMES.length);
+    // Large tables is off until turned on, the others on
+    expect(module("largeTables").checked).toBe(false);
+    expect(module("formulas").checked).toBe(true);
     const longText = module("longText").closest(".tp-settings-module")!;
     expect(longText.querySelector(".tp-settings-hint")!.textContent).toContain("maximum column width");
     const own = longText.querySelector<HTMLElement>(".tp-settings-module-settings")!;

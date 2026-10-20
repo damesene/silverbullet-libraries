@@ -1,7 +1,7 @@
 // A page without SilverBullet: markdown in a textarea, tables rendered the way
 // SilverBullet renders them, and Table Plus on top through a mock Bridge.
 import type { Bridge } from "../table-plus/src/bridge.ts";
-import { FEATURE_NAMES, MODULE_LABELS, SETTINGS } from "../table-plus/src/bridge.ts";
+import { FEATURE_NAMES, MODULE_LABELS, moduleOnByDefault, SETTINGS } from "../table-plus/src/bridge.ts";
 import { init, openSettings } from "../table-plus/src/index.ts";
 import { findTables, parseTable } from "../table-plus/src/markdown.ts";
 import libraryPage from "../table-plus/table-plus.md";
@@ -293,7 +293,7 @@ modulesBox.append("Modules:");
 for (const name of FEATURE_NAMES) {
   const path = `tablePlus.modules.${name}.enabled`;
   const label = document.createElement("label");
-  const input = Object.assign(document.createElement("input"), { type: "checkbox", checked: settings[path] !== false });
+  const input = Object.assign(document.createElement("input"), { type: "checkbox", checked: typeof settings[path] === "boolean" ? settings[path] === true : moduleOnByDefault(name) });
   input.addEventListener("change", () => {
     settings[path] = input.checked;
     save(SETTINGS_KEY, JSON.stringify(settings));

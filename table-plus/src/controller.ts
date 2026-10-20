@@ -1,7 +1,7 @@
 // Enhances SilverBullet's rendered markdown tables in place: sorting, filtering,
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
-import { type Bridge, type FeatureName, SETTINGS, type SettingValue } from "./bridge.ts";
+import { type Bridge, type FeatureName, moduleOnByDefault, SETTINGS, type SettingValue } from "./bridge.ts";
 import type {
   CellEditor,
   CellRef,
@@ -31,6 +31,7 @@ import { Formulas } from "./features/formulas.ts";
 import { Grips } from "./features/grips.ts";
 import { History } from "./features/history.ts";
 import { Widths } from "./features/widths.ts";
+import { LargeTables } from "./features/largetables.ts";
 import { LongText } from "./features/longtext.ts";
 import { CellPopup } from "./features/popup.ts";
 import { Metadata } from "./features/metadata.ts";
@@ -231,6 +232,14 @@ export class Controller implements TableHost {
   private longPressAt = 0;
   private stopLongPress: (() => void) | undefined;
   private readonly metadata: Metadata;
+  // Each table's rows as SilverBullet rendered them (the header first), whether
+  // a feature took some of them out of the document or not; its body rows; and
+  // the rows shown, in display order, as the view last placed them
+  private readonly renderedRows = new WeakMap<HTMLTableElement, HTMLTableRowElement[]>();
+  private readonly bodyRowsOf = new WeakMap<HTMLTableElement, HTMLTableRowElement[]>();
+  private readonly shownOrder = new WeakMap<HTMLTableElement, HTMLTableRowElement[]>();
+  // A row each table keeps in the document whatever a feature takes out (a row being dragged)
+  private readonly heldRows = new WeakMap<HTMLTableElement, HTMLTableRowElement>();
   // Steps every write goes through after the edit, in this order
   private readonly writeSteps: readonly WriteStep[] = [metadataAfterEdit];
 
@@ -308,7 +317,10 @@ export class Controller implements TableHost {
       });
     }
 
-    this.observer = new MutationObserver(() => this.queueScan());
+    this.observer = new MutationObserver((records) => {
+      this.tablesAdded(records);
+      this.queueScan();
+    });
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
     this.featuresStarted = this.startFeatures();
     void this.scan();
@@ -331,6 +343,8 @@ export class Controller implements TableHost {
       optional("handles", () => new Grips(this)),
       optional("widths", () => new Widths(this)),
       optional("longText", () => new LongText(this)),
+      // Before what places rows into the table: it takes them out of the document first
+      optional("largeTables", () => new LargeTables(this)),
       // Recalculate first in the toolbar
       optional("formulas", () => new Formulas(this)),
       optional("pageLinks", () => new PageLinks(this)),
@@ -360,10 +374,10 @@ export class Controller implements TableHost {
 
   private async featureEnabled(name: FeatureName): Promise<boolean> {
     try {
-      const value = await this.bridge.getConfig?.(`tablePlus.modules.${name}.enabled`, true);
-      return typeof value === "boolean" ? value : true;
+      const value = await this.bridge.getConfig?.(`tablePlus.modules.${name}.enabled`, moduleOnByDefault(name));
+      return typeof value === "boolean" ? value : moduleOnByDefault(name);
     } catch {
-      return true;
+      return moduleOnByDefault(name);
     }
   }
 
@@ -629,6 +643,35 @@ export class Controller implements TableHost {
     else setTimeout(run, 0);
   }
 
+  /** A table's rows as rendered (the header first), kept from when it was first seen */
+  private rowsOf(table: HTMLTableElement): HTMLTableRowElement[] {
+    let rows = this.renderedRows.get(table);
+    if (!rows) this.renderedRows.set(table, (rows = Array.from(table.rows)));
+    return rows;
+  }
+
+  /**
+   * Tables SilverBullet just put into the page (a mutation observer's callback
+   * runs before the browser lays them out): their rows kept, and the features
+   * told, so they may take rows out of the document before they cost a layout
+   */
+  private tablesAdded(records: readonly MutationRecord[]): void {
+    if (!this.features.some((f) => f.tableAdded)) return;
+    for (const record of records) {
+      for (const node of Array.from(record.addedNodes)) {
+        if (!(node instanceof HTMLElement)) continue;
+        // Inside a table: its own content (Table Plus' decorations), not a new table
+        const tables = node instanceof HTMLTableElement ? [node] : node.closest("table") ? [] : Array.from(node.getElementsByTagName("table"));
+        for (const table of tables) {
+          const widget = table.closest<HTMLElement>(WIDGET_SELECTOR);
+          if (!widget || this.renderedRows.has(table)) continue;
+          const rows = this.rowsOf(table);
+          for (const feature of this.features) feature.tableAdded?.(widget, table, rows);
+        }
+      }
+    }
+  }
+
   /** Enhances every rendered table that is not enhanced yet */
   async scan(): Promise<void> {
     if (this.stopped) return;
@@ -660,9 +703,10 @@ export class Controller implements TableHost {
         this.markUnsupported(widget, true);
         return;
       }
-      const header = table.rows[0]!;
+      const rendered = this.rowsOf(table);
+      const header = rendered[0]!;
       const shape = {
-        rows: table.rows.length,
+        rows: rendered.length,
         columns: header.cells.length,
         headers: Array.from(header.cells).map(cellText),
       };
@@ -769,8 +813,9 @@ export class Controller implements TableHost {
 
   private decorate(widget: HTMLElement, info: WidgetInfo): void {
     widget.classList.add("tp-table");
-    const rows = Array.from(info.table.rows);
+    const rows = [...this.rowsOf(info.table)];
     const metaRow = info.metaRow ? rows.pop() : undefined;
+    this.bodyRowsOf.set(info.table, rows.slice(1));
     metaRow?.classList.add("tp-meta-row");
     // Pinned rows and columns carry the pin icon of their menu item
     const mark = (icon: string, title: string) => {
@@ -987,9 +1032,32 @@ export class Controller implements TableHost {
   }
 
   bodyRows(info: WidgetInfo): HTMLTableRowElement[] {
+    // In the document or not (a feature may keep only the rows in view there)
+    const kept = this.bodyRowsOf.get(info.table);
+    if (kept) return [...kept];
     return Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]")).sort(
       (a, b) => Number(a.dataset.tpRow) - Number(b.dataset.tpRow),
     );
+  }
+
+  rowNeeded(info: WidgetInfo, row: HTMLTableRowElement): void {
+    if (row.isConnected) return;
+    for (const feature of this.features) feature.rowNeeded?.(info, row);
+  }
+
+  holdInDocument(info: WidgetInfo, row: HTMLTableRowElement | undefined): void {
+    if (row) this.heldRows.set(info.table, row);
+    else this.heldRows.delete(info.table);
+  }
+
+  heldInDocument(info: WidgetInfo): HTMLTableRowElement | undefined {
+    return this.heldRows.get(info.table);
+  }
+
+  rowsAttached(info: WidgetInfo, rows: readonly HTMLTableRowElement[]): void {
+    for (const feature of this.features) feature.rowsAttached?.(info, rows);
+    // Pinned columns' cells of those rows get their offsets
+    this.pinColumns(info);
   }
 
   /**
@@ -1116,11 +1184,15 @@ export class Controller implements TableHost {
     // Moving the row of an open cell editor would take its focus: restored below
     const editing = this.cellEditor.active?.widget === widget ? this.cellEditor.active : undefined;
     const selection = editing && [editing.field.selectionStart, editing.field.selectionEnd];
+    const shownBody = order.map((i) => rows[i]!);
+    this.shownOrder.set(info.table, [info.table.rows[0]!, ...rows.slice(0, top), ...shownBody, ...rows.slice(rows.length - bottom)]);
     this.movingRows = true;
     try {
       const head = info.table.tHead;
       if (head) placeAtEnd(head, rows.slice(0, top));
-      placeAtEnd(body, bodyRows);
+      // A feature may place the shown rows itself (only those in view of a large table)
+      const placed = body instanceof HTMLTableSectionElement && this.features.some((f) => f.placeRows?.(widget, info, body, shownBody));
+      if (!placed) placeAtEnd(body, bodyRows);
       if (bottom > 0) placeAtEnd(info.table.tFoot ?? info.table.createTFoot(), rows.slice(rows.length - bottom));
     } finally {
       this.movingRows = false;
@@ -1166,7 +1238,9 @@ export class Controller implements TableHost {
     const { left, right } = info.pins;
     if (left + right === 0) return;
     const header = info.table.rows[0]!;
-    const rows = Array.from(info.table.rows).filter((tr) => !tr.classList.contains("tp-meta-row"));
+    const rows = this.rowsOf(info.table).filter((tr) => !tr.classList.contains("tp-meta-row"));
+    // Read before the cells are written: a read between writes lays the whole table out again
+    const widths = Array.from(header.cells, (cell) => cell.getBoundingClientRect().width);
     const pin = (column: number, side: "left" | "right", offset: number, edge: boolean) => {
       for (const tr of rows) {
         const cell = tr.cells[column];
@@ -1179,12 +1253,12 @@ export class Controller implements TableHost {
     let offset = 0;
     for (let c = 0; c < left; c++) {
       pin(c, "left", offset, c === left - 1);
-      offset += header.cells[c]?.getBoundingClientRect().width ?? 0;
+      offset += widths[c] ?? 0;
     }
     offset = 0;
     for (let c = info.columns - 1; c >= info.columns - right; c--) {
       pin(c, "right", offset, c === info.columns - right);
-      offset += header.cells[c]?.getBoundingClientRect().width ?? 0;
+      offset += widths[c] ?? 0;
     }
   }
 
@@ -1431,6 +1505,8 @@ export class Controller implements TableHost {
 
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
   private isShown(widget: HTMLElement, info: WidgetInfo, element: Element): boolean {
+    // Out of the document while its table is in it (a large table's row out of view)
+    if (!element.isConnected && info.table.isConnected) return false;
     const rect = element.getBoundingClientRect();
     const view = this.viewBounds(widget);
     const box = this.innerBox(widget);
@@ -1594,6 +1670,9 @@ export class Controller implements TableHost {
 
   /** The header row and the shown body rows, in display order */
   shownRows(info: WidgetInfo): HTMLTableRowElement[] {
+    // As the view placed them, also those a feature keeps out of the document
+    const placed = this.shownOrder.get(info.table);
+    if (placed) return [...placed];
     return [
       info.table.rows[0]!,
       ...Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]:not(.tp-hidden)")),
@@ -1615,10 +1694,7 @@ export class Controller implements TableHost {
   }
 
   cellAt(info: WidgetInfo, ref: CellRef, includeHidden = false): HTMLTableCellElement | undefined {
-    const tr =
-      ref.row === 0
-        ? info.table.rows[0]
-        : info.table.querySelector<HTMLTableRowElement>(`tr[data-tp-row="${ref.row}"]`);
+    const tr = ref.row === 0 ? info.table.rows[0] : this.bodyRows(info)[ref.row - 1];
     if (!tr || (tr.classList.contains("tp-hidden") && !includeHidden)) return undefined;
     return tr.cells[ref.column];
   }

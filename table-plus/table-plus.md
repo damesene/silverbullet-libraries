@@ -476,6 +476,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `widths` | A column's width set by dragging the right edge of its header, *Auto width* in the column's menu, *Reset column widths* in the table's ⋯ menu; with *Store table metadata* stored in the table. Off: columns are as wide as their text; widths stored in tables are kept but not used. |
 | `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
 | `autoscroll` | The middle mouse button over a table scrolls it. |
+| `largeTables` | Off by default. A table with many rows (setting `minRows`, default `200`) scrolls in a box of its own: as tall as *Maximum table height*, else the window. Only the rows in and around the box's view are in the page, so editing, sorting and filtering a table of thousands of rows stays quick. The browser's find (Ctrl+F) finds only those rows. Off: every row is in the page, the table as tall as its rows (unless *Maximum table height* is set). |
 
 ## Table names
 
@@ -784,6 +785,24 @@ config.define("tablePlus", {
               default = true,
               description = "Pressing the middle mouse button over a table scrolls it in the direction the pointer moves.",
               ui = { category = "Table Plus: Modules", label = "Middle-button scrolling", priority = 2 },
+            },
+          },
+        },
+        largeTables = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = false,
+              description = "Tables with many rows scroll in a box of their own (Maximum table height, else the window's height), and only the rows in view are in the page, so editing them stays quick. The browser's find (Ctrl+F) sees only those rows.",
+              ui = { category = "Table Plus: Modules", label = "Large tables", priority = 1.9 },
+            },
+            minRows = {
+              type = "number",
+              default = 200,
+              description = "A table with at least this many rows is a large table (Large tables).",
+              ui = { category = "Table Plus: Modules", label = "Large tables: applies from (rows)", priority = 1.8 },
             },
           },
         },
@@ -1121,6 +1140,20 @@ body.tp-navigating .sb-table-widget.tp-table * {
   display: inline-block;
   vertical-align: top;
   width: max-content;
+}
+
+/* The largeTables module: a large table scrolls in its own box, at most the
+   window's height (the Maximum table height setting, set inline, wins); the
+   empty rows standing in for the rows out of the document take no room but their height */
+.sb-table-widget.tp-large-table {
+  max-height: calc(100vh - 120px);
+  max-height: calc(100dvh - 120px);
+  overflow: auto;
+}
+.sb-table-widget tr.tp-large-spacer > td {
+  padding: 0 !important;
+  border: 0 !important;
+  background: none !important;
 }
 
 /* The longText module (tablePlus.modules.longText): only on the tables it

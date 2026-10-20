@@ -270,7 +270,7 @@ export class ColumnTypes implements Feature {
   decorate(_widget: HTMLElement, info: WidgetInfo): void {
     const model = parseTable(info.source);
     const header = info.table.rows[0];
-    const rows = Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"));
+    const rows = this.host.bodyRows(info);
     model.rows[0]?.cells.forEach((name, column) => {
       const typed = columnTypeOf(unescapeCell(name));
       if (!typed) return;

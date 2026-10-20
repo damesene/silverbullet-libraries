@@ -16,8 +16,13 @@ var FEATURE_NAMES = [
   "widths",
   "longText",
   "sticky",
-  "autoscroll"
+  "autoscroll",
+  "largeTables"
 ];
+var MODULES_OFF_BY_DEFAULT = /* @__PURE__ */ new Set(["largeTables"]);
+function moduleOnByDefault(name) {
+  return !MODULES_OFF_BY_DEFAULT.has(name);
+}
 var MODULE_LABELS = {
   formulas: "Formulas",
   names: "Names",
@@ -31,7 +36,8 @@ var MODULE_LABELS = {
   widths: "Column widths",
   longText: "Long text in cells",
   sticky: "Sticky header",
-  autoscroll: "Middle-button scrolling"
+  autoscroll: "Middle-button scrolling",
+  largeTables: "Large tables"
 };
 var MODULE_DESCRIPTIONS = {
   formulas: "Formulas in cells (=SUM(B1:B3)), recalculated on every edit",
@@ -46,7 +52,8 @@ var MODULE_DESCRIPTIONS = {
   widths: "Drag the right edge of a header to set its column's width",
   longText: "Text wider than a maximum column width wraps or is cut, the expand button shows it whole",
   sticky: "A table's header stays in view while the page scrolls past it",
-  autoscroll: "The middle mouse button over a table scrolls it in the direction the pointer moves"
+  autoscroll: "The middle mouse button over a table scrolls it in the direction the pointer moves",
+  largeTables: "Tables with many rows scroll in a box of their own (Maximum table height, else the window's height), and only the rows in view are in the page: editing stays quick"
 };
 var SETTINGS = {
   enterKey: {
@@ -130,6 +137,14 @@ var SETTINGS = {
     hint: "Text wider than this wraps or is cut, as set above; 0: no limit",
     default: 500,
     parse: pixels
+  },
+  // From how many rows a table is a large one (the largeTables module)
+  largeTablesMinRows: {
+    path: "tablePlus.modules.largeTables.minRows",
+    label: "Applies from (rows)",
+    hint: "A table with at least this many rows gets its own box, and only the rows in view are kept in the page",
+    default: 200,
+    parse: (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : void 0
   },
   // A wrapped cell's maximum height in pixels, the rest cut; 0: no limit
   cellMaxHeight: {
@@ -953,6 +968,7 @@ var CellEditing = class {
   open(widget, info, cell, select = this.selectOnClick, replace = false, popup) {
     const ref = this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
+    if (ref.row > 0) this.host.rowNeeded(info, cell.parentElement);
     this.context.holdRow(widget, info, ref.row);
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
     const bare2 = withoutTags(original);
@@ -1564,8 +1580,8 @@ var SettingsDialog = class {
       this.initial.set(setting.path, value);
     }
     for (const name of FEATURE_NAMES) {
-      const value = await read(enabledPath(name), true);
-      this.initial.set(enabledPath(name), typeof value === "boolean" ? value : true);
+      const value = await read(enabledPath(name), moduleOnByDefault(name));
+      this.initial.set(enabledPath(name), typeof value === "boolean" ? value : moduleOnByDefault(name));
     }
     for (const [path, value] of this.initial) this.values.set(path, value);
     this.returnFocus = this.context.doc.activeElement;
@@ -2808,7 +2824,7 @@ var ColumnTypes = class {
   decorate(_widget, info) {
     const model = parseTable(info.source);
     const header = info.table.rows[0];
-    const rows = Array.from(info.table.querySelectorAll("tr[data-tp-row]"));
+    const rows = this.host.bodyRows(info);
     model.rows[0]?.cells.forEach((name, column) => {
       const typed = columnTypeOf(unescapeCell(name));
       if (!typed) return;
@@ -5765,7 +5781,7 @@ var Formulas = class {
   /** Formula cells marked, with their formulas and the reasons of their errors as their titles */
   markCells(info, model, tables) {
     let errors;
-    for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
+    for (const tr of this.host.bodyRows(info)) {
       const row = Number(tr.dataset.tpRow);
       model.rows[row]?.cells.forEach((raw, column) => {
         const stored = formulaOf(raw);
@@ -6057,7 +6073,7 @@ ${error}` : stored.formula;
   }
   /** The body rows as shown (header and filter row excluded), with their row in the markdown minus one */
   shownBodyRows(info) {
-    return Array.from(info.table.rows).filter((tr) => tr.dataset.tpRow !== void 0 && !tr.classList.contains("tp-hidden")).map((tr) => ({ tr, row: Number(tr.dataset.tpRow) - 1 }));
+    return this.host.shownRows(info).filter((tr) => tr.dataset.tpRow !== void 0).map((tr) => ({ tr, row: Number(tr.dataset.tpRow) - 1 }));
   }
   /**
    * Screen boxes outlining an area: one per run of its rows that are shown
@@ -6409,7 +6425,7 @@ var Grips = class {
   cellsOf(target, axis) {
     const { info } = target;
     if (axis === "row") {
-      const tr = target.row === void 0 ? void 0 : info.table.querySelector(`tr[data-tp-row="${target.row}"]`);
+      const tr = target.row === void 0 ? void 0 : this.host.bodyRows(info)[target.row - 1];
       return tr ? Array.from(tr.cells) : [];
     }
     return [info.table.rows[0], ...this.host.bodyRows(info)].flatMap((tr) => tr.cells[target.column] ?? []);
@@ -6656,15 +6672,34 @@ var Grips = class {
     const items = axis === "row" ? rows.slice(1).map((tr) => Array.from(tr.cells)) : Array.from(header.cells).map((_, c) => rows.flatMap((tr) => tr.cells[c] ?? []));
     const index = axis === "row" ? from - 1 : from;
     const carried = items[index] ?? [];
-    const size = (cells) => {
-      const r = cells[0]?.getBoundingClientRect();
-      return r ? axis === "row" ? r.height : r.width : 0;
+    const carriedRow = axis === "row" ? carried[0]?.parentElement : void 0;
+    if (carriedRow) {
+      this.host.rowNeeded(info, carriedRow);
+      this.host.holdInDocument(info, carriedRow);
+    }
+    const tableAt = () => {
+      const r = table.getBoundingClientRect();
+      return axis === "row" ? r.top : r.left;
     };
-    const carriedSize = size(carried);
-    const starts = items.map((cells) => {
-      const r = cells[0]?.getBoundingClientRect();
-      return r ? axis === "row" ? r.top : r.left : 0;
+    const origin = tableAt();
+    const measured = items.map((cells) => {
+      const cell = cells[0];
+      if (!cell?.isConnected) return void 0;
+      const r = cell.getBoundingClientRect();
+      return axis === "row" ? { start: r.top - origin, size: r.height } : { start: r.left - origin, size: r.width };
     });
+    const known = measured.filter((m) => !!m);
+    const typical = known.length ? known.reduce((sum, m) => sum + m.size, 0) / known.length : 0;
+    const firstKnown = measured.findIndex((m) => m);
+    const lastKnown = measured.findLastIndex((m) => m);
+    const places = measured.map((m, i) => {
+      if (m) return m;
+      if (firstKnown < 0) return { start: i * typical, size: typical };
+      if (i < firstKnown) return { start: measured[firstKnown].start - (firstKnown - i) * typical, size: typical };
+      const last = measured[lastKnown];
+      return { start: last.start + last.size + (i - lastKnown - 1) * typical, size: typical };
+    });
+    const carriedSize = places[index]?.size ?? 0;
     const ghost = this.ghostOf(axis, carried);
     const start = carried[0].getBoundingClientRect();
     carried.forEach((el) => el.classList.add("tp-dragged"));
@@ -6678,9 +6713,9 @@ var Grips = class {
       grab ??= pointer - (axis === "row" ? start.top : start.left);
       if (axis === "row") this.host.place(ghost, start.left, pointer - grab);
       else this.host.place(ghost, pointer - grab, start.top);
-      const middle = pointer - grab + carriedSize / 2;
+      const middle = pointer - grab + carriedSize / 2 - tableAt();
       let slot = 0;
-      for (let i = 0; i < items.length; i++) if (middle >= starts[i] + size(items[i]) / 2) slot = i;
+      for (let i = 0; i < places.length; i++) if (middle >= places[i].start + places[i].size / 2) slot = i;
       const asked = axis === "row" ? slot + 1 : slot;
       to = axis === "row" ? clampRowMove(info.pins, info.rows, from, asked) : clampColumnMove(info.pins, info.columns, from, asked);
       const target2 = axis === "row" ? to - 1 : to;
@@ -6696,6 +6731,7 @@ var Grips = class {
       ghost.remove();
       doc.body.classList.remove("tp-dragging");
       this.dragging = false;
+      if (carriedRow) this.host.holdInDocument(info, void 0);
       this.hideGrips();
       if (!commit || to === from) return;
       if (axis === "row") void moveRowTo(this.host, widget, info, from, to);
@@ -7331,6 +7367,199 @@ var Widths = class {
   }
 };
 
+// table-plus/src/features/largetables.ts
+var LARGE_CLASS = "tp-large-table";
+var SPACER_CLASS = "tp-large-spacer";
+var MARGIN_ROWS = 30;
+var ROW_HEIGHT = 36;
+var LargeTables = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  minRows = SETTINGS.largeTablesMinRows.default;
+  maxHeight = 0;
+  states = /* @__PURE__ */ new WeakMap();
+  // Where each table's box was scrolled to, and its rows' height as measured, by
+  // table, kept while it is rendered anew: the same scroll then shows the same rows
+  scrolls = /* @__PURE__ */ new Map();
+  heights = /* @__PURE__ */ new Map();
+  // The height last measured, for a table not measured yet
+  lastHeight = ROW_HEIGHT;
+  start() {
+    void this.readSettings();
+  }
+  enhanced() {
+    void this.readSettings();
+  }
+  async readSettings() {
+    this.minRows = await this.host.setting("largeTablesMinRows");
+    this.maxHeight = await this.host.setting("maxHeight");
+  }
+  // ---- taking the rows out before the browser lays the table out ------------------
+  tableAdded(widget, table, rows) {
+    const body = table.tBodies[0];
+    if (!body || rows.length - 1 < this.minRows) return;
+    const state = this.stateOf(widget, table);
+    widget.classList.add(LARGE_CLASS);
+    const count = this.rowsInView(state);
+    const bodyRows = rows.slice(1);
+    state.shown = bodyRows;
+    state.from = 0;
+    state.to = Math.min(bodyRows.length, count);
+    for (const tr of bodyRows.slice(state.to)) tr.remove();
+    this.setSpacers(state);
+    body.prepend(state.above);
+    body.append(state.below);
+  }
+  stateOf(widget, table) {
+    let state = this.states.get(table);
+    if (state) return state;
+    const spacer = () => {
+      const tr = this.host.doc.createElement("tr");
+      tr.className = `${UI_CLASS} ${SPACER_CLASS}`;
+      tr.setAttribute("aria-hidden", "true");
+      const td = this.host.doc.createElement("td");
+      td.colSpan = Math.max(1, table.rows[0]?.cells.length ?? 1);
+      tr.append(td);
+      return tr;
+    };
+    state = {
+      widget,
+      table,
+      key: void 0,
+      info: void 0,
+      shown: [],
+      from: 0,
+      to: 0,
+      rowHeight: this.lastHeight,
+      above: spacer(),
+      below: spacer(),
+      between: spacer(),
+      queued: false,
+      widthsKept: false
+    };
+    this.states.set(table, state);
+    widget.addEventListener("scroll", () => this.scrolled(state), { passive: true });
+    return state;
+  }
+  /** How many rows a view of the box holds, with the margins above and below */
+  rowsInView(state) {
+    const win = this.host.doc.defaultView;
+    const box = this.maxHeight > 0 ? Math.min(this.maxHeight, win.innerHeight) : win.innerHeight;
+    return Math.ceil(box / state.rowHeight) + 2 * MARGIN_ROWS;
+  }
+  setSpacers(state) {
+    const height = (rows) => `${Math.round(rows * state.rowHeight)}px`;
+    state.above.cells[0].style.height = height(state.from);
+    state.below.cells[0].style.height = height(state.shown.length - state.to);
+    state.above.hidden = state.from === 0;
+    state.below.hidden = state.to >= state.shown.length;
+  }
+  // ---- placing the rows of the view -------------------------------------------------
+  placeRows(widget, info, body, shown) {
+    if (this.host.bodyRows(info).length < this.minRows) return false;
+    const state = this.stateOf(widget, info.table);
+    widget.classList.add(LARGE_CLASS);
+    if (state.key === void 0) state.rowHeight = this.heights.get(info.key) ?? state.rowHeight;
+    state.key = info.key;
+    state.info = info;
+    state.shown = shown;
+    const top = this.scrolls.get(info.key) ?? widget.scrollTop;
+    this.windowAt(state, Math.floor(top / state.rowHeight));
+    this.place(state, body);
+    return true;
+  }
+  /** The rows from `first` (the first in view) and the margins around them */
+  windowAt(state, first) {
+    const count = this.rowsInView(state);
+    state.from = Math.max(0, Math.min(first - MARGIN_ROWS, state.shown.length - count));
+    state.to = Math.min(state.shown.length, state.from + count);
+  }
+  place(state, body = state.table.tBodies[0]) {
+    if (!body) return;
+    const before = new Set(Array.from(body.rows));
+    const rows = state.shown.slice(state.from, state.to);
+    this.setSpacers(state);
+    const held = state.info && this.host.heldInDocument(state.info);
+    const at = held ? state.shown.indexOf(held) : -1;
+    const height = (count) => `${Math.round(Math.max(0, count) * state.rowHeight)}px`;
+    if (at >= 0 && at < state.from) {
+      state.above.cells[0].style.height = height(at);
+      state.between.cells[0].style.height = height(state.from - at - 1);
+      state.above.hidden = at === 0;
+      body.replaceChildren(state.above, held, state.between, ...rows, state.below);
+    } else if (at >= state.to) {
+      state.between.cells[0].style.height = height(at - state.to);
+      state.below.cells[0].style.height = height(state.shown.length - at - 1);
+      state.below.hidden = at === state.shown.length - 1;
+      body.replaceChildren(state.above, ...rows, state.between, held, state.below);
+    } else body.replaceChildren(state.above, ...rows, state.below);
+    const attached = rows.filter((tr) => !before.has(tr));
+    if (state.info && attached.length) this.host.rowsAttached(state.info, attached);
+    this.queueMeasure(state);
+  }
+  scrolled(state) {
+    if (state.key) this.scrolls.set(state.key, state.widget.scrollTop);
+    if (state.queued) return;
+    state.queued = true;
+    const win = this.host.doc.defaultView;
+    win.requestAnimationFrame(() => {
+      state.queued = false;
+      if (!state.widget.isConnected) return;
+      const first = Math.floor(state.widget.scrollTop / state.rowHeight);
+      const last = first + Math.ceil(state.widget.clientHeight / state.rowHeight);
+      const roomAbove = state.from === 0 || first - state.from >= MARGIN_ROWS / 3;
+      const roomBelow = state.to >= state.shown.length || state.to - last >= MARGIN_ROWS / 3;
+      if (roomAbove && roomBelow) return;
+      this.windowAt(state, first);
+      this.place(state);
+    });
+  }
+  /**
+   * Once laid out: the rows' real height for the empty rows standing in for
+   * the others, and the columns' widths kept, so they do not change as other
+   * rows come into the document while the box scrolls
+   */
+  queueMeasure(state) {
+    const win = this.host.doc.defaultView;
+    win.requestAnimationFrame(() => {
+      if (!state.widget.isConnected) return;
+      const rows = state.shown.slice(state.from, state.to).filter((tr) => tr.isConnected);
+      const first = rows[0];
+      const last = rows[rows.length - 1];
+      if (first && last && rows.length > 1) {
+        const height = (last.getBoundingClientRect().bottom - first.getBoundingClientRect().top) / rows.length;
+        if (height > 0 && Math.abs(height - state.rowHeight) > 0.01) {
+          const above = state.from * state.rowHeight;
+          state.rowHeight = height;
+          this.setSpacers(state);
+          if (state.from > 0) state.widget.scrollTop += state.from * height - above;
+        }
+        if (height > 0) {
+          this.lastHeight = height;
+          if (state.key) this.heights.set(state.key, height);
+        }
+      }
+      if (!state.widthsKept) {
+        state.widthsKept = true;
+        const header = state.table.rows[0];
+        const widths = Array.from(header?.cells ?? [], (cell) => cell.getBoundingClientRect().width);
+        Array.from(header?.cells ?? []).forEach((cell, i) => {
+          if (!cell.style.minWidth && widths[i]) cell.style.minWidth = `${Math.round(widths[i])}px`;
+        });
+      }
+    });
+  }
+  rowNeeded(info, row) {
+    const state = this.states.get(info.table);
+    const at = state ? state.shown.indexOf(row) : -1;
+    if (!state || at < 0) return;
+    this.windowAt(state, at - Math.floor(this.rowsInView(state) / 2) + MARGIN_ROWS);
+    this.place(state);
+  }
+};
+
 // table-plus/src/features/longtext.ts
 var LongText = class {
   constructor(host) {
@@ -7360,6 +7589,10 @@ var LongText = class {
   viewApplied(widget) {
     this.apply(widget);
     this.resizeObserver?.observe(widget);
+    this.queueCheck();
+  }
+  // Rows put back into the document (a large table scrolled): their cells are checked
+  rowsAttached() {
     this.queueCheck();
   }
   enhanced() {
@@ -7662,7 +7895,7 @@ var Names = class {
       cell.title = cell.title ? `${cell.title}
 Column name: ${name}` : `Column name: ${name}`;
     });
-    for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
+    for (const tr of this.host.bodyRows(info)) {
       const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
       cells.forEach((raw, column) => {
         const name = cellNameOf(raw);
@@ -8291,6 +8524,7 @@ var Selection = class {
     const widget = this.host.widgetForKey(selection.key);
     const info = widget && this.host.infoOf(widget);
     const cell = info && this.host.cellAt(info, to);
+    if (cell && info && to.row > 0) this.host.rowNeeded(info, cell.parentElement);
     cell?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }
   /**
@@ -8709,6 +8943,14 @@ var Controller = class {
   longPressAt = 0;
   stopLongPress;
   metadata;
+  // Each table's rows as SilverBullet rendered them (the header first), whether
+  // a feature took some of them out of the document or not; its body rows; and
+  // the rows shown, in display order, as the view last placed them
+  renderedRows = /* @__PURE__ */ new WeakMap();
+  bodyRowsOf = /* @__PURE__ */ new WeakMap();
+  shownOrder = /* @__PURE__ */ new WeakMap();
+  // A row each table keeps in the document whatever a feature takes out (a row being dragged)
+  heldRows = /* @__PURE__ */ new WeakMap();
   // Steps every write goes through after the edit, in this order
   writeSteps = [metadataAfterEdit];
   setBridge(bridge) {
@@ -8745,7 +8987,10 @@ var Controller = class {
         if (!this.insertAt) this.insertLine.classList.remove("tp-visible");
       });
     }
-    this.observer = new MutationObserver(() => this.queueScan());
+    this.observer = new MutationObserver((records) => {
+      this.tablesAdded(records);
+      this.queueScan();
+    });
     this.observer.observe(this.doc.body, { childList: true, subtree: true });
     this.featuresStarted = this.startFeatures();
     void this.scan();
@@ -8766,6 +9011,8 @@ var Controller = class {
       optional("handles", () => new Grips(this)),
       optional("widths", () => new Widths(this)),
       optional("longText", () => new LongText(this)),
+      // Before what places rows into the table: it takes them out of the document first
+      optional("largeTables", () => new LargeTables(this)),
       // Recalculate first in the toolbar
       optional("formulas", () => new Formulas(this)),
       optional("pageLinks", () => new PageLinks(this)),
@@ -8794,10 +9041,10 @@ var Controller = class {
   }
   async featureEnabled(name) {
     try {
-      const value = await this.bridge.getConfig?.(`tablePlus.modules.${name}.enabled`, true);
-      return typeof value === "boolean" ? value : true;
+      const value = await this.bridge.getConfig?.(`tablePlus.modules.${name}.enabled`, moduleOnByDefault(name));
+      return typeof value === "boolean" ? value : moduleOnByDefault(name);
     } catch {
-      return true;
+      return moduleOnByDefault(name);
     }
   }
   /** Detaches from the page: listeners, observer and floating controls */
@@ -9026,6 +9273,32 @@ var Controller = class {
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
     else setTimeout(run, 0);
   }
+  /** A table's rows as rendered (the header first), kept from when it was first seen */
+  rowsOf(table) {
+    let rows = this.renderedRows.get(table);
+    if (!rows) this.renderedRows.set(table, rows = Array.from(table.rows));
+    return rows;
+  }
+  /**
+   * Tables SilverBullet just put into the page (a mutation observer's callback
+   * runs before the browser lays them out): their rows kept, and the features
+   * told, so they may take rows out of the document before they cost a layout
+   */
+  tablesAdded(records) {
+    if (!this.features.some((f) => f.tableAdded)) return;
+    for (const record of records) {
+      for (const node of Array.from(record.addedNodes)) {
+        if (!(node instanceof HTMLElement)) continue;
+        const tables = node instanceof HTMLTableElement ? [node] : node.closest("table") ? [] : Array.from(node.getElementsByTagName("table"));
+        for (const table of tables) {
+          const widget = table.closest(WIDGET_SELECTOR);
+          if (!widget || this.renderedRows.has(table)) continue;
+          const rows = this.rowsOf(table);
+          for (const feature of this.features) feature.tableAdded?.(widget, table, rows);
+        }
+      }
+    }
+  }
   /** Enhances every rendered table that is not enhanced yet */
   async scan() {
     if (this.stopped) return;
@@ -9054,9 +9327,10 @@ var Controller = class {
         this.markUnsupported(widget, true);
         return;
       }
-      const header = table.rows[0];
+      const rendered = this.rowsOf(table);
+      const header = rendered[0];
       const shape = {
-        rows: table.rows.length,
+        rows: rendered.length,
         columns: header.cells.length,
         headers: Array.from(header.cells).map(cellText)
       };
@@ -9152,8 +9426,9 @@ var Controller = class {
   }
   decorate(widget, info) {
     widget.classList.add("tp-table");
-    const rows = Array.from(info.table.rows);
+    const rows = [...this.rowsOf(info.table)];
     const metaRow2 = info.metaRow ? rows.pop() : void 0;
+    this.bodyRowsOf.set(info.table, rows.slice(1));
     metaRow2?.classList.add("tp-meta-row");
     const mark = (icon, title) => {
       const span = this.doc.createElement("span");
@@ -9331,9 +9606,26 @@ var Controller = class {
     return void 0;
   }
   bodyRows(info) {
+    const kept = this.bodyRowsOf.get(info.table);
+    if (kept) return [...kept];
     return Array.from(info.table.querySelectorAll("tr[data-tp-row]")).sort(
       (a, b) => Number(a.dataset.tpRow) - Number(b.dataset.tpRow)
     );
+  }
+  rowNeeded(info, row) {
+    if (row.isConnected) return;
+    for (const feature of this.features) feature.rowNeeded?.(info, row);
+  }
+  holdInDocument(info, row) {
+    if (row) this.heldRows.set(info.table, row);
+    else this.heldRows.delete(info.table);
+  }
+  heldInDocument(info) {
+    return this.heldRows.get(info.table);
+  }
+  rowsAttached(info, rows) {
+    for (const feature of this.features) feature.rowsAttached?.(info, rows);
+    this.pinColumns(info);
   }
   /**
    * The rows shown (indexes of the body rows), with the held row of this table
@@ -9441,11 +9733,14 @@ var Controller = class {
     ];
     const editing = this.cellEditor.active?.widget === widget ? this.cellEditor.active : void 0;
     const selection = editing && [editing.field.selectionStart, editing.field.selectionEnd];
+    const shownBody = order.map((i) => rows[i]);
+    this.shownOrder.set(info.table, [info.table.rows[0], ...rows.slice(0, top), ...shownBody, ...rows.slice(rows.length - bottom)]);
     this.movingRows = true;
     try {
       const head = info.table.tHead;
       if (head) placeAtEnd(head, rows.slice(0, top));
-      placeAtEnd(body, bodyRows);
+      const placed = body instanceof HTMLTableSectionElement && this.features.some((f) => f.placeRows?.(widget, info, body, shownBody));
+      if (!placed) placeAtEnd(body, bodyRows);
       if (bottom > 0) placeAtEnd(info.table.tFoot ?? info.table.createTFoot(), rows.slice(rows.length - bottom));
     } finally {
       this.movingRows = false;
@@ -9486,7 +9781,8 @@ var Controller = class {
     const { left, right } = info.pins;
     if (left + right === 0) return;
     const header = info.table.rows[0];
-    const rows = Array.from(info.table.rows).filter((tr) => !tr.classList.contains("tp-meta-row"));
+    const rows = this.rowsOf(info.table).filter((tr) => !tr.classList.contains("tp-meta-row"));
+    const widths = Array.from(header.cells, (cell) => cell.getBoundingClientRect().width);
     const pin = (column, side, offset2, edge) => {
       for (const tr of rows) {
         const cell = tr.cells[column];
@@ -9499,12 +9795,12 @@ var Controller = class {
     let offset = 0;
     for (let c = 0; c < left; c++) {
       pin(c, "left", offset, c === left - 1);
-      offset += header.cells[c]?.getBoundingClientRect().width ?? 0;
+      offset += widths[c] ?? 0;
     }
     offset = 0;
     for (let c = info.columns - 1; c >= info.columns - right; c--) {
       pin(c, "right", offset, c === info.columns - right);
-      offset += header.cells[c]?.getBoundingClientRect().width ?? 0;
+      offset += widths[c] ?? 0;
     }
   }
   // ---- event routing -----------------------------------------------------
@@ -9718,6 +10014,7 @@ var Controller = class {
   }
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
   isShown(widget, info, element) {
+    if (!element.isConnected && info.table.isConnected) return false;
     const rect = element.getBoundingClientRect();
     const view = this.viewBounds(widget);
     const box = this.innerBox(widget);
@@ -9850,6 +10147,8 @@ var Controller = class {
   }
   /** The header row and the shown body rows, in display order */
   shownRows(info) {
+    const placed = this.shownOrder.get(info.table);
+    if (placed) return [...placed];
     return [
       info.table.rows[0],
       ...Array.from(info.table.querySelectorAll("tr[data-tp-row]:not(.tp-hidden)"))
@@ -9869,7 +10168,7 @@ var Controller = class {
     }
   }
   cellAt(info, ref, includeHidden = false) {
-    const tr = ref.row === 0 ? info.table.rows[0] : info.table.querySelector(`tr[data-tp-row="${ref.row}"]`);
+    const tr = ref.row === 0 ? info.table.rows[0] : this.bodyRows(info)[ref.row - 1];
     if (!tr || tr.classList.contains("tp-hidden") && !includeHidden) return void 0;
     return tr.cells[ref.column];
   }

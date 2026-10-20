@@ -289,7 +289,7 @@ export class Formulas implements Feature {
   private markCells(info: WidgetInfo, model: Table, tables: TableSource): void {
     // The reasons of errors evaluate the table again: only once a cell shows one
     let errors: Map<string, string> | undefined;
-    for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
+    for (const tr of this.host.bodyRows(info)) {
       const row = Number(tr.dataset.tpRow);
       model.rows[row]?.cells.forEach((raw, column) => {
         const stored = formulaOf(raw);
@@ -614,8 +614,9 @@ export class Formulas implements Feature {
 
   /** The body rows as shown (header and filter row excluded), with their row in the markdown minus one */
   private shownBodyRows(info: WidgetInfo): { tr: HTMLTableRowElement; row: number }[] {
-    return Array.from(info.table.rows)
-      .filter((tr) => tr.dataset.tpRow !== undefined && !tr.classList.contains("tp-hidden"))
+    return this.host
+      .shownRows(info)
+      .filter((tr) => tr.dataset.tpRow !== undefined)
       .map((tr) => ({ tr, row: Number(tr.dataset.tpRow) - 1 }));
   }
 

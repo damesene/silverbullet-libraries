@@ -6,7 +6,7 @@
 // where SilverBullet keeps them (the CONFIG page's managed block,
 // configpage.ts) and the configuration is loaded again. Modules are created
 // when Table Plus starts, so turning one on or off saves and reloads the page.
-import { type Bridge, FEATURE_NAMES, type FeatureName, MODULE_DESCRIPTIONS, MODULE_LABELS, SETTINGS } from "./bridge.ts";
+import { type Bridge, FEATURE_NAMES, type FeatureName, MODULE_DESCRIPTIONS, MODULE_LABELS, moduleOnByDefault, SETTINGS } from "./bridge.ts";
 import { UI_CLASS } from "./dom.ts";
 import { ICONS } from "./icons.ts";
 
@@ -86,8 +86,8 @@ export class SettingsDialog {
       this.initial.set(setting.path, value);
     }
     for (const name of FEATURE_NAMES) {
-      const value = await read(enabledPath(name), true);
-      this.initial.set(enabledPath(name), typeof value === "boolean" ? value : true);
+      const value = await read(enabledPath(name), moduleOnByDefault(name));
+      this.initial.set(enabledPath(name), typeof value === "boolean" ? value : moduleOnByDefault(name));
     }
     for (const [path, value] of this.initial) this.values.set(path, value);
     this.returnFocus = this.context.doc.activeElement;

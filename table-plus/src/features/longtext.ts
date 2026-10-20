@@ -48,6 +48,11 @@ export class LongText implements Feature {
     this.queueCheck();
   }
 
+  // Rows put back into the document (a large table scrolled): their cells are checked
+  rowsAttached(): void {
+    this.queueCheck();
+  }
+
   enhanced(): void {
     // The settings may have changed since they were read
     void this.readSettings();

@@ -74,7 +74,7 @@ export class Names implements Feature {
       cell.classList.add("tp-named");
       cell.title = cell.title ? `${cell.title}\nColumn name: ${name}` : `Column name: ${name}`;
     });
-    for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
+    for (const tr of this.host.bodyRows(info)) {
       const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
       cells.forEach((raw, column) => {
         const name = cellNameOf(raw);
