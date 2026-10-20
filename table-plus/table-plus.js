@@ -715,7 +715,7 @@ var TYPE_TAG_CLASS = "tp-type-tag";
 function cellText(cell) {
   let text = "";
   const walk = (parent) => {
-    for (const node of Array.from(parent.childNodes)) {
+    for (let node = parent.firstChild; node; node = node.nextSibling) {
       if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
       if (node.nodeType === 3) text += node.textContent ?? "";
       else walk(node);
@@ -8897,7 +8897,26 @@ var Controller = class {
   toolbarChanged() {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
-    if (widget && info && this.bar.classList.contains("tp-visible")) this.showTableControls(widget, info);
+    if (widget && info && this.bar.classList.contains("tp-visible")) this.showTableControls(widget, info, false);
+  }
+  /**
+   * The toolbar placed again, once in the next frame: placing it measures the
+   * table, and measured right after each change (a write applies the view more
+   * than once) the browser would lay out a large table again each time
+   */
+  queuePlaceBar() {
+    if (this.barPlaceQueued) return;
+    this.barPlaceQueued = true;
+    const run = () => {
+      this.barPlaceQueued = false;
+      const widget = this.hoverWidget;
+      const info = widget && this.infos.get(widget);
+      if (this.stopped || !widget || !info || renderedTable(widget) !== info.table || !this.bar.classList.contains("tp-visible")) return;
+      this.placeBar(widget, info);
+    };
+    const win = this.doc.defaultView;
+    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
+    else setTimeout(run, 0);
   }
   async promptText(message, value = "") {
     const answer = this.bridge.prompt ? await this.bridge.prompt(message, value) : this.doc.defaultView.prompt(message, value);
@@ -9331,7 +9350,7 @@ var Controller = class {
     this.held = void 0;
     const widget = this.widgetForKey(held.key);
     const info = widget && this.infos.get(widget);
-    if (widget && info && renderedTable(widget) === info.table) this.applyView(widget, info);
+    if (widget && info && renderedTable(widget) === info.table && this.rearranged(info)) this.applyView(widget, info);
   }
   /** After a write: a new row focused is held beside the rows asked */
   holdAfterWrite(key, options) {
@@ -9359,8 +9378,12 @@ var Controller = class {
     for (const tr of this.bodyRows(info)) {
       for (const cell of Array.from(tr.cells)) {
         if (cell.classList.contains("tp-editing")) continue;
-        let box = cell.querySelector(":scope > .tp-cell-content");
-        const loose = Array.from(cell.childNodes).filter((n) => n !== box && !(n instanceof Element && n.classList.contains(UI_CLASS)));
+        let box;
+        const loose = [];
+        for (let n = cell.firstChild; n; n = n.nextSibling) {
+          if (n instanceof HTMLElement && n.classList.contains("tp-cell-content") && !box) box = n;
+          else if (!(n instanceof Element && n.classList.contains(UI_CLASS))) loose.push(n);
+        }
         if (loose.length === 0) continue;
         if (!box) {
           box = this.doc.createElement("div");
@@ -9424,7 +9447,7 @@ var Controller = class {
     this.pinColumns(info);
     widget.classList.toggle("tp-rearranged", this.rearranged(info));
     widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
-    if (this.hoverWidget === widget) this.showTableControls(widget, info);
+    if (this.hoverWidget === widget) this.showTableControls(widget, info, false);
   }
   /**
    * Columns pinned to the left (right) stay at that edge while the table
@@ -9682,6 +9705,7 @@ var Controller = class {
   }
   // ---- layout: what follows scrolling ------------------------------------------
   /** Once per frame after scrolling or rendering: the sticky header, then what points at it */
+  barPlaceQueued = false;
   queueStickyUpdate() {
     if (this.stickyQueued) return;
     this.stickyQueued = true;
@@ -10195,8 +10219,11 @@ var Controller = class {
     this.hoverWidget = void 0;
     this.showQuietMarks();
   }
-  /** The toolbar above the table and the add-row / add-column buttons */
-  showTableControls(widget, info) {
+  /**
+   * The toolbar above the table and the add-row / add-column buttons; placed
+   * now, or (`placeNow` false: after a change of the table) in the next frame
+   */
+  showTableControls(widget, info, placeNow = true) {
     const view = this.viewOf(info);
     const bar = this.bar;
     bar.replaceChildren();
@@ -10314,6 +10341,12 @@ var Controller = class {
       more.classList.add("tp-active");
       this.tableMenu.anchor = more;
     }
+    if (placeNow || !bar.classList.contains("tp-visible")) this.placeBar(widget, info);
+    else this.queuePlaceBar();
+  }
+  /** The toolbar placed above the table's header (or over its right end), and the open table menu with it */
+  placeBar(widget, info) {
+    const bar = this.bar;
     const rect = widget.getBoundingClientRect();
     const tableRect = info.table.getBoundingClientRect();
     const headerRect = info.table.rows[0].getBoundingClientRect();

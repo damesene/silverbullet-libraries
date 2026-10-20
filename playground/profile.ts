@@ -90,7 +90,7 @@ export function profiled<T extends object>(name: string, target: T, { only, nest
 
 // The controller's phases measured (each apart): enhancing a table and its
 // parts, applying the view, the toolbar, writing
-const CORE_PHASES = ["scan", "enhanceNow", "decorate", "applyView", "layOutCells", "pinColumns", "showTableControls", "write", "showMarkdown"];
+const CORE_PHASES = ["scan", "enhanceNow", "decorate", "applyView", "layOutCells", "pinColumns", "showTableControls", "placeBar", "write", "showMarkdown"];
 
 /** A feature's name in the log: its class's (Formulas, ColumnTypes, Grips: the handles module…) */
 const featureName = (feature: object) => feature.constructor.name.replace(/^./, (c) => c.toLowerCase());

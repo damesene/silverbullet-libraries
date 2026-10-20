@@ -509,7 +509,27 @@ export class Controller implements TableHost {
   toolbarChanged(): void {
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
-    if (widget && info && this.bar.classList.contains("tp-visible")) this.showTableControls(widget, info);
+    if (widget && info && this.bar.classList.contains("tp-visible")) this.showTableControls(widget, info, false);
+  }
+
+  /**
+   * The toolbar placed again, once in the next frame: placing it measures the
+   * table, and measured right after each change (a write applies the view more
+   * than once) the browser would lay out a large table again each time
+   */
+  private queuePlaceBar(): void {
+    if (this.barPlaceQueued) return;
+    this.barPlaceQueued = true;
+    const run = () => {
+      this.barPlaceQueued = false;
+      const widget = this.hoverWidget;
+      const info = widget && this.infos.get(widget);
+      if (this.stopped || !widget || !info || renderedTable(widget) !== info.table || !this.bar.classList.contains("tp-visible")) return;
+      this.placeBar(widget, info);
+    };
+    const win = this.doc.defaultView;
+    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
+    else setTimeout(run, 0);
   }
 
   async promptText(message: string, value = ""): Promise<string | undefined> {
@@ -1016,7 +1036,8 @@ export class Controller implements TableHost {
     this.held = undefined;
     const widget = this.widgetForKey(held.key);
     const info = widget && this.infos.get(widget);
-    if (widget && info && renderedTable(widget) === info.table) this.applyView(widget, info);
+    // Rows as written (not sorted nor filtered): the held row is where it goes already
+    if (widget && info && renderedTable(widget) === info.table && this.rearranged(info)) this.applyView(widget, info);
   }
 
   /** After a write: a new row focused is held beside the rows asked */
@@ -1048,8 +1069,13 @@ export class Controller implements TableHost {
     for (const tr of this.bodyRows(info)) {
       for (const cell of Array.from(tr.cells)) {
         if (cell.classList.contains("tp-editing")) continue;
-        let box = cell.querySelector<HTMLElement>(":scope > .tp-cell-content");
-        const loose = Array.from(cell.childNodes).filter((n) => n !== box && !(n instanceof Element && n.classList.contains(UI_CLASS)));
+        // One pass through the cell's children (every cell, on every view): its box, and what is not in it yet
+        let box: HTMLElement | undefined;
+        const loose: Node[] = [];
+        for (let n = cell.firstChild; n; n = n.nextSibling) {
+          if (n instanceof HTMLElement && n.classList.contains("tp-cell-content") && !box) box = n;
+          else if (!(n instanceof Element && n.classList.contains(UI_CLASS))) loose.push(n);
+        }
         if (loose.length === 0) continue;
         if (!box) {
           box = this.doc.createElement("div");
@@ -1123,7 +1149,7 @@ export class Controller implements TableHost {
     widget.classList.toggle("tp-rearranged", this.rearranged(info));
     // A taller table scrolls inside its own box (the table box already has overflow: auto)
     widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
-    if (this.hoverWidget === widget) this.showTableControls(widget, info);
+    if (this.hoverWidget === widget) this.showTableControls(widget, info, false);
   }
 
   /**
@@ -1419,6 +1445,8 @@ export class Controller implements TableHost {
   // ---- layout: what follows scrolling ------------------------------------------
 
   /** Once per frame after scrolling or rendering: the sticky header, then what points at it */
+  private barPlaceQueued = false;
+
   private queueStickyUpdate(): void {
     if (this.stickyQueued) return;
     this.stickyQueued = true;
@@ -2061,8 +2089,11 @@ export class Controller implements TableHost {
     this.showQuietMarks();
   }
 
-  /** The toolbar above the table and the add-row / add-column buttons */
-  private showTableControls(widget: HTMLElement, info: WidgetInfo): void {
+  /**
+   * The toolbar above the table and the add-row / add-column buttons; placed
+   * now, or (`placeNow` false: after a change of the table) in the next frame
+   */
+  private showTableControls(widget: HTMLElement, info: WidgetInfo, placeNow = true): void {
     const view = this.viewOf(info);
     const bar = this.bar;
     bar.replaceChildren();
@@ -2187,7 +2218,14 @@ export class Controller implements TableHost {
       more.classList.add("tp-active");
       this.tableMenu.anchor = more;
     }
+    // Shown already: it stays where it is until placed
+    if (placeNow || !bar.classList.contains("tp-visible")) this.placeBar(widget, info);
+    else this.queuePlaceBar();
+  }
 
+  /** The toolbar placed above the table's header (or over its right end), and the open table menu with it */
+  private placeBar(widget: HTMLElement, info: WidgetInfo): void {
+    const bar = this.bar;
     const rect = widget.getBoundingClientRect();
     const tableRect = info.table.getBoundingClientRect();
     // The header as shown, which may be held at the top of the view

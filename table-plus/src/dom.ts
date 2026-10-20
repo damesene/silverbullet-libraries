@@ -48,8 +48,9 @@ export const TYPE_TAG_CLASS = "tp-type-tag";
 /** A cell's text as shown, without anything Table Plus added (or hid), wherever in the cell it is */
 export function cellText(cell: Element): string {
   let text = "";
+  // Through the siblings, not a copy of the child list: read for every cell on every view
   const walk = (parent: Node) => {
-    for (const node of Array.from(parent.childNodes)) {
+    for (let node = parent.firstChild; node; node = node.nextSibling) {
       if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
       if (node.nodeType === 3) text += node.textContent ?? "";
       else walk(node);
