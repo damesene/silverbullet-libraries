@@ -6820,14 +6820,35 @@ var CellPopup = class {
     this.target = !editor.popup && info && overflows ? { widget: editor.widget, info, cell: editor.cell } : void 0;
     this.place();
   }
+  /**
+   * At the top right corner of the part of the cell in view: the table's box
+   * may be scrolled sideways, the page up or down, and a body cell may be
+   * partly under the header held at the top. Where too little of it shows,
+   * the button waits (hidden) for the cell to come into view.
+   */
   place() {
     const target = this.target;
     if (!target || !target.cell.isConnected) {
       this.hide();
       return;
     }
-    const rect = target.cell.getBoundingClientRect();
-    this.host.place(this.button, rect.right - this.button.offsetWidth - 2, rect.top + 2);
+    const { widget, info, cell } = target;
+    const rect = cell.getBoundingClientRect();
+    const shown = this.host.shownRect(widget, info);
+    const view = this.host.viewBounds(widget);
+    const head = info.table.tHead;
+    const under = head && cell.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity;
+    const left = Math.max(rect.left, shown.left, view.left);
+    const right = Math.min(rect.right, shown.right, view.right);
+    const top = Math.max(rect.top, shown.top, view.top, under);
+    const bottom = Math.min(rect.bottom, shown.bottom, view.bottom);
+    this.button.classList.add("tp-visible");
+    const size = Math.max(this.button.offsetWidth, this.button.offsetHeight);
+    if (rect.width > 0 && (right - left < size + 4 || bottom - top < size + 4)) {
+      this.button.classList.remove("tp-visible");
+      return;
+    }
+    this.host.place(this.button, right - this.button.offsetWidth - 2, top + 2);
   }
   hide() {
     this.target = void 0;

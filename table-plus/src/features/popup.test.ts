@@ -84,6 +84,40 @@ describe("Long text in cells and the cell's popup", () => {
     expect(popup()).toBeNull();
   });
 
+  it("puts the expand button in the part of the cell in view: the table scrolled sideways, the cell partly under the held header", async () => {
+    await setup(PAGE);
+    const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
+    // The table's box shows x 100..400 of the page; the Notes cell spans x 300..700 (its right part scrolled away), y 120..220
+    const set = (el: Element, rect: DOMRect) => Object.defineProperty(el, "getBoundingClientRect", { configurable: true, value: () => rect });
+    set(widget, new DOMRect(100, 50, 300, 400));
+    set(widget.querySelector("table")!, new DOMRect(100, 50, 600, 400));
+    set(cell(1, 1), new DOMRect(300, 120, 400, 100));
+    set(document.querySelector("thead")!, new DOMRect(100, 50, 600, 40));
+    Object.defineProperty(expand(), "offsetWidth", { configurable: true, value: 18 });
+    Object.defineProperty(expand(), "offsetHeight", { configurable: true, value: 18 });
+    cell(1, 1).classList.add("tp-cut");
+    cell(1, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(expand().classList.contains("tp-visible")).toBe(true);
+    // At the box's right edge (400), not the cell's (700)
+    expect(parseFloat(expand().style.left)).toBe(400 - 18 - 2);
+    expect(parseFloat(expand().style.top)).toBe(122);
+    // The page scrolls, the header held over the cell's top: below it
+    const scrolled = async () => {
+      window.dispatchEvent(new Event("scroll"));
+      for (let i = 0; i < 2; i++) await new Promise((resolve) => requestAnimationFrame(resolve));
+    };
+    set(document.querySelector("thead")!, new DOMRect(100, 50, 600, 110));
+    await scrolled();
+    expect(parseFloat(expand().style.top)).toBe(162);
+    // Almost all of it under the header: none until it shows again
+    set(document.querySelector("thead")!, new DOMRect(100, 50, 600, 160));
+    await scrolled();
+    expect(expand().classList.contains("tp-visible")).toBe(false);
+    set(document.querySelector("thead")!, new DOMRect(100, 50, 600, 40));
+    await scrolled();
+    expect(expand().classList.contains("tp-visible")).toBe(true);
+  });
+
   it("goes on in the popup with F2, what is typed kept; Esc closes it unsaved", async () => {
     await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
     clickOn(cell(1, 1));
