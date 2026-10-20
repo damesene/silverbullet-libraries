@@ -3662,6 +3662,7 @@ var FUNCTIONS = Object.fromEntries(ALL2.map((f) => [f.name, f]));
 // table-plus/src/formula/index.ts
 var FORMULA_TAG_RE = /<meta\s+f\s*=\s*(?:"([^"]*)"|'([^']*)')\s*\/?>/gi;
 function formulaOf(cell) {
+  if (!cell.includes("<")) return void 0;
   const match = Array.from(cell.matchAll(FORMULA_TAG_RE)).pop();
   if (!match) return void 0;
   const formula = unescapeMetaValue(match[1] ?? match[2] ?? "").trim();
@@ -5755,21 +5756,22 @@ var Formulas = class {
   /** Formula cells show that they hold one, and their formula (or error) on hover */
   decorate(_widget, info) {
     const model = parseTable(info.source);
-    if (formulaCount(model) > 0) this.withFormulas.add(info.table);
+    if (formulaCount(model) === 0) return;
+    this.withFormulas.add(info.table);
     const tables = this.tableSource();
     if (recalculate(model, tables) !== model) this.stale.add(info.table);
     this.markCells(info, model, tables);
   }
   /** Formula cells marked, with their formulas and the reasons of their errors as their titles */
   markCells(info, model, tables) {
-    const errors = formulaErrors(model, tables);
+    let errors;
     for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
       const row = Number(tr.dataset.tpRow);
       model.rows[row]?.cells.forEach((raw, column) => {
         const stored = formulaOf(raw);
         const cell = tr.cells[column];
         if (!stored || !cell) return;
-        const error = isErrorText(stored.value) ? errors.get(`${row},${column}`) : void 0;
+        const error = isErrorText(stored.value) ? (errors ??= formulaErrors(model, tables)).get(`${row},${column}`) : void 0;
         cell.classList.add("tp-formula");
         cell.classList.toggle("tp-formula-error", !!error);
         cell.title = error ? `${stored.formula}

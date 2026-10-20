@@ -53,6 +53,8 @@ export type StoredFormula = {
 
 /** The formula a cell holds, or undefined for a plain cell */
 export function formulaOf(cell: string): StoredFormula | undefined {
+  // No tag at all (most cells): asked for every cell of a table on every view
+  if (!cell.includes("<")) return undefined;
   // The tag Table Plus writes is the last one: a result may contain the text of another
   const match = Array.from(cell.matchAll(FORMULA_TAG_RE)).pop();
   if (!match) return undefined;

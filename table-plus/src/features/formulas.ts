@@ -278,7 +278,8 @@ export class Formulas implements Feature {
   /** Formula cells show that they hold one, and their formula (or error) on hover */
   decorate(_widget: HTMLElement, info: WidgetInfo): void {
     const model = parseTable(info.source);
-    if (formulaCount(model) > 0) this.withFormulas.add(info.table);
+    if (formulaCount(model) === 0) return;
+    this.withFormulas.add(info.table);
     const tables = this.tableSource();
     if (recalculate(model, tables) !== model) this.stale.add(info.table);
     this.markCells(info, model, tables);
@@ -286,14 +287,15 @@ export class Formulas implements Feature {
 
   /** Formula cells marked, with their formulas and the reasons of their errors as their titles */
   private markCells(info: WidgetInfo, model: Table, tables: TableSource): void {
-    const errors = formulaErrors(model, tables);
+    // The reasons of errors evaluate the table again: only once a cell shows one
+    let errors: Map<string, string> | undefined;
     for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
       const row = Number(tr.dataset.tpRow);
       model.rows[row]?.cells.forEach((raw, column) => {
         const stored = formulaOf(raw);
         const cell = tr.cells[column];
         if (!stored || !cell) return;
-        const error = isErrorText(stored.value) ? errors.get(`${row},${column}`) : undefined;
+        const error = isErrorText(stored.value) ? (errors ??= formulaErrors(model, tables)).get(`${row},${column}`) : undefined;
         cell.classList.add("tp-formula");
         cell.classList.toggle("tp-formula-error", !!error);
         cell.title = error ? `${stored.formula}\n${error}` : stored.formula;
