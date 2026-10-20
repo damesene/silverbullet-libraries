@@ -1,12 +1,14 @@
-// The cell editor: an input in place of a cell's content. Enter, Tab and
-// Ctrl+arrows save and move on, Ctrl+Alt+arrows move the row or column with
-// the cell, Esc cancels. Features shape what it shows and saves (a formula)
-// through the editor hooks of core/feature.ts.
+// The cell editor: an input in place of a cell's content, or (for text that
+// does not fit, a long formula) a textarea in the cell's popup, a panel over
+// the cell where the text wraps. Enter, Tab and Ctrl+arrows save and move on,
+// Ctrl+Alt+arrows move the row or column with the cell, Esc cancels, F2 goes
+// on in the popup. Features shape what it shows and saves (a formula) through
+// the editor hooks of core/feature.ts.
 import { escapeCell, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import { columnAfterMove, moveColumn, moveRow, setCell } from "../ops.ts";
 import { appendRowAt, clampColumnMove, clampRowMove } from "../pins.ts";
 import { UI_CLASS } from "../dom.ts";
-import type { CellEditor, Feature, FocusTarget, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
+import type { CellEditor, CellField, Feature, FocusTarget, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
 import { STICKY_GAP } from "./layout.ts";
 import { insertRowWith, MOVE_BLOCKED } from "./structure.ts";
 import { withoutTags } from "../tags.ts";
@@ -33,7 +35,19 @@ export const PAGE_ROWS = 10;
 type ActiveEditor = CellEditor & {
   readonly kept: DocumentFragment;
   readonly cellStyle: string | null;
+  // The popup's panel
+  readonly panel?: HTMLElement;
 };
+
+// Opened in the cell's popup: with what was typed so far (from the cell's editor) and its selection
+type PopupOptions = {
+  readonly value?: string;
+  readonly initial?: string;
+  readonly selection?: readonly [number, number];
+};
+
+// The popup's width: at least this, the cell's if wider, at most the view's
+const POPUP_MIN_WIDTH = 420;
 
 /** What the cell editor needs from the controller besides the host API */
 export type EditorContext = {
@@ -88,6 +102,8 @@ export class CellEditing {
     select = this.selectOnClick,
     // Typing on a selected cell: the field starts empty, what is typed replaces the text
     replace = false,
+    // In the cell's popup
+    popup?: PopupOptions,
   ): void {
     const ref = this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
@@ -95,33 +111,58 @@ export class CellEditing {
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
     // The cell's hidden tags are not edited as text: they are kept (tags.ts)
     const bare = withoutTags(original);
-
-    // The cell keeps its size while its content is swapped for the field
-    const cellStyle = cell.getAttribute("style");
-    const rect = cell.getBoundingClientRect();
-    if (rect.width > 0) {
-      cell.style.boxSizing = "border-box";
-      cell.style.width = `${rect.width}px`;
-      cell.style.minWidth = `${rect.width}px`;
-      cell.style.maxWidth = `${rect.width}px`;
-      cell.style.height = `${rect.height}px`;
-    }
-
-    const field = this.host.doc.createElement("input");
-    field.type = "text";
-    field.className = `${UI_CLASS} tp-cell-editor`;
-    // A small intrinsic width, so the field never widens the column
-    field.size = 1;
-    field.spellcheck = true;
     // What the field shows: the cell's text, unless a feature shows it otherwise (a formula)
-    field.value = this.context.features.reduce<string | undefined>((text, f) => text ?? f.editorText?.(info, ref, original), undefined) ?? unescapeCell(bare);
+    const initial =
+      popup?.initial ??
+      this.context.features.reduce<string | undefined>((text, f) => text ?? f.editorText?.(info, ref, original), undefined) ??
+      unescapeCell(bare);
+
+    const cellStyle = cell.getAttribute("style");
     const kept = this.host.doc.createDocumentFragment();
-    while (cell.firstChild) kept.append(cell.firstChild);
+    let field: CellField;
+    let panel: HTMLElement | undefined;
+    if (popup) {
+      // The cell stays as it is, marked edited; the field is in a panel over it
+      const area = this.host.doc.createElement("textarea");
+      area.className = `${UI_CLASS} tp-cell-editor tp-cell-popup-field`;
+      area.rows = 1;
+      area.spellcheck = true;
+      panel = this.host.floating("div", "tp-cell-popup tp-visible");
+      // The cell's type, whatever the theme
+      const font = this.host.doc.defaultView!.getComputedStyle(cell);
+      Object.assign(panel.style, { fontFamily: font.fontFamily, fontSize: font.fontSize, fontWeight: font.fontWeight, lineHeight: font.lineHeight });
+      panel.append(area);
+      field = area;
+    } else {
+      // The cell keeps its size while its content is swapped for the field
+      const rect = cell.getBoundingClientRect();
+      if (rect.width > 0) {
+        cell.style.boxSizing = "border-box";
+        cell.style.width = `${rect.width}px`;
+        cell.style.minWidth = `${rect.width}px`;
+        cell.style.maxWidth = `${rect.width}px`;
+        cell.style.height = `${rect.height}px`;
+      }
+      const input = this.host.doc.createElement("input");
+      input.type = "text";
+      input.className = `${UI_CLASS} tp-cell-editor`;
+      // A small intrinsic width, so the field never widens the column
+      input.size = 1;
+      input.spellcheck = true;
+      while (cell.firstChild) kept.append(cell.firstChild);
+      cell.append(input);
+      field = input;
+    }
+    field.value = popup?.value ?? initial;
     cell.classList.add("tp-editing");
-    cell.append(field);
-    this.editor = { widget, cell, ...ref, original, initial: field.value, field, kept, cellStyle };
+    this.editor = { widget, cell, ...ref, original, initial, field, kept, cellStyle, popup: !!popup, ...(panel ? { panel } : {}) };
     if (replace) field.value = "";
     this.reveal(widget, cell);
+    if (panel) {
+      this.placePopup();
+      // It grows with what is typed (up to its maximum height)
+      field.addEventListener("input", () => this.placePopup());
+    }
     this.context.endHover();
 
     this.context.isolate(field);
@@ -129,7 +170,8 @@ export class CellEditing {
       // Focus went elsewhere on purpose: save, but leave the focus there
       if (this.editor?.field === field && !this.context.movingRows()) void this.finish(true, undefined, false);
     });
-    field.addEventListener("keydown", (e) => {
+    // (Through HTMLElement: on the input | textarea union the events lose their types)
+    (field as HTMLElement).addEventListener("keydown", (e) => {
       if (e.isComposing) return;
       const editing = this.editor;
       if (editing?.field === field && this.context.features.some((f) => f.editorKeyDown?.(e, editing))) {
@@ -156,34 +198,85 @@ export class CellEditing {
       } else if (e.key === "Tab") {
         e.preventDefault();
         void this.step(e.shiftKey ? -1 : 1);
+      } else if (e.key === "F2" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && !this.editor?.popup) {
+        // The text does not fit (a long formula): on in the popup, wrapped
+        e.preventDefault();
+        this.toPopup();
       }
     });
     this.context.editingStarted();
     field.focus({ preventScroll: true });
-    if (select) field.select();
+    if (popup?.selection) field.setSelectionRange(popup.selection[0], popup.selection[1]);
+    else if (select) field.select();
     else field.setSelectionRange(field.value.length, field.value.length);
     const opened = this.editor;
     for (const feature of this.context.features) feature.editorOpened?.(opened);
   }
 
-  /** Puts the rendered cell back; returns what was being edited */
-  close(): (ActiveEditor & { value: string }) | undefined {
+  /** Whether a node is the editor's (its popup) */
+  owns(node: Node): boolean {
+    return !!this.editor?.panel?.contains(node);
+  }
+
+  /**
+   * F2 (or the expand button): the cell edited in its editor in the cell goes
+   * on in its popup, with what was typed and where the cursor was; nothing is
+   * saved meanwhile
+   */
+  toPopup(): void {
+    const active = this.editor;
+    const info = active && this.host.infoOf(active.widget);
+    if (!active || !info || active.popup) return;
+    const { field, widget, cell, initial } = active;
+    const value = field.value;
+    const selection = [field.selectionStart ?? value.length, field.selectionEnd ?? value.length] as const;
+    this.close(true);
+    this.open(widget, info, cell, false, false, { value, initial, selection });
+  }
+
+  /**
+   * The popup over its cell: left-aligned with it, as wide as the cell (at
+   * least POPUP_MIN_WIDTH, at most what the view has), its field as tall as
+   * its text (the CSS caps it, then it scrolls)
+   */
+  placePopup(): void {
+    const active = this.editor;
+    const panel = active?.panel;
+    // The table rendered anew meanwhile (an edit from elsewhere): the popup stays where it is, Enter still saves
+    if (!active || !panel || !active.cell.isConnected) return;
+    const rect = active.cell.getBoundingClientRect();
+    const view = this.host.viewBounds(active.widget);
+    const width = Math.max(120, Math.min(Math.max(rect.width, POPUP_MIN_WIDTH), view.right - view.left - 16));
+    panel.style.width = `${Math.round(width)}px`;
+    const field = active.field;
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+    const left = Math.max(view.left + 8, Math.min(rect.left, view.right - width - 8));
+    // Over the cell, as far as the view (above an on-screen keyboard) has room; at its top if not
+    const top = Math.max(view.top + 4, Math.min(rect.top, view.bottom - panel.offsetHeight - 4));
+    this.host.place(panel, left, top);
+  }
+
+  /** Puts the rendered cell back; returns what was being edited. `reopening`: it opens again at once (in its popup), its table not left */
+  close(reopening = false): (ActiveEditor & { value: string }) | undefined {
     const active = this.editor;
     if (!active) return undefined;
     this.editor = undefined;
     for (const feature of this.context.features) feature.editorClosed?.(active);
-    let value = this.cellValue(active);
-    if (active.row === 0 && withoutTags(value) === "" && active.original !== "") {
+    // Reopening: nothing is saved, so nothing is made of what is typed (a formula fixed, announced)
+    let value = reopening ? active.field.value : this.cellValue(active);
+    if (!reopening && active.row === 0 && withoutTags(value) === "" && active.original !== "") {
       // SilverBullet would not show a column without a name
       value = active.original;
       void this.host.bridge.flash("Table Plus: a column needs a name; the old name was kept", "info");
     }
     active.field.remove();
+    active.panel?.remove();
     active.cell.classList.remove("tp-editing");
     if (active.cellStyle === null) active.cell.removeAttribute("style");
     else active.cell.setAttribute("style", active.cellStyle);
     active.cell.append(active.kept);
-    this.context.editingEnded(active.widget);
+    if (!reopening) this.context.editingEnded(active.widget);
     return { ...active, value };
   }
 
@@ -420,6 +513,7 @@ export class CellEditing {
   revealActive(): void {
     const active = this.editor;
     if (active?.cell.isConnected) this.reveal(active.widget, active.cell);
+    this.placePopup();
   }
 
   /**

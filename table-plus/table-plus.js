@@ -1,8 +1,13 @@
 // table-plus/src/bridge.ts
+var pixels = (v) => {
+  const n = typeof v === "string" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : void 0;
+};
 var SETTINGS = {
   enterKey: {
     path: "tablePlus.editor.enterKey",
     default: "moveDown",
+    choices: ["save", "moveDown"],
     parse: (v) => v === "save" || v === "moveDown" ? v : void 0
   },
   smartFilters: {
@@ -44,10 +49,26 @@ var SETTINGS = {
   maxHeight: {
     path: "tablePlus.maxHeight",
     default: 0,
-    parse: (v) => {
-      const n = typeof v === "string" ? Number(v) : v;
-      return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : void 0;
-    }
+    parse: pixels
+  },
+  // Text longer than a cell's maximum width: wrapped onto more lines, or cut with an ellipsis (…)
+  cellOverflow: {
+    path: "tablePlus.cells.overflow",
+    default: "wrap",
+    choices: ["wrap", "ellipsis"],
+    parse: (v) => v === "wrap" || v === "ellipsis" ? v : void 0
+  },
+  // A column's maximum width in pixels; 0: no limit
+  cellMaxWidth: {
+    path: "tablePlus.cells.maxWidth",
+    default: 500,
+    parse: pixels
+  },
+  // A wrapped cell's maximum height in pixels, the rest cut; 0: no limit
+  cellMaxHeight: {
+    path: "tablePlus.cells.maxHeight",
+    default: 200,
+    parse: pixels
   }
 };
 var REQUIRED = [
@@ -774,6 +795,7 @@ var NAVIGATION_KEYS = /* @__PURE__ */ new Set([
   "PageDown"
 ]);
 var PAGE_ROWS = 10;
+var POPUP_MIN_WIDTH = 420;
 var CellEditing = class {
   constructor(host, context) {
     this.host = host;
@@ -797,34 +819,54 @@ var CellEditing = class {
   dropPending() {
     this.pending = void 0;
   }
-  open(widget, info, cell, select = this.selectOnClick, replace = false) {
+  open(widget, info, cell, select = this.selectOnClick, replace = false, popup) {
     const ref = this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
     this.context.holdRow(widget, info, ref.row);
     const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
     const bare2 = withoutTags(original);
+    const initial = popup?.initial ?? this.context.features.reduce((text, f) => text ?? f.editorText?.(info, ref, original), void 0) ?? unescapeCell(bare2);
     const cellStyle = cell.getAttribute("style");
-    const rect = cell.getBoundingClientRect();
-    if (rect.width > 0) {
-      cell.style.boxSizing = "border-box";
-      cell.style.width = `${rect.width}px`;
-      cell.style.minWidth = `${rect.width}px`;
-      cell.style.maxWidth = `${rect.width}px`;
-      cell.style.height = `${rect.height}px`;
-    }
-    const field = this.host.doc.createElement("input");
-    field.type = "text";
-    field.className = `${UI_CLASS} tp-cell-editor`;
-    field.size = 1;
-    field.spellcheck = true;
-    field.value = this.context.features.reduce((text, f) => text ?? f.editorText?.(info, ref, original), void 0) ?? unescapeCell(bare2);
     const kept = this.host.doc.createDocumentFragment();
-    while (cell.firstChild) kept.append(cell.firstChild);
+    let field;
+    let panel;
+    if (popup) {
+      const area = this.host.doc.createElement("textarea");
+      area.className = `${UI_CLASS} tp-cell-editor tp-cell-popup-field`;
+      area.rows = 1;
+      area.spellcheck = true;
+      panel = this.host.floating("div", "tp-cell-popup tp-visible");
+      const font = this.host.doc.defaultView.getComputedStyle(cell);
+      Object.assign(panel.style, { fontFamily: font.fontFamily, fontSize: font.fontSize, fontWeight: font.fontWeight, lineHeight: font.lineHeight });
+      panel.append(area);
+      field = area;
+    } else {
+      const rect = cell.getBoundingClientRect();
+      if (rect.width > 0) {
+        cell.style.boxSizing = "border-box";
+        cell.style.width = `${rect.width}px`;
+        cell.style.minWidth = `${rect.width}px`;
+        cell.style.maxWidth = `${rect.width}px`;
+        cell.style.height = `${rect.height}px`;
+      }
+      const input = this.host.doc.createElement("input");
+      input.type = "text";
+      input.className = `${UI_CLASS} tp-cell-editor`;
+      input.size = 1;
+      input.spellcheck = true;
+      while (cell.firstChild) kept.append(cell.firstChild);
+      cell.append(input);
+      field = input;
+    }
+    field.value = popup?.value ?? initial;
     cell.classList.add("tp-editing");
-    cell.append(field);
-    this.editor = { widget, cell, ...ref, original, initial: field.value, field, kept, cellStyle };
+    this.editor = { widget, cell, ...ref, original, initial, field, kept, cellStyle, popup: !!popup, ...panel ? { panel } : {} };
     if (replace) field.value = "";
     this.reveal(widget, cell);
+    if (panel) {
+      this.placePopup();
+      field.addEventListener("input", () => this.placePopup());
+    }
     this.context.endHover();
     this.context.isolate(field);
     field.addEventListener("blur", () => {
@@ -857,32 +899,76 @@ var CellEditing = class {
       } else if (e.key === "Tab") {
         e.preventDefault();
         void this.step(e.shiftKey ? -1 : 1);
+      } else if (e.key === "F2" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && !this.editor?.popup) {
+        e.preventDefault();
+        this.toPopup();
       }
     });
     this.context.editingStarted();
     field.focus({ preventScroll: true });
-    if (select) field.select();
+    if (popup?.selection) field.setSelectionRange(popup.selection[0], popup.selection[1]);
+    else if (select) field.select();
     else field.setSelectionRange(field.value.length, field.value.length);
     const opened = this.editor;
     for (const feature of this.context.features) feature.editorOpened?.(opened);
   }
-  /** Puts the rendered cell back; returns what was being edited */
-  close() {
+  /** Whether a node is the editor's (its popup) */
+  owns(node) {
+    return !!this.editor?.panel?.contains(node);
+  }
+  /**
+   * F2 (or the expand button): the cell edited in its editor in the cell goes
+   * on in its popup, with what was typed and where the cursor was; nothing is
+   * saved meanwhile
+   */
+  toPopup() {
+    const active = this.editor;
+    const info = active && this.host.infoOf(active.widget);
+    if (!active || !info || active.popup) return;
+    const { field, widget, cell, initial } = active;
+    const value = field.value;
+    const selection = [field.selectionStart ?? value.length, field.selectionEnd ?? value.length];
+    this.close(true);
+    this.open(widget, info, cell, false, false, { value, initial, selection });
+  }
+  /**
+   * The popup over its cell: left-aligned with it, as wide as the cell (at
+   * least POPUP_MIN_WIDTH, at most what the view has), its field as tall as
+   * its text (the CSS caps it, then it scrolls)
+   */
+  placePopup() {
+    const active = this.editor;
+    const panel = active?.panel;
+    if (!active || !panel || !active.cell.isConnected) return;
+    const rect = active.cell.getBoundingClientRect();
+    const view = this.host.viewBounds(active.widget);
+    const width = Math.max(120, Math.min(Math.max(rect.width, POPUP_MIN_WIDTH), view.right - view.left - 16));
+    panel.style.width = `${Math.round(width)}px`;
+    const field = active.field;
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+    const left = Math.max(view.left + 8, Math.min(rect.left, view.right - width - 8));
+    const top = Math.max(view.top + 4, Math.min(rect.top, view.bottom - panel.offsetHeight - 4));
+    this.host.place(panel, left, top);
+  }
+  /** Puts the rendered cell back; returns what was being edited. `reopening`: it opens again at once (in its popup), its table not left */
+  close(reopening = false) {
     const active = this.editor;
     if (!active) return void 0;
     this.editor = void 0;
     for (const feature of this.context.features) feature.editorClosed?.(active);
-    let value = this.cellValue(active);
-    if (active.row === 0 && withoutTags(value) === "" && active.original !== "") {
+    let value = reopening ? active.field.value : this.cellValue(active);
+    if (!reopening && active.row === 0 && withoutTags(value) === "" && active.original !== "") {
       value = active.original;
       void this.host.bridge.flash("Table Plus: a column needs a name; the old name was kept", "info");
     }
     active.field.remove();
+    active.panel?.remove();
     active.cell.classList.remove("tp-editing");
     if (active.cellStyle === null) active.cell.removeAttribute("style");
     else active.cell.setAttribute("style", active.cellStyle);
     active.cell.append(active.kept);
-    this.context.editingEnded(active.widget);
+    if (!reopening) this.context.editingEnded(active.widget);
     return { ...active, value };
   }
   /**
@@ -1081,6 +1167,7 @@ var CellEditing = class {
   revealActive() {
     const active = this.editor;
     if (active?.cell.isConnected) this.reveal(active.widget, active.cell);
+    this.placePopup();
   }
   /**
    * Scrolls so that the cell is fully visible: a wide table sideways, the page
@@ -1294,6 +1381,11 @@ var Autoscroll = class {
   }
 };
 
+// table-plus/src/core/feature.ts
+function editorRect(editor) {
+  return (editor.popup ? editor.field.closest(".tp-cell-popup") ?? editor.cell : editor.cell).getBoundingClientRect();
+}
+
 // table-plus/src/icons.ts
 var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
 var lineIcon = (body) => svg(body);
@@ -1307,6 +1399,7 @@ var ICONS = {
     true
   ),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  expand: svg('<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'),
   rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
   rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
   columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
@@ -2163,8 +2256,8 @@ var ColumnTypes = class {
   }
   /** Under the cell, or above it where the window has no room below */
   placePicker(editor) {
-    const rect = editor.cell.getBoundingClientRect();
-    this.picker.style.minWidth = `${Math.round(rect.width)}px`;
+    const rect = editorRect(editor);
+    this.picker.style.minWidth = `${Math.round(editor.cell.getBoundingClientRect().width)}px`;
     this.host.place(this.picker, rect.left, rect.bottom + 2);
     const viewHeight = this.host.doc.defaultView.innerHeight;
     const height = this.picker.offsetHeight;
@@ -5218,7 +5311,7 @@ ${error}` : stored.formula;
       this.formulaHint.replaceChildren(
         Object.assign(this.host.doc.createElement("div"), { className: "tp-formula-help", textContent: FORMULAS_NEED_METADATA })
       );
-      const rect = active.cell.getBoundingClientRect();
+      const rect = editorRect(active);
       this.host.place(this.formulaHint, rect.left, rect.bottom + 4);
       return;
     }
@@ -5402,7 +5495,7 @@ ${error}` : stored.formula;
       tab.textContent = `Tab: ${completion.text}`;
       hint.append(tab);
     }
-    const rect = active.cell.getBoundingClientRect();
+    const rect = editorRect(active);
     this.host.place(hint, rect.left, rect.bottom + 4);
     const viewHeight = this.host.doc.defaultView.innerHeight;
     if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {
@@ -6474,6 +6567,90 @@ var History = class {
   }
 };
 
+// table-plus/src/features/popup.ts
+var CellPopup = class {
+  constructor(host) {
+    this.host = host;
+    this.button = host.floating("button", "tp-expand");
+    this.button.type = "button";
+    this.button.tabIndex = -1;
+    this.button.title = "Show the whole text (F2 while editing)";
+    this.button.setAttribute("aria-label", "Show the whole text");
+    this.button.innerHTML = ICONS.expand;
+  }
+  host;
+  button;
+  // The cell the button is for
+  target;
+  start() {
+    this.button.addEventListener("click", () => this.open());
+  }
+  stop() {
+    this.button.remove();
+  }
+  owns(node) {
+    return this.button.contains(node);
+  }
+  cellHovered(widget, info, cell) {
+    const editing = this.host.editing;
+    if (editing) {
+      this.showFor(editing);
+      return;
+    }
+    this.target = cell.classList.contains("tp-cut") ? { widget, info, cell } : void 0;
+    this.place();
+  }
+  hoverEnded() {
+    const editing = this.host.editing;
+    if (editing) this.showFor(editing);
+    else this.hide();
+  }
+  editorOpened(editor) {
+    this.showFor(editor);
+    editor.field.addEventListener("input", () => {
+      if (this.host.editing === editor) this.showFor(editor);
+    });
+  }
+  editorClosed() {
+    this.hide();
+  }
+  layoutChanged() {
+    this.place();
+  }
+  /** While a cell is edited in it: when its text does not fit, or the cell's did not */
+  showFor(editor) {
+    const info = this.host.infoOf(editor.widget);
+    const field = editor.field;
+    const overflows = field.scrollWidth > field.clientWidth + 1 || editor.cell.classList.contains("tp-cut");
+    this.target = !editor.popup && info && overflows ? { widget: editor.widget, info, cell: editor.cell } : void 0;
+    this.place();
+  }
+  place() {
+    const target = this.target;
+    if (!target || !target.cell.isConnected) {
+      this.hide();
+      return;
+    }
+    const rect = target.cell.getBoundingClientRect();
+    this.host.place(this.button, rect.right - this.button.offsetWidth - 2, rect.top + 2);
+  }
+  hide() {
+    this.target = void 0;
+    this.button.classList.remove("tp-visible");
+  }
+  open() {
+    const target = this.target;
+    if (!target) return;
+    this.hide();
+    if (this.host.editing) {
+      this.host.editInPopup();
+      return;
+    }
+    const ref = this.host.cellRef(target.info, target.cell);
+    if (ref) this.host.editCell(target.info, ref, void 0, true);
+  }
+};
+
 // table-plus/src/features/metadata.ts
 function withoutMetadata(table) {
   const { meta: _meta, metaSource: _source, ...rest } = table;
@@ -7414,7 +7591,7 @@ var Selection = class {
   onCopy = (e) => {
     const cells = this.selection && this.cells();
     const active = this.host.doc.activeElement;
-    if (!cells || !e.clipboardData || active instanceof HTMLInputElement && active.selectionStart !== active.selectionEnd) return;
+    if (!cells || !e.clipboardData || (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd) return;
     const values = cells.map((row) => row.map(cellValue));
     e.clipboardData.setData("text/plain", clipboardText(values));
     e.clipboardData.setData("text/html", clipboardHtml(values));
@@ -7553,6 +7730,15 @@ var Controller = class {
   views = /* @__PURE__ */ new Map();
   // The maximum table height setting, in pixels; 0: no limit
   maxHeight = 0;
+  // The cells settings: long text wrapped or cut with an ellipsis, a column's maximum width, a wrapped cell's maximum height (pixels, 0: no limit)
+  cells = {
+    overflow: SETTINGS.cellOverflow.default,
+    maxWidth: SETTINGS.cellMaxWidth.default,
+    maxHeight: SETTINGS.cellMaxHeight.default
+  };
+  overflowQueued = false;
+  // Tables resized (a sidebar, fonts loaded, the content): cells that are cut may change
+  resizeObserver;
   // The metadata setting, for menus that offer pinning
   metadataOn = false;
   // Sideways scroll of each wide table, carried over to its next rendering
@@ -7633,6 +7819,9 @@ var Controller = class {
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
     this.doc.addEventListener("pointerout", this.onPointerOut, { passive: true });
     win.addEventListener("mouseup", this.onMouseUp, true);
+    win.addEventListener("resize", this.onResize);
+    this.resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => this.queueOverflowCheck()) : void 0;
+    void this.doc.fonts?.ready.then(() => this.queueOverflowCheck());
     win.addEventListener("wheel", this.dropAnchor, { capture: true, passive: true });
     win.addEventListener("touchstart", this.dropAnchor, { capture: true, passive: true });
     this.insertMark.addEventListener("click", () => this.insertHere());
@@ -7681,7 +7870,8 @@ var Controller = class {
       optional("selection", () => new Selection(this)),
       optional("export", () => new Export(this)),
       always(() => new Expressions(this)),
-      always(() => new History(this))
+      always(() => new History(this)),
+      always(() => new CellPopup(this))
     ];
     const enabled = await Promise.all(all.map(({ name }) => name ? this.featureEnabled(name) : true));
     if (this.stopped) return;
@@ -7719,6 +7909,9 @@ var Controller = class {
     this.doc.removeEventListener("mousemove", this.onMouseMove);
     this.doc.removeEventListener("pointerout", this.onPointerOut);
     win.removeEventListener("mouseup", this.onMouseUp, true);
+    win.removeEventListener("resize", this.onResize);
+    this.resizeObserver?.disconnect();
+    this.cellEditor.close();
     win.removeEventListener("wheel", this.dropAnchor, true);
     win.removeEventListener("touchstart", this.dropAnchor, true);
     this.touchKeyboard.stop();
@@ -7777,11 +7970,14 @@ var Controller = class {
   selectCells(info, anchor, focus) {
     for (const feature of this.features) feature.selectCells?.(info, anchor, focus);
   }
-  editCell(info, ref, how) {
+  editCell(info, ref, how, popup = false) {
     const widget = this.widgetForKey(info.key);
     const current = widget && this.infos.get(widget);
     const cell = current && this.cellAt(current, ref);
-    if (widget && current && cell) this.cellEditor.open(widget, current, cell, how === "select" ? true : void 0, how === "replace");
+    if (widget && current && cell) this.cellEditor.open(widget, current, cell, how === "select" ? true : void 0, how === "replace", popup ? {} : void 0);
+  }
+  editInPopup() {
+    this.cellEditor.toPopup();
   }
   selectsCells() {
     return this.features.some((f) => f.selectCells);
@@ -7872,10 +8068,13 @@ var Controller = class {
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   async refreshSettings() {
     const maxHeight = await this.setting("maxHeight");
+    const cells = { overflow: await this.setting("cellOverflow"), maxWidth: await this.setting("cellMaxWidth"), maxHeight: await this.setting("cellMaxHeight") };
     this.metadataOn = await this.setting("metadata");
     this.cellEditor.selectOnClick = await this.setting("selectOnClick");
-    if (this.stopped || maxHeight === this.maxHeight) return;
+    const sameCells2 = cells.overflow === this.cells.overflow && cells.maxWidth === this.cells.maxWidth && cells.maxHeight === this.cells.maxHeight;
+    if (this.stopped || maxHeight === this.maxHeight && sameCells2) return;
     this.maxHeight = maxHeight;
+    this.cells = cells;
     for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
       if (info && renderedTable(widget) === info.table) this.applyView(widget, info);
@@ -7960,6 +8159,7 @@ var Controller = class {
       if (stored && !this.views.has(info.key)) this.views.set(info.key, withSort(DEFAULT_VIEW, stored.column, stored.direction));
       const replaced = this.hoverWidget && !this.hoverWidget.isConnected && this.infos.get(this.hoverWidget)?.key === info.key;
       this.infos.set(widget, info);
+      this.resizeObserver?.observe(widget);
       if (replaced) this.hoverWidget = widget;
       this.decorate(widget, info);
       this.applyView(widget, info);
@@ -8225,7 +8425,51 @@ var Controller = class {
     const active = this.cellEditor.active;
     return active?.cell === cell && cell.dataset.tpValue === void 0 ? active.field.value : cellValue(cell);
   }
+  /**
+   * The cells settings on a table: each body cell's content in a box of its
+   * own (Table Plus' own elements stay outside it), which the CSS limits to the
+   * maximum width, and wraps (up to the maximum height) or cuts with an
+   * ellipsis. Idempotent: run again after a feature replaced a cell's content.
+   */
+  layOutCells(widget, info) {
+    const { overflow, maxWidth, maxHeight } = this.cells;
+    widget.classList.toggle("tp-cells-wrap", overflow === "wrap");
+    widget.classList.toggle("tp-cells-ellipsis", overflow === "ellipsis");
+    widget.style.setProperty("--tp-cell-max-width", maxWidth > 0 ? `${maxWidth}px` : "none");
+    widget.style.setProperty("--tp-cell-max-height", maxHeight > 0 ? `${maxHeight}px` : "none");
+    for (const tr of this.bodyRows(info)) {
+      for (const cell of Array.from(tr.cells)) {
+        if (cell.classList.contains("tp-editing")) continue;
+        let box = cell.querySelector(":scope > .tp-cell-content");
+        const loose = Array.from(cell.childNodes).filter((n) => n !== box && !(n instanceof Element && n.classList.contains(UI_CLASS)));
+        if (loose.length === 0) continue;
+        if (!box) {
+          box = this.doc.createElement("div");
+          box.className = "tp-cell-content";
+          cell.prepend(box);
+        }
+        box.append(...loose);
+      }
+    }
+    this.queueOverflowCheck();
+  }
+  /** Once laid out: the cells whose content does not fit (cut) are marked, for the + to show it whole (the cell's popup) */
+  queueOverflowCheck() {
+    if (this.overflowQueued) return;
+    this.overflowQueued = true;
+    const run = () => {
+      this.overflowQueued = false;
+      if (this.stopped) return;
+      const boxes = Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table .tp-cell-content`));
+      const cut = boxes.map((box) => box.scrollWidth > box.clientWidth + 1 || box.scrollHeight > box.clientHeight + 1);
+      boxes.forEach((box, i) => box.parentElement?.classList.toggle("tp-cut", cut[i]));
+    };
+    const win = this.doc.defaultView;
+    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
+    else setTimeout(run, 0);
+  }
   applyView(widget, info) {
+    this.layOutCells(widget, info);
     const view = this.viewOf(info);
     const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
@@ -8501,6 +8745,8 @@ var Controller = class {
     });
     setTimeout(keep, 100);
   }
+  // The window resized: cells that are cut may change
+  onResize = () => this.queueOverflowCheck();
   dropAnchor = () => {
     this.anchor = void 0;
   };
@@ -8542,6 +8788,7 @@ var Controller = class {
       this.stickyQueued = false;
       if (this.stopped) return;
       for (const feature of this.features) feature.layoutChanged?.();
+      this.cellEditor.placePopup();
       this.showQuietMarks();
       this.followScroll();
     };
@@ -8982,7 +9229,7 @@ var Controller = class {
       this.inInsertBand = this.hideInsert();
       return;
     }
-    const target = this.doc.elementFromPoint(pointer.clientX, pointer.clientY);
+    const target = this.doc.elementFromPoint?.(pointer.clientX, pointer.clientY) ?? null;
     this.inInsertBand = this.showInsert({ ...pointer, buttons: 0, target }, !busy);
   }
   /** The leftmost column in view, so editing a new row does not scroll a wide table back */
@@ -8997,7 +9244,7 @@ var Controller = class {
     const element = this.doc.createElement(tag);
     element.className = `tp-floating ${className}`;
     element.addEventListener("mousedown", (e) => {
-      if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+      if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) e.preventDefault();
     });
     this.doc.body.append(element);
     return element;
@@ -9012,7 +9259,7 @@ var Controller = class {
     return button;
   }
   isFloating(node) {
-    return [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)].some((el) => el.contains(node)) || !!this.tableMenu?.element.contains(node) || this.features.some((f) => f.owns?.(node));
+    return [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)].some((el) => el.contains(node)) || this.cellEditor.owns(node) || !!this.tableMenu?.element.contains(node) || this.features.some((f) => f.owns?.(node));
   }
   place(element, left, top) {
     const win = this.doc.defaultView;

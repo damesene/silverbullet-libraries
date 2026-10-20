@@ -1,0 +1,130 @@
+// @vitest-environment jsdom
+import { describe, expect, it } from "vitest";
+import { cell, clickOn, controller, editor, flashes, flush, key, setup, text, useTablePage } from "../testing/page.ts";
+
+describe("Long text in cells and the cell's popup", () => {
+  useTablePage();
+
+  const PAGE = "| Name | Notes |\n|---|---|\n| Pear | A long note about pears |\n| Fig | short |\n";
+  const popup = () => document.querySelector<HTMLElement>(".tp-cell-popup");
+  const popupField = () => popup()?.querySelector<HTMLTextAreaElement>("textarea.tp-cell-editor");
+  const inlineField = () => editor.querySelector<HTMLInputElement>("input.tp-cell-editor");
+  const expand = () => document.querySelector<HTMLElement>(".tp-expand")!;
+
+  it("puts each body cell's content in a box the settings limit (wrap by default, 500px wide, 200px high)", async () => {
+    await setup(PAGE);
+    const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
+    expect(widget.classList.contains("tp-cells-wrap")).toBe(true);
+    expect(widget.style.getPropertyValue("--tp-cell-max-width")).toBe("500px");
+    expect(widget.style.getPropertyValue("--tp-cell-max-height")).toBe("200px");
+    const box = cell(1, 1).querySelector(":scope > .tp-cell-content")!;
+    expect(box.textContent).toBe("A long note about pears");
+    // The header is not boxed; the text a cell shows is still its text
+    expect(cell(0, 1).querySelector(".tp-cell-content")).toBeNull();
+    expect(cell(1, 1).textContent).toBe("A long note about pears");
+  });
+
+  it("cuts with an ellipsis, without limits, as set", async () => {
+    await setup(PAGE, { "tablePlus.cells.overflow": "ellipsis", "tablePlus.cells.maxWidth": 0, "tablePlus.cells.maxHeight": 0 });
+    await controller.scan();
+    const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
+    expect(widget.classList.contains("tp-cells-ellipsis")).toBe(true);
+    expect(widget.classList.contains("tp-cells-wrap")).toBe(false);
+    expect(widget.style.getPropertyValue("--tp-cell-max-width")).toBe("none");
+    expect(widget.style.getPropertyValue("--tp-cell-max-height")).toBe("none");
+  });
+
+  it("marks a cell cut when its text is taller (wider) than its box, once laid out and when the window resizes", async () => {
+    await setup(PAGE);
+    const box = cell(1, 1).querySelector<HTMLElement>(".tp-cell-content")!;
+    const size = (scroll: number, client: number) => {
+      Object.defineProperty(box, "scrollHeight", { configurable: true, value: scroll });
+      Object.defineProperty(box, "clientHeight", { configurable: true, value: client });
+    };
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    size(400, 200);
+    window.dispatchEvent(new Event("resize"));
+    await frame();
+    expect(cell(1, 1).classList.contains("tp-cut")).toBe(true);
+    expect(cell(2, 1).classList.contains("tp-cut")).toBe(false);
+    size(150, 150);
+    window.dispatchEvent(new Event("resize"));
+    await frame();
+    expect(cell(1, 1).classList.contains("tp-cut")).toBe(false);
+  });
+
+  it("keeps the box when the cell is edited and comes back", async () => {
+    await setup(PAGE);
+    clickOn(cell(1, 1));
+    expect(inlineField()).not.toBeNull();
+    key(inlineField()!, "Escape");
+    await flush();
+    expect(cell(1, 1).querySelectorAll(".tp-cell-content").length).toBe(1);
+  });
+
+  it("shows the expand button on a cut cell and opens its popup there: the whole text, saved with Enter", async () => {
+    await setup(PAGE);
+    // jsdom has no layout: cut as the overflow check would find it
+    cell(1, 1).classList.add("tp-cut");
+    cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(expand().classList.contains("tp-visible")).toBe(false);
+    cell(1, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(expand().classList.contains("tp-visible")).toBe(true);
+    expand().click();
+    // The cell stays as it is, the field is in the popup
+    expect(popupField()!.value).toBe("A long note about pears");
+    expect(document.activeElement).toBe(popupField());
+    expect(cell(1, 1).classList.contains("tp-editing")).toBe(true);
+    expect(cell(1, 1).textContent).toBe("A long note about pears");
+    expect(controller.isFloating(popupField()!)).toBe(true);
+    popupField()!.value = "A longer note about pears, wrapped";
+    key(popupField()!, "Enter");
+    await flush();
+    expect(text).toContain("| Pear | A longer note about pears, wrapped |");
+    expect(popup()).toBeNull();
+  });
+
+  it("goes on in the popup with F2, what is typed kept; Esc closes it unsaved", async () => {
+    await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
+    clickOn(cell(1, 1));
+    inlineField()!.value = "Typed so far";
+    inlineField()!.setSelectionRange(5, 5);
+    key(inlineField()!, "F2");
+    expect(inlineField()).toBeNull();
+    expect(popupField()!.value).toBe("Typed so far");
+    expect(popupField()!.selectionStart).toBe(5);
+    // Nothing written meanwhile
+    expect(text).toBe(PAGE);
+    key(popupField()!, "Escape");
+    await flush();
+    expect(popup()).toBeNull();
+    expect(text).toBe(PAGE);
+    // F2 again, then Enter: saved
+    clickOn(cell(2, 1));
+    inlineField()!.value = "longer";
+    key(inlineField()!, "F2");
+    key(popupField()!, "Enter");
+    await flush();
+    expect(text).toContain("| Fig | longer |");
+  });
+
+  it("announces nothing going on in the popup: nothing is saved then (a formula without the metadata setting)", async () => {
+    await setup(PAGE);
+    clickOn(cell(1, 1));
+    inlineField()!.value = "=1+1";
+    key(inlineField()!, "F2");
+    expect(popupField()!.value).toBe("=1+1");
+    expect(flashes).toEqual([]);
+    key(popupField()!, "Escape");
+    await flush();
+    expect(text).toBe(PAGE);
+  });
+
+  it("closes the popup when Table Plus stops", async () => {
+    await setup(PAGE);
+    controller.editCell(controller.infoOf(editor.querySelector(".sb-table-widget")!)!, { row: 1, column: 1 }, undefined, true);
+    expect(popup()).not.toBeNull();
+    controller.stop();
+    expect(popup()).toBeNull();
+  });
+});

@@ -41,8 +41,19 @@ export type CellEditor = {
   readonly original: string;
   // What the field showed when it opened: the cell's text, or what a feature showed (a formula)
   readonly initial: string;
-  readonly field: HTMLInputElement;
+  // An input in the cell, or a textarea in the cell's popup (text that does not fit, wrapped)
+  readonly field: CellField;
+  // Edited in the cell's popup
+  readonly popup: boolean;
 };
+
+/** The field of the cell editor: an input in the cell, a textarea in its popup */
+export type CellField = HTMLInputElement | HTMLTextAreaElement;
+
+/** Where the cell editor shows, for what goes under or above it (a formula's hint, a type's choices): its popup, else its cell */
+export function editorRect(editor: CellEditor): DOMRect {
+  return (editor.popup ? (editor.field.closest(".tp-cell-popup") ?? editor.cell) : editor.cell).getBoundingClientRect();
+}
 
 /** A button a feature adds to a table's toolbar */
 export type ToolbarButton = {
@@ -161,7 +172,9 @@ export interface TableHost {
    * text as the setting says; "replace": the field starts empty, so what is
    * typed replaces the text; "select": the text selected (a paste replaces it)
    */
-  editCell(info: WidgetInfo, ref: CellRef, how?: "replace" | "select"): void;
+  editCell(info: WidgetInfo, ref: CellRef, how?: "replace" | "select", popup?: boolean): void;
+  /** The cell being edited goes on in its popup (a textarea, wrapped), what is typed kept */
+  editInPopup(): void;
   /** Whether a feature selects cells (Feature.selectCells) */
   selectsCells(): boolean;
   /** The cells selected in a table, if a feature selects (Feature.selected) */

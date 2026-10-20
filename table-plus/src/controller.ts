@@ -28,6 +28,7 @@ import { Filters } from "./features/filters.ts";
 import { Formulas } from "./features/formulas.ts";
 import { Grips } from "./features/grips.ts";
 import { History } from "./features/history.ts";
+import { CellPopup } from "./features/popup.ts";
 import { Metadata } from "./features/metadata.ts";
 import { Names } from "./features/names.ts";
 import { Paste } from "./features/paste.ts";
@@ -161,6 +162,15 @@ export class Controller implements TableHost {
   private readonly views = new Map<string, ViewState>();
   // The maximum table height setting, in pixels; 0: no limit
   private maxHeight = 0;
+  // The cells settings: long text wrapped or cut with an ellipsis, a column's maximum width, a wrapped cell's maximum height (pixels, 0: no limit)
+  private cells: { readonly overflow: "wrap" | "ellipsis"; readonly maxWidth: number; readonly maxHeight: number } = {
+    overflow: SETTINGS.cellOverflow.default,
+    maxWidth: SETTINGS.cellMaxWidth.default,
+    maxHeight: SETTINGS.cellMaxHeight.default,
+  };
+  private overflowQueued = false;
+  // Tables resized (a sidebar, fonts loaded, the content): cells that are cut may change
+  private resizeObserver: ResizeObserver | undefined;
   // The metadata setting, for menus that offer pinning
   private metadataOn = false;
   // Sideways scroll of each wide table, carried over to its next rendering
@@ -279,6 +289,9 @@ export class Controller implements TableHost {
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
     this.doc.addEventListener("pointerout", this.onPointerOut, { passive: true });
     win.addEventListener("mouseup", this.onMouseUp, true);
+    win.addEventListener("resize", this.onResize);
+    this.resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => this.queueOverflowCheck()) : undefined;
+    void this.doc.fonts?.ready.then(() => this.queueOverflowCheck());
     // The user scrolls: a table written is no longer kept in its place
     win.addEventListener("wheel", this.dropAnchor, { capture: true, passive: true });
     win.addEventListener("touchstart", this.dropAnchor, { capture: true, passive: true });
@@ -335,6 +348,7 @@ export class Controller implements TableHost {
       optional("export", () => new Export(this)),
       always(() => new Expressions(this)),
       always(() => new History(this)),
+      always(() => new CellPopup(this)),
     ];
     const enabled = await Promise.all(all.map(({ name }) => (name ? this.featureEnabled(name) : true)));
     if (this.stopped) return;
@@ -374,6 +388,10 @@ export class Controller implements TableHost {
     this.doc.removeEventListener("mousemove", this.onMouseMove);
     this.doc.removeEventListener("pointerout", this.onPointerOut);
     win.removeEventListener("mouseup", this.onMouseUp, true);
+    win.removeEventListener("resize", this.onResize);
+    this.resizeObserver?.disconnect();
+    // An editor open in its popup (in the page's body) goes too
+    this.cellEditor.close();
     win.removeEventListener("wheel", this.dropAnchor, true);
     win.removeEventListener("touchstart", this.dropAnchor, true);
     this.touchKeyboard.stop();
@@ -442,11 +460,15 @@ export class Controller implements TableHost {
     for (const feature of this.features) feature.selectCells?.(info, anchor, focus);
   }
 
-  editCell(info: WidgetInfo, ref: CellRef, how?: "replace" | "select"): void {
+  editCell(info: WidgetInfo, ref: CellRef, how?: "replace" | "select", popup = false): void {
     const widget = this.widgetForKey(info.key);
     const current = widget && this.infos.get(widget);
     const cell = current && this.cellAt(current, ref);
-    if (widget && current && cell) this.cellEditor.open(widget, current, cell, how === "select" ? true : undefined, how === "replace");
+    if (widget && current && cell) this.cellEditor.open(widget, current, cell, how === "select" ? true : undefined, how === "replace", popup ? {} : undefined);
+  }
+
+  editInPopup(): void {
+    this.cellEditor.toPopup();
   }
 
   selectsCells(): boolean {
@@ -553,10 +575,13 @@ export class Controller implements TableHost {
   /** Re-reads settings the view depends on, and re-applies the views if they changed */
   private async refreshSettings(): Promise<void> {
     const maxHeight = await this.setting("maxHeight");
+    const cells = { overflow: await this.setting("cellOverflow"), maxWidth: await this.setting("cellMaxWidth"), maxHeight: await this.setting("cellMaxHeight") };
     this.metadataOn = await this.setting("metadata");
     this.cellEditor.selectOnClick = await this.setting("selectOnClick");
-    if (this.stopped || maxHeight === this.maxHeight) return;
+    const sameCells = cells.overflow === this.cells.overflow && cells.maxWidth === this.cells.maxWidth && cells.maxHeight === this.cells.maxHeight;
+    if (this.stopped || (maxHeight === this.maxHeight && sameCells)) return;
     this.maxHeight = maxHeight;
+    this.cells = cells;
     for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
       if (info && renderedTable(widget) === info.table) this.applyView(widget, info);
@@ -652,6 +677,7 @@ export class Controller implements TableHost {
       // The table under the pointer was rendered anew (after a write): its toolbar moves over
       const replaced = this.hoverWidget && !this.hoverWidget.isConnected && this.infos.get(this.hoverWidget)?.key === info.key;
       this.infos.set(widget, info);
+      this.resizeObserver?.observe(widget);
       if (replaced) this.hoverWidget = widget;
       this.decorate(widget, info);
       this.applyView(widget, info);
@@ -969,7 +995,54 @@ export class Controller implements TableHost {
     return active?.cell === cell && cell.dataset.tpValue === undefined ? active.field.value : cellValue(cell);
   }
 
+  /**
+   * The cells settings on a table: each body cell's content in a box of its
+   * own (Table Plus' own elements stay outside it), which the CSS limits to the
+   * maximum width, and wraps (up to the maximum height) or cuts with an
+   * ellipsis. Idempotent: run again after a feature replaced a cell's content.
+   */
+  private layOutCells(widget: HTMLElement, info: WidgetInfo): void {
+    const { overflow, maxWidth, maxHeight } = this.cells;
+    widget.classList.toggle("tp-cells-wrap", overflow === "wrap");
+    widget.classList.toggle("tp-cells-ellipsis", overflow === "ellipsis");
+    widget.style.setProperty("--tp-cell-max-width", maxWidth > 0 ? `${maxWidth}px` : "none");
+    widget.style.setProperty("--tp-cell-max-height", maxHeight > 0 ? `${maxHeight}px` : "none");
+    for (const tr of this.bodyRows(info)) {
+      for (const cell of Array.from(tr.cells)) {
+        if (cell.classList.contains("tp-editing")) continue;
+        let box = cell.querySelector<HTMLElement>(":scope > .tp-cell-content");
+        const loose = Array.from(cell.childNodes).filter((n) => n !== box && !(n instanceof Element && n.classList.contains(UI_CLASS)));
+        if (loose.length === 0) continue;
+        if (!box) {
+          box = this.doc.createElement("div");
+          box.className = "tp-cell-content";
+          cell.prepend(box);
+        }
+        box.append(...loose);
+      }
+    }
+    this.queueOverflowCheck();
+  }
+
+  /** Once laid out: the cells whose content does not fit (cut) are marked, for the + to show it whole (the cell's popup) */
+  private queueOverflowCheck(): void {
+    if (this.overflowQueued) return;
+    this.overflowQueued = true;
+    const run = () => {
+      this.overflowQueued = false;
+      if (this.stopped) return;
+      // All measured first, then marked: a mark changes the style, which a measure after it would lay out again
+      const boxes = Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table .tp-cell-content`));
+      const cut = boxes.map((box) => box.scrollWidth > box.clientWidth + 1 || box.scrollHeight > box.clientHeight + 1);
+      boxes.forEach((box, i) => box.parentElement?.classList.toggle("tp-cut", cut[i]));
+    };
+    const win = this.doc.defaultView;
+    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
+    else setTimeout(run, 0);
+  }
+
   applyView(widget: HTMLElement, info: WidgetInfo): void {
+    this.layOutCells(widget, info);
     const view = this.viewOf(info);
     const { top, bottom } = info.pins;
     const rows = this.bodyRows(info);
@@ -1285,6 +1358,9 @@ export class Controller implements TableHost {
     setTimeout(keep, 100);
   }
 
+  // The window resized: cells that are cut may change
+  private onResize = (): void => this.queueOverflowCheck();
+
   private dropAnchor = (): void => {
     this.anchor = undefined;
   };
@@ -1333,6 +1409,8 @@ export class Controller implements TableHost {
       this.stickyQueued = false;
       if (this.stopped) return;
       for (const feature of this.features) feature.layoutChanged?.();
+      // The cell's popup stays over its cell
+      this.cellEditor.placePopup();
       this.showQuietMarks();
       // After the header has moved: controls that point at it follow
       this.followScroll();
@@ -1879,7 +1957,7 @@ export class Controller implements TableHost {
       this.inInsertBand = this.hideInsert();
       return;
     }
-    const target = this.doc.elementFromPoint(pointer.clientX, pointer.clientY);
+    const target = this.doc.elementFromPoint?.(pointer.clientX, pointer.clientY) ?? null;
     this.inInsertBand = this.showInsert({ ...pointer, buttons: 0, target }, !busy);
   }
 
@@ -1900,8 +1978,8 @@ export class Controller implements TableHost {
     const element = this.doc.createElement(tag);
     element.className = `tp-floating ${className}`;
     element.addEventListener("mousedown", (e) => {
-      // keep the focus where it is (e.g. in a filter field)
-      if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+      // keep the focus where it is (e.g. in a filter field); a field takes the press
+      if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) e.preventDefault();
     });
     this.doc.body.append(element);
     return element;
@@ -1920,6 +1998,7 @@ export class Controller implements TableHost {
   isFloating(node: Node): boolean {
     return (
       [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)].some((el) => el.contains(node)) ||
+      this.cellEditor.owns(node) ||
       !!this.tableMenu?.element.contains(node) ||
       this.features.some((f) => f.owns?.(node))
     );

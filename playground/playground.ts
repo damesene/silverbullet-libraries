@@ -232,6 +232,9 @@ const LABELS: Record<Key, string> = {
   ctrlEnterAddsRow: "Ctrl+Enter adds a row",
   smartFilters: "smart",
   expressionsDelay: "Refresh ${…} cells after (ms)",
+  cellOverflow: "Long text",
+  cellMaxWidth: "Max column width (px)",
+  cellMaxHeight: "Max cell height (px)",
 };
 
 const MODULE_LABELS: Record<FeatureName, string> = {
@@ -279,7 +282,7 @@ function settingControl(key: Key): HTMLLabelElement {
     label.append(LABELS[key], input);
   } else {
     input = document.createElement("select");
-    for (const option of ["save", "moveDown"]) input.append(new Option(option, option, false, option === current));
+    for (const option of (setting as { choices?: readonly string[] }).choices ?? []) input.append(new Option(option, option, false, option === current));
     input.addEventListener("change", () => {
       settings[setting.path] = input.value;
       settingsChanged();

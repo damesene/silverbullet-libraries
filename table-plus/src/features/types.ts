@@ -2,7 +2,7 @@
 // (`| Price #currency |`) shows its cells as that type (types/), hides that
 // hashtag, and marks the cells that are not values of the type. The markdown
 // keeps the values as written: sorting, filters and copying use them.
-import type { CellEditor, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import { type CellEditor, type CellRef, editorRect, type Feature, type TableHost, type WidgetInfo } from "../core/feature.ts";
 import { cellText, TYPE_TAG_CLASS, UI_CLASS } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import type { MenuDetail, MenuEntry } from "../menu.ts";
@@ -241,8 +241,8 @@ export class ColumnTypes implements Feature {
 
   /** Under the cell, or above it where the window has no room below */
   private placePicker(editor: CellEditor): void {
-    const rect = editor.cell.getBoundingClientRect();
-    this.picker.style.minWidth = `${Math.round(rect.width)}px`;
+    const rect = editorRect(editor);
+    this.picker.style.minWidth = `${Math.round(editor.cell.getBoundingClientRect().width)}px`;
     this.host.place(this.picker, rect.left, rect.bottom + 2);
     const viewHeight = this.host.doc.defaultView!.innerHeight;
     const height = this.picker.offsetHeight;

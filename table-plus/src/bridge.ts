@@ -28,6 +28,14 @@ type Setting<T> = {
   readonly default: T;
   // The value as configured, or undefined when it is not valid
   readonly parse: (value: unknown) => T | undefined;
+  // A choice: the values it takes
+  readonly choices?: readonly T[];
+};
+
+// A number of pixels, 0 or more (0: no limit)
+const pixels = (v: unknown): number | undefined => {
+  const n = typeof v === "string" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined;
 };
 
 /**
@@ -60,6 +68,7 @@ export const SETTINGS = {
   enterKey: {
     path: "tablePlus.editor.enterKey",
     default: "moveDown",
+    choices: ["save", "moveDown"],
     parse: (v) => (v === "save" || v === "moveDown" ? v : undefined),
   } satisfies Setting<"save" | "moveDown">,
   smartFilters: {
@@ -101,10 +110,26 @@ export const SETTINGS = {
   maxHeight: {
     path: "tablePlus.maxHeight",
     default: 0,
-    parse: (v) => {
-      const n = typeof v === "string" ? Number(v) : v;
-      return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined;
-    },
+    parse: pixels,
+  } satisfies Setting<number>,
+  // Text longer than a cell's maximum width: wrapped onto more lines, or cut with an ellipsis (…)
+  cellOverflow: {
+    path: "tablePlus.cells.overflow",
+    default: "wrap",
+    choices: ["wrap", "ellipsis"],
+    parse: (v) => (v === "wrap" || v === "ellipsis" ? v : undefined),
+  } satisfies Setting<"wrap" | "ellipsis">,
+  // A column's maximum width in pixels; 0: no limit
+  cellMaxWidth: {
+    path: "tablePlus.cells.maxWidth",
+    default: 500,
+    parse: pixels,
+  } satisfies Setting<number>,
+  // A wrapped cell's maximum height in pixels, the rest cut; 0: no limit
+  cellMaxHeight: {
+    path: "tablePlus.cells.maxHeight",
+    default: 200,
+    parse: pixels,
   } satisfies Setting<number>,
 };
 

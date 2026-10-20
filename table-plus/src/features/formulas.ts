@@ -10,7 +10,8 @@
 // recalculated: results stay as written.
 
 import { columnIdOf } from "../columns.ts";
-import type { CellEditor, CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo, WriteEdit } from "../core/feature.ts";
+import { editorRect } from "../core/feature.ts";
+import type { CellEditor, CellField, CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo, WriteEdit } from "../core/feature.ts";
 import { WIDGET_SELECTOR } from "../dom.ts";
 import {
   type Area,
@@ -62,7 +63,7 @@ export class Formulas implements Feature {
   private referenceMarks: HTMLElement[] = [];
   private stopReferenceDrag: (() => void) | undefined;
   // The reference last inserted by pointing at the table, and the cell its range started at
-  private pointed: (PointedSpan & { readonly field: HTMLInputElement; readonly anchor?: CellRef }) | undefined;
+  private pointed: (PointedSpan & { readonly field: CellField; readonly anchor?: CellRef }) | undefined;
   private stopPointing: (() => void) | undefined;
   // Tables whose formula cells show results from before a change made outside Table Plus
   private readonly stale = new WeakSet<HTMLTableElement>();
@@ -213,7 +214,7 @@ export class Formulas implements Feature {
       });
     }
     // Typing makes the reference just pointed at part of the formula: pointing no longer replaces it
-    field.addEventListener("keydown", (e) => {
+    (field as HTMLElement).addEventListener("keydown", (e) => {
       if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) this.pointed = undefined;
     });
     this.updateFormulaUi();
@@ -369,7 +370,7 @@ export class Formulas implements Feature {
       this.formulaHint.replaceChildren(
         Object.assign(this.host.doc.createElement("div"), { className: "tp-formula-help", textContent: FORMULAS_NEED_METADATA }),
       );
-      const rect = active.cell.getBoundingClientRect();
+      const rect = editorRect(active);
       this.host.place(this.formulaHint, rect.left, rect.bottom + 4);
       return;
     }
@@ -523,7 +524,7 @@ export class Formulas implements Feature {
    * Replaces part of the field's text, as typing would where the browser
    * allows it (so Ctrl+Z in the field undoes it), else directly
    */
-  private replaceInField(field: HTMLInputElement, from: number, to: number, text: string): void {
+  private replaceInField(field: CellField, from: number, to: number, text: string): void {
     const expected = field.value.slice(0, from) + text + field.value.slice(to);
     field.setSelectionRange(from, to);
     try {
@@ -570,7 +571,7 @@ export class Formulas implements Feature {
       tab.textContent = `Tab: ${completion.text}`;
       hint.append(tab);
     }
-    const rect = active.cell.getBoundingClientRect();
+    const rect = editorRect(active);
     this.host.place(hint, rect.left, rect.bottom + 4);
     const viewHeight = this.host.doc.defaultView!.innerHeight;
     if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {

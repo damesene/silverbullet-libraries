@@ -27,7 +27,7 @@ export class Paste implements Feature {
   editorOpened(editor: CellEditor): void {
     const field = editor.field;
     // Cells copied from a spreadsheet go into the table; a single value into the field
-    field.addEventListener("paste", (e) => {
+    (field as HTMLElement).addEventListener("paste", (e) => {
       const insert = this.inserts;
       this.inserts = false;
       const data = parseClipboardCells(e.clipboardData?.getData("text/plain") ?? "");

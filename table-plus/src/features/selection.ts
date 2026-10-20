@@ -487,7 +487,7 @@ export class Selection implements Feature {
   private onCopy = (e: ClipboardEvent): void => {
     const cells = this.selection && this.cells();
     const active = this.host.doc.activeElement;
-    if (!cells || !e.clipboardData || (active instanceof HTMLInputElement && active.selectionStart !== active.selectionEnd)) return;
+    if (!cells || !e.clipboardData || ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd)) return;
     const values = cells.map((row) => row.map(cellValue));
     e.clipboardData.setData("text/plain", clipboardText(values));
     e.clipboardData.setData("text/html", clipboardHtml(values));

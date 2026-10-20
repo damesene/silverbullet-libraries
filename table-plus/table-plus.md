@@ -41,6 +41,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Enter | Save, edit the cell below (with the `save` setting: only save) |
 | Ctrl+Enter | Save, add a row below, edit it |
 | Esc | Cancel; the cell stays selected (marked) for the keys of [[#Copying cells]], a second Esc ends that |
+| F2 | Go on in the cell's popup: the whole text wrapped (a long text or formula), see [[#Cells (`tablePlus.cells`)]] |
 | Tab | Save, edit the next cell |
 | Shift+Tab | Save, edit the previous cell |
 | Ctrl+arrows | Save, edit the cell beside |
@@ -434,6 +435,15 @@ Setting a part replaces what an earlier `config.set` of the same part set: set e
   * `true`: Ctrl+Enter in a cell editor saves the cell, adds an empty row below its row and edits it.
   * `false`: Ctrl+Enter works like Enter.
 
+### Cells (`tablePlus.cells`)
+
+* **Long text in cells** (`overflow`), default `wrap`
+  * `wrap`: text longer than the column's maximum width wraps onto more lines, up to the maximum cell height; the rest is cut and fades out.
+  * `ellipsis`: it stays on one line, cut with `…`.
+  * A cell whose text is cut shows an expand button at its top right when hovered: it opens the cell in a popup, its whole text wrapped, to read and edit (Enter saves, Esc closes). While a cell is edited, F2 (or the same button, shown when the text does not fit the field, e.g. a long formula) goes on in the popup.
+* **Maximum column width (px)** (`maxWidth`), default `500`: wider text wraps or is cut. `0`: no limit, a cell is as wide as its text.
+* **Maximum cell height (px)** (`maxHeight`), default `200`: a wrapped cell no taller than this. `0`: no limit.
+
 ### `${…}` cells (`tablePlus.expressions`)
 
 * **Refresh ${…} cells after (ms)** (`refreshDelay`), default `500`
@@ -567,6 +577,31 @@ config.define("tablePlus", {
           default = true,
           description = "Ctrl+Enter in a cell editor saves the cell, adds an empty row below and edits it. Off: Ctrl+Enter works like Enter.",
           ui = { category = "Table Plus", label = "Ctrl+Enter adds a row", priority = 2 },
+        },
+      },
+    },
+    cells = {
+      type = "object",
+      additionalProperties = false,
+      properties = {
+        overflow = {
+          type = "string",
+          enum = { "wrap", "ellipsis" },
+          default = "wrap",
+          description = "Text longer than a column's maximum width. wrap: it wraps onto more lines, up to the maximum cell height. ellipsis: it stays on one line, cut with …. A cell whose text is cut shows an expand button that shows it whole (F2 while editing it).",
+          ui = { category = "Table Plus", label = "Long text in cells", priority = 1.5 },
+        },
+        maxWidth = {
+          type = "number",
+          default = 500,
+          description = "A column's maximum width in pixels: longer text wraps or is cut (Long text in cells). 0: no limit, a cell is as wide as its text.",
+          ui = { category = "Table Plus", label = "Maximum column width (px)", priority = 1.4 },
+        },
+        maxHeight = {
+          type = "number",
+          default = 200,
+          description = "A wrapped cell's maximum height in pixels; the rest is cut (the expand button shows it). 0: no limit.",
+          ui = { category = "Table Plus", label = "Maximum cell height (px)", priority = 1.3 },
         },
       },
     },
@@ -1011,6 +1046,83 @@ body.tp-navigating .sb-table-widget.tp-table * {
   color: inherit;
   background: transparent;
   outline: none;
+}
+
+/* Long text in cells (tablePlus.cells): a body cell's content is in a box as
+   wide as its text, at most the maximum width (--tp-cell-max-width, set by the
+   script); longer text wraps (up to the maximum height, the rest cut and
+   faded) or is cut with an ellipsis. An inline block, so the column's
+   alignment still applies. */
+.sb-table-widget.tp-table .tp-cell-content {
+  display: inline-block;
+  vertical-align: top;
+  width: max-content;
+  max-width: var(--tp-cell-max-width, none);
+}
+/* SilverBullet keeps cells on one line (white-space: nowrap): the box wraps, and a header */
+.sb-table-widget.tp-table.tp-cells-wrap thead td {
+  max-width: var(--tp-cell-max-width, none);
+  white-space: normal;
+}
+.sb-table-widget.tp-cells-wrap .tp-cell-content {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-height: var(--tp-cell-max-height, none);
+  overflow: hidden;
+}
+.sb-table-widget.tp-cells-wrap td.tp-cut .tp-cell-content {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), transparent);
+}
+.sb-table-widget.tp-cells-ellipsis .tp-cell-content {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The expand button of a cell whose text does not fit: opens its popup */
+.tp-expand {
+  z-index: 52;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--root-color);
+  background: var(--root-background-color);
+  border: 1px solid var(--button-border-color, rgba(128, 128, 128, 0.4));
+  border-radius: 4px;
+  opacity: 0.75;
+  cursor: pointer;
+}
+.tp-expand:hover {
+  color: var(--ui-accent-color);
+  opacity: 1;
+}
+.tp-expand svg {
+  width: 12px;
+  height: 12px;
+}
+/* The cell's popup: its editor over the cell, the whole text wrapped */
+.tp-floating.tp-cell-popup.tp-visible {
+  display: block !important;
+}
+.tp-cell-popup {
+  z-index: 55;
+  box-sizing: border-box;
+  /* The font is the cell's (set by the script) */
+  padding: 6px 8px;
+  color: var(--root-color);
+  background: var(--root-background-color);
+  border: 1px solid var(--ui-accent-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+.tp-cell-popup .tp-cell-popup-field {
+  min-height: 1.5em;
+  max-height: 50vh;
+  overflow-y: auto;
+  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Filter row: a field per column; the one filtering is marked */

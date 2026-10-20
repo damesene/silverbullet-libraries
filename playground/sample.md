@@ -13,6 +13,17 @@ Edit the markdown on the left, or the tables below. Alt+click a cell or *Edit ma
 | Kiwi | 7 | 6 € | New Zealand |
 | Šípek | 1 | 99 € | Česko |
 
+## Long text
+
+Long text wraps at the maximum column width and stops at the maximum cell height (the settings above: *Long text*, *Max column width*, *Max cell height*). Hover a cut cell for its expand button, or press F2 while editing a long formula, to see and edit the whole text in a popup.
+
+| Ticket | Status | Notes | Total |
+|---|---|---|--:|
+| 42 | open | Order 42 was delayed by the carrier: the parcel waited in the depot for three days, was then sent to the wrong city and came back. The customer asked for a refund of the shipping costs, which we granted, and for a discount on the next order, which is still being discussed with the sales team. Follow up next Monday and write down what was agreed. The carrier says the label was smudged and could not be read by the sorting machine, so the parcel was routed by hand, twice. We should print labels on the new printer from now on and check that the barcode scans before the parcel leaves. If the customer orders again within a month, add a small gift and a handwritten note to the parcel. | 120 |
+| 43 | done | Short note. | 80 |
+| 44 | waiting | Ask the supplier whether the new packaging can be recycled, and if it can, which bin it goes in; the leaflet in the box says nothing about it, and two customers have asked already. | 15 |
+| Sum | | | 215 <meta f="=SUM(D1:D3)+IF(AND(D1>100, D2>50), 0, 0)+IF(OR(D3<10, D3>1000), 0, 0)"> |
+
 ## Formulas
 
 Click a result to edit its formula: each reference is outlined in its own color; drag an outline's edge to move it, a range's corner to resize it. Type `=` in any body cell to start a formula.
