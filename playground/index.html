@@ -14,11 +14,36 @@
       <!-- On a narrow screen the buttons show their icon alone -->
       <button id="settings-toggle" type="button" aria-pressed="true" title="Show or hide the settings"><span class="icon">⚙</span><span class="label">Settings</span></button>
       <button id="markdown" type="button" aria-pressed="true" title="Show or hide the markdown"><span class="icon">M↓</span><span class="label">Markdown</span></button>
+      <button id="bench-toggle" type="button" aria-pressed="false" title="Generate a large page and see how long Table Plus takes for each action"><span class="icon">⏱</span><span class="label">Benchmark</span></button>
       <button id="reset" type="button" title="Reset sample"><span class="icon">↺</span><span class="label">Reset sample</span></button>
       <button id="tp-settings" type="button" title="Table Plus' settings dialog (as in SilverBullet: the table's ⋯ menu, or the Table Plus: Settings command)"><span class="icon">⚙</span><span class="label">Table Plus settings</span></button>
       <button id="theme" type="button" title="Dark / light"><span class="icon">◐</span><span class="label">Dark / light</span></button>
     </header>
     <aside id="settings"></aside>
+    <aside id="bench">
+      <form id="bench-form">
+        <div class="bench-sizes">
+          <label>Rows <input id="bench-rows" type="number" min="1" max="20000" step="1" value="500" /></label>
+          <label>Columns <input id="bench-columns" type="number" min="1" max="60" value="8" /></label>
+        </div>
+        <fieldset><legend>Column types (in turn, after the Name column)</legend><div id="bench-types"></div></fieldset>
+        <fieldset><legend>Formulas</legend><div id="bench-formulas"></div></fieldset>
+        <div class="bench-buttons">
+          <button type="submit" class="bench-primary">Generate</button>
+          <button id="bench-restore" type="button" title="The page as it was before the first benchmark generated">Restore page</button>
+          <span id="bench-note"></span>
+        </div>
+      </form>
+      <section class="bench-log-pane">
+        <div class="bench-log-head">
+          <strong>Log</strong>
+          <span class="bench-hint"><b>Shown after</b>: from the key or press to the page painted. <b>Measured</b>: Table Plus' work (and this mock SilverBullet's rendering), by part; the rest is the browser's layout and painting. Hovering and scrolling are left out.</span>
+          <span class="spacer"></span>
+          <button id="bench-clear" type="button">Clear</button>
+        </div>
+        <div id="bench-log"></div>
+      </section>
+    </aside>
     <main>
       <section class="pane markdown-pane">
         <h2>Markdown</h2>

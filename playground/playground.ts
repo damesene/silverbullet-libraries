@@ -5,6 +5,8 @@ import { FEATURE_NAMES, MODULE_LABELS, SETTINGS } from "../table-plus/src/bridge
 import { init, openSettings } from "../table-plus/src/index.ts";
 import { findTables, parseTable } from "../table-plus/src/markdown.ts";
 import libraryPage from "../table-plus/table-plus.md";
+import { benchmarkPage, FORMULAS, type FormulaKind, ProfileLog, renderLog, TYPE_NAMES } from "./benchmark.ts";
+import { measure, profileTablePlus, setProfileSink } from "./profile.ts";
 import sample from "./sample.md";
 
 const TEXT_KEY = "tablePlusPlayground.text";
@@ -12,6 +14,10 @@ const SETTINGS_KEY = "tablePlusPlayground.settings";
 const THEME_KEY = "tablePlusPlayground.theme";
 const MARKDOWN_KEY = "tablePlusPlayground.markdown";
 const SETTINGS_SHOWN_KEY = "tablePlusPlayground.settingsShown";
+const BENCH_SHOWN_KEY = "tablePlusPlayground.benchShown";
+const BENCH_OPTIONS_KEY = "tablePlusPlayground.benchOptions";
+// The page before the first benchmark was generated, for Restore page
+const BEFORE_BENCH_KEY = "tablePlusPlayground.beforeBenchmark";
 
 const source = document.querySelector<HTMLTextAreaElement>("#source")!;
 const page = document.querySelector<HTMLElement>("#page")!;
@@ -121,6 +127,10 @@ function renderLines(lines: readonly string[], into: DocumentFragment): void {
 }
 
 function render(): void {
+  measure("SilverBullet (mock) · render the page", renderNow);
+}
+
+function renderNow(): void {
   const fragment = document.createDocumentFragment();
   let at = 0;
   for (const range of findTables(text)) {
@@ -340,6 +350,17 @@ function paneToggle(button: string, hiddenClass: string, key: string): void {
 }
 paneToggle("#markdown", "no-markdown", MARKDOWN_KEY);
 paneToggle("#settings-toggle", "no-settings", SETTINGS_SHOWN_KEY);
+// The benchmark panel: hidden until asked for
+{
+  const toggle = document.querySelector<HTMLButtonElement>("#bench-toggle")!;
+  const show = (shown: boolean) => {
+    document.body.classList.toggle("bench-shown", shown);
+    toggle.setAttribute("aria-pressed", String(shown));
+    save(BENCH_SHOWN_KEY, shown ? "shown" : "hidden");
+  };
+  show(load(BENCH_SHOWN_KEY) === "shown");
+  toggle.addEventListener("click", () => show(!document.body.classList.contains("bench-shown")));
+}
 
 function applyTheme(theme: string): void {
   document.documentElement.dataset.theme = theme;
@@ -350,11 +371,81 @@ document.querySelector("#theme")!.addEventListener("click", () =>
   applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"),
 );
 
+// --- Benchmark ----------------------------------------------------------------
+
+const logBox = document.querySelector<HTMLElement>("#bench-log")!;
+const profileLog = new ProfileLog(() => renderLog(logBox, profileLog));
+
+function buildBenchmark(): void {
+  type Options = { rows: number; columns: number; types: string[]; formulas: FormulaKind[] };
+  let options: Options = { rows: 500, columns: 8, types: ["text", "number", "currency", "date", "check"], formulas: ["calculated", "totals"] };
+  try {
+    options = { ...options, ...JSON.parse(load(BENCH_OPTIONS_KEY) ?? "{}") };
+  } catch {
+    // The defaults
+  }
+  const rows = document.querySelector<HTMLInputElement>("#bench-rows")!;
+  const columns = document.querySelector<HTMLInputElement>("#bench-columns")!;
+  rows.value = String(options.rows);
+  columns.value = String(options.columns);
+  const check = (into: string, name: string, label: string, checked: boolean, title = "") => {
+    const box = Object.assign(document.createElement("input"), { type: "checkbox", value: name, checked });
+    const element = Object.assign(document.createElement("label"), { title });
+    element.append(box, label);
+    document.querySelector(into)!.append(element);
+    return box;
+  };
+  const types = TYPE_NAMES.map((name) => check("#bench-types", name, name === "text" ? "text" : `#${name}`, options.types.includes(name)));
+  const formulas = (Object.keys(FORMULAS) as FormulaKind[]).map((kind) =>
+    check("#bench-formulas", kind, FORMULAS[kind].label, options.formulas.includes(kind), FORMULAS[kind].hint),
+  );
+  const note = document.querySelector<HTMLElement>("#bench-note")!;
+  const restore = document.querySelector<HTMLButtonElement>("#bench-restore")!;
+  const showRestore = () => (restore.hidden = load(BEFORE_BENCH_KEY) === null);
+  showRestore();
+  document.querySelector("#bench-form")!.addEventListener("submit", (e) => {
+    e.preventDefault();
+    options = {
+      rows: Math.max(1, Number(rows.value) || 1),
+      columns: Math.max(1, Number(columns.value) || 1),
+      types: types.filter((b) => b.checked).map((b) => b.value),
+      formulas: formulas.filter((b) => b.checked).map((b) => b.value as FormulaKind),
+    };
+    save(BENCH_OPTIONS_KEY, JSON.stringify(options));
+    const started = performance.now();
+    const page = benchmarkPage(options);
+    const generated = performance.now() - started;
+    if (load(BEFORE_BENCH_KEY) === null) save(BEFORE_BENCH_KEY, text);
+    showRestore();
+    profileLog.begin(`Generate ${options.rows} rows × ${options.columns} columns${options.formulas.length ? ` with ${options.formulas.map((f) => FORMULAS[f].label.toLowerCase()).join(", ")}` : ""}`);
+    note.textContent = `Generated in ${generated.toFixed(0)} ms (the playground's work, not measured below).${
+      options.formulas.length && settings["tablePlus.metadata"] === false ? " Formulas need Store table metadata on." : ""
+    }`;
+    setText(page, 0);
+  });
+  restore.addEventListener("click", () => {
+    const before = load(BEFORE_BENCH_KEY);
+    if (before === null) return;
+    try {
+      localStorage.removeItem(BEFORE_BENCH_KEY);
+    } catch {
+      // Kept: Restore page stays offered
+    }
+    showRestore();
+    note.textContent = "";
+    profileLog.begin("Restore page");
+    setText(before, 0);
+  });
+  document.querySelector("#bench-clear")!.addEventListener("click", () => profileLog.clear());
+  renderLog(logBox, profileLog);
+}
+
 // --- Table Plus ---------------------------------------------------------------
 
 const bridge: Bridge = {
   getText: () => text,
-  replaceRange: (from, to, insert) => setText(text.slice(0, from) + insert + text.slice(to), from + insert.length),
+  replaceRange: (from, to, insert) =>
+    measure("editor · replaceRange (the page rendered again)", () => setText(text.slice(0, from) + insert + text.slice(to), from + insert.length)),
   moveCursor: (pos) => moveCursor(pos),
   getCurrentPage: () => "Playground",
   flash,
@@ -380,3 +471,7 @@ const bridge: Bridge = {
 source.value = text;
 render();
 init(bridge);
+// The benchmark's log: what each phase and module took, measured from outside (Table Plus has no measuring in it)
+setProfileSink(profileLog.add);
+void profileTablePlus();
+buildBenchmark();

@@ -38,7 +38,7 @@ body {
 }
 body {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto 1fr;
   /* Never wider than the window: the header and settings wrap instead */
   grid-template-columns: minmax(0, 1fr);
   color: var(--root-color);
@@ -334,7 +334,8 @@ body.no-markdown .markdown-pane {
   display: none;
 }
 #markdown[aria-pressed="true"],
-#settings-toggle[aria-pressed="true"] {
+#settings-toggle[aria-pressed="true"],
+#bench-toggle[aria-pressed="true"] {
   background: color-mix(in srgb, var(--ui-accent-color, #4a7cc7) 18%, var(--root-background-color));
 }
 
@@ -349,4 +350,162 @@ header button .icon {
 /* The settings hidden */
 body.no-settings #settings {
   display: none;
+}
+
+/* Each in its row of the body's grid, also while the panels above are hidden: the page keeps the last one */
+header {
+  grid-row: 1;
+}
+#settings {
+  grid-row: 2;
+}
+#bench {
+  grid-row: 3;
+}
+main {
+  grid-row: 4;
+}
+/* The benchmark panel (benchmark.ts): the form left, the log right; shown by its button */
+#bench {
+  display: none;
+  grid-template-columns: minmax(260px, 2fr) minmax(0, 3fr);
+  gap: 12px 20px;
+  max-height: 45vh;
+  padding: 10px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+body.bench-shown #bench {
+  display: grid;
+}
+#bench-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+}
+#bench label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+#bench input[type="number"] {
+  width: 7em;
+  font: inherit;
+}
+.bench-sizes,
+.bench-buttons,
+#bench-types,
+#bench-formulas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+#bench fieldset {
+  margin: 0;
+  padding: 4px 8px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+#bench legend {
+  padding: 0 4px;
+  opacity: 0.7;
+}
+.bench-primary {
+  color: #fff;
+  background: var(--ui-accent-color);
+  border-color: var(--ui-accent-color);
+}
+#bench-note {
+  opacity: 0.75;
+}
+.bench-log-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.bench-log-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 6px;
+}
+.bench-hint,
+.bench-empty,
+.bench-note {
+  opacity: 0.65;
+}
+#bench-log {
+  min-height: 0;
+  overflow-y: auto;
+}
+.bench-action {
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--root-background-color);
+}
+.bench-action summary {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  cursor: pointer;
+}
+.bench-what {
+  flex: 1;
+  font-weight: 600;
+}
+.bench-ms {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bench-owners {
+  display: grid;
+  grid-template-columns: max-content minmax(60px, 1fr) max-content;
+  gap: 2px 10px;
+  align-items: center;
+  margin: 6px 0;
+}
+.bench-owner {
+  display: contents;
+}
+.bench-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+}
+.bench-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--ui-accent-color);
+}
+.bench-lines {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.bench-lines th,
+.bench-lines td {
+  padding: 1px 6px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+.bench-lines th:first-child,
+.bench-lines td:first-child {
+  text-align: left;
+}
+.bench-copy {
+  margin-top: 6px;
+}
+@media (max-width: 800px) {
+  #bench {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: 60vh;
+    overflow-y: auto;
+  }
 }

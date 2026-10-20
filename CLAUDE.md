@@ -65,7 +65,7 @@ table-plus/
     columns.ts         column identity: SilverBullet column keys, occurrence for duplicates, following renames/moves
     ops.ts pins.ts meta.ts view.ts filter.ts paste.ts   pure table operations, pin rules, metadata row (attributes of columns), view state (sorting), filter syntax, clipboard parsing
     testing/page.ts    jsdom harness: renders tables as SilverBullet does; setup(), cell(), clickOn(), key()…; state as live exports
-playground/            a page that mocks SilverBullet (its layout: the top bar, CodeMirror's scroller and content width; playground.ts renders tables like SilverBullet); sample.md mock data
+playground/            a page that mocks SilverBullet (its layout: the top bar, CodeMirror's scroller and content width; playground.ts renders tables like SilverBullet); sample.md mock data; profile.ts the benchmark's measuring, from outside: Table Plus has none in it (SilverBullet's code is not touched); it wraps the methods of the controller (the core's phases, each apart), of the cell editor and of each feature once started (`name · method`, a feature's calls nested in its own not apart), and they call each other through `this`; total, self and sync time per call. benchmark.ts the Benchmark panel: a page generated (rows, columns, column types, formulas; seeded, results calculated) over the playground's page (Restore page, Ctrl+Z), and the log of each action (a key, a press, Generate; later measures without a new one join it, hovering and scrolling left out): shown after (to the frame painted after the work), the measured work by part, every measure
 scripts/               build.mjs, deploy.mjs, playground.mjs (esbuild serve on 127.0.0.1)
 ```
 
