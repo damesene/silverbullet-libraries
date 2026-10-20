@@ -38,7 +38,7 @@ body {
 }
 body {
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto 1fr;
   /* Never wider than the window: the header and settings wrap instead */
   grid-template-columns: minmax(0, 1fr);
   color: var(--root-color);
@@ -70,47 +70,6 @@ button {
   border: 1px solid var(--button-border-color);
   border-radius: 4px;
   cursor: pointer;
-}
-#settings {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  padding: 8px 16px;
-  font-size: 13px;
-  border-bottom: 1px solid var(--border);
-}
-#settings label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-#settings .modules {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
-  flex-basis: 100%;
-}
-/* A module with its settings in brackets after it: Filters (smart) */
-#settings .module-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-#settings .module-settings {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  color: var(--muted, inherit);
-}
-#settings .module-settings::before {
-  content: "(";
-}
-#settings .module-settings::after {
-  content: ")";
-}
-#settings .module-settings label:has(:disabled) {
-  opacity: 0.5;
 }
 main {
   display: grid;
@@ -334,7 +293,6 @@ body.no-markdown .markdown-pane {
   display: none;
 }
 #markdown[aria-pressed="true"],
-#settings-toggle[aria-pressed="true"],
 #bench-toggle[aria-pressed="true"] {
   background: color-mix(in srgb, var(--ui-accent-color, #4a7cc7) 18%, var(--root-background-color));
 }
@@ -347,23 +305,15 @@ header button .icon {
     display: inline;
   }
 }
-/* The settings hidden */
-body.no-settings #settings {
-  display: none;
-}
-
 /* Each in its row of the body's grid, also while the panels above are hidden: the page keeps the last one */
 header {
   grid-row: 1;
 }
-#settings {
+#bench {
   grid-row: 2;
 }
-#bench {
-  grid-row: 3;
-}
 main {
-  grid-row: 4;
+  grid-row: 3;
 }
 /* The benchmark panel (benchmark.ts): the form left, the log right; shown by its button */
 #bench {

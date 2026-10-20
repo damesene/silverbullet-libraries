@@ -1,7 +1,6 @@
 // A page without SilverBullet: markdown in a textarea, tables rendered the way
 // SilverBullet renders them, and Table Plus on top through a mock Bridge.
 import type { Bridge } from "../table-plus/src/bridge.ts";
-import { FEATURE_NAMES, MODULE_LABELS, moduleOnByDefault, settingChoices, SETTINGS } from "../table-plus/src/bridge.ts";
 import { init, openSettings } from "../table-plus/src/index.ts";
 import { findTables, parseTable } from "../table-plus/src/markdown.ts";
 import libraryPage from "../table-plus/table-plus.md";
@@ -13,7 +12,6 @@ const TEXT_KEY = "tablePlusPlayground.text";
 const SETTINGS_KEY = "tablePlusPlayground.settings";
 const THEME_KEY = "tablePlusPlayground.theme";
 const MARKDOWN_KEY = "tablePlusPlayground.markdown";
-const SETTINGS_SHOWN_KEY = "tablePlusPlayground.settingsShown";
 const BENCH_SHOWN_KEY = "tablePlusPlayground.benchShown";
 const BENCH_OPTIONS_KEY = "tablePlusPlayground.benchOptions";
 // The page before the first benchmark was generated, for Restore page
@@ -224,7 +222,6 @@ page.addEventListener("keydown", (e) => {
 
 // --- Settings -----------------------------------------------------------------
 
-type Key = keyof typeof SETTINGS;
 // The playground starts with metadata on, so formulas and pinning can be tried right away
 let settings: Record<string, unknown> = { "tablePlus.metadata": true };
 try {
@@ -233,94 +230,11 @@ try {
   settings = { "tablePlus.metadata": true };
 }
 
-
-
 function settingsChanged(): void {
   save(SETTINGS_KEY, JSON.stringify(settings));
   // A fresh render lets Table Plus pick the settings up
   render();
 }
-
-const settingsBox = document.querySelector<HTMLElement>("#settings")!;
-
-/** A setting's control: a checkbox, a number field or a choice */
-function settingControl(key: Key): HTMLLabelElement {
-  const setting = SETTINGS[key];
-  const label = document.createElement("label");
-  const current = setting.path in settings ? settings[setting.path] : setting.default;
-  let input: HTMLInputElement | HTMLSelectElement;
-  if (typeof setting.default === "boolean") {
-    input = Object.assign(document.createElement("input"), { type: "checkbox", checked: current === true });
-    input.addEventListener("change", () => {
-      settings[setting.path] = (input as HTMLInputElement).checked;
-      settingsChanged();
-    });
-    label.append(input, SETTINGS[key].label);
-  } else if (typeof setting.default === "number") {
-    input = Object.assign(document.createElement("input"), { type: "number", min: "0", step: "50", value: String(current) });
-    input.style.width = "6em";
-    input.addEventListener("change", () => {
-      settings[setting.path] = Number(input.value);
-      settingsChanged();
-    });
-    label.append(SETTINGS[key].label, input);
-  } else {
-    input = document.createElement("select");
-    for (const option of settingChoices(key, document, current)) input.append(new Option(option.label, option.value, false, option.value === current));
-    input.addEventListener("change", () => {
-      settings[setting.path] = input.value;
-      settingsChanged();
-    });
-    label.append(SETTINGS[key].label, input);
-  }
-  return label;
-}
-
-// A module's settings go with it (in the Modules row), the others here
-const moduleOf = (key: Key) => /^tablePlus\.modules\.([^.]+)\./.exec(SETTINGS[key].path)?.[1];
-
-/** The settings panel, as the settings are now (built again after Table Plus' settings dialog saved them) */
-function buildSettingsPanel(): void {
-settingsBox.replaceChildren();
-for (const key of Object.keys(SETTINGS) as Key[]) {
-  if (!moduleOf(key)) settingsBox.append(settingControl(key));
-}
-
-// Modules are read when Table Plus starts: a change reloads the playground
-const modulesBox = document.createElement("span");
-modulesBox.className = "modules";
-modulesBox.append("Modules:");
-for (const name of FEATURE_NAMES) {
-  const path = `tablePlus.modules.${name}.enabled`;
-  const label = document.createElement("label");
-  const input = Object.assign(document.createElement("input"), { type: "checkbox", checked: typeof settings[path] === "boolean" ? settings[path] === true : moduleOnByDefault(name) });
-  input.addEventListener("change", () => {
-    settings[path] = input.checked;
-    save(SETTINGS_KEY, JSON.stringify(settings));
-    location.reload();
-  });
-  label.append(input, MODULE_LABELS[name]);
-  // Its settings in brackets after it, off while it is
-  const own = (Object.keys(SETTINGS) as Key[]).filter((key) => moduleOf(key) === name);
-  if (own.length === 0) {
-    modulesBox.append(label);
-    continue;
-  }
-  const group = document.createElement("span");
-  group.className = "module-group";
-  const settingsOf = document.createElement("span");
-  settingsOf.className = "module-settings";
-  for (const key of own) {
-    const control = settingControl(key);
-    for (const field of Array.from(control.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select"))) field.disabled = !input.checked;
-    settingsOf.append(control);
-  }
-  group.append(label, settingsOf);
-  modulesBox.append(group);
-}
-settingsBox.append(modulesBox);
-}
-buildSettingsPanel();
 
 // --- Chrome -------------------------------------------------------------------
 
@@ -335,8 +249,8 @@ function flash(message: string, type: "info" | "error" = "info"): void {
 document.querySelector("#reset")!.addEventListener("click", () => setText(sample, 0));
 document.querySelector("#tp-settings")!.addEventListener("click", () => openSettings());
 
-// The markdown pane and the settings, each shown or hidden by its button; hidden
-// at first on a narrow screen (a phone), then as last chosen
+// The markdown pane, shown or hidden by its button; hidden at first on a
+// narrow screen (a phone), then as last chosen
 function paneToggle(button: string, hiddenClass: string, key: string): void {
   const toggle = document.querySelector<HTMLButtonElement>(button)!;
   const show = (shown: boolean) => {
@@ -349,7 +263,6 @@ function paneToggle(button: string, hiddenClass: string, key: string): void {
   toggle.addEventListener("click", () => show(document.body.classList.contains(hiddenClass)));
 }
 paneToggle("#markdown", "no-markdown", MARKDOWN_KEY);
-paneToggle("#settings-toggle", "no-settings", SETTINGS_SHOWN_KEY);
 // The benchmark panel: hidden until asked for
 {
   const toggle = document.querySelector<HTMLButtonElement>("#bench-toggle")!;
@@ -456,13 +369,12 @@ const bridge: Bridge = {
   getCursor: () => cursor,
   undo: () => step(undoStack, redoStack),
   redo: () => step(redoStack, undoStack),
-  // Table Plus' settings dialog: no CONFIG page here, the playground's own store (and its panel shows them)
+  // Table Plus' settings dialog (Settings in the header, or a table's ⋯ menu): no CONFIG page here, the playground's own store
   saveSettings: (values) => {
     for (const [path, value] of Object.entries(values)) {
       if (value === undefined) delete settings[path];
       else settings[path] = value;
     }
-    buildSettingsPanel();
     settingsChanged();
   },
   reloadUI: () => location.reload(),

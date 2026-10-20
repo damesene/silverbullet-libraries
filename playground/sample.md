@@ -15,7 +15,7 @@ Edit the markdown on the left, or the tables below. Alt+click a cell or *Edit ma
 
 ## Long text
 
-Long text wraps at the maximum column width and stops at the maximum cell height (the settings above: *Long text*, *Max column width*, *Max cell height*). Hover a cut cell for its expand button, or press F2 while editing a long formula, to see and edit the whole text in a popup.
+Long text wraps at the maximum column width and stops at the maximum cell height (*Settings* in the header, *Modules*: *Long text in cells*, with its *Maximum column width* and *Maximum cell height*). Hover a cut cell for its expand button, or press F2 while editing a long formula, to see and edit the whole text in a popup.
 
 | Ticket | Status | Notes | Total |
 |---|---|---|--:|
