@@ -106,13 +106,16 @@ function renderTable(from: number, text: string): HTMLElement {
   return widget;
 }
 
-function renderBlocks(text: string, into: DocumentFragment): void {
-  for (const block of text.split(/\n\s*\n/)) {
-    const trimmed = block.trim();
-    if (!trimmed) continue;
-    const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
-    const element = document.createElement(heading ? `h${heading[1]!.length}` : "p");
-    element.innerHTML = inline(heading ? heading[2]! : trimmed);
+// As SilverBullet's CodeMirror does: one .cm-line per source line, an empty
+// line as tall as one with text, a heading's line in its larger type
+function renderLines(lines: readonly string[], into: DocumentFragment): void {
+  for (const line of lines) {
+    const element = document.createElement("div");
+    element.className = "cm-line";
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) element.classList.add(`sb-line-h${heading[1]!.length}`);
+    if (line.trim() === "") element.append(document.createElement("br"));
+    else element.innerHTML = inline(heading ? heading[2]! : line);
     into.append(element);
   }
 }
@@ -121,11 +124,20 @@ function render(): void {
   const fragment = document.createDocumentFragment();
   let at = 0;
   for (const range of findTables(text)) {
-    renderBlocks(text.slice(at, range.from), fragment);
-    fragment.append(renderTable(range.from, range.text));
+    // The lines between tables; a table's own lines are its widget, in one line
+    const lines = text.slice(at, range.from).split("\n");
+    if (at > 0) lines.shift();
+    lines.pop();
+    renderLines(lines, fragment);
+    const line = document.createElement("div");
+    line.className = "cm-line";
+    line.append(renderTable(range.from, range.text));
+    fragment.append(line);
     at = range.to;
   }
-  renderBlocks(text.slice(at), fragment);
+  const rest = text.slice(at).split("\n");
+  if (at > 0) rest.shift();
+  renderLines(rest, fragment);
   page.replaceChildren(fragment);
 }
 

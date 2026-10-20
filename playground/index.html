@@ -25,8 +25,22 @@
       </section>
       <section class="pane">
         <h2>Page</h2>
-        <div id="scroller">
-          <div id="page" class="cm-content" tabindex="0"></div>
+        <!-- SilverBullet's layout: the top bar above the editor, the page scrolling in CodeMirror's scroller -->
+        <div id="sb-root">
+          <div id="sb-top">
+            <div class="main">
+              <div class="inner"><div class="wrapper"><span id="sb-current-page">Playground</span></div></div>
+            </div>
+          </div>
+          <div id="sb-main">
+            <div id="sb-editor">
+              <div class="cm-editor">
+                <div id="scroller" class="cm-scroller">
+                  <div id="page" class="cm-content" tabindex="0"></div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </main>

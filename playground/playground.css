@@ -11,6 +11,9 @@
   --editor-font: "Iowan Old Style", Georgia, serif;
   --panel: #f6f6f8;
   --border: #dcdce2;
+  /* SilverBullet's defaults (theme.scss) */
+  --editor-width: 800px;
+  --top-background-color: #eee;
 }
 :root[data-theme="dark"] {
   --root-color: #e6e6ea;
@@ -22,6 +25,7 @@
   --editor-table-even-background-color: #26272e;
   --panel: #18191d;
   --border: #33343c;
+  --top-background-color: #222;
 }
 
 * {
@@ -139,25 +143,100 @@ main {
   outline: none;
   white-space: pre;
 }
-#scroller {
+/*
+ * The page as SilverBullet lays it out (client/styles/main.scss, top.scss,
+ * editor.scss): a column with the top bar (55px, z-index 20) above the
+ * editor, which scrolls in CodeMirror's scroller; the content at most 800px
+ * wide, centered, padded 5px 20px, in 18px type, one .cm-line per source line.
+ * What Table Plus measures (where the view starts, the header's height, the
+ * table's width) is SilverBullet's; colors are the playground's own.
+ */
+#sb-root {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--root-background-color);
+}
+#sb-top {
+  display: flex;
+  flex-direction: row;
+  flex: none;
+  z-index: 20;
+  height: 55px;
+  background: var(--top-background-color, var(--panel));
+}
+#sb-top .main {
+  flex: 2;
+  min-width: 0;
+  overflow: hidden;
+}
+#sb-top .inner {
+  max-width: var(--editor-width);
+  margin: auto;
+  padding: 8px 0;
+  font-size: 28px;
+}
+#sb-top .wrapper {
+  padding: 0 20px;
+}
+#sb-current-page {
+  display: block;
+  overflow: hidden;
+  font-family: var(--ui-font);
+  font-weight: bold;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+#sb-main {
+  display: flex;
+  flex-direction: row;
+  flex-grow: 1;
+  height: 0;
+}
+#sb-editor {
+  flex: 2;
+  width: 100%;
+  height: 100%;
+}
+.cm-editor {
+  height: 100%;
+  font-size: 18px;
+}
+#scroller {
+  height: 100%;
   overflow: auto;
 }
 #page {
-  padding: 8px 24px 80px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--editor-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding: 5px 20px;
   font-family: var(--editor-font);
-  font-size: 17px;
   line-height: 1.5;
   outline: none;
 }
-#page h1,
-#page h2,
-#page h3 {
-  font-family: var(--ui-font);
-  margin: 1em 0 0.4em;
+#page .cm-line {
+  padding: 0;
+  min-height: 1.5em;
 }
-#page p {
-  margin: 0.4em 0;
+#page .sb-line-h1,
+#page .sb-line-h2,
+#page .sb-line-h3 {
+  font-family: var(--ui-font);
+  font-weight: bold;
+}
+#page .sb-line-h1 {
+  font-size: 1.5em;
+}
+#page .sb-line-h2 {
+  font-size: 1.3em;
+}
+#page .sb-line-h3 {
+  font-size: 1.15em;
 }
 #page code {
   font-size: 0.85em;
@@ -171,15 +250,25 @@ main {
   cursor: pointer;
 }
 
-/* Roughly SilverBullet's own table look */
+/*
+ * The table widget as SilverBullet sizes it (editor.scss): an inline block the
+ * width of the content that scrolls a wide table sideways, the table as wide
+ * as the widget, header cells padded 11px 8px, body cells 8px, no wrapping,
+ * no cell borders
+ */
 .sb-table-widget {
-  display: block;
-  margin: 0.6em 0;
-  /* A wide table scrolls sideways in its own box, as in SilverBullet */
+  display: inline-block;
+  vertical-align: top;
+  width: 100%;
+  font-weight: normal;
   overflow: auto;
+  border-radius: 4px 4px 0 0;
 }
 .sb-table-widget table {
-  border-collapse: collapse;
+  width: 100%;
+  border-spacing: 0;
+  border-radius: 4px 4px 0 0;
+  overflow: hidden;
 }
 .sb-table-widget thead tr {
   background: var(--editor-table-head-background-color);
@@ -189,10 +278,11 @@ main {
   background: var(--editor-table-even-background-color);
 }
 .sb-table-widget td {
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  /* As in SilverBullet: cells do not wrap, a wide table scrolls */
+  padding: 8px;
   white-space: nowrap;
+}
+.sb-table-widget thead tr td {
+  padding: 11px 8px;
 }
 
 #flash {
