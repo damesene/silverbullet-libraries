@@ -17,7 +17,8 @@ var FEATURE_NAMES = [
   "longText",
   "sticky",
   "autoscroll",
-  "largeTables"
+  "largeTables",
+  "fullScreen"
 ];
 var MODULES_OFF_BY_DEFAULT = /* @__PURE__ */ new Set(["largeTables"]);
 function moduleOnByDefault(name) {
@@ -37,7 +38,8 @@ var MODULE_LABELS = {
   longText: "Long text in cells",
   sticky: "Sticky header",
   autoscroll: "Middle-button scrolling",
-  largeTables: "Large tables"
+  largeTables: "Large tables",
+  fullScreen: "Full screen"
 };
 var MODULE_DESCRIPTIONS = {
   formulas: "Formulas in cells (=SUM(B1:B3)), recalculated on every edit",
@@ -53,7 +55,8 @@ var MODULE_DESCRIPTIONS = {
   longText: "Text wider than a maximum column width wraps or is cut, the expand button shows it whole",
   sticky: "A table's header stays in view while the page scrolls past it",
   autoscroll: "The middle mouse button over a table scrolls it in the direction the pointer moves",
-  largeTables: "Tables with many rows scroll in a box of their own (Maximum table height, else the window's height), and only the rows in view are in the page: editing stays quick"
+  largeTables: "Tables with many rows scroll in a box of their own (Maximum table height, else the window's height), and only the rows in view are in the page: editing stays quick",
+  fullScreen: "An icon in the table's toolbar shows the table over the whole window; the same icon or Esc closes it"
 };
 var SETTINGS = {
   enterKey: {
@@ -1487,6 +1490,8 @@ var ICONS = {
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
   columnWidth: svg('<path d="M4 4v16M20 4v16M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3"/>'),
   expand: svg('<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'),
+  fullScreen: svg('<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>'),
+  exitFullScreen: svg('<path d="M9 4v5H4M15 4v5h5M15 20v-5h5M9 20v-5H4"/>'),
   rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
   rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
   columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
@@ -7367,6 +7372,93 @@ var Widths = class {
   }
 };
 
+// table-plus/src/features/fullscreen.ts
+var FULL_CLASS = "tp-fullscreen";
+var OPEN_CLASS = "tp-fullscreen-open";
+var FullScreen = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // The table shown over the window (its key) and its widget as rendered now
+  key;
+  widget;
+  // The table rendered anew taken for it before it was enhanced (tableAdded)
+  guessed;
+  stop() {
+    this.end();
+  }
+  toolbarButtons(widget, info) {
+    const on = this.key === info.key;
+    return [
+      {
+        label: on ? "Exit full screen" : "Full screen",
+        title: on ? "Show the table in the page again (Esc)" : "Show the table over the whole window",
+        place: "icon",
+        icon: on ? ICONS.exitFullScreen : ICONS.fullScreen,
+        pressed: on,
+        run: () => on ? this.end() : this.begin(widget, info)
+      }
+    ];
+  }
+  begin(widget, info) {
+    if (this.widget && this.widget !== widget) this.unmark(this.widget);
+    this.key = info.key;
+    this.mark(widget);
+    this.host.toolbarChanged();
+    this.host.tableResized(info);
+  }
+  end() {
+    const widget = this.widget;
+    this.key = void 0;
+    this.widget = void 0;
+    if (widget) this.unmark(widget);
+    this.host.doc.body.classList.remove(OPEN_CLASS);
+    this.host.toolbarChanged();
+    const info = widget && this.host.infoOf(widget);
+    if (info) this.host.tableResized(info);
+  }
+  mark(widget) {
+    this.widget = widget;
+    widget.classList.add(FULL_CLASS);
+    this.host.doc.body.classList.add(OPEN_CLASS);
+  }
+  unmark(widget) {
+    widget.classList.remove(FULL_CLASS);
+  }
+  // Rendered anew (an edit): the replacement of the table shown over the window shows so at once, before it is laid out
+  // (the one starting where the table taken out started, data-pos: an edit in a table does not move its start;
+  // the page may render every table anew)
+  tableAdded(widget, table) {
+    const old = this.widget;
+    if (this.key === void 0 || !old || old.isConnected || this.guessed?.isConnected) return;
+    if (table.dataset.pos !== old.querySelector("table")?.dataset.pos) return;
+    this.guessed = widget;
+    widget.classList.add(FULL_CLASS);
+  }
+  // Enhanced: shown over the window if it is that table, else not (tableAdded may have guessed wrong)
+  enhanced(widget, info) {
+    if (info.key === this.key) this.mark(widget);
+    else if (widget.classList.contains(FULL_CLASS)) this.unmark(widget);
+    if (this.key !== void 0 && this.widget && !this.widget.isConnected && !this.host.widgetForKey(this.key)) this.end();
+  }
+  // Esc closes it, unless something else takes the key first (a cell editor, a selection, a field, a menu)
+  keyDown(e) {
+    if (e.key !== "Escape" || this.key === void 0 || this.host.editing) return false;
+    const target = e.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    this.end();
+    return true;
+  }
+  // Another page shown: no table of it is over the window
+  layoutChanged() {
+    if (this.key === void 0 || this.widget?.isConnected) return;
+    if (!this.host.doc.querySelector(`${WIDGET_SELECTOR}.${FULL_CLASS}`)) this.end();
+  }
+};
+
 // table-plus/src/features/largetables.ts
 var LARGE_CLASS = "tp-large-table";
 var SPACER_CLASS = "tp-large-spacer";
@@ -8764,12 +8856,14 @@ var Sticky = class {
       const info = this.host.infoOf(widget);
       const head = info?.table.tHead;
       if (!info || !head || renderedTable(widget) !== info.table) continue;
-      const scroller = this.host.scrollParentOf(widget)?.getBoundingClientRect();
+      const scroller = this.host.viewBounds(widget);
       const inside = this.host.scrollsInside(widget);
       const foot = info.table.tFoot;
-      const native = !inside && widget.clientWidth > 0 && info.table.offsetWidth <= widget.clientWidth + 1;
+      const overWindow = doc.defaultView.getComputedStyle(widget).position === "fixed";
+      const native = !overWindow && !inside && widget.clientWidth > 0 && info.table.offsetWidth <= widget.clientWidth + 1;
       widget.classList.toggle("tp-sticky-native", native);
-      if (native) {
+      widget.classList.toggle("tp-sticky-box", overWindow);
+      if (native || overWindow) {
         const table2 = info.table.getBoundingClientRect();
         head.style.transform = "";
         head.classList.toggle("tp-stuck", head.getBoundingClientRect().top > table2.top + 0.5);
@@ -8780,13 +8874,13 @@ var Sticky = class {
         continue;
       }
       const box = this.host.innerBox(widget);
-      const pageTop = (scroller?.top ?? 0) + STICKY_GAP;
+      const pageTop = scroller.top + STICKY_GAP;
       const boxTop = inside ? box.top : -Infinity;
       const table = info.table.getBoundingClientRect();
       const footHeight = foot?.offsetHeight ?? 0;
       let footTop = table.bottom - footHeight;
       if (foot && footHeight > 0) {
-        const pageBottom = scroller?.bottom ?? doc.defaultView.innerHeight;
+        const pageBottom = scroller.bottom;
         const boxBottom = inside ? box.bottom : Infinity;
         const lift = Math.min(
           0,
@@ -9026,6 +9120,8 @@ var Controller = class {
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
       optional("export", () => new Export(this)),
+      // Its icon last in the toolbar, before the menu
+      optional("fullScreen", () => new FullScreen(this)),
       always(() => new Expressions(this)),
       always(() => new History(this)),
       always(() => new CellPopup(this))
@@ -10063,7 +10159,9 @@ var Controller = class {
   }
   viewBounds(element) {
     const win = this.doc.defaultView;
-    const scroller = this.scrollParentOf(element) ?? element.closest(SCROLLER_SELECTOR) ?? void 0;
+    const widget = element.closest(WIDGET_SELECTOR);
+    const overWindow = !!widget && win.getComputedStyle(widget).position === "fixed";
+    const scroller = overWindow ? void 0 : this.scrollParentOf(element) ?? element.closest(SCROLLER_SELECTOR) ?? void 0;
     const rect = scroller?.getBoundingClientRect();
     const view = rect && rect.height > 0 ? rect : { left: 0, right: win.innerWidth, top: 0, bottom: win.innerHeight };
     const visual = win.visualViewport;

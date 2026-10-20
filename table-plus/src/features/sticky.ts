@@ -10,7 +10,10 @@
 // script lags and shakes. Here they only get `tp-stuck` (their look while
 // held). Other tables sit in a box that scrolls (sideways, or inside a maximum
 // height), which captures sticky positioning: their header and footer are
-// moved with a transform after each scroll, never past each other.
+// moved with a transform after each scroll, never past each other. A table
+// whose box is laid over the window (position: fixed: full screen) scrolls in
+// that box only, the page never moves it: its header and footer are sticky
+// against the box (`tp-sticky-box`), moved by the browser too.
 import type { Feature, TableHost } from "../core/feature.ts";
 import { STICKY_GAP } from "../core/layout.ts";
 import { renderedTable, WIDGET_SELECTOR } from "../dom.ts";
@@ -24,15 +27,18 @@ export class Sticky implements Feature {
       const info = this.host.infoOf(widget);
       const head = info?.table.tHead;
       if (!info || !head || renderedTable(widget) !== info.table) continue;
-      // Held below the page top (with room for the toolbar), or, in a table
-      // scrolled inside its own box, at the top of that box
-      const scroller = this.host.scrollParentOf(widget)?.getBoundingClientRect();
+      // Held below the top of the page's view (with room for the toolbar), or,
+      // in a table scrolled inside its own box, at the top of that box. The
+      // view (viewBounds) is the window for a table laid over it (full screen).
+      const scroller = this.host.viewBounds(widget);
       const inside = this.host.scrollsInside(widget);
       const foot = info.table.tFoot;
+      const overWindow = doc.defaultView!.getComputedStyle(widget).position === "fixed";
       // Not laid out (in tests): by script
-      const native = !inside && widget.clientWidth > 0 && info.table.offsetWidth <= widget.clientWidth + 1;
+      const native = !overWindow && !inside && widget.clientWidth > 0 && info.table.offsetWidth <= widget.clientWidth + 1;
       widget.classList.toggle("tp-sticky-native", native);
-      if (native) {
+      widget.classList.toggle("tp-sticky-box", overWindow);
+      if (native || overWindow) {
         const table = info.table.getBoundingClientRect();
         head.style.transform = "";
         head.classList.toggle("tp-stuck", head.getBoundingClientRect().top > table.top + 0.5);
@@ -43,7 +49,7 @@ export class Sticky implements Feature {
         continue;
       }
       const box = this.host.innerBox(widget);
-      const pageTop = (scroller?.top ?? 0) + STICKY_GAP;
+      const pageTop = scroller.top + STICKY_GAP;
       const boxTop = inside ? box.top : -Infinity;
       const table = info.table.getBoundingClientRect();
       // Rows pinned to the bottom first: held at the bottom of the view (the
@@ -51,7 +57,7 @@ export class Sticky implements Feature {
       const footHeight = foot?.offsetHeight ?? 0;
       let footTop = table.bottom - footHeight;
       if (foot && footHeight > 0) {
-        const pageBottom = scroller?.bottom ?? doc.defaultView!.innerHeight;
+        const pageBottom = scroller.bottom;
         const boxBottom = inside ? box.bottom : Infinity;
         const lift = Math.min(
           0,

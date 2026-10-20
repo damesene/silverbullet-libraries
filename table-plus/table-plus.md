@@ -476,6 +476,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `widths` | A column's width set by dragging the right edge of its header, *Auto width* in the column's menu, *Reset column widths* in the table's ⋯ menu; with *Store table metadata* stored in the table. Off: columns are as wide as their text; widths stored in tables are kept but not used. |
 | `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
 | `autoscroll` | The middle mouse button over a table scrolls it. |
+| `fullScreen` | The toolbar's full screen icon shows the table over the whole window (not the browser's full screen), with its toolbar, menus and editing as in the page; the same icon (*Exit full screen*) or Esc closes it. |
 | `largeTables` | Off by default. A table with many rows (setting `minRows`, default `200`) scrolls in a box of its own: as tall as *Maximum table height*, else the window. Only the rows in and around the box's view are in the page, so editing, sorting and filtering a table of thousands of rows stays quick. The browser's find (Ctrl+F) finds only those rows. Off: every row is in the page, the table as tall as its rows (unless *Maximum table height* is set). |
 
 ## Table names
@@ -806,6 +807,18 @@ config.define("tablePlus", {
             },
           },
         },
+        fullScreen = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "An icon in a table's toolbar shows the table over the whole window (not the browser's full screen); the same icon or Esc closes it.",
+              ui = { category = "Table Plus: Modules", label = "Full screen", priority = 1.7 },
+            },
+          },
+        },
       },
     },
   },
@@ -992,6 +1005,22 @@ end
   bottom: 0;
   z-index: 3;
 }
+/* A table laid over the window (full screen, tp-sticky-box): it scrolls in
+   its own box only, which captures the sticky positioning: the header held
+   STICKY_GAP below the box's top (room for the toolbar), the bottom rows at
+   its bottom, moved by the browser */
+.sb-table-widget.tp-sticky-box thead,
+.sb-table-widget.tp-sticky-box thead.tp-stuck {
+  position: sticky;
+  top: 42px;
+  z-index: 3;
+}
+.sb-table-widget.tp-sticky-box tfoot,
+.sb-table-widget.tp-sticky-box tfoot.tp-stuck {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+}
 
 /* Header held at the top of the view while the table scrolls past (moved by
    script, or by the browser with tp-sticky-native) */
@@ -1158,6 +1187,37 @@ body.tp-navigating .sb-table-widget.tp-table * {
   width: max-content;
 }
 
+/* The fullScreen module: the table's box over the whole window, under Table
+   Plus' controls (toolbar, grips, menus: z-index 49 and up) and SilverBullet's
+   dialogs, over its page and top bar; the Maximum table height (set inline) does not apply */
+.sb-table-widget.tp-fullscreen {
+  position: fixed !important;
+  inset: 0;
+  z-index: 45;
+  box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-height: none !important;
+  margin: 0;
+  /* No padding at the top: the header sticks STICKY_GAP below the box's content edge (tp-sticky-box).
+     The room at the sides is a border, not padding: a border does not scroll
+     away with the table, so the + and the grips left of it stay in view */
+  padding: 0 0 24px;
+  border-left: 40px solid var(--root-background-color, #fff);
+  border-right: 40px solid var(--root-background-color, #fff);
+  overflow: auto;
+  background: var(--root-background-color, #fff);
+}
+/* The room for the toolbar above the header, scrolled away with the table */
+.sb-table-widget.tp-fullscreen > table {
+  margin-top: 48px;
+}
+/* CodeMirror's scroller is a stacking context (z-index 0) under SilverBullet's
+   top bar (z-index 20): lifted over it while it holds a table shown so */
+.cm-scroller:has(.sb-table-widget.tp-fullscreen) {
+  z-index: 30 !important;
+}
 /* The largeTables module: a large table scrolls in its own box, at most the
    window's height (the Maximum table height setting, set inline, wins); the
    empty rows standing in for the rows out of the document take no room but their height */

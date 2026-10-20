@@ -31,6 +31,7 @@ import { Formulas } from "./features/formulas.ts";
 import { Grips } from "./features/grips.ts";
 import { History } from "./features/history.ts";
 import { Widths } from "./features/widths.ts";
+import { FullScreen } from "./features/fullscreen.ts";
 import { LargeTables } from "./features/largetables.ts";
 import { LongText } from "./features/longtext.ts";
 import { CellPopup } from "./features/popup.ts";
@@ -358,6 +359,8 @@ export class Controller implements TableHost {
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
       optional("export", () => new Export(this)),
+      // Its icon last in the toolbar, before the menu
+      optional("fullScreen", () => new FullScreen(this)),
       always(() => new Expressions(this)),
       always(() => new History(this)),
       always(() => new CellPopup(this)),
@@ -1567,8 +1570,11 @@ export class Controller implements TableHost {
 
   viewBounds(element: HTMLElement): { left: number; right: number; top: number; bottom: number } {
     const win = this.doc.defaultView!;
+    // A table whose box is laid over the window (position: fixed, e.g. shown full screen) is in view across the window
+    const widget = element.closest<HTMLElement>(WIDGET_SELECTOR);
+    const overWindow = !!widget && win.getComputedStyle(widget).position === "fixed";
     // A page too short to scroll has no scroll parent, but its view still starts below the top bar
-    const scroller = this.scrollParentOf(element) ?? element.closest<HTMLElement>(SCROLLER_SELECTOR) ?? undefined;
+    const scroller = overWindow ? undefined : (this.scrollParentOf(element) ?? element.closest<HTMLElement>(SCROLLER_SELECTOR) ?? undefined);
     const rect = scroller?.getBoundingClientRect();
     // Not laid out (in tests): the window
     const view = rect && rect.height > 0 ? rect : { left: 0, right: win.innerWidth, top: 0, bottom: win.innerHeight };

@@ -76,7 +76,7 @@ describe("Controller", () => {
     await setup('| A |\n|---|\n| 1 |\n| <meta name="prices"> |\n', { "tablePlus.metadata": true });
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     const bar = document.querySelector(".tp-bar")!;
-    expect(Array.from(bar.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["prices", "Filter", "Edit mode", "More"]);
+    expect(Array.from(bar.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["prices", "Filter", "Edit mode", "Full screen", "More"]);
     tableMenuItem(/^Edit markdown$/);
     const menu = document.querySelector(".tp-menu")!;
     expect(Array.from(menu.querySelectorAll(".tp-menu-item, .tp-menu-separator")).map((e) => e.textContent || "—")).toEqual([

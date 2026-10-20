@@ -71,6 +71,7 @@ export const FEATURE_NAMES = [
   "sticky",
   "autoscroll",
   "largeTables",
+  "fullScreen",
 ] as const;
 export type FeatureName = (typeof FEATURE_NAMES)[number];
 
@@ -98,6 +99,7 @@ export const MODULE_LABELS: Readonly<Record<FeatureName, string>> = {
   sticky: "Sticky header",
   autoscroll: "Middle-button scrolling",
   largeTables: "Large tables",
+  fullScreen: "Full screen",
 };
 
 // What each module does, in a few words (the settings dialog shows it beside the module's name)
@@ -116,6 +118,7 @@ export const MODULE_DESCRIPTIONS: Readonly<Record<FeatureName, string>> = {
   sticky: "A table's header stays in view while the page scrolls past it",
   autoscroll: "The middle mouse button over a table scrolls it in the direction the pointer moves",
   largeTables: "Tables with many rows scroll in a box of their own (Maximum table height, else the window's height), and only the rows in view are in the page: editing stays quick",
+  fullScreen: "An icon in the table's toolbar shows the table over the whole window; the same icon or Esc closes it",
 };
 
 /**
