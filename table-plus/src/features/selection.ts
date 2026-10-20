@@ -103,8 +103,7 @@ export class Selection implements Feature {
     const edited = editing && this.host.infoOf(editing.widget)?.key === info.key ? { row: editing.row, column: editing.column } : undefined;
     const anchor = !e.shiftKey ? ref : (pressed?.anchor ?? edited ?? ref);
     // A cell being edited is saved: the press selects now
-    const taken = this.host.takeEditor();
-    if (taken) void this.host.write(taken.widget, taken.save);
+    void this.host.saveEditing();
     this.selectCells(info, anchor, ref);
     if (!e.shiftKey) this.afterCellPress(info, ref);
     return true;

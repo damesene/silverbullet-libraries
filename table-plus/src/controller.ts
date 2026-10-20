@@ -37,6 +37,7 @@ import { LongText } from "./features/longtext.ts";
 import { CellPopup } from "./features/popup.ts";
 import { Metadata } from "./features/metadata.ts";
 import { Names } from "./features/names.ts";
+import { Lazy } from "./features/lazy.ts";
 import { Paste } from "./features/paste.ts";
 import { Selection } from "./features/selection.ts";
 import { Sticky } from "./features/sticky.ts";
@@ -368,6 +369,7 @@ export class Controller implements TableHost {
       always(() => this.metadata),
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
+      optional("lazy", () => new Lazy(this)),
       optional("export", () => new Export(this)),
       // Its icon last in the toolbar, before the menu
       optional("fullScreen", () => new FullScreen(this)),
@@ -973,6 +975,10 @@ export class Controller implements TableHost {
     return this.metadataOn;
   }
 
+  saveEditing(): Promise<void> {
+    return this.cellEditor.finish(true, undefined, false);
+  }
+
   takeEditor(): { widget: HTMLElement; row: number; column: number; save: (table: Table) => Table | undefined } | undefined {
     const closed = this.cellEditor.close();
     return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.cellEditor.withSaved(t, closed) };
@@ -1030,6 +1036,16 @@ export class Controller implements TableHost {
   /** SilverBullet's `page:index` event */
   async pageIndexed(name: string): Promise<void> {
     for (const feature of this.features) await feature.pageIndexed?.(name);
+  }
+
+  /** SilverBullet's `editor:pageLoaded` event: another page is in the editor */
+  async pageLoaded(): Promise<void> {
+    const name = await this.bridge.getCurrentPage();
+    for (const feature of this.features) await feature.pageLoaded?.(name);
+  }
+
+  tableOf(info: WidgetInfo): Table {
+    return this.features.reduce((table, f) => f.pendingEdits?.(info)?.apply(table) ?? table, parseTable(info.source));
   }
 
   cancelEditing(): void {
@@ -1766,7 +1782,9 @@ export class Controller implements TableHost {
       const text = await this.bridge.getText();
       this.pageText = text;
       const range = locateBySource(text, info.hint, info.source);
-      const before = range && parseTable(range.text);
+      // The edits features hold for the table go into it first: the change applies to the table as shown
+      const held = range ? this.features.flatMap((f) => f.pendingEdits?.(info) ?? []) : [];
+      const before = range && held.reduce((table, pending) => pending.apply(table), parseTable(range.text));
       const edited = before && change(before);
       if (!range || !before || !edited) {
         void this.bridge.flash(NOT_SAVED, "error");
@@ -1783,7 +1801,10 @@ export class Controller implements TableHost {
       const format = await this.setting("autoFormat");
       const serialize = (t: Table) => serializeTable(format ? { ...t, padded: true } : t);
       const markdown = serialize(changed);
-      if (markdown === range.text) return "unchanged";
+      if (markdown === range.text) {
+        for (const pending of held) pending.written();
+        return "unchanged";
+      }
       // Other tables the features change with it (those whose formulas refer
       // to it), in the same edit: one Ctrl+Z undoes it all
       const updates: { readonly range: TableRange; readonly markdown: string }[] = [{ range, markdown }];
@@ -1817,6 +1838,7 @@ export class Controller implements TableHost {
       this.anchorAt(widget, info.key);
       await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
       this.pageText = written;
+      for (const pending of held) pending.written();
       for (const then of after) then(replace.from, written.length - text.length);
       return "written";
     } catch (e) {

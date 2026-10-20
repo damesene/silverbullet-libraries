@@ -31,6 +31,16 @@ export type FocusTarget = CellRef & { readonly select?: boolean };
 
 export type WriteResult = "written" | "unchanged" | "failed";
 
+/** A cell's edit a feature keeps instead of having it written at once (the lazy module) */
+export type HeldEdit = { readonly row: number; readonly column: number; readonly original: string; readonly value: string };
+
+/**
+ * Edits a feature holds for a table: every write of it starts from its
+ * markdown with them (`apply`), so they are written with whatever the write
+ * changes; `written` once that write is in the page
+ */
+export type PendingEdits = { readonly apply: (table: Table) => Table; readonly written: () => void };
+
 /** The cell editor: an input in place of the cell's content */
 export type CellEditor = {
   readonly widget: HTMLElement;
@@ -157,8 +167,12 @@ export interface TableHost {
   takeEditor():
     | { readonly widget: HTMLElement; readonly row: number; readonly column: number; readonly save: (table: Table) => Table | undefined }
     | undefined;
+  /** Closes the cell editor saving, as leaving it does (an edit a feature holds stays held), the focus left where it is */
+  saveEditing(): Promise<void>;
   /** Asks the user (SilverBullet's dialog, else the browser's) */
   ask(question: string): Promise<boolean>;
+  /** The table as edited: its markdown with the edits features hold (pendingEdits), what a cell's editor starts from */
+  tableOf(info: WidgetInfo): Table;
   /** The page's text as last read */
   readonly pageText: string;
   /** The name of the page shown */
@@ -346,6 +360,16 @@ export interface Feature {
   toolbarButtons?(widget: HTMLElement, info: WidgetInfo): ToolbarButton[];
   /** Before a write reads the page's text: what it needs read first (other pages the tables written refer to) */
   prepareWrite?(info: WidgetInfo): Promise<void>;
+  /**
+   * A cell's edit the cell editor would write (not a header's name): true, the
+   * feature keeps it (shows it, writes it later, through pendingEdits); the
+   * editor goes on as if nothing was written
+   */
+  holdCellEdit?(widget: HTMLElement, info: WidgetInfo, edit: HeldEdit): boolean;
+  /** The edits the feature holds for a table, put into each of its writes (and into tableOf) */
+  pendingEdits?(info: WidgetInfo): PendingEdits | undefined;
+  /** Another page was loaded into the editor (`name`): what was held for the page left can no longer be written into the editor */
+  pageLoaded?(name: string): Promise<void> | void;
   /** After the edit, before the write steps: what they need read (other pages the edited table refers to) */
   prepareEdit?(edited: Table, page: WritePage): Promise<void>;
   /** A write step: the table edited, as the feature changes it in the same write (formulas recalculated, references following) */

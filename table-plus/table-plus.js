@@ -10,6 +10,7 @@ var FEATURE_NAMES = [
   "filters",
   "columnTypes",
   "selection",
+  "lazy",
   "export",
   "paste",
   "handles",
@@ -31,6 +32,7 @@ var MODULE_LABELS = {
   filters: "Filters",
   columnTypes: "Column types",
   selection: "Cell selection",
+  lazy: "Lazy saving",
   export: "Export",
   paste: "Paste from spreadsheets",
   handles: "Row and column handles",
@@ -48,6 +50,7 @@ var MODULE_DESCRIPTIONS = {
   filters: "Show only the rows whose cells match what you type under a header",
   columnTypes: "A header's hashtag formats its column (#currency, #stars\u2026)",
   selection: "A click selects a cell, as in a spreadsheet; drag or Shift to select more, to copy, paste over or empty them",
+  lazy: "An icon in a table's toolbar switches it to saving its cells edited together, a moment after editing stops: quicker typing in large tables",
   export: "Copy as CSV in a table's \u22EF menu",
   paste: "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
   handles: "Handles beside rows and above columns: drag to move them, click for their menu",
@@ -112,6 +115,14 @@ var SETTINGS = {
     path: "tablePlus.expressions.refreshDelay",
     label: "Delay before refreshing (ms)",
     hint: "After an edit, cells with ${\u2026} (a query, a sum) are evaluated again once SilverBullet has indexed the page: how long to wait for that; raise it if they still show old values",
+    default: 500,
+    parse: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0
+  },
+  // How long after editing stops a table in lazy saving writes its cells (the lazy module)
+  lazyDelay: {
+    path: "tablePlus.modules.lazy.delay",
+    label: "Saves after (ms)",
+    hint: "In lazy saving, the cells edited are saved this long after no cell is being edited",
     default: 500,
     parse: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0
   },
@@ -973,7 +984,7 @@ var CellEditing = class {
     if (!ref || this.editor) return;
     if (ref.row > 0) this.host.rowNeeded(info, cell.parentElement);
     this.context.holdRow(widget, info, ref.row);
-    const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
+    const original = this.host.tableOf(info).rows[ref.row]?.cells[ref.column] ?? "";
     const bare2 = withoutTags(original);
     const initial = popup?.initial ?? this.context.features.reduce((text, f) => text ?? f.editorText?.(info, ref, original), void 0) ?? unescapeCell(bare2);
     const cellStyle = cell.getAttribute("style");
@@ -1144,13 +1155,16 @@ var CellEditing = class {
     const sameTable = next?.widget === closed.widget;
     if (!(sameTable && next?.row === closed.row)) this.context.releaseRow();
     let result = "unchanged";
-    if (changed) {
+    const info = changed && closed.row > 0 ? this.host.infoOf(closed.widget) : void 0;
+    const edit = { row: closed.row, column: closed.column, original: closed.original, value: closed.value };
+    const held = !!info && this.context.features.some((f) => f.holdCellEdit?.(closed.widget, info, edit));
+    if (changed && !held) {
       result = await this.host.write(closed.widget, (t) => this.withCellEdit(t, closed), { focus: sameTable ? next : void 0 });
     }
     if (next && (result === "unchanged" || !sameTable)) {
-      const info = this.host.infoOf(next.widget);
-      const cell = info && this.host.cellAt(info, next);
-      if (info && cell) this.open(next.widget, info, cell, next.select);
+      const info2 = this.host.infoOf(next.widget);
+      const cell = info2 && this.host.cellAt(info2, next);
+      if (info2 && cell) this.open(next.widget, info2, cell, next.select);
       return;
     }
     if (!next && refocus) this.host.focusEditor(closed.widget);
@@ -1497,6 +1511,7 @@ var ICONS = {
   columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
   columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
   duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  lazy: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
   editMode: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
   selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),
   selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
@@ -6618,8 +6633,7 @@ var Grips = class {
   }
   // ---- Select rows (columns): the pointer picks the other end, a click ends it ----------
   startPicking(info, axis, line) {
-    const taken = this.host.takeEditor();
-    if (taken) void this.host.write(taken.widget, taken.save);
+    void this.host.saveEditing();
     this.picking = { key: info.key, axis, from: line };
     this.host.doc.body.classList.add(axis === "row" ? "tp-picking-rows" : "tp-picking-columns");
     this.selectLines(info, axis, line, line);
@@ -8249,6 +8263,263 @@ Row name: ${row}` : `Row name: ${row}`;
   }
 };
 
+// table-plus/src/features/lazy.ts
+var PENDING_CLASS = "tp-lazy-pending";
+var LEAVING_MS = 5e3;
+var cellId = (edit) => `${edit.row}:${edit.column}`;
+function applyEdits(table, edits) {
+  let skipped = 0;
+  const result = edits.reduce((t, edit) => {
+    const cell = t.rows[edit.row]?.cells[edit.column] ?? "";
+    if (cell === edit.value) return t;
+    if (cell !== edit.original) {
+      skipped++;
+      return t;
+    }
+    return setCell(t, edit.row, edit.column, edit.value);
+  }, table);
+  return { table: result, skipped };
+}
+var Lazy = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // Tables switched to lazy saving, by key (for this visit of the page)
+  on = /* @__PURE__ */ new Set();
+  held = /* @__PURE__ */ new Map();
+  // The cells marked as held, by table: unmarked without going through every cell of a large table
+  marked = /* @__PURE__ */ new Map();
+  timer;
+  // A table's flush on its way (the delay, the tab hidden or closing, a toggle may come together): the others wait for it
+  flushing = /* @__PURE__ */ new Map();
+  // A navigation started: nothing is written into the editor until the page is loaded
+  leavingSince = 0;
+  start() {
+    const win = this.host.doc.defaultView;
+    win.addEventListener("beforeunload", this.onBeforeUnload);
+    win.addEventListener("popstate", this.onPopState, true);
+    this.host.doc.addEventListener("visibilitychange", this.onVisibilityChange);
+  }
+  stop() {
+    clearTimeout(this.timer);
+    const win = this.host.doc.defaultView;
+    win.removeEventListener("beforeunload", this.onBeforeUnload);
+    win.removeEventListener("popstate", this.onPopState, true);
+    this.host.doc.removeEventListener("visibilitychange", this.onVisibilityChange);
+  }
+  /** The switch: on, cells edited are written later; off, what is held is written at once */
+  toolbarButtons(_widget, info) {
+    const on = this.on.has(info.key);
+    const unsaved = this.held.get(info.key)?.edits.size ?? 0;
+    return [
+      {
+        label: "Lazy saving",
+        title: !on ? "Lazy saving: cells edited are saved together, a moment after editing stops" : unsaved ? `Lazy saving is on: ${unsaved} ${unsaved === 1 ? "cell" : "cells"} not saved yet. Click to save now and turn it off` : "Lazy saving is on: cells edited are saved together, a moment after editing stops. Click to turn it off",
+        place: "icon",
+        icon: ICONS.lazy,
+        pressed: on,
+        attention: on && unsaved > 0,
+        run: () => this.toggle(info.key)
+      }
+    ];
+  }
+  toggle(key) {
+    if (this.on.delete(key)) void this.switchedOff(key);
+    else this.on.add(key);
+    this.host.toolbarChanged();
+  }
+  /**
+   * Switched off: written at once, the cell being edited too (a press on the
+   * toolbar leaves its editor open): closed and saved first, no longer held,
+   * in a write that takes the others along
+   */
+  async switchedOff(key) {
+    if (this.host.editing) await this.host.saveEditing();
+    await this.flush(key);
+  }
+  holdCellEdit(_widget, info, edit) {
+    if (!this.on.has(info.key)) return false;
+    const held = this.held.get(info.key) ?? { page: this.host.currentPage, hint: info.hint, source: info.source, edits: /* @__PURE__ */ new Map() };
+    const id = cellId(edit);
+    const original = held.edits.get(id)?.original ?? edit.original;
+    if (edit.value === original) held.edits.delete(id);
+    else held.edits.set(id, { ...edit, original });
+    if (held.edits.size) this.held.set(info.key, held);
+    else this.held.delete(info.key);
+    this.show(info);
+    this.host.toolbarChanged();
+    void this.schedule();
+    return true;
+  }
+  pendingEdits(info) {
+    const held = this.held.get(info.key);
+    if (!held?.edits.size) return void 0;
+    const edits = [...held.edits.values()];
+    let skipped = 0;
+    return {
+      apply: (table) => {
+        const applied = applyEdits(table, edits);
+        skipped = applied.skipped;
+        return applied.table;
+      },
+      written: () => this.written(info.key, edits, skipped)
+    };
+  }
+  /** Edits written (by any write of the table): no longer held, unless edited again meanwhile */
+  written(key, edits, skipped) {
+    const held = this.held.get(key);
+    if (held) {
+      for (const edit of edits) if (held.edits.get(cellId(edit)) === edit) held.edits.delete(cellId(edit));
+      if (!held.edits.size) {
+        this.held.delete(key);
+        this.marked.delete(key);
+      }
+    }
+    if (skipped) void this.host.bridge.flash(`Table Plus: ${skipped} ${skipped === 1 ? "cell was" : "cells were"} changed elsewhere meanwhile, the edit there was not saved`, "error");
+    this.host.toolbarChanged();
+  }
+  // Editing goes on: nothing is written meanwhile; it stops: written after the delay
+  editorOpened(_editor) {
+    clearTimeout(this.timer);
+  }
+  editorClosed(_editor) {
+    void this.schedule();
+  }
+  async schedule() {
+    clearTimeout(this.timer);
+    if (!this.held.size) return;
+    const delay = await this.host.setting("lazyDelay");
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      if (!this.host.editing) void this.flushAll();
+    }, delay);
+  }
+  // A table rendered anew (an edit elsewhere, or back in view): where it is now; written after the delay, if a flush found it gone
+  enhanced(_widget, info) {
+    const held = this.held.get(info.key);
+    if (!held) return;
+    held.hint = info.hint;
+    held.source = info.source;
+    if (!this.host.editing) void this.schedule();
+  }
+  /**
+   * Ctrl+Z with cells held (not in a field, which undoes its own typing): they
+   * are written, then that write undone, so they go back together (Ctrl+Y
+   * brings them back); the editor's undo would undo the edit before them
+   */
+  keyDown(e) {
+    const undo = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "z";
+    const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    const { undo: undoEdit } = this.host.bridge;
+    if (!undo || inField || !this.held.size || !undoEdit) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    void (async () => {
+      const writes = await this.flushAll();
+      for (let i = 0; i < writes; i++) await undoEdit();
+    })();
+    return true;
+  }
+  viewApplied(_widget, info) {
+    if (this.held.has(info.key)) this.show(info);
+  }
+  /** The held cells show what was typed (as text: the markdown renders once written) */
+  show(info) {
+    for (const cell of this.marked.get(info.key) ?? []) cell.classList.remove(PENDING_CLASS);
+    const marked = [];
+    for (const edit of this.held.get(info.key)?.edits.values() ?? []) {
+      const cell = this.host.cellAt(info, edit, true);
+      const content = cell?.querySelector(":scope > .tp-cell-content");
+      if (!cell || !content || cell.classList.contains("tp-editing")) continue;
+      content.textContent = unescapeCell(withoutTags(edit.value));
+      cell.classList.add(PENDING_CLASS);
+      marked.push(cell);
+    }
+    if (marked.length) this.marked.set(info.key, marked);
+    else this.marked.delete(info.key);
+  }
+  /** Writes what is held for every table; how many writes went into the editor */
+  async flushAll() {
+    let writes = 0;
+    for (const key of [...this.held.keys()]) if (await this.flush(key)) writes++;
+    return writes;
+  }
+  /**
+   * Writes what is held for a table: into the editor while its page is there,
+   * else into the page's file; whether it went into the editor (one undo step)
+   */
+  async flush(key) {
+    const going = this.flushing.get(key);
+    if (going) {
+      await going;
+      return false;
+    }
+    const flush = this.flushNow(key).finally(() => this.flushing.delete(key));
+    this.flushing.set(key, flush);
+    return flush;
+  }
+  async flushNow(key) {
+    clearTimeout(this.timer);
+    const held = this.held.get(key);
+    if (!held?.edits.size) return false;
+    if (Date.now() - this.leavingSince < LEAVING_MS) return false;
+    if (await this.host.bridge.getCurrentPage() !== held.page) {
+      await this.flushToPage(key, held);
+      return false;
+    }
+    const widget = this.host.widgetForKey(key);
+    if (!widget || this.host.editing) return false;
+    return await this.host.write(widget, (table) => table) === "written";
+  }
+  /** The page left: what was held for it is written into its file (SilverBullet saved it before loading the other) */
+  async flushToPage(key, held) {
+    const { readPage, writePage } = this.host.bridge;
+    const count = held.edits.size;
+    const lost = () => void this.host.bridge.flash(`Table Plus: ${count} ${count === 1 ? "cell" : "cells"} edited on ${held.page} could not be saved`, "error");
+    if (!readPage || !writePage) return lost();
+    try {
+      const text = await readPage(held.page);
+      const range = locateBySource(text, held.hint, held.source);
+      if (!range) return lost();
+      const { table, skipped } = applyEdits(parseTable(range.text), [...held.edits.values()]);
+      const format = await this.host.setting("autoFormat");
+      const markdown = serializeTable(format ? { ...table, padded: true } : table);
+      await writePage(held.page, text.slice(0, range.from) + markdown + text.slice(range.to));
+      this.held.delete(key);
+      const saved = count - skipped;
+      if (saved) void this.host.bridge.flash(`Table Plus: saved ${saved} ${saved === 1 ? "cell" : "cells"} edited on ${held.page}`, "info");
+      if (skipped) void this.host.bridge.flash(`Table Plus: ${skipped} ${skipped === 1 ? "cell" : "cells"} on ${held.page} changed elsewhere meanwhile, the edit there was not saved`, "error");
+    } catch (e) {
+      console.error("Table Plus: could not save the cells held", e);
+      lost();
+    }
+  }
+  async pageLoaded(name) {
+    this.leavingSince = 0;
+    for (const [key, held] of [...this.held]) if (held.page !== name) await this.flush(key);
+    for (const key of [...this.on]) if (!key.startsWith(`${name}#`)) this.on.delete(key);
+  }
+  // A navigation: nothing goes into the editor until the other page is loaded (pageLoaded)
+  onPopState = () => {
+    if (!this.held.size) return;
+    clearTimeout(this.timer);
+    this.leavingSince = Date.now();
+    setTimeout(() => void this.schedule(), LEAVING_MS + 10);
+  };
+  // The tab closing (or reloading): written at once, and the browser asks whether to leave meanwhile
+  onBeforeUnload = (e) => {
+    if (!this.held.size) return;
+    void this.flushAll();
+    e.preventDefault();
+    e.returnValue = "";
+  };
+  // The tab hidden (another tab, an app on a phone): written at once, as it may not come back
+  onVisibilityChange = () => {
+    if (this.host.doc.visibilityState === "hidden" && this.held.size && !this.host.editing) void this.flushAll();
+  };
+};
+
 // table-plus/src/paste.ts
 function parseClipboardCells(text) {
   const s = text.replace(/\r\n?/g, "\n");
@@ -8516,8 +8787,7 @@ var Selection = class {
     const editing = this.host.editing;
     const edited = editing && this.host.infoOf(editing.widget)?.key === info.key ? { row: editing.row, column: editing.column } : void 0;
     const anchor = !e.shiftKey ? ref : pressed?.anchor ?? edited ?? ref;
-    const taken = this.host.takeEditor();
-    if (taken) void this.host.write(taken.widget, taken.save);
+    void this.host.saveEditing();
     this.selectCells(info, anchor, ref);
     if (!e.shiftKey) this.afterCellPress(info, ref);
     return true;
@@ -9205,6 +9475,7 @@ var Controller = class {
       always(() => this.metadata),
       optional("paste", () => new Paste(this)),
       optional("selection", () => new Selection(this)),
+      optional("lazy", () => new Lazy(this)),
       optional("export", () => new Export(this)),
       // Its icon last in the toolbar, before the menu
       optional("fullScreen", () => new FullScreen(this)),
@@ -9726,6 +9997,9 @@ var Controller = class {
   get metadataEnabled() {
     return this.metadataOn;
   }
+  saveEditing() {
+    return this.cellEditor.finish(true, void 0, false);
+  }
   takeEditor() {
     const closed = this.cellEditor.close();
     return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.cellEditor.withSaved(t, closed) };
@@ -9775,6 +10049,14 @@ var Controller = class {
   /** SilverBullet's `page:index` event */
   async pageIndexed(name) {
     for (const feature of this.features) await feature.pageIndexed?.(name);
+  }
+  /** SilverBullet's `editor:pageLoaded` event: another page is in the editor */
+  async pageLoaded() {
+    const name = await this.bridge.getCurrentPage();
+    for (const feature of this.features) await feature.pageLoaded?.(name);
+  }
+  tableOf(info) {
+    return this.features.reduce((table, f) => f.pendingEdits?.(info)?.apply(table) ?? table, parseTable(info.source));
   }
   cancelEditing() {
     this.cellEditor.dropPending();
@@ -10394,7 +10676,8 @@ var Controller = class {
       const text = await this.bridge.getText();
       this.pageText = text;
       const range = locateBySource(text, info.hint, info.source);
-      const before = range && parseTable(range.text);
+      const held = range ? this.features.flatMap((f) => f.pendingEdits?.(info) ?? []) : [];
+      const before = range && held.reduce((table, pending) => pending.apply(table), parseTable(range.text));
       const edited = before && change(before);
       if (!range || !before || !edited) {
         void this.bridge.flash(NOT_SAVED, "error");
@@ -10409,7 +10692,10 @@ var Controller = class {
       const format = await this.setting("autoFormat");
       const serialize = (t) => serializeTable(format ? { ...t, padded: true } : t);
       const markdown = serialize(changed);
-      if (markdown === range.text) return "unchanged";
+      if (markdown === range.text) {
+        for (const pending of held) pending.written();
+        return "unchanged";
+      }
       const updates = [{ range, markdown }];
       for (const feature of this.features) {
         for (const other of feature.otherTablesWritten?.(before, changed, edit) ?? []) {
@@ -10439,6 +10725,7 @@ var Controller = class {
       this.anchorAt(widget, info.key);
       await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
       this.pageText = written;
+      for (const pending of held) pending.written();
       for (const then of after) then(replace.from, written.length - text.length);
       return "written";
     } catch (e) {
@@ -11076,6 +11363,10 @@ function pageIndexed(name) {
   const controller = globalThis[GLOBAL_KEY];
   void controller?.pageIndexed(name);
 }
+function pageLoaded() {
+  const controller = globalThis[GLOBAL_KEY];
+  void controller?.pageLoaded();
+}
 function openSettings() {
   const controller = globalThis[GLOBAL_KEY];
   void controller?.openSettings();
@@ -11104,6 +11395,7 @@ export {
   init,
   openSettings,
   pageIndexed,
+  pageLoaded,
   removeAllMetadata,
   version
 };

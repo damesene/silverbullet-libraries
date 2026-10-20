@@ -4,7 +4,7 @@
 // Ctrl+Alt+arrows move the row or column with the cell, Esc cancels, F2 goes
 // on in the popup. Features shape what it shows and saves (a formula) through
 // the editor hooks of core/feature.ts.
-import { escapeCell, parseTable, type Table, unescapeCell } from "../markdown.ts";
+import { escapeCell, type Table, unescapeCell } from "../markdown.ts";
 import { columnAfterMove, moveColumn, moveRow, setCell } from "../ops.ts";
 import { appendRowAt, clampColumnMove, clampRowMove } from "../pins.ts";
 import { OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
@@ -112,7 +112,8 @@ export class CellEditing {
     // Measured below: in the document (a large table keeps only the rows in view there)
     if (ref.row > 0) this.host.rowNeeded(info, cell.parentElement as HTMLTableRowElement);
     this.context.holdRow(widget, info, ref.row);
-    const original = parseTable(info.source).rows[ref.row]?.cells[ref.column] ?? "";
+    // The cell as shown: with an edit a feature holds for it (the lazy module)
+    const original = this.host.tableOf(info).rows[ref.row]?.cells[ref.column] ?? "";
     // The cell's hidden tags are not edited as text: they are kept (tags.ts)
     const bare = withoutTags(original);
     // What the field shows: the cell's text, unless a feature shows it otherwise (a formula)
@@ -314,7 +315,11 @@ export class CellEditing {
     // Leaving the row: sorting and filters place it (Tab within the row keeps it held)
     if (!(sameTable && next?.row === closed.row)) this.context.releaseRow();
     let result: WriteResult = "unchanged";
-    if (changed) {
+    // A feature may keep a cell's edit to write it later (the lazy module); a header's name is written at once
+    const info = changed && closed.row > 0 ? this.host.infoOf(closed.widget) : undefined;
+    const edit = { row: closed.row, column: closed.column, original: closed.original, value: closed.value };
+    const held = !!info && this.context.features.some((f) => f.holdCellEdit?.(closed.widget, info, edit));
+    if (changed && !held) {
       result = await this.host.write(closed.widget, (t) => this.withCellEdit(t, closed), { focus: sameTable ? next : undefined });
     }
     if (next && (result === "unchanged" || !sameTable)) {

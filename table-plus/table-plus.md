@@ -391,6 +391,19 @@ On a phone or a tablet:
 * Press and hold a cell for its menu (copy, clear, filter by its value, name it).
 * Not on touch screens: selecting cells by dragging, the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
 
+## Lazy saving
+
+Every edit rewrites the whole table in your page, which takes a moment in a large table. **Lazy saving** (the clock icon in the table's toolbar, the `lazy` module) keeps the cells you edit and saves them together once you stop editing:
+
+* Click the clock: it shows as switched on (tinted) while lazy saving is on, for that table, until you leave the page.
+* Cells you edit show their new text at once (marked in their bottom right corner); they are saved together when no cell has been edited for half a second (the *Saves after (ms)* setting, `tablePlus.modules.lazy.delay`). While edits are not saved yet the clock is highlighted.
+* Click the clock again: what is not saved yet is saved at once, and lazy saving is off.
+* Anything else that changes the table (adding or moving a row, pasting, Delete) saves the cells edited along with it.
+* **Ctrl+Z** while cells are not saved yet takes them all back at once (Ctrl+Y brings them back); while a cell is being edited it undoes your typing as usual.
+* Until they are saved, a cell shows its text as typed (a link or a formula's result shows once saved), and sorting, filters and formulas use the values saved.
+* Leaving the page saves them: opening another page writes them into this page; switching to another tab or app saves them at once; closing the tab saves them, and the browser asks whether to leave.
+* A cell changed elsewhere meanwhile (in the markdown, on another device) keeps that change, and a message says the edit there was not saved.
+
 ## Large tables
 
 * **Sticky header**: while you scroll past a long table, its header stays at the top of the view, with the toolbar above it.
@@ -469,6 +482,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `filters` | Rows can be filtered: the toolbar's filter icon shows a filter field under each header, *Filter* in a column menu opens that column's filter, *Filter: = value* in the cell menu filters by a cell's value; with *Store table metadata* the filters are stored in the table. Its setting `smart` (default `true`): fields understand `>10`, `/pattern/`, `=text`, `a\|b` and `!filter`; `false`: everything typed is text to find. Off: no filtering; filters stored in a table are kept but not used. See [[#Filtering]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
 | `selection` | Dragging across cells, Shift+click and Shift+arrows select them; Ctrl+C copies them, Delete empties them (whole rows or columns already empty: deletes them); *Copy*, *Clear* and *Delete N rows / columns* in the cell menu. A click selects a cell, a second one edits it; the toolbar's *Edit mode* button edits on the first click. Off: a click always edits; Shift+click opens the cell as Shift+Enter does. |
+| `lazy` | The toolbar's lazy saving icon (a clock) switches a table to saving its cells edited together, a moment after editing stops. Setting `delay` (milliseconds, default `500`). See [[#Lazy saving]]. Off: every cell is saved as you leave it. |
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
@@ -686,6 +700,24 @@ config.define("tablePlus", {
             },
           },
         },
+        lazy = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "An icon in a table's toolbar switches it to lazy saving: the cells edited are saved together, a moment after no cell is being edited (quicker typing in large tables); the icon is highlighted while edits are not saved. Clicking it again saves at once and turns it off.",
+              ui = { category = "Table Plus: Modules", label = "Lazy saving", priority = 6.9 },
+            },
+            delay = {
+              type = "number",
+              default = 500,
+              description = "In lazy saving, the cells edited are saved this many milliseconds after no cell is being edited.",
+              ui = { category = "Table Plus: Modules", label = "Saves after (ms)", priority = 6.8 },
+            },
+          },
+        },
         paste = {
           type = "object",
           additionalProperties = false,
@@ -842,6 +874,7 @@ if js and js.window then
     confirm = editor.confirm,
     prompt = editor.prompt,
     readPage = space.readPage,
+    writePage = space.writePage,
     -- The settings dialog: saved as SilverBullet's Configuration Manager saves
     -- (the CONFIG page, indexed, the configuration loaded again)
     saveConfigPage = function(text)
@@ -860,6 +893,13 @@ if js and js.window then
     end,
     reloadUI = editor.reloadUI,
   })
+  -- Another page in the editor: edits held for the page left (lazy saving) go into its file
+  event.listen {
+    name = "editor:pageLoaded",
+    run = function()
+      tablePlus.pageLoaded()
+    end,
+  }
   -- Once the page is re-indexed, `${…}` cells show results from the new index
   event.listen {
     name = "page:index",
@@ -1984,6 +2024,23 @@ body.tp-resizing * {
   color: var(--ui-accent-color);
   background: color-mix(in srgb, var(--ui-accent-color) 16%, transparent);
 }
+/* A switch that is on and asks for attention (lazy saving with edits not saved
+   yet): stronger than a switch that is only on, with a dot */
+.tp-bar button.tp-attention[aria-pressed="true"] {
+  position: relative;
+  background: color-mix(in srgb, var(--ui-accent-color) 32%, transparent);
+}
+.tp-bar button.tp-attention[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ui-accent-color);
+}
+
 .tp-status {
   padding: 0 6px;
   font-weight: 600;
@@ -2327,9 +2384,10 @@ body.tp-autoscrolling * {
 /* Formulas */
 /* Names: a mark in a cell's corner, as a spreadsheet marks a comment. A named
    cell or column (its header) at the top right, a named row at its first
-   cell's top left; one overlay draws both, drawn over the cell, so a pinned
-   or striped cell's background does not hide them */
-.sb-table-widget.tp-table td:is(.tp-named, .tp-row-named):not(.tp-pin-left):not(.tp-pin-right) {
+   cell's top left; one overlay draws them (and lazy saving's mark of a cell not
+   saved yet, at the bottom right), over the cell, so a pinned or striped cell's
+   background does not hide them */
+.sb-table-widget.tp-table td:is(.tp-named, .tp-row-named, .tp-lazy-pending):not(.tp-pin-left):not(.tp-pin-right) {
   position: relative;
 }
 .sb-table-widget.tp-table td.tp-named {
@@ -2338,13 +2396,18 @@ body.tp-autoscrolling * {
 .sb-table-widget.tp-table td.tp-row-named {
   --tp-row-name-mark: linear-gradient(135deg, color-mix(in srgb, var(--ui-accent-color) 70%, transparent) 50%, transparent 50%);
 }
-.sb-table-widget.tp-table td:is(.tp-named, .tp-row-named)::after {
+/* A cell edited in lazy saving, not saved yet: a mark in its bottom right corner */
+.sb-table-widget.tp-table td.tp-lazy-pending {
+  --tp-lazy-mark: linear-gradient(315deg, var(--ui-accent-color) 50%, transparent 50%);
+}
+.sb-table-widget.tp-table td:is(.tp-named, .tp-row-named, .tp-lazy-pending)::after {
   content: "";
   position: absolute;
   inset: 0;
   background:
     var(--tp-name-mark, none) top right / 6px 6px no-repeat,
-    var(--tp-row-name-mark, none) top left / 6px 6px no-repeat;
+    var(--tp-row-name-mark, none) top left / 6px 6px no-repeat,
+    var(--tp-lazy-mark, none) bottom right / 6px 6px no-repeat;
   pointer-events: none;
 }
 /* Column types: the type's hashtag is hidden, its icon shows after the

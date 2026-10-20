@@ -14,6 +14,12 @@ export function pageIndexed(name: string): void {
   void controller?.pageIndexed(name);
 }
 
+/** Called by the library page on SilverBullet's `editor:pageLoaded` event */
+export function pageLoaded(): void {
+  const controller = (globalThis as unknown as Record<string, Controller | undefined>)[GLOBAL_KEY];
+  void controller?.pageLoaded();
+}
+
 /** The "Table Plus: Settings" command */
 export function openSettings(): void {
   const controller = (globalThis as unknown as Record<string, Controller | undefined>)[GLOBAL_KEY];

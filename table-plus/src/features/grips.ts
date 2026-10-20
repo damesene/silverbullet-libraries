@@ -316,8 +316,7 @@ export class Grips implements Feature {
 
   private startPicking(info: WidgetInfo, axis: Axis, line: number): void {
     // A cell being edited is saved first: the pointer selects now
-    const taken = this.host.takeEditor();
-    if (taken) void this.host.write(taken.widget, taken.save);
+    void this.host.saveEditing();
     this.picking = { key: info.key, axis, from: line };
     this.host.doc.body.classList.add(axis === "row" ? "tp-picking-rows" : "tp-picking-columns");
     this.selectLines(info, axis, line, line);

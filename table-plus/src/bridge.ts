@@ -19,6 +19,8 @@ export type Bridge = {
   readonly confirm?: (message: string, options?: { destructive?: boolean }) => boolean | Promise<boolean>;
   // Optional: reads another page's markdown, for formulas that refer to its tables ([[Page]]prices!B2)
   readonly readPage?: (name: string) => string | Promise<string>;
+  // Optional: writes a page's markdown (with readPage), e.g. edits held for a page no longer in the editor
+  readonly writePage?: (name: string, text: string) => unknown;
   // Optional: asks for a text, e.g. a table's name (else the browser's prompt); undefined: cancelled
   readonly prompt?: (message: string, defaultValue?: string) => string | undefined | null | Promise<string | undefined | null>;
   // Optional, for the settings dialog: writes the space's configuration page
@@ -63,6 +65,7 @@ export const FEATURE_NAMES = [
   "filters",
   "columnTypes",
   "selection",
+  "lazy",
   "export",
   "paste",
   "handles",
@@ -91,6 +94,7 @@ export const MODULE_LABELS: Readonly<Record<FeatureName, string>> = {
   filters: "Filters",
   columnTypes: "Column types",
   selection: "Cell selection",
+  lazy: "Lazy saving",
   export: "Export",
   paste: "Paste from spreadsheets",
   handles: "Row and column handles",
@@ -110,6 +114,7 @@ export const MODULE_DESCRIPTIONS: Readonly<Record<FeatureName, string>> = {
   filters: "Show only the rows whose cells match what you type under a header",
   columnTypes: "A header's hashtag formats its column (#currency, #stars…)",
   selection: "A click selects a cell, as in a spreadsheet; drag or Shift to select more, to copy, paste over or empty them",
+  lazy: "An icon in a table's toolbar switches it to saving its cells edited together, a moment after editing stops: quicker typing in large tables",
   export: "Copy as CSV in a table's ⋯ menu",
   paste: "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
   handles: "Handles beside rows and above columns: drag to move them, click for their menu",
@@ -182,6 +187,14 @@ export const SETTINGS = {
     path: "tablePlus.expressions.refreshDelay",
     label: "Delay before refreshing (ms)",
     hint: "After an edit, cells with ${…} (a query, a sum) are evaluated again once SilverBullet has indexed the page: how long to wait for that; raise it if they still show old values",
+    default: 500,
+    parse: (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined),
+  } satisfies Setting<number>,
+  // How long after editing stops a table in lazy saving writes its cells (the lazy module)
+  lazyDelay: {
+    path: "tablePlus.modules.lazy.delay",
+    label: "Saves after (ms)",
+    hint: "In lazy saving, the cells edited are saved this long after no cell is being edited",
     default: 500,
     parse: (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined),
   } satisfies Setting<number>,
