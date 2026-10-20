@@ -10,13 +10,17 @@
 import type { CellMenuGroup, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { cellValue } from "../dom.ts";
 import { PAGE_ROWS } from "../core/editor.ts";
-import { deleteColumnsAt, deleteRowsAt } from "../core/structure.ts";
+import { columnBlockTo, deleteColumnsAt, deleteRowsAt, MOVE_BLOCKED, moveColumnsTo, moveRowsTo, rowBlockTo } from "../core/structure.ts";
+import { lineAfterBlockMove } from "../ops.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
 import { withoutTags } from "../tags.ts";
 import type { Table } from "../markdown.ts";
 import { setCell } from "../ops.ts";
+
+// Ctrl+Alt + these keys move the rows (up, down, 10 rows) or columns (left, right, to the first or last) selected, as in the cell editor
+const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 
 /** Cells as spreadsheets copy them: tabs and line breaks between; a cell with either or a quote in quotes */
 export function clipboardText(values: readonly (readonly string[])[]): string {
@@ -182,6 +186,12 @@ export class Selection implements Feature {
       if (info) this.host.editCell(info, at, "select");
       return false;
     }
+    if (!inField && e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && MOVE_KEYS.has(e.key)) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.moveLines(e.key);
+      return true;
+    }
     if (!inField && this.editFromKey(e)) return true;
     // Keys that move the selection's last cell: Shift extends to it, else the selection is that cell
     const target = !inField && !e.altKey && !e.metaKey ? this.keyTarget(e) : undefined;
@@ -289,6 +299,58 @@ export class Selection implements Feature {
     const info = widget && this.host.infoOf(widget);
     const cell = info && this.host.cellAt(info, to);
     cell?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }
+
+  /**
+   * Ctrl+Alt+arrows: the rows of the selection move up or down (not while
+   * sorted or filtered, nor with the header), its columns left or right, as
+   * one edit; the selection goes with them
+   */
+  private async moveLines(key: string): Promise<void> {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!selection || !widget || !info) return;
+    const vertical = key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown";
+    const lines = vertical ? [selection.anchor.row, selection.focus.row] : [selection.anchor.column, selection.focus.column];
+    const first = Math.min(...lines);
+    const last = Math.max(...lines);
+    if (vertical) {
+      if (first === 0) return;
+      if (this.host.rearranged(info)) {
+        void this.host.bridge.flash(`Table Plus: ${MOVE_BLOCKED.toLowerCase()}`, "info");
+        return;
+      }
+    }
+    const asked =
+      key === "Home"
+        ? 0
+        : key === "End"
+          ? info.columns - (last - first + 1)
+          : key === "PageUp"
+            ? first - PAGE_ROWS
+            : key === "PageDown"
+              ? first + PAGE_ROWS
+              : key === "ArrowUp" || key === "ArrowLeft"
+                ? first - 1
+                : first + 1;
+    const to = vertical ? rowBlockTo(info, first, last, asked) : columnBlockTo(info, first, last, asked);
+    if (to === first) return;
+    // The selection goes with its lines (shown so once the table is rendered again)
+    const follow = (ref: CellRef): CellRef =>
+      vertical ? { ...ref, row: lineAfterBlockMove(ref.row, first, last, to) } : { ...ref, column: lineAfterBlockMove(ref.column, first, last, to) };
+    this.selection = { key: selection.key, anchor: follow(selection.anchor), focus: follow(selection.focus) };
+    const result = await (vertical ? moveRowsTo(this.host, widget, info, first, last, to) : moveColumnsTo(this.host, widget, info, first, last, to));
+    if (result === "failed" && this.selection?.key === selection.key) {
+      this.selection = selection;
+      this.show();
+      return;
+    }
+    // Moved out of view: scrolled to
+    const now = this.host.widgetForKey(selection.key);
+    const nowInfo = now && this.host.infoOf(now);
+    const focus = this.selection?.focus;
+    if (nowInfo && focus) this.host.cellAt(nowInfo, focus)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }
 
   selected(info: WidgetInfo): readonly CellRef[] | undefined {

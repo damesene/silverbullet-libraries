@@ -3,7 +3,19 @@
 // pinned to the edges stay there (pins.ts), and formulas and the stored
 // sorting follow through the write steps (rowMap, columnMap).
 import type { Table } from "../markdown.ts";
-import { columnAfterMove, deleteColumn, deleteRow, type IndexMap, insertColumn, insertRow, moveColumn, moveRow } from "../ops.ts";
+import {
+  columnAfterMove,
+  deleteColumn,
+  deleteRow,
+  type IndexMap,
+  insertColumn,
+  insertRow,
+  lineAfterBlockMove,
+  moveColumn,
+  moveColumns,
+  moveRow,
+  moveRows,
+} from "../ops.ts";
 import { withoutTagsWith } from "../tags.ts";
 import {
   clampColumnMove,
@@ -93,6 +105,42 @@ export function moveRowTo(host: TableHost, widget: HTMLElement, info: WidgetInfo
   const to = clampRowMove(info.pins, info.rows, from, asked);
   if (to === from) return Promise.resolve("unchanged");
   return host.write(widget, (t) => moveRow(t, from, to), { rowMap: (r) => columnAfterMove(r, from, to) });
+}
+
+/**
+ * Where lines `first`..`last` can go when moved to start at `asked`: within
+ * their zone of pins (all of them in one, else they stay), the whole block
+ */
+function blockTo(clamp: (from: number, to: number) => number, first: number, last: number, asked: number): number {
+  const min = clamp(first, -Infinity);
+  const max = clamp(last, Infinity);
+  // Lines of different zones (pinned and not) do not move together
+  if (clamp(first, Infinity) !== max) return first;
+  return Math.max(min, Math.min(asked, max - (last - first)));
+}
+
+/** Where body rows `first`..`last` asked to start at `asked` go: the first's index (`first`: they stay) */
+export function rowBlockTo(info: WidgetInfo, first: number, last: number, asked: number): number {
+  return blockTo((from, at) => clampRowMove(info.pins, info.rows, from, at), first, last, asked);
+}
+
+/** Where columns `first`..`last` asked to start at `asked` go: the first's index (`first`: they stay) */
+export function columnBlockTo(info: WidgetInfo, first: number, last: number, asked: number): number {
+  return blockTo((from, at) => clampColumnMove(info.pins, info.columns, from, at), first, last, asked);
+}
+
+/** Moves body rows `first`..`last` so that the first is at `asked` (within their zone), as one edit */
+export function moveRowsTo(host: TableHost, widget: HTMLElement, info: WidgetInfo, first: number, last: number, asked: number): Promise<WriteResult> {
+  const to = rowBlockTo(info, first, last, asked);
+  if (to === first) return Promise.resolve("unchanged");
+  return host.write(widget, (t) => moveRows(t, first, last, to), { rowMap: (r) => lineAfterBlockMove(r, first, last, to) });
+}
+
+/** Moves columns `first`..`last` so that the first is at `asked` (within their zone), as one edit */
+export function moveColumnsTo(host: TableHost, widget: HTMLElement, info: WidgetInfo, first: number, last: number, asked: number): Promise<WriteResult> {
+  const to = columnBlockTo(info, first, last, asked);
+  if (to === first) return Promise.resolve("unchanged");
+  return host.write(widget, (t) => moveColumns(t, first, last, to), { columnMap: (c) => lineAfterBlockMove(c, first, last, to) });
 }
 
 /** Adds a column asked for at `at` and edits its name */

@@ -7,8 +7,11 @@ import {
   duplicateRow,
   insertColumn,
   insertRow,
+  lineAfterBlockMove,
   moveColumn,
+  moveColumns,
   moveRow,
+  moveRows,
   nameEmptyHeaders,
   setAlign,
 } from "./ops.ts";
@@ -67,6 +70,21 @@ describe("column operations", () => {
   it("moves a column with its alignment", () => {
     const aligned = setAlign(base, 0, "right");
     expect(md(moveColumn(aligned, 0, 1))).toBe("| B | A |\n|---|---:|\n| 2 | 1 |\n| 4 | 3 |");
+  });
+
+  it("moves a block of rows or columns, and maps indexes through it", () => {
+    const wide = parseTable("| A | B | C | D |\n|---|---|---:|---|\n| 1 | 2 | 3 | 4 |\n| 5 | 6 | 7 | 8 |\n| 9 | 10 | 11 | 12 |");
+    // Rows 2..3 up by one
+    expect(md(moveRows(wide, 2, 3, 1))).toBe("| A | B | C | D |\n|---|---|---:|---|\n| 5 | 6 | 7 | 8 |\n| 9 | 10 | 11 | 12 |\n| 1 | 2 | 3 | 4 |");
+    // Not past the table's end, nor over the header
+    expect(moveRows(wide, 2, 3, 3)).toBe(wide);
+    expect(moveRows(wide, 1, 2, 0)).toBe(wide);
+    // Columns 1..2 (B, and C right-aligned) to the start
+    expect(md(moveColumns(wide, 1, 2, 0))).toBe("| B | C | A | D |\n|---|---:|---|---|\n| 2 | 3 | 1 | 4 |\n| 6 | 7 | 5 | 8 |\n| 10 | 11 | 9 | 12 |");
+    // [a b c d], b c moved to 2 gives [a d b c]
+    expect([0, 1, 2, 3].map((c) => lineAfterBlockMove(c, 1, 2, 2))).toEqual([0, 2, 3, 1]);
+    // c d moved to 0 gives [c d a b]
+    expect([0, 1, 2, 3].map((c) => lineAfterBlockMove(c, 2, 3, 0))).toEqual([2, 3, 0, 1]);
   });
 
   it("maps column indexes through a move", () => {

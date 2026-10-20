@@ -21,9 +21,14 @@ function padded(cells: readonly string[], length: number): string[] {
 }
 
 function moved<T>(items: readonly T[], from: number, to: number): T[] {
+  return movedBlock(items, from, from, to);
+}
+
+/** Items `first`..`last` moved so that the first of them ends up at index `to` */
+function movedBlock<T>(items: readonly T[], first: number, last: number, to: number): T[] {
   const result = [...items];
-  const [item] = result.splice(from, 1);
-  result.splice(to, 0, item as T);
+  const block = result.splice(first, last - first + 1);
+  result.splice(to, 0, ...block);
   return result;
 }
 
@@ -140,6 +145,26 @@ export function deleteColumn(table: Table, column: number): Table {
   };
 }
 
+/** Moves body rows `first`..`last` so that the first of them ends up at index `to` */
+export function moveRows(table: Table, first: number, last: number, to: number): Table {
+  const end = table.rows.length - 1;
+  const size = last - first + 1;
+  if (first < 1 || last > end || size < 1 || to < 1 || to + size - 1 > end || first === to) return table;
+  return withRows(table, movedBlock(table.rows, first, last, to));
+}
+
+/** Moves columns `first`..`last` so that the first of them ends up at index `to` */
+export function moveColumns(table: Table, first: number, last: number, to: number): Table {
+  const columns = table.align.length;
+  const size = last - first + 1;
+  if (first < 0 || last >= columns || size < 1 || to < 0 || to + size - 1 >= columns || first === to) return table;
+  return {
+    ...table,
+    align: movedBlock(table.align, first, last, to),
+    rows: table.rows.map((r) => withCells(r, movedBlock(padded(r.cells, columns), first, last, to))),
+  };
+}
+
 /** Moves column `from` so that it ends up at index `to` */
 export function moveColumn(table: Table, from: number, to: number): Table {
   const columns = table.align.length;
@@ -156,6 +181,15 @@ export function setAlign(table: Table, column: number, align: Align): Table {
     ...table,
     align: table.align.map((a, i) => (i === column ? align : a)),
   };
+}
+
+/** Where line (row or column) `i` ends up after moving lines `first`..`last` so that the first is at `to` */
+export function lineAfterBlockMove(i: number, first: number, last: number, to: number): number {
+  const size = last - first + 1;
+  if (i >= first && i <= last) return to + i - first;
+  // The others close up, then make room for the block
+  const closed = i > last ? i - size : i;
+  return closed >= to ? closed + size : closed;
 }
 
 /** Where column `c` ends up after moving column `from` to `to` */

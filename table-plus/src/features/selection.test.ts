@@ -92,6 +92,57 @@ describe("Selecting cells", () => {
     expect(text).toContain("| Plum | 5 |");
   });
 
+  it("moves the rows or columns of the selection with Ctrl+Alt+arrows, the selection with them", async () => {
+    await setup("| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |\n| 7 | 8 | 9 |\n");
+    const marked = () => Array.from(editor.querySelectorAll(".tp-selected"), (c) => c.textContent);
+    const moved = async (k: string) => {
+      key(editor, k, { ctrlKey: true, altKey: true });
+      await flush();
+      await controller.scan();
+    };
+    // One cell selected (not edited): its row moves
+    clickOn(cell(1, 0));
+    key(editor.querySelector(".tp-cell-editor")!, "Escape");
+    await flush();
+    await moved("ArrowDown");
+    expect(text).toBe("| A | B | C |\n|---|---|---|\n| 4 | 5 | 6 |\n| 1 | 2 | 3 |\n| 7 | 8 | 9 |\n");
+    expect(marked()).toEqual(["1"]);
+    // Two rows: they move together, and stop at the table's end
+    key(editor, "ArrowDown", { shiftKey: true });
+    expect(marked()).toEqual(["1", "7"]);
+    await moved("ArrowUp");
+    expect(text).toBe("| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n| 7 | 8 | 9 |\n| 4 | 5 | 6 |\n");
+    expect(marked()).toEqual(["1", "7"]);
+    await moved("ArrowUp");
+    expect(text).toBe("| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n| 7 | 8 | 9 |\n| 4 | 5 | 6 |\n");
+    // Two columns: right, then back to the start with Home
+    key(editor, "ArrowRight", { shiftKey: true });
+    expect(marked()).toEqual(["1", "2", "7", "8"]);
+    await moved("ArrowRight");
+    expect(text).toBe("| C | A | B |\n|---|---|---|\n| 3 | 1 | 2 |\n| 9 | 7 | 8 |\n| 6 | 4 | 5 |\n");
+    expect(marked()).toEqual(["1", "2", "7", "8"]);
+    await moved("Home");
+    expect(text).toBe("| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n| 7 | 8 | 9 |\n| 4 | 5 | 6 |\n");
+    // A selection with the header: its columns move, its rows do not
+    key(editor, "ArrowUp", { shiftKey: true });
+    await moved("ArrowUp");
+    expect(text).toBe("| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n| 7 | 8 | 9 |\n| 4 | 5 | 6 |\n");
+    await moved("End");
+    expect(text).toBe("| C | A | B |\n|---|---|---|\n| 3 | 1 | 2 |\n| 9 | 7 | 8 |\n| 6 | 4 | 5 |\n");
+  });
+
+  it("does not move the selection's rows while the table is sorted", async () => {
+    await setup("| A | B |\n|---|---|\n| 2 | x |\n| 1 | y |\n");
+    clickOn(cell(0, 0).querySelector(".tp-sort")!);
+    clickOn(cell(1, 0));
+    key(editor.querySelector(".tp-cell-editor")!, "Escape");
+    await flush();
+    key(editor, "ArrowDown", { ctrlKey: true, altKey: true });
+    await flush();
+    expect(text).toBe("| A | B |\n|---|---|\n| 2 | x |\n| 1 | y |\n");
+    expect(flashes.at(-1)).toContain("sorting");
+  });
+
   it("moves a selected cell with Home, End, PageUp and PageDown, and extends to there with Shift", async () => {
     const rows = Array.from({ length: 13 }, (_, i) => `| r${i + 1} | ${i + 1} | x |`).join("\n");
     await setup(`| A | B | C |\n|---|---|---|\n${rows}\n`);

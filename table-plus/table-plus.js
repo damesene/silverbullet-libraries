@@ -454,9 +454,12 @@ function padded(cells, length) {
   return result;
 }
 function moved(items, from, to) {
+  return movedBlock(items, from, from, to);
+}
+function movedBlock(items, first, last, to) {
   const result = [...items];
-  const [item] = result.splice(from, 1);
-  result.splice(to, 0, item);
+  const block = result.splice(first, last - first + 1);
+  result.splice(to, 0, ...block);
   return result;
 }
 function setCell(table, row, column, value) {
@@ -540,6 +543,22 @@ function deleteColumn(table, column) {
     )
   };
 }
+function moveRows(table, first, last, to) {
+  const end = table.rows.length - 1;
+  const size = last - first + 1;
+  if (first < 1 || last > end || size < 1 || to < 1 || to + size - 1 > end || first === to) return table;
+  return withRows(table, movedBlock(table.rows, first, last, to));
+}
+function moveColumns(table, first, last, to) {
+  const columns = table.align.length;
+  const size = last - first + 1;
+  if (first < 0 || last >= columns || size < 1 || to < 0 || to + size - 1 >= columns || first === to) return table;
+  return {
+    ...table,
+    align: movedBlock(table.align, first, last, to),
+    rows: table.rows.map((r) => withCells(r, movedBlock(padded(r.cells, columns), first, last, to)))
+  };
+}
 function moveColumn(table, from, to) {
   const columns = table.align.length;
   if (from < 0 || from >= columns || to < 0 || to >= columns || from === to) return table;
@@ -554,6 +573,12 @@ function setAlign(table, column, align) {
     ...table,
     align: table.align.map((a, i) => i === column ? align : a)
   };
+}
+function lineAfterBlockMove(i, first, last, to) {
+  const size = last - first + 1;
+  if (i >= first && i <= last) return to + i - first;
+  const closed = i > last ? i - size : i;
+  return closed >= to ? closed + size : closed;
 }
 function columnAfterMove(c, from, to) {
   if (c === from) return to;
@@ -807,6 +832,28 @@ function moveRowTo(host, widget, info, from, asked) {
   const to = clampRowMove(info.pins, info.rows, from, asked);
   if (to === from) return Promise.resolve("unchanged");
   return host.write(widget, (t) => moveRow(t, from, to), { rowMap: (r) => columnAfterMove(r, from, to) });
+}
+function blockTo(clamp, first, last, asked) {
+  const min = clamp(first, -Infinity);
+  const max = clamp(last, Infinity);
+  if (clamp(first, Infinity) !== max) return first;
+  return Math.max(min, Math.min(asked, max - (last - first)));
+}
+function rowBlockTo(info, first, last, asked) {
+  return blockTo((from, at) => clampRowMove(info.pins, info.rows, from, at), first, last, asked);
+}
+function columnBlockTo(info, first, last, asked) {
+  return blockTo((from, at) => clampColumnMove(info.pins, info.columns, from, at), first, last, asked);
+}
+function moveRowsTo(host, widget, info, first, last, asked) {
+  const to = rowBlockTo(info, first, last, asked);
+  if (to === first) return Promise.resolve("unchanged");
+  return host.write(widget, (t) => moveRows(t, first, last, to), { rowMap: (r) => lineAfterBlockMove(r, first, last, to) });
+}
+function moveColumnsTo(host, widget, info, first, last, asked) {
+  const to = columnBlockTo(info, first, last, asked);
+  if (to === first) return Promise.resolve("unchanged");
+  return host.write(widget, (t) => moveColumns(t, first, last, to), { columnMap: (c) => lineAfterBlockMove(c, first, last, to) });
 }
 function insertColumnWith(host, widget, info, at) {
   const insert = insertColumnAt(info.pins, info.columns, at);
@@ -7939,6 +7986,7 @@ var Paste = class {
 };
 
 // table-plus/src/features/selection.ts
+var MOVE_KEYS2 = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 function clipboardText(values) {
   const quote = (v) => /[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
   return values.map((row) => row.map(quote).join("	")).join("\n");
@@ -8082,6 +8130,12 @@ var Selection = class {
       if (info) this.host.editCell(info, at, "select");
       return false;
     }
+    if (!inField && e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && MOVE_KEYS2.has(e.key)) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.moveLines(e.key);
+      return true;
+    }
     if (!inField && this.editFromKey(e)) return true;
     const target = !inField && !e.altKey && !e.metaKey ? this.keyTarget(e) : void 0;
     if (target) {
@@ -8180,6 +8234,43 @@ var Selection = class {
     const info = widget && this.host.infoOf(widget);
     const cell = info && this.host.cellAt(info, to);
     cell?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }
+  /**
+   * Ctrl+Alt+arrows: the rows of the selection move up or down (not while
+   * sorted or filtered, nor with the header), its columns left or right, as
+   * one edit; the selection goes with them
+   */
+  async moveLines(key) {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!selection || !widget || !info) return;
+    const vertical = key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown";
+    const lines = vertical ? [selection.anchor.row, selection.focus.row] : [selection.anchor.column, selection.focus.column];
+    const first = Math.min(...lines);
+    const last = Math.max(...lines);
+    if (vertical) {
+      if (first === 0) return;
+      if (this.host.rearranged(info)) {
+        void this.host.bridge.flash(`Table Plus: ${MOVE_BLOCKED.toLowerCase()}`, "info");
+        return;
+      }
+    }
+    const asked = key === "Home" ? 0 : key === "End" ? info.columns - (last - first + 1) : key === "PageUp" ? first - PAGE_ROWS : key === "PageDown" ? first + PAGE_ROWS : key === "ArrowUp" || key === "ArrowLeft" ? first - 1 : first + 1;
+    const to = vertical ? rowBlockTo(info, first, last, asked) : columnBlockTo(info, first, last, asked);
+    if (to === first) return;
+    const follow = (ref) => vertical ? { ...ref, row: lineAfterBlockMove(ref.row, first, last, to) } : { ...ref, column: lineAfterBlockMove(ref.column, first, last, to) };
+    this.selection = { key: selection.key, anchor: follow(selection.anchor), focus: follow(selection.focus) };
+    const result = await (vertical ? moveRowsTo(this.host, widget, info, first, last, to) : moveColumnsTo(this.host, widget, info, first, last, to));
+    if (result === "failed" && this.selection?.key === selection.key) {
+      this.selection = selection;
+      this.show();
+      return;
+    }
+    const now2 = this.host.widgetForKey(selection.key);
+    const nowInfo = now2 && this.host.infoOf(now2);
+    const focus = this.selection?.focus;
+    if (nowInfo && focus) this.host.cellAt(nowInfo, focus)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }
   selected(info) {
     return this.selection?.key === info.key ? this.refs(info) : void 0;
