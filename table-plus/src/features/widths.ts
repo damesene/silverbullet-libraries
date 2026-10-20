@@ -25,6 +25,10 @@ export class Widths implements Feature {
     | { readonly key: string; readonly column: number; readonly startX: number; readonly startWidth: number; readonly padding: number; width: number }
     | undefined;
   private stopDrag: (() => void) | undefined;
+  // The columns given a width in each table as rendered (a write renders it anew): those to make automatic again
+  private readonly sized = new WeakMap<HTMLTableElement, Set<number>>();
+  // The widths stored in the table last read (parsing a large table for its metadata row on every view is slow)
+  private stored: { readonly source: string; readonly widths: ReadonlyMap<number, number> } | undefined;
 
   constructor(private readonly host: TableHost) {}
 
@@ -38,11 +42,15 @@ export class Widths implements Feature {
 
   /** The widths of a table's columns: those set for the view, else those stored */
   private widthsOf(info: WidgetInfo): Map<number, number> {
-    const widths = new Map<number, number>();
-    for (const [column, value] of columnMeta(parseTable(info.source), "width")) {
-      const n = Number(value);
-      if (Number.isFinite(n) && n > 0) widths.set(column, Math.max(MIN_WIDTH, Math.round(n)));
+    if (this.stored?.source !== info.source) {
+      const read = new Map<number, number>();
+      for (const [column, value] of columnMeta(parseTable(info.source), "width")) {
+        const n = Number(value);
+        if (Number.isFinite(n) && n > 0) read.set(column, Math.max(MIN_WIDTH, Math.round(n)));
+      }
+      this.stored = { source: info.source, widths: read };
     }
+    const widths = new Map(this.stored.widths);
     for (const [column, width] of this.viewed.get(info.key) ?? []) {
       if (width === undefined) widths.delete(column);
       else widths.set(column, width);
@@ -62,10 +70,20 @@ export class Widths implements Feature {
     });
   }
 
-  // After the cells are laid out (their content boxes made): the widths set
+  // After the cells are laid out (their content boxes made): the widths set.
+  // Only the columns with a width, or that had one: touching every cell's
+  // style (or reading styles between writes) would make the browser compute
+  // the whole table's styles and layout again, for every table shown.
   viewApplied(_widget: HTMLElement, info: WidgetInfo): void {
     const widths = this.widthsOf(info);
-    for (let column = 0; column < info.columns; column++) this.apply(info, column, widths.get(column));
+    const header = info.table.rows[0]!;
+    const sized = this.sized.get(info.table);
+    const columns = Array.from({ length: info.columns }, (_, column) => column).filter((column) => widths.has(column) || sized?.has(column));
+    if (!columns.length) return;
+    // Read before writing: one style computation
+    const paddings = columns.map((column) => (widths.has(column) ? this.paddingOf(info, column) : 0));
+    const rows = [header, ...this.host.bodyRows(info)];
+    columns.forEach((column, i) => this.apply(info, column, widths.get(column), paddings[i], rows));
   }
 
   /**
@@ -73,8 +91,18 @@ export class Widths implements Feature {
    * the content box of every body cell sized to fit inside (it is otherwise as
    * wide as its text, up to the maximum column width)
    */
-  private apply(info: WidgetInfo, column: number, width: number | undefined, padding = this.paddingOf(info, column)): void {
-    for (const tr of [info.table.rows[0]!, ...this.host.bodyRows(info)]) {
+  private apply(
+    info: WidgetInfo,
+    column: number,
+    width: number | undefined,
+    padding = width === undefined ? 0 : this.paddingOf(info, column),
+    rows = [info.table.rows[0]!, ...this.host.bodyRows(info)],
+  ): void {
+    const sized = this.sized.get(info.table) ?? new Set<number>();
+    this.sized.set(info.table, sized);
+    if (width === undefined) sized.delete(column);
+    else sized.add(column);
+    for (const tr of rows) {
       const cell = tr.cells[column];
       if (!cell || cell.classList.contains("tp-editing")) continue;
       cell.classList.toggle("tp-sized", width !== undefined);

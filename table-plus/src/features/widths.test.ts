@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { cell, controller, editor, flush, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 
 describe("Column widths", () => {
@@ -122,6 +122,17 @@ describe("Column widths", () => {
     expect(cell(0, 1).style.width).toBe("");
     await controller.scan();
     expect(cell(0, 1).style.width).toBe("");
+  });
+
+  it("reads no style of columns without a width (between the writes of a view, every read makes the browser compute the table again)", async () => {
+    const read = vi.spyOn(window, "getComputedStyle");
+    await setup(`${PAGE}| <meta width.qty="90"> |\n`, { "tablePlus.metadata": true });
+    const header = editor.querySelector("table")!.rows[0]!;
+    const of = (column: number) => read.mock.calls.filter(([element]) => element === header.cells[column]).length;
+    expect(of(0)).toBe(0);
+    expect(of(1)).toBeGreaterThan(0);
+    expect(cell(1, 1).style.width).toBe("90px");
+    read.mockRestore();
   });
 
   it("holds a width for the view only without the metadata setting", async () => {

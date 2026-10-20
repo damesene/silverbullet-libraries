@@ -7069,6 +7069,10 @@ var Widths = class {
   viewed = /* @__PURE__ */ new Map();
   drag;
   stopDrag;
+  // The columns given a width in each table as rendered (a write renders it anew): those to make automatic again
+  sized = /* @__PURE__ */ new WeakMap();
+  // The widths stored in the table last read (parsing a large table for its metadata row on every view is slow)
+  stored;
   stop() {
     this.stopDrag?.();
   }
@@ -7077,11 +7081,15 @@ var Widths = class {
   }
   /** The widths of a table's columns: those set for the view, else those stored */
   widthsOf(info) {
-    const widths = /* @__PURE__ */ new Map();
-    for (const [column, value] of columnMeta(parseTable(info.source), "width")) {
-      const n = Number(value);
-      if (Number.isFinite(n) && n > 0) widths.set(column, Math.max(MIN_WIDTH, Math.round(n)));
+    if (this.stored?.source !== info.source) {
+      const read = /* @__PURE__ */ new Map();
+      for (const [column, value] of columnMeta(parseTable(info.source), "width")) {
+        const n = Number(value);
+        if (Number.isFinite(n) && n > 0) read.set(column, Math.max(MIN_WIDTH, Math.round(n)));
+      }
+      this.stored = { source: info.source, widths: read };
     }
+    const widths = new Map(this.stored.widths);
     for (const [column, width] of this.viewed.get(info.key) ?? []) {
       if (width === void 0) widths.delete(column);
       else widths.set(column, width);
@@ -7098,18 +7106,31 @@ var Widths = class {
       cell.append(handle);
     });
   }
-  // After the cells are laid out (their content boxes made): the widths set
+  // After the cells are laid out (their content boxes made): the widths set.
+  // Only the columns with a width, or that had one: touching every cell's
+  // style (or reading styles between writes) would make the browser compute
+  // the whole table's styles and layout again, for every table shown.
   viewApplied(_widget, info) {
     const widths = this.widthsOf(info);
-    for (let column = 0; column < info.columns; column++) this.apply(info, column, widths.get(column));
+    const header = info.table.rows[0];
+    const sized = this.sized.get(info.table);
+    const columns = Array.from({ length: info.columns }, (_, column) => column).filter((column) => widths.has(column) || sized?.has(column));
+    if (!columns.length) return;
+    const paddings = columns.map((column) => widths.has(column) ? this.paddingOf(info, column) : 0);
+    const rows = [header, ...this.host.bodyRows(info)];
+    columns.forEach((column, i) => this.apply(info, column, widths.get(column), paddings[i], rows));
   }
   /**
    * A column `width` pixels wide (undefined: automatic): every cell of it, and
    * the content box of every body cell sized to fit inside (it is otherwise as
    * wide as its text, up to the maximum column width)
    */
-  apply(info, column, width, padding = this.paddingOf(info, column)) {
-    for (const tr of [info.table.rows[0], ...this.host.bodyRows(info)]) {
+  apply(info, column, width, padding = width === void 0 ? 0 : this.paddingOf(info, column), rows = [info.table.rows[0], ...this.host.bodyRows(info)]) {
+    const sized = this.sized.get(info.table) ?? /* @__PURE__ */ new Set();
+    this.sized.set(info.table, sized);
+    if (width === void 0) sized.delete(column);
+    else sized.add(column);
+    for (const tr of rows) {
       const cell = tr.cells[column];
       if (!cell || cell.classList.contains("tp-editing")) continue;
       cell.classList.toggle("tp-sized", width !== void 0);
