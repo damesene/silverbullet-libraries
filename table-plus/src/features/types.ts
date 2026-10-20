@@ -270,6 +270,7 @@ export class ColumnTypes implements Feature {
   decorate(_widget: HTMLElement, info: WidgetInfo): void {
     const model = parseTable(info.source);
     const header = info.table.rows[0];
+    const rows = Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"));
     model.rows[0]?.cells.forEach((name, column) => {
       const typed = columnTypeOf(unescapeCell(name));
       if (!typed) return;
@@ -286,7 +287,7 @@ export class ColumnTypes implements Feature {
         icon.innerHTML = iconOf(typed.type);
         headerCell.insertBefore(icon, headerCell.querySelector(`:scope > .${UI_CLASS}`));
       }
-      for (const tr of Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]"))) {
+      for (const tr of rows) {
         const raw = model.rows[Number(tr.dataset.tpRow)]?.cells[column];
         const cell = tr.cells[column];
         if (raw === undefined || !cell) continue;

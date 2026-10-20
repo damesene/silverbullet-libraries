@@ -2009,8 +2009,22 @@ function numberOf(text) {
 function notANumber(text) {
   return numberOf(text) === void 0 ? `"${text}" is not a number` : void 0;
 }
+var numberFormats = /* @__PURE__ */ new Map();
+var dateFormats = /* @__PURE__ */ new Map();
+function numberFormat(locale, options = {}) {
+  const key = `${locale ?? ""}|${JSON.stringify(options)}`;
+  let format = numberFormats.get(key);
+  if (!format) numberFormats.set(key, format = new Intl.NumberFormat(locale, options));
+  return format;
+}
+function dateTimeFormat(locale, options) {
+  const key = `${locale ?? ""}|${JSON.stringify(options)}`;
+  let format = dateFormats.get(key);
+  if (!format) dateFormats.set(key, format = new Intl.DateTimeFormat(locale, options));
+  return format;
+}
 function formatNumber(n, locale, options = {}) {
-  return new Intl.NumberFormat(locale, options).format(n);
+  return numberFormat(locale, options).format(n);
 }
 
 // table-plus/src/types/check.ts
@@ -2039,18 +2053,24 @@ var check_default = {
 };
 
 // table-plus/src/types/currency.ts
+var homes = /* @__PURE__ */ new Map();
 function homeOf(code) {
   if (code === "EUR") return "de";
-  try {
-    return new Intl.Locale("und", { region: code.slice(0, 2) }).maximize().baseName;
-  } catch {
-    return "en";
+  let home = homes.get(code);
+  if (home === void 0) {
+    try {
+      home = new Intl.Locale("und", { region: code.slice(0, 2) }).maximize().baseName;
+    } catch {
+      home = "en";
+    }
+    homes.set(code, home);
   }
+  return home;
 }
 function formatMoney(n, code, locale) {
   const options = { style: "currency", currency: code, currencyDisplay: "narrowSymbol" };
-  const own = new Intl.NumberFormat(locale, options).formatToParts(n);
-  const home = new Intl.NumberFormat(homeOf(code), options).formatToParts(n);
+  const own = numberFormat(locale, options).formatToParts(n);
+  const home = numberFormat(homeOf(code), options).formatToParts(n);
   const symbol = own.find((p) => p.type === "currency")?.value ?? code;
   const sign = own.filter((p) => p.type === "minusSign" || p.type === "plusSign").map((p) => p.value).join("");
   const digits = own.filter((p) => !["currency", "minusSign", "plusSign", "literal"].includes(p.type)).map((p) => p.value).join("");
@@ -2399,7 +2419,7 @@ var date_default = {
     const { ms, time } = parseDate(text);
     const dateStyle = param?.toLowerCase() ?? "medium";
     const timeStyle = ms % 6e4 !== 0 ? "medium" : "short";
-    return new Intl.DateTimeFormat(locale, { dateStyle, ...time ? { timeStyle } : {}, timeZone: "UTC" }).format(new Date(ms));
+    return dateTimeFormat(locale, { dateStyle, ...time ? { timeStyle } : {}, timeZone: "UTC" }).format(new Date(ms));
   }
 };
 
@@ -2510,7 +2530,7 @@ var time_default = {
   check: (text) => secondsOf(text) !== void 0 ? void 0 : `"${text}" is not a time written as 14:30`,
   format: (text, _param, locale) => {
     const seconds = secondsOf(text);
-    return new Intl.DateTimeFormat(locale, { timeStyle: seconds % 60 ? "medium" : "short", timeZone: "UTC" }).format(
+    return dateTimeFormat(locale, { timeStyle: seconds % 60 ? "medium" : "short", timeZone: "UTC" }).format(
       new Date(seconds * 1e3)
     );
   },
@@ -2788,6 +2808,7 @@ var ColumnTypes = class {
   decorate(_widget, info) {
     const model = parseTable(info.source);
     const header = info.table.rows[0];
+    const rows = Array.from(info.table.querySelectorAll("tr[data-tp-row]"));
     model.rows[0]?.cells.forEach((name, column) => {
       const typed = columnTypeOf(unescapeCell(name));
       if (!typed) return;
@@ -2802,7 +2823,7 @@ var ColumnTypes = class {
         icon.innerHTML = iconOf(typed.type);
         headerCell.insertBefore(icon, headerCell.querySelector(`:scope > .${UI_CLASS}`));
       }
-      for (const tr of Array.from(info.table.querySelectorAll("tr[data-tp-row]"))) {
+      for (const tr of rows) {
         const raw = model.rows[Number(tr.dataset.tpRow)]?.cells[column];
         const cell = tr.cells[column];
         if (raw === void 0 || !cell) continue;

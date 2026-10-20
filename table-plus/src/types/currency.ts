@@ -1,5 +1,5 @@
 import { lineIcon } from "../icons.ts";
-import { notANumber, numberOf } from "./helpers.ts";
+import { notANumber, numberFormat, numberOf } from "./helpers.ts";
 import type { ColumnType } from "./types.ts";
 
 /**
@@ -7,13 +7,20 @@ import type { ColumnType } from "./types.ts";
  * currency code starts with its country's (USD: US, CZK: CZ). The euro has no
  * country, and most of the euro area writes the sign after the amount.
  */
+const homes = new Map<string, string>();
+
 function homeOf(code: string): string {
   if (code === "EUR") return "de";
-  try {
-    return new Intl.Locale("und", { region: code.slice(0, 2) }).maximize().baseName;
-  } catch {
-    return "en";
+  let home = homes.get(code);
+  if (home === undefined) {
+    try {
+      home = new Intl.Locale("und", { region: code.slice(0, 2) }).maximize().baseName;
+    } catch {
+      home = "en";
+    }
+    homes.set(code, home);
   }
+  return home;
 }
 
 /**
@@ -22,8 +29,8 @@ function homeOf(code: string): string {
  */
 function formatMoney(n: number, code: string, locale: string | undefined): string {
   const options = { style: "currency", currency: code, currencyDisplay: "narrowSymbol" } as const;
-  const own = new Intl.NumberFormat(locale, options).formatToParts(n);
-  const home = new Intl.NumberFormat(homeOf(code), options).formatToParts(n);
+  const own = numberFormat(locale, options).formatToParts(n);
+  const home = numberFormat(homeOf(code), options).formatToParts(n);
   const symbol = own.find((p) => p.type === "currency")?.value ?? code;
   const sign = own.filter((p) => p.type === "minusSign" || p.type === "plusSign").map((p) => p.value).join("");
   const digits = own

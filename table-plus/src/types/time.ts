@@ -1,6 +1,6 @@
 import { DAY_SECONDS, formatClock, parseClock } from "../formula/values.ts";
 import { lineIcon } from "../icons.ts";
-import { numberOf } from "./helpers.ts";
+import { dateTimeFormat, numberOf } from "./helpers.ts";
 import type { ColumnType } from "./types.ts";
 
 /**
@@ -27,7 +27,7 @@ export default {
   format: (text, _param, locale) => {
     const seconds = secondsOf(text)!;
     // The time on a clock without time zone: formatted as UTC, it is shown as written
-    return new Intl.DateTimeFormat(locale, { timeStyle: seconds % 60 ? "medium" : "short", timeZone: "UTC" }).format(
+    return dateTimeFormat(locale, { timeStyle: seconds % 60 ? "medium" : "short", timeZone: "UTC" }).format(
       new Date(seconds * 1000),
     );
   },

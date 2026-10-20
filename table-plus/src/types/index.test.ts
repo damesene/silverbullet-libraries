@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
 import libraryPage from "../../table-plus.md?raw";
+import { dateTimeFormat, numberFormat } from "./helpers.ts";
 import { columnTypeOf, typeOfTag, TYPES, withColumnType } from "./index.ts";
 
 const type = (name: string) => TYPES.get(name)!;
 const show = (name: string, text: string, param?: string, locale = "en-US") => type(name).format(text, param, locale);
 const check = (name: string, text: string, param?: string) => type(name).check(text, param);
+
+describe("formatters", () => {
+  it("are made once per locale and options (making one is slow, a column formats every cell)", () => {
+    expect(numberFormat("en", { maximumFractionDigits: 2 })).toBe(numberFormat("en", { maximumFractionDigits: 2 }));
+    expect(numberFormat("en", { maximumFractionDigits: 1 })).not.toBe(numberFormat("en", { maximumFractionDigits: 2 }));
+    expect(dateTimeFormat("en", { dateStyle: "short" })).toBe(dateTimeFormat("en", { dateStyle: "short" }));
+  });
+});
 
 describe("TYPES", () => {
   it.each(Array.from(TYPES.entries()))("%s is described and listed on the library page", (name, t) => {

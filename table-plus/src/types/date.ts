@@ -1,5 +1,6 @@
 import { parseDate } from "../formula/dates.ts";
 import { lineIcon } from "../icons.ts";
+import { dateTimeFormat } from "./helpers.ts";
 import type { ColumnType } from "./types.ts";
 
 export default {
@@ -16,6 +17,6 @@ export default {
     // A time with seconds shows them (NOW() writes them)
     const timeStyle = ms % 60_000 !== 0 ? ("medium" as const) : ("short" as const);
     // Without a time zone, as formulas take dates: shown in UTC, it shows as written
-    return new Intl.DateTimeFormat(locale, { dateStyle, ...(time ? { timeStyle } : {}), timeZone: "UTC" }).format(new Date(ms));
+    return dateTimeFormat(locale, { dateStyle, ...(time ? { timeStyle } : {}), timeZone: "UTC" }).format(new Date(ms));
   },
 } satisfies ColumnType;
