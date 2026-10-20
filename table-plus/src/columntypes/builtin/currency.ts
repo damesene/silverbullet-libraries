@@ -1,6 +1,6 @@
-import { lineIcon } from "../icons.ts";
-import { notANumber, numberFormat, numberOf } from "./helpers.ts";
-import type { ColumnType } from "./types.ts";
+import { lineIcon } from "../../icons.ts";
+import { notANumber, numberFormat, numberOf } from "../format.ts";
+import type { ColumnType } from "../type.ts";
 
 /**
  * The language a currency is written in at home, for where its sign goes: a

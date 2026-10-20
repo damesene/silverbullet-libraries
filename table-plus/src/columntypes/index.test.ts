@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import libraryPage from "../../table-plus.md?raw";
-import { dateTimeFormat, numberFormat } from "./helpers.ts";
+import { dateTimeFormat, numberFormat } from "./format.ts";
 import { columnTypeOf, typeOfTag, TYPES, withColumnType } from "./index.ts";
 
 const type = (name: string) => TYPES.get(name)!;

@@ -1,6 +1,6 @@
-import { lineIcon } from "../icons.ts";
-import { numberOf } from "./helpers.ts";
-import type { ColumnType } from "./types.ts";
+import { lineIcon } from "../../icons.ts";
+import { numberOf } from "../format.ts";
+import type { ColumnType } from "../type.ts";
 
 const ARROWS: Readonly<Record<string, string>> = { "+": "🔼", "-": "🔽", "=": "➡️" };
 

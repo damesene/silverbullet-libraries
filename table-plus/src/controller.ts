@@ -22,7 +22,7 @@ import { TouchKeyboard } from "./core/touch-keyboard.ts";
 import { CONFIG_PAGE, withConfigSettings } from "./configpage.ts";
 import { SettingsDialog } from "./settings.ts";
 import { Autoscroll } from "./features/autoscroll.ts";
-import { ColumnTypes } from "./features/types.ts";
+import { ColumnTypes } from "./features/columntypes.ts";
 import { Export } from "./features/export.ts";
 import { Expressions } from "./features/expressions.ts";
 import { PageLinks } from "./features/pagelinks.ts";

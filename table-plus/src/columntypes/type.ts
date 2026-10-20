@@ -5,7 +5,7 @@ export type Choice = { readonly value: string; readonly label: string };
 export type Shown = string | { readonly text: string; readonly href: string };
 
 /**
- * A column type: one per file in this folder, listed in index.ts. A column
+ * A column type: the built-in ones one per file in builtin/. A column
  * gets it with a hashtag in its header, `| Price #currency-usd |`: the type's
  * name, and after a "-" its parameter if it takes one. `syntax` and
  * `description` are shown in the column menu and must also be listed in the

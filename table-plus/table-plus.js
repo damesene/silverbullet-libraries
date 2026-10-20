@@ -2118,7 +2118,7 @@ function visibleRows(values, view, hidden = /* @__PURE__ */ new Set()) {
   });
 }
 
-// table-plus/src/types/helpers.ts
+// table-plus/src/columntypes/format.ts
 function numberOf(text) {
   return asNumber(text);
 }
@@ -2143,7 +2143,7 @@ function formatNumber(n, locale, options = {}) {
   return numberFormat(locale, options).format(n);
 }
 
-// table-plus/src/types/check.ts
+// table-plus/src/columntypes/builtin/check.ts
 var YES = /* @__PURE__ */ new Set(["yes", "y", "true", "x", "\u2713", "\u2714", "\u2705", "done", "ok"]);
 var NO = /* @__PURE__ */ new Set(["no", "n", "false", "\u2717", "\u274C", "-"]);
 function yesOrNo(text) {
@@ -2168,7 +2168,7 @@ var check_default = {
   ]
 };
 
-// table-plus/src/types/currency.ts
+// table-plus/src/columntypes/builtin/currency.ts
 var homes = /* @__PURE__ */ new Map();
 function homeOf(code) {
   if (code === "EUR") return "de";
@@ -2522,7 +2522,7 @@ function partOf(date, part) {
   }
 }
 
-// table-plus/src/types/date.ts
+// table-plus/src/columntypes/builtin/date.ts
 var date_default = {
   name: "date",
   syntax: "#date, #date-long",
@@ -2539,7 +2539,7 @@ var date_default = {
   }
 };
 
-// table-plus/src/types/link.ts
+// table-plus/src/columntypes/builtin/link.ts
 var link_default = {
   name: "link",
   syntax: "#link",
@@ -2549,7 +2549,7 @@ var link_default = {
   format: (text) => ({ text: text.trim().replace(/^https?:\/\//, "").replace(/\/$/, ""), href: text.trim() })
 };
 
-// table-plus/src/types/number.ts
+// table-plus/src/columntypes/builtin/number.ts
 var number_default = {
   name: "number",
   syntax: "#number, #number-2",
@@ -2567,7 +2567,7 @@ var number_default = {
   }
 };
 
-// table-plus/src/types/percent.ts
+// table-plus/src/columntypes/builtin/percent.ts
 function fraction(text) {
   const n = numberOf(text);
   return text.includes("%") ? n / 100 : n;
@@ -2586,7 +2586,7 @@ var percent_default = {
   sortValue: (text) => String(fraction(text))
 };
 
-// table-plus/src/types/progress.ts
+// table-plus/src/columntypes/builtin/progress.ts
 var most = (param) => Number(param ?? 100);
 var progress_default = {
   name: "progress",
@@ -2606,7 +2606,7 @@ var progress_default = {
   }
 };
 
-// table-plus/src/types/stars.ts
+// table-plus/src/columntypes/builtin/stars.ts
 var most2 = (param) => Number(param ?? 5);
 var stars_default = {
   name: "stars",
@@ -2629,7 +2629,7 @@ var stars_default = {
   }))
 };
 
-// table-plus/src/types/time.ts
+// table-plus/src/columntypes/builtin/time.ts
 function secondsOf(text) {
   const seconds = parseClock(text)?.seconds ?? fractionSeconds(text);
   return seconds !== void 0 && seconds >= 0 && seconds < DAY_SECONDS ? seconds : void 0;
@@ -2654,7 +2654,7 @@ var time_default = {
   sortValue: (text) => formatClock(secondsOf(text))
 };
 
-// table-plus/src/types/trend.ts
+// table-plus/src/columntypes/builtin/trend.ts
 var ARROWS = { "+": "\u{1F53C}", "-": "\u{1F53D}", "=": "\u27A1\uFE0F" };
 function arrowOf(text) {
   const t = text.trim();
@@ -2672,7 +2672,7 @@ var trend_default = {
   choices: () => Object.entries(ARROWS).map(([value, arrow]) => ({ value, label: `${arrow} ${value}` }))
 };
 
-// table-plus/src/types/unit.ts
+// table-plus/src/columntypes/builtin/unit.ts
 var unit_default = {
   name: "unit",
   syntax: "#unit-kg",
@@ -2684,8 +2684,11 @@ var unit_default = {
   format: (text, param, locale) => `${formatNumber(numberOf(text), locale, { maximumFractionDigits: 10 })} ${param}`
 };
 
-// table-plus/src/types/index.ts
-var ALL = [currency_default, number_default, percent_default, unit_default, stars_default, check_default, date_default, time_default, trend_default, progress_default, link_default];
+// table-plus/src/columntypes/builtin/index.ts
+var BUILT_IN_TYPES = [currency_default, number_default, percent_default, unit_default, stars_default, check_default, date_default, time_default, trend_default, progress_default, link_default];
+
+// table-plus/src/columntypes/registry.ts
+var ALL = BUILT_IN_TYPES;
 var TYPES = new Map(ALL.map((t) => [t.name, t]));
 var ALIASES = new Map(
   ALL.flatMap((t) => Object.entries(t.aliases ?? {}).map(([alias, param]) => [alias, { type: t, param: param || void 0 }]))
@@ -2720,7 +2723,7 @@ function typeTagPatterns() {
   };
 }
 
-// table-plus/src/features/types.ts
+// table-plus/src/features/columntypes.ts
 function iconOf(type) {
   return type.icon ?? ICONS.columnType;
 }

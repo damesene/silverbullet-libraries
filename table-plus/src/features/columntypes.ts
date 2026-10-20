@@ -1,5 +1,5 @@
 // Column types in the table: a column whose header has a type's hashtag
-// (`| Price #currency |`) shows its cells as that type (types/), hides that
+// (`| Price #currency |`) shows its cells as that type (columntypes/), hides that
 // hashtag, and marks the cells that are not values of the type. The markdown
 // keeps the values as written: sorting, filters and copying use them.
 import { type CellEditor, type CellRef, editorRect, type Feature, type TableHost, type WidgetInfo } from "../core/feature.ts";
@@ -19,7 +19,7 @@ import {
   TYPES,
   typeTagPatterns,
   withColumnType,
-} from "../types/index.ts";
+} from "../columntypes/index.ts";
 
 /** A type's icon, or a tag for a type without one */
 function iconOf(type: ColumnType): string {

@@ -1,6 +1,6 @@
-import { lineIcon } from "../icons.ts";
-import { formatNumber, notANumber, numberOf } from "./helpers.ts";
-import type { ColumnType } from "./types.ts";
+import { lineIcon } from "../../icons.ts";
+import { formatNumber, notANumber, numberOf } from "../format.ts";
+import type { ColumnType } from "../type.ts";
 
 export default {
   name: "unit",

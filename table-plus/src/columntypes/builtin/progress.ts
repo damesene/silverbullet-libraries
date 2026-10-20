@@ -1,6 +1,6 @@
-import { lineIcon } from "../icons.ts";
-import { formatNumber, numberOf } from "./helpers.ts";
-import type { ColumnType } from "./types.ts";
+import { lineIcon } from "../../icons.ts";
+import { formatNumber, numberOf } from "../format.ts";
+import type { ColumnType } from "../type.ts";
 
 const most = (param: string | undefined) => Number(param ?? 100);
 

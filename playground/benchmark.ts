@@ -7,7 +7,7 @@ import { pageTables } from "../table-plus/src/formulas/page.ts";
 import { cellName, formulaCell, recalculate } from "../table-plus/src/formulas/index.ts";
 import { type PageTable, pageTablesOf, serializeTable } from "../table-plus/src/markdown.ts";
 import type { ProfileEntry } from "./profile.ts";
-import { TYPES } from "../table-plus/src/types/index.ts";
+import { TYPES } from "../table-plus/src/columntypes/index.ts";
 
 // ---- the page --------------------------------------------------------------------
 

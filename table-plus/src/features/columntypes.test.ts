@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { cellText } from "../dom.ts";
 import { ICONS } from "../icons.ts";
-import { TYPES } from "../types/index.ts";
+import { TYPES } from "../columntypes/index.ts";
 import { bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, press, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Column types", () => {

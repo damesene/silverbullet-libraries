@@ -1,25 +1,10 @@
-// The column types, one per file in this folder.
-//
-// To add one: copy a file such as stars.ts, change its name, syntax,
-// description, icon, check and format (and param, aliases, sortValue, choices
-// if it needs them), import it here and add it to the list. Then add its syntax and
-// description to the Column types table in table-plus.md (a test checks that).
-import check from "./check.ts";
-import currency from "./currency.ts";
-import date from "./date.ts";
-import link from "./link.ts";
-import number from "./number.ts";
-import percent from "./percent.ts";
-import progress from "./progress.ts";
-import stars from "./stars.ts";
-import time from "./time.ts";
-import trend from "./trend.ts";
-import type { ColumnType } from "./types.ts";
-import unit from "./unit.ts";
+// Which column types exist (builtin/), and how a column's header names its
+// type: a hashtag, `#name`, `#name-param`, or an alias.
+import { BUILT_IN_TYPES } from "./builtin/index.ts";
+import type { ColumnType } from "./type.ts";
 
-export type { Choice, ColumnType, Shown } from "./types.ts";
-
-const ALL: readonly ColumnType[] = [currency, number, percent, unit, stars, check, date, time, trend, progress, link];
+// Every column type
+const ALL: readonly ColumnType[] = BUILT_IN_TYPES;
 
 /** The column types by name */
 export const TYPES: ReadonlyMap<string, ColumnType> = new Map(ALL.map((t) => [t.name, t]));

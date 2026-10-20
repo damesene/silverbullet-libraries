@@ -1,6 +1,6 @@
-import { lineIcon } from "../icons.ts";
-import { numberOf } from "./helpers.ts";
-import type { ColumnType } from "./types.ts";
+import { lineIcon } from "../../icons.ts";
+import { numberOf } from "../format.ts";
+import type { ColumnType } from "../type.ts";
 
 const YES = new Set(["yes", "y", "true", "x", "✓", "✔", "✅", "done", "ok"]);
 const NO = new Set(["no", "n", "false", "✗", "❌", "-"]);

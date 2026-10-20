@@ -1,5 +1,5 @@
-import { lineIcon } from "../icons.ts";
-import type { ColumnType } from "./types.ts";
+import { lineIcon } from "../../icons.ts";
+import type { ColumnType } from "../type.ts";
 
 export default {
   name: "link",

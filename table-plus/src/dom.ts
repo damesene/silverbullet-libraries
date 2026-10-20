@@ -42,7 +42,7 @@ export function positionHint(table: HTMLTableElement): number | undefined {
   return Number.isFinite(pos) ? pos : undefined;
 }
 
-// A header's hashtag that gives its column a type (features/types.ts): hidden, not part of its name
+// A header's hashtag that gives its column a type (features/columntypes.ts): hidden, not part of its name
 export const TYPE_TAG_CLASS = "tp-type-tag";
 
 /** A cell's text as shown, without anything Table Plus added (or hid), wherever in the cell it is */
