@@ -7,7 +7,7 @@ import { pageTables } from "../table-plus/src/formulas/page.ts";
 import { cellName, formulaCell, recalculate } from "../table-plus/src/formulas/index.ts";
 import { type PageTable, pageTablesOf, serializeTable } from "../table-plus/src/markdown.ts";
 import type { ProfileEntry } from "./profile.ts";
-import { TYPES } from "../table-plus/src/columntypes/index.ts";
+import { allTypes } from "../table-plus/src/columntypes/index.ts";
 
 // ---- the page --------------------------------------------------------------------
 
@@ -22,12 +22,12 @@ export type FormulaKind = keyof typeof FORMULAS;
 export type BenchmarkOptions = {
   readonly rows: number;
   readonly columns: number;
-  // Column types (TYPES' names, "text" for plain text), used in turn for the columns after the first (the row's name)
+  // Column types (the types' names, "text" for plain text), used in turn for the columns after the first (the row's name)
   readonly types: readonly string[];
   readonly formulas: readonly FormulaKind[];
 };
 
-export const TYPE_NAMES = ["text", ...TYPES.keys()];
+export const TYPE_NAMES = ["text", ...allTypes().map((t) => t.name)];
 // The types whose values formulas can add up
 const NUMERIC = new Set(["currency", "number", "percent", "unit", "stars", "progress", "trend"]);
 // The hashtag a type is written with (the ones that need a parameter get one)

@@ -34,7 +34,7 @@ table-plus/
   table-plus.md        library page: user docs, settings (config.define), the Space Lua that loads the JS, the CSS (space-style)
   table-plus.js        built bundle (committed)
   src/
-    index.ts           entry: init(bridge), pageIndexed(name), removeAllMetadata(); defineFunctions / resetDefinitions (the library page's `tablePlus.defineFunctions`, before init)
+    index.ts           entry: init(bridge), pageIndexed(name), removeAllMetadata(); defineFunctions / defineTypes / resetDefinitions (the library page's `tablePlus.defineFunctions` / `defineTypes`, before init)
     bridge.ts          the SilverBullet API Table Plus uses (editor.*, config.get), handed over by the library page's Lua; SETTINGS
     controller.ts      the core: finds and enhances rendered tables, routes events, view (sort, rows features hide, pins layout), toolbar, write pipeline
     core/
@@ -80,8 +80,9 @@ table-plus/
       values.ts        value types and coercions for functions
     columntypes/       the column types domain; index.ts its API
       type.ts          the shape of a type (ColumnType)
-      registry.ts      which types exist, the type a header's hashtag names (aliases, parameters), CSS patterns
+      registry.ts      which types exist (built-in and custom: `typeNamed`, `allTypes`; a custom one replaces a built-in of its name, its aliases too), the type a header's hashtag names (a name before an alias; parameters read: `readParams`), CSS patterns
       format.ts        what types share: numbers read, Intl formatters made once
+      custom.ts        custom types (the user's, from Space Lua): definitions checked (parameters, aliases), what a method gives checked, HELPERS
       builtin/         only types, one per file (stars.ts …), index.ts their list
     settings.ts configpage.ts   the settings dialog; Table Plus' lines in the CONFIG page's managed block
     themes.ts          table themes: the built-in names, labels, the themes the page's styles define (found by their `data-tp-theme="…"` selectors)
@@ -147,6 +148,7 @@ A new `space-lua` block on a page is not active until Space Lua is reloaded; an 
 - Display only: the markdown keeps the value; the editor shows it; sort/filter/copy use it (`sortValue` where the text does not sort, e.g. check marks). Invalid values show red with the reason; saving one is allowed and announced.
 - The type is changed in the column menu (*Type* → list in the same dropdown, a back arrow before its title); editing a header shows and changes only the name, the type hashtag is kept.
 - Built-in types live one per file in `columntypes/builtin/` (only types there); a test requires each type's syntax and description in the library page's Column types table. Each has an `icon` (`lineIcon` from `icons.ts`), shown after the column's name in the header and in the Type menu; the menu shows a type's syntax and description in a bubble beside it (`MenuDetail` in `menu.ts`), not a native tooltip.
+- **Custom column types** are JS as custom functions are (`tablePlus.defineTypes`, the same priority-50 API block, the same replacing of definitions when Space Lua loads again, a mistake a notification), in the built-in types' form: they declare `params` and get their values, a name replacing a built-in type (in its place in the Type menu, its aliases gone with it), a type's own name before another's alias. A method that throws or gives the wrong kind of value (custom.ts checks what it gives) marks the cell `tp-type-invalid` with `#tag failed: …` (the column types module's `attempt`, around every call of a type's method), never breaking the table. Tables are decorated with the types when they render: SilverBullet loads Space Lua before it opens a page (and renders the editor anew after a reload of Space Lua), so the types are there; a change of definitions refreshes the CSS hiding type hashtags (`tablesChanged`), not cells already shown.
 
 ### Themes (`themes.ts`, `features/themes.ts`, the library page's CSS "Themes")
 - A theme is CSS only: `--tp-*` variables on `.sb-table-widget[data-tp-theme="<name>"]`, and on `html[data-theme="dark"] …` for its dark look. SilverBullet decides light or dark (its own mode); the table has no mode of its own. A user's theme is a space-style block; it is found by its selector (`themesInStyles`), nothing is registered. Every variable is optional.
@@ -177,7 +179,7 @@ A new `space-lua` block on a page is not active until Space Lua is reloaded; an 
 
 ## Deferred / open
 
-- **Custom column types** (as custom functions are: a JS module given from Space Lua), next. Lua functions for formulas (results kept by arguments, waited for before writes; also the value of a `${…}` cell for formulas) were offered, not done.
+- Lua functions for formulas (results kept by arguments, waited for before writes; also the value of a `${…}` cell for formulas) were offered, not done.
 - A parameter picker for column types in the menu (today only the base form is offered; parameters are typed in the markdown). Types declare their parameters (`params`), so a picker can be made from them.
 - A check that `table-plus.js` matches `src/` (`npm run check-build` or a pre-commit hook).
 - The band of the + could be found without hovering the table first (coming from the left or below, no + shows and a press there reaches SilverBullet). Offered, not done.

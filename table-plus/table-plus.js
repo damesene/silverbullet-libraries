@@ -2538,9 +2538,8 @@ var date_default = columnType({
   check: (text) => parseDate(text) ? void 0 : `"${text}" is not a date written as 2025-11-06`,
   format: (text, { style }, locale) => {
     const { ms, time } = parseDate(text);
-    const dateStyle = style;
     const timeStyle = ms % 6e4 !== 0 ? "medium" : "short";
-    return dateTimeFormat(locale, { dateStyle, ...time ? { timeStyle } : {}, timeZone: "UTC" }).format(new Date(ms));
+    return dateTimeFormat(locale, { dateStyle: style, ...time ? { timeStyle } : {}, timeZone: "UTC" }).format(new Date(ms));
   }
 });
 
@@ -2685,17 +2684,39 @@ var unit_default = columnType({
 var BUILT_IN_TYPES = [currency_default, number_default, percent_default, unit_default, stars_default, check_default, date_default, time_default, trend_default, progress_default, link_default];
 
 // table-plus/src/columntypes/registry.ts
-var ALL = BUILT_IN_TYPES;
-var TYPES = new Map(ALL.map((t) => [t.name, t]));
-var ALIASES = new Map(
-  ALL.flatMap((t) => Object.entries(t.aliases ?? {}).map(([alias, written]) => [alias, { type: t, written: written || void 0 }]))
-);
+function knownOf(custom3) {
+  const replacing = new Map(custom3.map((t) => [t.name, t]));
+  const all = [...BUILT_IN_TYPES.map((t) => replacing.get(t.name) ?? t), ...custom3.filter((t) => !BUILT_IN_TYPES.some((b) => b.name === t.name))];
+  return {
+    all,
+    byName: new Map(all.map((t) => [t.name, t])),
+    aliases: new Map(
+      [...all.filter((t) => !custom3.includes(t)), ...custom3].flatMap(
+        (t) => Object.entries(t.aliases ?? {}).map(([alias, written]) => [alias, { type: t, written: written || void 0 }])
+      )
+    )
+  };
+}
+var custom = [];
+var known = knownOf(custom);
+var anew = false;
+function allTypes() {
+  return known.all;
+}
+function defineCustomTypes(types) {
+  custom = Array.from(new Map([...anew ? [] : custom, ...types].map((t) => [t.name, t])).values());
+  known = knownOf(custom);
+  anew = false;
+}
+function customTypesAnew() {
+  anew = true;
+}
 var HASHTAG_RE = /(^|\s)#([^\s#]+)/g;
 function typeOfTag(tag) {
   const lower = tag.toLowerCase();
-  const alias = ALIASES.get(lower);
+  const alias = known.byName.has(lower) ? void 0 : known.aliases.get(lower);
   const dash = lower.indexOf("-");
-  const type = alias?.type ?? TYPES.get(dash < 0 ? lower : lower.slice(0, dash));
+  const type = alias?.type ?? known.byName.get(dash < 0 ? lower : lower.slice(0, dash));
   if (!type) return void 0;
   const params = readParams(type.params ?? {}, alias ? alias.written : dash < 0 ? void 0 : tag.slice(dash + 1));
   return params && { type, params, tag };
@@ -2722,7 +2743,7 @@ function readParams(specs, written) {
 function paramValue(spec, part) {
   switch (spec.kind) {
     case "number": {
-      const n = /^\d+(\.\d+)?$/.test(part) ? Number(part) : NaN;
+      const n = (spec.integer ? /^(0|[1-9]\d*)$/ : /^(0|[1-9]\d*)(\.\d+)?$/).test(part) ? Number(part) : NaN;
       const fits = Number.isFinite(n) && (!spec.integer || Number.isInteger(n)) && n >= (spec.min ?? -Infinity) && n <= (spec.max ?? Infinity);
       return fits ? n : void 0;
     }
@@ -2746,8 +2767,8 @@ function withColumnType(header, tag) {
 }
 function typeTagPatterns() {
   return {
-    exact: [...ALL.map((t) => t.name), ...ALIASES.keys()],
-    prefixes: ALL.filter((t) => Object.keys(t.params ?? {}).length > 0).map((t) => `${t.name}-`)
+    exact: [...known.all.map((t) => t.name), ...known.aliases.keys()],
+    prefixes: known.all.filter((t) => Object.keys(t.params ?? {}).length > 0).map((t) => `${t.name}-`)
   };
 }
 
@@ -2805,6 +2826,10 @@ var ColumnTypes = class {
     this.style.remove();
     this.picker.remove();
   }
+  /** Custom types were defined anew: their hashtags are hidden too (tables rendered from now on show them typed) */
+  tablesChanged() {
+    this.style.textContent = hiddenTagsCss();
+  }
   owns(node) {
     return this.picker.contains(node);
   }
@@ -2820,15 +2845,16 @@ var ColumnTypes = class {
     const choices = [
       { kind: "item", label: "No type", icon: ICONS.clear, checked: !current, run: setType(void 0) },
       { kind: "separator" },
-      ...Array.from(TYPES.values()).map((type) => {
-        const first = type.syntax.split(",")[0].trim();
+      ...allTypes().map((type) => {
+        const first = type.syntax.split(",")[0].trim().replace(/^#/, "");
+        const tag = typeOfTag(first)?.type === type ? first : type.name;
         return {
           kind: "item",
           label: typeLabel(type.name),
           icon: iconOf(type),
           checked: current?.type === type,
           detail: typeDetail(type),
-          run: setType(current?.type === type ? current.tag : first.slice(1))
+          run: setType(current?.type === type ? current.tag : tag)
         };
       })
     ];
@@ -3820,7 +3846,7 @@ var row_default = {
 };
 
 // table-plus/src/formulas/builtin/index.ts
-var ALL2 = [
+var ALL = [
   sum_default,
   average_default,
   min_default,
@@ -3854,29 +3880,29 @@ var ALL2 = [
   xlookup_default,
   row_default
 ];
-var BUILT_IN_FUNCTIONS = Object.fromEntries(ALL2.map((f) => [f.name, f]));
+var BUILT_IN_FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
 
 // table-plus/src/formulas/registry.ts
-var custom = /* @__PURE__ */ new Map();
+var custom2 = /* @__PURE__ */ new Map();
 function functionNamed(name) {
-  return custom.get(name) ?? BUILT_IN_FUNCTIONS[name];
+  return custom2.get(name) ?? BUILT_IN_FUNCTIONS[name];
 }
 function functionNames() {
-  return Array.from(/* @__PURE__ */ new Set([...Object.keys(BUILT_IN_FUNCTIONS), ...custom.keys()]));
+  return Array.from(/* @__PURE__ */ new Set([...Object.keys(BUILT_IN_FUNCTIONS), ...custom2.keys()]));
 }
 function isCustomFunction(name) {
-  return custom.has(name);
+  return custom2.has(name);
 }
 function isBuiltInFunction(name) {
   return name in BUILT_IN_FUNCTIONS;
 }
-var anew = false;
+var anew2 = false;
 function defineCustomFunctions(functions) {
-  custom = new Map([...anew ? [] : custom, ...functions.map((f) => [f.name, f])]);
-  anew = false;
+  custom2 = new Map([...anew2 ? [] : custom2, ...functions.map((f) => [f.name, f])]);
+  anew2 = false;
 }
 function customFunctionsAnew() {
-  anew = true;
+  anew2 = true;
 }
 
 // table-plus/src/formulas/tokens.ts
@@ -4449,8 +4475,8 @@ var Sheet = class {
   /** The result of the formula in a cell */
   result(row, column, formula) {
     const key = `${row},${column}`;
-    const known = this.results.get(key);
-    if (known !== void 0) return known;
+    const known2 = this.results.get(key);
+    if (known2 !== void 0) return known2;
     if (this.evaluating.has(key)) {
       return new FormulaError("#CYCLE!", `${cellName(row, column)} depends on its own result`);
     }
@@ -5290,8 +5316,8 @@ var Filters = class {
   }
   /** The filters stored in the table (filter.*), by column */
   storedFilters(info) {
-    const known = this.stored.get(info.key);
-    if (known?.source === info.source) return known.filters;
+    const known2 = this.stored.get(info.key);
+    if (known2?.source === info.source) return known2.filters;
     const filters = [];
     for (const [column, value] of columnMeta(parseTable(info.source), "filter")) {
       while (filters.length < column) filters.push("");
@@ -5765,8 +5791,8 @@ var Filters = class {
       if (!cell) return;
       const value = this.host.cellValue(cell).trim();
       const normalized = normalizeForFilter(value);
-      const known = found.get(normalized);
-      if (known) known.count++;
+      const known2 = found.get(normalized);
+      if (known2) known2.count++;
       else found.set(normalized, { value, label: cellText(cell).trim() || value, count: 1 });
     });
     return Array.from(found.values());
@@ -6899,8 +6925,8 @@ var Grips = class {
       const r = cell.getBoundingClientRect();
       return axis === "row" ? { start: r.top - origin, size: r.height } : { start: r.left - origin, size: r.width };
     });
-    const known = measured.filter((m) => !!m);
-    const typical = known.length ? known.reduce((sum, m) => sum + m.size, 0) / known.length : 0;
+    const known2 = measured.filter((m) => !!m);
+    const typical = known2.length ? known2.reduce((sum, m) => sum + m.size, 0) / known2.length : 0;
     const firstKnown = measured.findIndex((m) => m);
     const lastKnown = measured.findLastIndex((m) => m);
     const places = measured.map((m, i) => {
@@ -9986,8 +10012,8 @@ var Controller = class {
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
     else setTimeout(run, 0);
   }
-  async promptText(message2, value = "") {
-    const answer = this.bridge.prompt ? await this.bridge.prompt(message2, value) : this.doc.defaultView.prompt(message2, value);
+  async promptText(message3, value = "") {
+    const answer = this.bridge.prompt ? await this.bridge.prompt(message3, value) : this.doc.defaultView.prompt(message3, value);
     return answer ?? void 0;
   }
   /**
@@ -10187,9 +10213,9 @@ var Controller = class {
     widget.dataset.tpUnsupported = "true";
     if (!incompatible || this.warnedIncompatible) return;
     this.warnedIncompatible = true;
-    const message2 = "Table Plus is inactive: this SilverBullet version renders tables differently than expected";
-    console.warn(message2);
-    void this.bridge.flash(message2, "error");
+    const message3 = "Table Plus is inactive: this SilverBullet version renders tables differently than expected";
+    console.warn(message3);
+    void this.bridge.flash(message3, "error");
   }
   /**
    * A table with unnamed columns renders with its header shifted against its
@@ -11705,8 +11731,150 @@ var Controller = class {
   }
 };
 
+// table-plus/src/columntypes/custom.ts
+var HELPERS = { numberOf, notANumber, formatNumber, numberFormat, dateTimeFormat, parseDate, lineIcon };
+var NAME_RE2 = /^[a-z][a-z0-9_]*$/i;
+function customTypes(definitions) {
+  let list = definitions;
+  if (isObject(list) && !Array.isArray(list) && "default" in list) list = list.default;
+  if (typeof list === "function") {
+    try {
+      list = list(HELPERS);
+    } catch (e) {
+      return { types: [], problems: [`the definitions failed: ${message(e)}`] };
+    }
+  }
+  if (!Array.isArray(list)) return { types: [], problems: ["the definitions are not a list of types (or a function returning one)"] };
+  const types = [];
+  const problems = [];
+  list.forEach((definition, i) => {
+    const type = customType(definition);
+    if (typeof type === "string") problems.push(`type ${i + 1}: ${type}`);
+    else types.push(type);
+  });
+  return { types, problems };
+}
+function customType(definition) {
+  if (!isObject(definition)) return "not an object";
+  const { name, syntax, description, icon, params = {}, aliases = {}, check, format, sortValue, choices } = definition;
+  if (typeof name !== "string" || !NAME_RE2.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits and _ starting with a letter`;
+  const lower = name.toLowerCase();
+  const tag = `#${lower}`;
+  if (syntax !== void 0 && typeof syntax !== "string") return `${tag}: its syntax is not text`;
+  if (description !== void 0 && typeof description !== "string") return `${tag}: its description is not text`;
+  if (icon !== void 0 && (typeof icon !== "string" || !icon.trim().startsWith("<svg"))) return `${tag}: its icon is not an SVG (lineIcon draws one)`;
+  for (const [key, method] of Object.entries({ check, format, sortValue, choices })) {
+    if (method !== void 0 && typeof method !== "function") return `${tag}: ${key} is not a function`;
+  }
+  const specs = specsOf(params);
+  if (typeof specs === "string") return `${tag}: ${specs}`;
+  if (!isObject(aliases) || Array.isArray(aliases)) return `${tag}: its aliases are not an object`;
+  for (const [alias, written] of Object.entries(aliases)) {
+    if (!NAME_RE2.test(alias)) return `${tag}: the alias ${alias} is not letters, digits and _`;
+    if (typeof written !== "string" || !readParams(specs, written || void 0)) return `${tag}: the alias ${alias} stands for parameters ${JSON.stringify(written)} the type does not take`;
+  }
+  const call = (method, result) => {
+    if (isObject(result) && typeof result.then === "function") throw new Error(`${method} returned a promise: a type gives its result at once`);
+    return result;
+  };
+  return {
+    name: lower,
+    syntax: syntax ?? tag,
+    description: description ?? "",
+    ...icon === void 0 ? {} : { icon },
+    params: specs,
+    aliases: Object.fromEntries(Object.entries(aliases).map(([alias, written]) => [alias.toLowerCase(), written])),
+    check: (text, p) => {
+      if (!check) return void 0;
+      const why = call("check", check(text, p));
+      if (why === void 0 || why === null || why === "") return void 0;
+      if (typeof why !== "string") throw new Error(`check returned ${kindOf(why)}: it gives why a value is not one of the type (text), or nothing`);
+      return why;
+    },
+    format: (text, p, locale) => {
+      if (!format) return text;
+      const shown = call("format", format(text, p, locale));
+      if (typeof shown === "string") return shown;
+      if (typeof shown === "number") return String(shown);
+      if (isObject(shown) && typeof shown.text === "string" && typeof shown.href === "string") return { text: shown.text, href: shown.href };
+      throw new Error(`format returned ${kindOf(shown)}: it gives a text, or a link { text, href }`);
+    },
+    ...sortValue ? {
+      sortValue: (text, p) => {
+        const value = call("sortValue", sortValue(text, p));
+        if (typeof value === "string" || typeof value === "number") return String(value);
+        throw new Error(`sortValue returned ${kindOf(value)}: it gives a text or a number`);
+      }
+    } : {},
+    ...choices ? {
+      choices: (p) => {
+        const list = call("choices", choices(p));
+        if (!Array.isArray(list)) throw new Error(`choices returned ${kindOf(list)}: it gives a list`);
+        return list.map((choice) => {
+          if (typeof choice === "string") return { value: choice, label: choice };
+          if (isObject(choice) && typeof choice.value === "string") return { value: choice.value, label: typeof choice.label === "string" ? choice.label : choice.value };
+          throw new Error(`choices gave ${kindOf(choice)}: a choice is a text or { value, label }`);
+        });
+      }
+    } : {}
+  };
+}
+function specsOf(params) {
+  if (!isObject(params) || Array.isArray(params)) return "its params are not an object";
+  const names = Object.keys(params);
+  const specs = {};
+  for (const [i, name] of names.entries()) {
+    const spec = specOf(params[name], i === names.length - 1);
+    if (typeof spec === "string") return `the parameter ${name}: ${spec}`;
+    specs[name] = spec;
+  }
+  return specs;
+}
+function specOf(spec, last) {
+  if (!isObject(spec)) return "not an object";
+  switch (spec.kind) {
+    case "number": {
+      const { integer, min, max, default: d } = spec;
+      for (const [key, value] of Object.entries({ min, max, default: d })) {
+        if (value !== void 0 && (typeof value !== "number" || Number.isNaN(value))) return `${key} is not a number`;
+      }
+      if (integer !== void 0 && typeof integer !== "boolean") return "integer is not true or false";
+      const lowest = min ?? -Infinity;
+      const highest = max ?? Infinity;
+      if (lowest > highest) return "its min is above its max";
+      if (typeof d === "number" && (integer && !Number.isInteger(d) || d < lowest || d > highest)) return "its default is not one it takes";
+      return spec;
+    }
+    case "choice": {
+      const { values, default: d } = spec;
+      if (!Array.isArray(values) || values.length === 0 || !values.every((v) => typeof v === "string" && v !== "")) return "its values are not a list of words";
+      if (!last && values.some((v) => v.includes("-"))) return "a value has a dash, which only the last parameter's may";
+      if (d !== void 0 && !values.includes(d)) return "its default is not one of its values";
+      return spec;
+    }
+    case "text": {
+      const { pattern, default: d } = spec;
+      if (pattern !== void 0 && !(pattern instanceof RegExp)) return "its pattern is not a regular expression";
+      const own = pattern && new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
+      if (d !== void 0 && (typeof d !== "string" || d === "" || own && !own.test(d))) return "its default is not one it takes";
+      return { kind: "text", ...own ? { pattern: own } : {}, ...d === void 0 ? {} : { default: d } };
+    }
+    default:
+      return `its kind is not "number", "choice" or "text"`;
+  }
+}
+function kindOf(value) {
+  return value === null ? "null" : Array.isArray(value) ? "a list" : typeof value === "object" ? "an object" : `a ${typeof value}`;
+}
+function isObject(value) {
+  return typeof value === "object" && value !== null;
+}
+function message(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+
 // table-plus/src/formulas/custom.ts
-var HELPERS = {
+var HELPERS2 = {
   FormulaError,
   TimeValue,
   isError,
@@ -11722,15 +11890,15 @@ var HELPERS = {
   formatDate,
   parseDate
 };
-var NAME_RE2 = /^[A-Za-z][A-Za-z0-9_.]*$/;
+var NAME_RE3 = /^[A-Za-z][A-Za-z0-9_.]*$/;
 function customFunctions(definitions) {
   let list = definitions;
-  if (isObject(list) && !Array.isArray(list) && "default" in list) list = list.default;
+  if (isObject2(list) && !Array.isArray(list) && "default" in list) list = list.default;
   if (typeof list === "function") {
     try {
-      list = list(HELPERS);
+      list = list(HELPERS2);
     } catch (e) {
-      return { functions: [], problems: [`the definitions failed: ${message(e)}`] };
+      return { functions: [], problems: [`the definitions failed: ${message2(e)}`] };
     }
   }
   if (!Array.isArray(list)) return { functions: [], problems: ["the definitions are not a list of functions (or a function returning one)"] };
@@ -11744,9 +11912,9 @@ function customFunctions(definitions) {
   return { functions, problems };
 }
 function customFunction(definition) {
-  if (!isObject(definition)) return "not an object";
+  if (!isObject2(definition)) return "not an object";
   const { name, syntax, description, minArgs = 0, maxArgs, call } = definition;
-  if (typeof name !== "string" || !NAME_RE2.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and . starting with a letter`;
+  if (typeof name !== "string" || !NAME_RE3.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and . starting with a letter`;
   const upper = name.toUpperCase();
   if (CELL_RE.test(name) || upper === "TRUE" || upper === "FALSE") return `its name ${name} reads as ${upper === "TRUE" || upper === "FALSE" ? "a value" : "a cell"} in formulas`;
   if (typeof call !== "function") return `${upper} has no call function`;
@@ -11765,7 +11933,7 @@ function customFunction(definition) {
       try {
         result = call(args, context);
       } catch (e) {
-        result = e instanceof FormulaError ? e : new FormulaError("#VALUE!", `${upper} failed: ${message(e)}`);
+        result = e instanceof FormulaError ? e : new FormulaError("#VALUE!", `${upper} failed: ${message2(e)}`);
       }
       return resultOf(upper, result);
     }
@@ -11778,18 +11946,18 @@ function resultOf(name, result) {
     return ERROR_CODES.includes(result.code) ? result : new FormulaError("#VALUE!", `${name} gave the error ${String(result.code)}, which is none of ${ERROR_CODES.join(" ")}`);
   }
   if (result instanceof TimeValue) return result;
-  if (isObject(result) && typeof result.then === "function") {
+  if (isObject2(result) && typeof result.then === "function") {
     return new FormulaError("#VALUE!", `${name} returned a promise: a function gives its result at once (it cannot wait for anything)`);
   }
   return new FormulaError("#VALUE!", `${name} returned ${Array.isArray(result) ? "a list" : "an object"}: a function gives one value (a number, a text, TRUE or FALSE)`);
 }
-function isObject(value) {
+function isObject2(value) {
   return typeof value === "object" && value !== null;
 }
 function isCount(value) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
-function message(e) {
+function message2(e) {
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -11818,8 +11986,15 @@ function defineFunctions(definitions) {
   definitionsChanged();
   return problems.length ? `Table Plus: custom functions not defined: ${problems.join("; ")}` : void 0;
 }
+function defineTypes(definitions) {
+  const { types, problems } = customTypes(definitions);
+  defineCustomTypes(types);
+  definitionsChanged();
+  return problems.length ? `Table Plus: custom column types not defined: ${problems.join("; ")}` : void 0;
+}
 function resetDefinitions() {
   customFunctionsAnew();
+  customTypesAnew();
 }
 var checkQueued = false;
 function definitionsChanged() {
@@ -11849,6 +12024,7 @@ function init(bridge) {
 }
 export {
   defineFunctions,
+  defineTypes,
   init,
   openSettings,
   pageIndexed,

@@ -394,6 +394,45 @@ shows `$12.99`, `★★★★☆` and `✅`.
 
 Numbers and dates are written as your browser's language writes them.
 
+### Custom column types
+
+Custom column types, your own, are written in JavaScript, in a file of your space, the way the built-in ones are, and given to Table Plus from Space Lua, as [[#Custom functions]] are. For example `Library/me/types.js`:
+
+```js
+export default ({ numberOf, notANumber, formatNumber, lineIcon }) => [
+  {
+    name: "temp",
+    syntax: "#temp, #temp-f",
+    description: "A temperature in °C, or in °F after the dash.",
+    icon: lineIcon('<path d="M10 14V5a2 2 0 0 1 4 0v9a4 4 0 1 1-4 0z"/>'),
+    params: { scale: { kind: "choice", values: ["c", "f"], default: "c" } },
+    check: notANumber,
+    format: (text, { scale }, locale) => `${formatNumber(numberOf(text), locale)} °${scale.toUpperCase()}`,
+  },
+];
+```
+
+and in a `space-lua` block of any page (with a priority of its own, one below 50):
+
+```lua
+tablePlus.defineTypes(js.importFromSpace("Library/me/types.js"))
+```
+
+Then `| Outside #temp |` and `| Oven #temp-f |` show their cells so, the *Type* menu offers it, and its hashtag is hidden in headers.
+
+* The file's default export is the list of types, or a function that gets Table Plus' helpers (below) and returns the list. Each type has a `name` (letters, digits and `_`, starting with a letter: its hashtag) and optionally:
+  * `syntax` and `description`, shown in the *Type* menu, and `icon`, an SVG (`lineIcon` draws one from SVG paths, 24 by 24);
+  * `params`, the parameters written after the dash, one after another separated by dashes (the last takes the rest: `#unit-m-s`). Each is `{ kind: "number", integer, min, max, default }`, `{ kind: "choice", values: [...], default }` (any case) or `{ kind: "text", pattern, default }`. Table Plus reads them from the hashtag: the type gets their values (a number as a number, a choice as listed, a parameter not written as its default, or `undefined`). A hashtag whose parameters do not fit is an ordinary hashtag;
+  * `aliases`: other hashtags that mean the type, with its parameters as written after the dash: `{ fahrenheit: "f" }`;
+  * `check(text, params)`: why a cell's text is not a value of the type (it shows in red, with the reason on hover), or nothing when it is one. Empty cells are not checked. None: every text is one;
+  * `format(text, params, locale)`: what a valid cell shows, a text or a link `{ text, href }`; `locale` is the browser's language. None: the text as written;
+  * `sortValue(text, params)`: what sorting and filters compare instead of the text, e.g. `1` and `0` for yes and no;
+  * `choices(params)`: the values the cell editor offers, texts or `{ value, label }`.
+* A type with a built-in type's name replaces it (its aliases too). Its own name comes before another type's alias, and its aliases before the built-in types' ones; of two types of one name, the last defined counts.
+* A method must give its result at once. One that throws, or gives something else, marks the cell in red with why; the table shows the rest as usual.
+* The helpers are those the built-in types use: `numberOf` (a cell's text as a number, as sorting reads it: `12,99`, `1 000`, `15 %`; else `undefined`), `notANumber` (a `check` for numbers), `formatNumber(n, locale, options)`, `numberFormat` and `dateTimeFormat` (`Intl` formatters, made once), `parseDate` (a date written as `2025-11-06` as `{ ms, time }`) and `lineIcon`.
+* Types are defined while SilverBullet loads Space Lua, before the page's tables show. A change of the file shows after reloading the page. A mistake in a definition is shown in a notification; the other types are defined.
+
 ## Rows and columns
 
 Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; moving the pointer along the left of the table (above it) takes them from row to row (column to column). Hovering a grip tints its row or column. While a cell is edited, they stay with it.
@@ -647,22 +686,29 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 ```space-lua
 -- priority: 50
 -- Table Plus' Space Lua API, loaded before your scripts (they have priority 0
--- unless they say otherwise): tablePlus.defineFunctions, see "Custom functions"
+-- unless they say otherwise): tablePlus.defineFunctions and tablePlus.defineTypes,
+-- see "Custom functions" and "Custom column types"
 tablePlus = tablePlus or {}
 if js and js.window then
   local tablePlusJs = js.importFromSpace("Library/damesene/table-plus.js")
   -- Space Lua is loaded (again): the scripts' definitions replace those of before (kept until then)
   tablePlusJs.resetDefinitions()
-  function tablePlus.defineFunctions(definitions)
-    -- The others are defined; a mistake is shown, the rest of the script goes on
-    local problem = tablePlusJs.defineFunctions(definitions)
+  -- The others are defined; a mistake is shown, the rest of the script goes on
+  local function shown(problem)
     if problem then
       editor.flashNotification(problem, "error")
     end
   end
+  function tablePlus.defineFunctions(definitions)
+    shown(tablePlusJs.defineFunctions(definitions))
+  end
+  function tablePlus.defineTypes(definitions)
+    shown(tablePlusJs.defineTypes(definitions))
+  end
 else
-  -- Space Lua without a window (no tables to calculate): nothing to define
+  -- Space Lua without a window (no tables to show): nothing to define
   function tablePlus.defineFunctions() end
+  function tablePlus.defineTypes() end
 end
 ```
 

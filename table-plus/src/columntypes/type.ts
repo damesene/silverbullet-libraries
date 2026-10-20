@@ -23,7 +23,12 @@ export type ParamSpecs = Readonly<Record<string, ParamSpec>>;
 /** The parameters a type gets: each read from its hashtag, its default where none is written (undefined: no default) */
 export type Params = Readonly<Record<string, number | string | undefined>>;
 
-type ParamValue<S extends ParamSpec> = S extends { readonly kind: "number" } ? number : string;
+// A number as a number, a choice as one of its values (as listed), text as written
+type ParamValue<S extends ParamSpec> = S extends { readonly kind: "number" }
+  ? number
+  : S extends { readonly kind: "choice"; readonly values: readonly (infer V)[] }
+    ? V
+    : string;
 
 /** The parameters `specs` give a type, as it gets them */
 export type ParamsOf<S extends ParamSpecs> = {
@@ -66,6 +71,6 @@ export type ColumnType<P extends Params = Params> = {
 };
 
 /** A type with the parameters it declares typed for its methods (`params: { max: { kind: "number", default: 5 } }` gives `max` as a number) */
-export function columnType<S extends ParamSpecs = Record<never, never>>(type: Omit<ColumnType<ParamsOf<S>>, "params"> & { readonly params?: S }): ColumnType {
+export function columnType<const S extends ParamSpecs = Record<never, never>>(type: Omit<ColumnType<ParamsOf<S>>, "params"> & { readonly params?: S }): ColumnType {
   return type;
 }

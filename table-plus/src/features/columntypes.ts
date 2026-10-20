@@ -16,7 +16,7 @@ import {
   type Shown,
   type TypedColumn,
   typeOfTag,
-  TYPES,
+  allTypes,
   typeTagPatterns,
   withColumnType,
 } from "../columntypes/index.ts";
@@ -98,6 +98,11 @@ export class ColumnTypes implements Feature {
     this.picker.remove();
   }
 
+  /** Custom types were defined anew: their hashtags are hidden too (tables rendered from now on show them typed) */
+  tablesChanged(): void {
+    this.style.textContent = hiddenTagsCss();
+  }
+
   owns(node: Node): boolean {
     return this.picker.contains(node);
   }
@@ -122,16 +127,18 @@ export class ColumnTypes implements Feature {
     const choices: MenuEntry[] = [
       { kind: "item", label: "No type", icon: ICONS.clear, checked: !current, run: setType(undefined) },
       { kind: "separator" },
-      ...Array.from(TYPES.values()).map((type): MenuEntry => {
-        // The type's first form (#unit-kg: #unit needs its unit); the same type keeps its parameter
-        const first = type.syntax.split(",")[0]!.trim();
+      ...allTypes().map((type): MenuEntry => {
+        // The type's first form where it names the type (#unit-kg: #unit needs its unit; a
+        // custom type's syntax is free text), else its name; the same type keeps its parameters
+        const first = type.syntax.split(",")[0]!.trim().replace(/^#/, "");
+        const tag = typeOfTag(first)?.type === type ? first : type.name;
         return {
           kind: "item",
           label: typeLabel(type.name),
           icon: iconOf(type),
           checked: current?.type === type,
           detail: typeDetail(type),
-          run: setType(current?.type === type ? current.tag : first.slice(1)),
+          run: setType(current?.type === type ? current.tag : tag),
         };
       }),
     ];

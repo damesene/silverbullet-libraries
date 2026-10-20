@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import libraryPage from "../../table-plus.md?raw";
 import { dateTimeFormat, numberFormat } from "./format.ts";
-import { columnTypeOf, typeOfTag, TYPES, withColumnType } from "./index.ts";
+import { BUILT_IN_TYPES } from "./builtin/index.ts";
+import { columnTypeOf, typeNamed, typeOfTag, withColumnType } from "./index.ts";
 import { readParams } from "./registry.ts";
 
-const type = (name: string) => TYPES.get(name)!;
+const type = (name: string) => typeNamed(name)!;
 // The parameters a type gets for what is written after its name's dash (#stars-10: "10"), as a header gives them
 const paramsOf = (name: string, written?: string) => typeOfTag(written === undefined ? name : `${name}-${written}`)!.params;
 const show = (name: string, text: string, written?: string, locale = "en-US") => type(name).format(text, paramsOf(name, written), locale);
@@ -18,8 +19,8 @@ describe("formatters", () => {
   });
 });
 
-describe("TYPES", () => {
-  it.each(Array.from(TYPES.entries()))("%s is described and listed on the library page", (name, t) => {
+describe("BUILT_IN_TYPES", () => {
+  it.each(BUILT_IN_TYPES.map((t) => [t.name, t] as const))("%s is described and listed on the library page", (name, t) => {
     expect(name).toBe(name.toLowerCase());
     expect(t.syntax.startsWith(`#${name}`)).toBe(true);
     expect(t.description).not.toBe("");

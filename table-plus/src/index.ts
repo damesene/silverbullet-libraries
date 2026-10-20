@@ -2,8 +2,10 @@
 //   js.importFromSpace("Library/damesene/table-plus.js").init({ ... editor functions ... })
 import { type Bridge, missingBridgeFunctions } from "./bridge.ts";
 import { Controller } from "./controller.ts";
-import { defineCustomFunctions, customFunctionsAnew } from "./formulas/registry.ts";
+import { customTypes } from "./columntypes/custom.ts";
+import { customTypesAnew, defineCustomTypes } from "./columntypes/registry.ts";
 import { customFunctions } from "./formulas/custom.ts";
+import { customFunctionsAnew, defineCustomFunctions } from "./formulas/registry.ts";
 
 export const version = "0.1.0";
 
@@ -48,12 +50,25 @@ export function defineFunctions(definitions: unknown): string | undefined {
   return problems.length ? `Table Plus: custom functions not defined: ${problems.join("; ")}` : undefined;
 }
 
+/**
+ * `tablePlus.defineTypes`: custom column types, as `defineFunctions` takes
+ * functions. Tables rendered from now on show them (Space Lua defines them
+ * before a page shows); what is wrong with any of them, for a notification.
+ */
+export function defineTypes(definitions: unknown): string | undefined {
+  const { types, problems } = customTypes(definitions);
+  defineCustomTypes(types);
+  definitionsChanged();
+  return problems.length ? `Table Plus: custom column types not defined: ${problems.join("; ")}` : undefined;
+}
+
 /** Space Lua is loaded (again): the custom definitions are made anew, replacing those of before */
 export function resetDefinitions(): void {
   customFunctionsAnew();
+  customTypesAnew();
 }
 
-// Formulas are checked again once for definitions made in one go (a script's calls one after another)
+// Tables are checked again once for definitions made in one go (a script's calls one after another)
 let checkQueued = false;
 function definitionsChanged(): void {
   if (checkQueued) return;

@@ -13,10 +13,9 @@ export default columnType({
   check: (text) => (parseDate(text) ? undefined : `"${text}" is not a date written as 2025-11-06`),
   format: (text, { style }, locale) => {
     const { ms, time } = parseDate(text)!;
-    const dateStyle = style as "short" | "medium" | "long";
     // A time with seconds shows them (NOW() writes them)
     const timeStyle = ms % 60_000 !== 0 ? ("medium" as const) : ("short" as const);
     // Without a time zone, as formulas take dates: shown in UTC, it shows as written
-    return dateTimeFormat(locale, { dateStyle, ...(time ? { timeStyle } : {}), timeZone: "UTC" }).format(new Date(ms));
+    return dateTimeFormat(locale, { dateStyle: style, ...(time ? { timeStyle } : {}), timeZone: "UTC" }).format(new Date(ms));
   },
 });

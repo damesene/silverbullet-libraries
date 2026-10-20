@@ -1,20 +1,72 @@
-// Which column types exist (builtin/), and how a column's header names its
-// type: a hashtag, `#name`, `#name-param` (its parameters read here, so a type
-// gets them as values), or an alias.
+// Which column types exist: the built-in ones (builtin/) and the custom ones
+// the user defines (custom.ts), which replace a built-in one of their name;
+// and how a column's header names its type: a hashtag, `#name`, `#name-param`
+// (its parameters read here, so a type gets them as values), or an alias.
 import { BUILT_IN_TYPES } from "./builtin/index.ts";
 import type { ColumnType, Params, ParamSpec, ParamSpecs } from "./type.ts";
 
-// Every column type
-const ALL: readonly ColumnType[] = BUILT_IN_TYPES;
+type Known = {
+  // Every type: the built-in ones (a custom one in the place of the one it replaces), then the other custom ones
+  readonly all: readonly ColumnType[];
+  readonly byName: ReadonlyMap<string, ColumnType>;
+  // Every hashtag that names a type without a dash of its own: aliases, with
+  // the type's parameters as they stand for them (a custom type's before a
+  // built-in one's, a later custom type's before an earlier one's)
+  readonly aliases: ReadonlyMap<string, { readonly type: ColumnType; readonly written: string | undefined }>;
+};
 
-/** The column types by name */
-export const TYPES: ReadonlyMap<string, ColumnType> = new Map(ALL.map((t) => [t.name, t]));
+function knownOf(custom: readonly ColumnType[]): Known {
+  const replacing = new Map(custom.map((t) => [t.name, t]));
+  const all = [...BUILT_IN_TYPES.map((t) => replacing.get(t.name) ?? t), ...custom.filter((t) => !BUILT_IN_TYPES.some((b) => b.name === t.name))];
+  return {
+    all,
+    byName: new Map(all.map((t) => [t.name, t])),
+    aliases: new Map(
+      [...all.filter((t) => !custom.includes(t)), ...custom].flatMap((t) =>
+        Object.entries(t.aliases ?? {}).map(([alias, written]) => [alias, { type: t, written: written || undefined }] as const),
+      ),
+    ),
+  };
+}
 
-// Every hashtag that names a type without a dash of its own: aliases, with the
-// type's parameters as they stand for them
-const ALIASES = new Map<string, { type: ColumnType; written: string | undefined }>(
-  ALL.flatMap((t) => Object.entries(t.aliases ?? {}).map(([alias, written]) => [alias, { type: t, written: written || undefined }])),
-);
+// The custom types, as last defined
+let custom: readonly ColumnType[] = [];
+let known = knownOf(custom);
+// Space Lua is loaded again: the next definitions replace those of before
+let anew = false;
+
+/** Every column type, in the order the Type menu lists them */
+export function allTypes(): readonly ColumnType[] {
+  return known.all;
+}
+
+/** The column type of this name (lower case): the custom one, else the built-in one */
+export function typeNamed(name: string): ColumnType | undefined {
+  return known.byName.get(name);
+}
+
+/** Custom types, added to those defined before (one of the same name replaced, in its place: the last of a name), or replacing them all after `customTypesAnew` */
+export function defineCustomTypes(types: readonly ColumnType[]): void {
+  custom = Array.from(new Map([...(anew ? [] : custom), ...types].map((t) => [t.name, t])).values());
+  known = knownOf(custom);
+  anew = false;
+}
+
+/**
+ * Space Lua is loaded again: the scripts define the types anew. Those of
+ * before are kept until then; when no script defines any any more, they stay
+ * until a reload.
+ */
+export function customTypesAnew(): void {
+  anew = true;
+}
+
+/** Forgets the custom types */
+export function clearCustomTypes(): void {
+  custom = [];
+  known = knownOf(custom);
+  anew = false;
+}
 
 /** A column's type: the type, its parameters, and the hashtag that gave it (as written, without #) */
 export type TypedColumn = { readonly type: ColumnType; readonly params: Params; readonly tag: string };
@@ -25,9 +77,10 @@ const HASHTAG_RE = /(^|\s)#([^\s#]+)/g;
 /** The type a hashtag names (#stars, #stars-10, #euro), if any */
 export function typeOfTag(tag: string): TypedColumn | undefined {
   const lower = tag.toLowerCase();
-  const alias = ALIASES.get(lower);
+  // A type's own name before an alias (a custom type named as a built-in one's alias)
+  const alias = known.byName.has(lower) ? undefined : known.aliases.get(lower);
   const dash = lower.indexOf("-");
-  const type = alias?.type ?? TYPES.get(dash < 0 ? lower : lower.slice(0, dash));
+  const type = alias?.type ?? known.byName.get(dash < 0 ? lower : lower.slice(0, dash));
   if (!type) return undefined;
   const params = readParams(type.params ?? {}, alias ? alias.written : dash < 0 ? undefined : tag.slice(dash + 1));
   return params && { type, params, tag };
@@ -65,8 +118,8 @@ export function readParams(specs: ParamSpecs, written: string | undefined): Para
 function paramValue(spec: ParamSpec, part: string): number | string | undefined {
   switch (spec.kind) {
     case "number": {
-      // A dash separates parameters: no negative numbers
-      const n = /^\d+(\.\d+)?$/.test(part) ? Number(part) : NaN;
+      // A dash separates parameters: no negative numbers; written as numbers are (no 05, no 5.0 for a whole one)
+      const n = (spec.integer ? /^(0|[1-9]\d*)$/ : /^(0|[1-9]\d*)(\.\d+)?$/).test(part) ? Number(part) : NaN;
       const fits = Number.isFinite(n) && (!spec.integer || Number.isInteger(n)) && n >= (spec.min ?? -Infinity) && n <= (spec.max ?? Infinity);
       return fits ? n : undefined;
     }
@@ -96,7 +149,7 @@ export function withColumnType(header: string, tag: string | undefined): string 
 /** Every hashtag that names a type, as CSS can match it: names, names with a parameter, aliases */
 export function typeTagPatterns(): { readonly exact: readonly string[]; readonly prefixes: readonly string[] } {
   return {
-    exact: [...ALL.map((t) => t.name), ...ALIASES.keys()],
-    prefixes: ALL.filter((t) => Object.keys(t.params ?? {}).length > 0).map((t) => `${t.name}-`),
+    exact: [...known.all.map((t) => t.name), ...known.aliases.keys()],
+    prefixes: known.all.filter((t) => Object.keys(t.params ?? {}).length > 0).map((t) => `${t.name}-`),
   };
 }
