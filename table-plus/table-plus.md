@@ -870,6 +870,18 @@ end
 .sb-table-widget thead.tp-stuck tr:first-child td {
   box-shadow: 0 -42px 0 0 var(--root-background-color, #fff);
 }
+/* With the tint of a selected or edited cell, or of a hovered grip's line (inset shadows too) */
+.sb-table-widget.tp-table thead.tp-stuck tr:first-child td:is(.tp-selected, .tp-editing) {
+  box-shadow:
+    0 -42px 0 0 var(--root-background-color, #fff),
+    inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent),
+    inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
+}
+.sb-table-widget.tp-table thead.tp-stuck tr:first-child td.tp-handle-hover {
+  box-shadow:
+    0 -42px 0 0 var(--root-background-color, #fff),
+    inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 10%, transparent);
+}
 
 /* Pinned rows and columns stay in view (moved there by script); they need an
    opaque background over the rows and columns scrolling under them.
@@ -949,10 +961,14 @@ body.tp-navigating .sb-table-widget.tp-table * {
 }
 
 /* Inline editing: the field takes the text's place and size; the cell is
-   highlighted as selected cells are */
+   highlighted as selected cells are. The tint is an inset shadow over the
+   cell's background, not a background color: a pinned cell, or one of a
+   header held at the top, keeps its opaque background, so the rows and
+   columns scrolling under it do not show through */
 .sb-table-widget td.tp-editing {
-  background-color: color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent),
+    inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
 }
 .tp-cell-editor {
   display: block;
@@ -1614,8 +1630,23 @@ body.tp-autoscrolling * {
 
 /* Cells selected by dragging, to copy */
 .sb-table-widget.tp-table td.tp-selected {
-  background-color: color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent);
+  /* An inset shadow over the background, as for the cell edited (td.tp-editing) */
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent),
+    inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
+}
+/* A pinned column's edge keeps its shadow when selected or edited */
+.sb-table-widget.tp-table td.tp-pin-left.tp-pin-edge:is(.tp-selected, .tp-editing) {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent),
+    inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 18%, transparent),
+    3px 0 4px -2px rgba(0, 0, 0, 0.3);
+}
+.sb-table-widget.tp-table td.tp-pin-right.tp-pin-edge:is(.tp-selected, .tp-editing) {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent),
+    inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 18%, transparent),
+    -3px 0 4px -2px rgba(0, 0, 0, 0.3);
 }
 /* While a formula waits for a reference, cells can be pointed at */
 .sb-table-widget.tp-table.tp-pointing td:not(.tp-editing) {
