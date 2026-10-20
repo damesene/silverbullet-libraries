@@ -1,8 +1,8 @@
 // A page without SilverBullet: markdown in a textarea, tables rendered the way
 // SilverBullet renders them, and Table Plus on top through a mock Bridge.
-import type { Bridge, FeatureName } from "../table-plus/src/bridge.ts";
-import { FEATURE_NAMES, SETTINGS } from "../table-plus/src/bridge.ts";
-import { init } from "../table-plus/src/index.ts";
+import type { Bridge } from "../table-plus/src/bridge.ts";
+import { FEATURE_NAMES, MODULE_LABELS, SETTINGS } from "../table-plus/src/bridge.ts";
+import { init, openSettings } from "../table-plus/src/index.ts";
 import { findTables, parseTable } from "../table-plus/src/markdown.ts";
 import libraryPage from "../table-plus/table-plus.md";
 import sample from "./sample.md";
@@ -223,35 +223,7 @@ try {
   settings = { "tablePlus.metadata": true };
 }
 
-const LABELS: Record<Key, string> = {
-  metadata: "Store table metadata",
-  maxHeight: "Max height (px)",
-  autoFormat: "Format tables",
-  enterKey: "Enter",
-  selectOnClick: "Click selects text",
-  ctrlEnterAddsRow: "Ctrl+Enter adds a row",
-  smartFilters: "smart",
-  expressionsDelay: "Refresh ${…} cells after (ms)",
-  cellOverflow: "overflow",
-  cellMaxWidth: "Max column width (px)",
-  cellMaxHeight: "Max cell height (px)",
-};
 
-const MODULE_LABELS: Record<FeatureName, string> = {
-  formulas: "Formulas",
-  names: "Names",
-  pageLinks: "Links to other pages",
-  filters: "Filters",
-  columnTypes: "Column types",
-  selection: "Cell selection",
-  export: "Export",
-  paste: "Paste",
-  handles: "Handles",
-  widths: "Column widths",
-  longText: "Long text",
-  sticky: "Sticky header",
-  autoscroll: "Middle-button scrolling",
-};
 
 function settingsChanged(): void {
   save(SETTINGS_KEY, JSON.stringify(settings));
@@ -273,7 +245,7 @@ function settingControl(key: Key): HTMLLabelElement {
       settings[setting.path] = (input as HTMLInputElement).checked;
       settingsChanged();
     });
-    label.append(input, LABELS[key]);
+    label.append(input, SETTINGS[key].label);
   } else if (typeof setting.default === "number") {
     input = Object.assign(document.createElement("input"), { type: "number", min: "0", step: "50", value: String(current) });
     input.style.width = "6em";
@@ -281,7 +253,7 @@ function settingControl(key: Key): HTMLLabelElement {
       settings[setting.path] = Number(input.value);
       settingsChanged();
     });
-    label.append(LABELS[key], input);
+    label.append(SETTINGS[key].label, input);
   } else {
     input = document.createElement("select");
     for (const option of (setting as { choices?: readonly string[] }).choices ?? []) input.append(new Option(option, option, false, option === current));
@@ -289,13 +261,17 @@ function settingControl(key: Key): HTMLLabelElement {
       settings[setting.path] = input.value;
       settingsChanged();
     });
-    label.append(LABELS[key], input);
+    label.append(SETTINGS[key].label, input);
   }
   return label;
 }
 
 // A module's settings go with it (in the Modules row), the others here
 const moduleOf = (key: Key) => /^tablePlus\.modules\.([^.]+)\./.exec(SETTINGS[key].path)?.[1];
+
+/** The settings panel, as the settings are now (built again after Table Plus' settings dialog saved them) */
+function buildSettingsPanel(): void {
+settingsBox.replaceChildren();
 for (const key of Object.keys(SETTINGS) as Key[]) {
   if (!moduleOf(key)) settingsBox.append(settingControl(key));
 }
@@ -333,6 +309,8 @@ for (const name of FEATURE_NAMES) {
   modulesBox.append(group);
 }
 settingsBox.append(modulesBox);
+}
+buildSettingsPanel();
 
 // --- Chrome -------------------------------------------------------------------
 
@@ -345,6 +323,7 @@ function flash(message: string, type: "info" | "error" = "info"): void {
 }
 
 document.querySelector("#reset")!.addEventListener("click", () => setText(sample, 0));
+document.querySelector("#tp-settings")!.addEventListener("click", () => openSettings());
 
 // The markdown pane and the settings, each shown or hidden by its button; hidden
 // at first on a narrow screen (a phone), then as last chosen
@@ -386,6 +365,16 @@ const bridge: Bridge = {
   getCursor: () => cursor,
   undo: () => step(undoStack, redoStack),
   redo: () => step(redoStack, undoStack),
+  // Table Plus' settings dialog: no CONFIG page here, the playground's own store (and its panel shows them)
+  saveSettings: (values) => {
+    for (const [path, value] of Object.entries(values)) {
+      if (value === undefined) delete settings[path];
+      else settings[path] = value;
+    }
+    buildSettingsPanel();
+    settingsChanged();
+  },
+  reloadUI: () => location.reload(),
 };
 
 source.value = text;

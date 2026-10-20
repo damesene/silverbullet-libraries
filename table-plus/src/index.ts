@@ -14,6 +14,12 @@ export function pageIndexed(name: string): void {
   void controller?.pageIndexed(name);
 }
 
+/** The "Table Plus: Settings" command */
+export function openSettings(): void {
+  const controller = (globalThis as unknown as Record<string, Controller | undefined>)[GLOBAL_KEY];
+  void controller?.openSettings();
+}
+
 /** The "Table Plus: Remove table metadata" command */
 export function removeAllMetadata(): void {
   const controller = (globalThis as unknown as Record<string, Controller | undefined>)[GLOBAL_KEY];

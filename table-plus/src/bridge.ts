@@ -21,15 +21,28 @@ export type Bridge = {
   readonly readPage?: (name: string) => string | Promise<string>;
   // Optional: asks for a text, e.g. a table's name (else the browser's prompt); undefined: cancelled
   readonly prompt?: (message: string, defaultValue?: string) => string | undefined | null | Promise<string | undefined | null>;
+  // Optional, for the settings dialog: writes the space's configuration page
+  // (CONFIG) and loads the configuration again (as SilverBullet's
+  // Configuration Manager does); with readPage. Without it (and without
+  // saveSettings) the dialog only shows the settings.
+  readonly saveConfigPage?: (text: string) => unknown;
+  // Optional: saves settings by path where there is no configuration page (the playground); undefined: back to the default
+  readonly saveSettings?: (values: Readonly<Record<string, unknown>>) => unknown;
+  // Optional: reloads the page, for modules turned on or off (else the browser reloads it)
+  readonly reloadUI?: () => unknown;
 };
 
 type Setting<T> = {
   readonly path: string;
+  // Its name in the settings dialog (as in config.define's ui label on the library page), and what it does in a few words
+  readonly label: string;
+  readonly hint: string;
   readonly default: T;
   // The value as configured, or undefined when it is not valid
   readonly parse: (value: unknown) => T | undefined;
-  // A choice: the values it takes
+  // A choice: the values it takes, and what the settings dialog calls them
   readonly choices?: readonly T[];
+  readonly choiceLabels?: readonly string[];
 };
 
 // A number of pixels, 0 or more (0: no limit)
@@ -59,6 +72,40 @@ export const FEATURE_NAMES = [
 ] as const;
 export type FeatureName = (typeof FEATURE_NAMES)[number];
 
+// The modules' names in the settings dialog (as in config.define's ui labels on the library page)
+export const MODULE_LABELS: Readonly<Record<FeatureName, string>> = {
+  formulas: "Formulas",
+  names: "Names",
+  pageLinks: "Links to other pages",
+  filters: "Filters",
+  columnTypes: "Column types",
+  selection: "Cell selection",
+  export: "Export",
+  paste: "Paste from spreadsheets",
+  handles: "Row and column handles",
+  widths: "Column widths",
+  longText: "Long text in cells",
+  sticky: "Sticky header",
+  autoscroll: "Middle-button scrolling",
+};
+
+// What each module does, in a few words (the settings dialog shows it beside the module's name)
+export const MODULE_DESCRIPTIONS: Readonly<Record<FeatureName, string>> = {
+  formulas: "Formulas in cells (=SUM(B1:B3)), recalculated on every edit",
+  names: "Name tables, columns, rows and cells, to refer to them in formulas",
+  pageLinks: "Formulas can refer to tables and named cells on other pages",
+  filters: "Show only the rows whose cells match what you type under a header",
+  columnTypes: "A header's hashtag formats its column (#currency, #stars…)",
+  selection: "A click selects a cell, as in a spreadsheet; drag or Shift to select more, to copy, paste over or empty them",
+  export: "Copy as CSV in a table's ⋯ menu",
+  paste: "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
+  handles: "Handles beside rows and above columns: drag to move them, click for their menu",
+  widths: "Drag the right edge of a header to set its column's width",
+  longText: "Text wider than a maximum column width wraps or is cut, the expand button shows it whole",
+  sticky: "A table's header stays in view while the page scrolls past it",
+  autoscroll: "The middle mouse button over a table scrolls it in the direction the pointer moves",
+};
+
 /**
  * Settings, registered with `config.define` on the library page: those of
  * whole tables as `tablePlus.<setting>`, those of a part of Table Plus as
@@ -69,67 +116,91 @@ export type FeatureName = (typeof FEATURE_NAMES)[number];
 export const SETTINGS = {
   enterKey: {
     path: "tablePlus.editor.enterKey",
+    label: "Enter in a cell editor",
+    hint: "What Enter does while a cell is edited",
     default: "moveDown",
     choices: ["save", "moveDown"],
+    choiceLabels: ["Save", "Save, edit the cell below"],
     parse: (v) => (v === "save" || v === "moveDown" ? v : undefined),
   } satisfies Setting<"save" | "moveDown">,
   smartFilters: {
     path: "tablePlus.modules.filters.smart",
+    label: "Smart filters",
+    hint: "Filters understand >10, /pattern/, =text, a|b and !text; off, what is typed is text to find",
     default: true,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
   // Store table settings (sorting, filters, pins, names) in the table's metadata row
   metadata: {
     path: "tablePlus.metadata",
+    label: "Store table metadata",
+    hint: "Tables keep their sorting, filters, column widths, pins, names and formulas in a hidden last row; pinning and new formulas need it. Off, sorting and filters are only a view",
     default: false,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
   // A click, Enter, Tab and Ctrl+arrows open a cell with its text selected (Shift+Enter does not); off: the reverse
   selectOnClick: {
     path: "tablePlus.editor.selectOnClick",
+    label: "Click selects the cell's text",
+    hint: "A cell opened for editing (a click, Enter, Tab, Ctrl+arrows) has its whole text selected; off, the cursor is at its end",
     default: false,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
   // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
   ctrlEnterAddsRow: {
     path: "tablePlus.editor.ctrlEnterAddsRow",
+    label: "Ctrl+Enter adds a row",
+    hint: "While a cell is edited, Ctrl+Enter saves it, adds an empty row below and edits it; off, it works like Enter",
     default: true,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
   // Write edited tables with aligned pipes; off: keep each table's own style
   autoFormat: {
     path: "tablePlus.autoFormat",
+    label: "Format tables",
+    hint: "A table edited with Table Plus is written with its columns aligned; off, each table keeps its own style",
     default: true,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
   // Milliseconds `${…}` cells wait after `page:index` for the indexers to write the index
   expressionsDelay: {
     path: "tablePlus.expressions.refreshDelay",
+    label: "Delay before refreshing (ms)",
+    hint: "After an edit, cells with ${…} (a query, a sum) are evaluated again once SilverBullet has indexed the page: how long to wait for that; raise it if they still show old values",
     default: 500,
     parse: (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined),
   } satisfies Setting<number>,
   // Pixels; 0: no limit
   maxHeight: {
     path: "tablePlus.maxHeight",
+    label: "Maximum table height (px)",
+    hint: "A taller table gets its own scrollbar; 0: no limit",
     default: 0,
     parse: pixels,
   } satisfies Setting<number>,
   // Text longer than a cell's maximum width: wrapped onto more lines, or cut with an ellipsis (…)
   cellOverflow: {
     path: "tablePlus.modules.longText.overflow",
+    label: "Text that does not fit",
+    hint: "What text wider than the maximum column width does",
     default: "wrap",
     choices: ["wrap", "ellipsis"],
+    choiceLabels: ["Wrap", "Cut with an ellipsis (…)"],
     parse: (v) => (v === "wrap" || v === "ellipsis" ? v : undefined),
   } satisfies Setting<"wrap" | "ellipsis">,
   // A column's maximum width in pixels; 0: no limit
   cellMaxWidth: {
     path: "tablePlus.modules.longText.maxWidth",
+    label: "Maximum column width (px)",
+    hint: "Text wider than this wraps or is cut, as set above; 0: no limit",
     default: 500,
     parse: pixels,
   } satisfies Setting<number>,
   // A wrapped cell's maximum height in pixels, the rest cut; 0: no limit
   cellMaxHeight: {
     path: "tablePlus.modules.longText.maxHeight",
+    label: "Maximum cell height (px)",
+    hint: "Wrapped text grows a cell up to this height, the rest is cut (the expand button shows it whole); 0: no limit",
     default: 200,
     parse: pixels,
   } satisfies Setting<number>,

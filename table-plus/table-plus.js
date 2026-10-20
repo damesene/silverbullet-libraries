@@ -3,70 +3,139 @@ var pixels = (v) => {
   const n = typeof v === "string" ? Number(v) : v;
   return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : void 0;
 };
+var FEATURE_NAMES = [
+  "formulas",
+  "names",
+  "pageLinks",
+  "filters",
+  "columnTypes",
+  "selection",
+  "export",
+  "paste",
+  "handles",
+  "widths",
+  "longText",
+  "sticky",
+  "autoscroll"
+];
+var MODULE_LABELS = {
+  formulas: "Formulas",
+  names: "Names",
+  pageLinks: "Links to other pages",
+  filters: "Filters",
+  columnTypes: "Column types",
+  selection: "Cell selection",
+  export: "Export",
+  paste: "Paste from spreadsheets",
+  handles: "Row and column handles",
+  widths: "Column widths",
+  longText: "Long text in cells",
+  sticky: "Sticky header",
+  autoscroll: "Middle-button scrolling"
+};
+var MODULE_DESCRIPTIONS = {
+  formulas: "Formulas in cells (=SUM(B1:B3)), recalculated on every edit",
+  names: "Name tables, columns, rows and cells, to refer to them in formulas",
+  pageLinks: "Formulas can refer to tables and named cells on other pages",
+  filters: "Show only the rows whose cells match what you type under a header",
+  columnTypes: "A header's hashtag formats its column (#currency, #stars\u2026)",
+  selection: "A click selects a cell, as in a spreadsheet; drag or Shift to select more, to copy, paste over or empty them",
+  export: "Copy as CSV in a table's \u22EF menu",
+  paste: "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
+  handles: "Handles beside rows and above columns: drag to move them, click for their menu",
+  widths: "Drag the right edge of a header to set its column's width",
+  longText: "Text wider than a maximum column width wraps or is cut, the expand button shows it whole",
+  sticky: "A table's header stays in view while the page scrolls past it",
+  autoscroll: "The middle mouse button over a table scrolls it in the direction the pointer moves"
+};
 var SETTINGS = {
   enterKey: {
     path: "tablePlus.editor.enterKey",
+    label: "Enter in a cell editor",
+    hint: "What Enter does while a cell is edited",
     default: "moveDown",
     choices: ["save", "moveDown"],
+    choiceLabels: ["Save", "Save, edit the cell below"],
     parse: (v) => v === "save" || v === "moveDown" ? v : void 0
   },
   smartFilters: {
     path: "tablePlus.modules.filters.smart",
+    label: "Smart filters",
+    hint: "Filters understand >10, /pattern/, =text, a|b and !text; off, what is typed is text to find",
     default: true,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
   // Store table settings (sorting, filters, pins, names) in the table's metadata row
   metadata: {
     path: "tablePlus.metadata",
+    label: "Store table metadata",
+    hint: "Tables keep their sorting, filters, column widths, pins, names and formulas in a hidden last row; pinning and new formulas need it. Off, sorting and filters are only a view",
     default: false,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
   // A click, Enter, Tab and Ctrl+arrows open a cell with its text selected (Shift+Enter does not); off: the reverse
   selectOnClick: {
     path: "tablePlus.editor.selectOnClick",
+    label: "Click selects the cell's text",
+    hint: "A cell opened for editing (a click, Enter, Tab, Ctrl+arrows) has its whole text selected; off, the cursor is at its end",
     default: false,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
   // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
   ctrlEnterAddsRow: {
     path: "tablePlus.editor.ctrlEnterAddsRow",
+    label: "Ctrl+Enter adds a row",
+    hint: "While a cell is edited, Ctrl+Enter saves it, adds an empty row below and edits it; off, it works like Enter",
     default: true,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
   // Write edited tables with aligned pipes; off: keep each table's own style
   autoFormat: {
     path: "tablePlus.autoFormat",
+    label: "Format tables",
+    hint: "A table edited with Table Plus is written with its columns aligned; off, each table keeps its own style",
     default: true,
     parse: (v) => typeof v === "boolean" ? v : void 0
   },
   // Milliseconds `${…}` cells wait after `page:index` for the indexers to write the index
   expressionsDelay: {
     path: "tablePlus.expressions.refreshDelay",
+    label: "Delay before refreshing (ms)",
+    hint: "After an edit, cells with ${\u2026} (a query, a sum) are evaluated again once SilverBullet has indexed the page: how long to wait for that; raise it if they still show old values",
     default: 500,
     parse: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0
   },
   // Pixels; 0: no limit
   maxHeight: {
     path: "tablePlus.maxHeight",
+    label: "Maximum table height (px)",
+    hint: "A taller table gets its own scrollbar; 0: no limit",
     default: 0,
     parse: pixels
   },
   // Text longer than a cell's maximum width: wrapped onto more lines, or cut with an ellipsis (…)
   cellOverflow: {
     path: "tablePlus.modules.longText.overflow",
+    label: "Text that does not fit",
+    hint: "What text wider than the maximum column width does",
     default: "wrap",
     choices: ["wrap", "ellipsis"],
+    choiceLabels: ["Wrap", "Cut with an ellipsis (\u2026)"],
     parse: (v) => v === "wrap" || v === "ellipsis" ? v : void 0
   },
   // A column's maximum width in pixels; 0: no limit
   cellMaxWidth: {
     path: "tablePlus.modules.longText.maxWidth",
+    label: "Maximum column width (px)",
+    hint: "Text wider than this wraps or is cut, as set above; 0: no limit",
     default: 500,
     parse: pixels
   },
   // A wrapped cell's maximum height in pixels, the rest cut; 0: no limit
   cellMaxHeight: {
     path: "tablePlus.modules.longText.maxHeight",
+    label: "Maximum cell height (px)",
+    hint: "Wrapped text grows a cell up to this height, the rest is cut (the expand button shows it whole); 0: no limit",
     default: 200,
     parse: pixels
   }
@@ -1276,6 +1345,430 @@ var TouchKeyboard = class {
   };
 };
 
+// table-plus/src/configpage.ts
+var CONFIG_PAGE = "CONFIG";
+var MANAGED_MARKER = "-- managed-by: configuration-manager";
+function toLua(value) {
+  if (typeof value === "boolean" || typeof value === "number") return String(value);
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\t/g, "\\t")}"`;
+}
+function pathOf(line) {
+  const m = /^\s*config\.set\(\s*(["'])((?:(?!\1)[^\\]|\\.)*)\1\s*,.*\)\s*$/.exec(line);
+  return m ? m[2].replace(/\\(.)/g, "$1") : void 0;
+}
+function withConfigSettings(text, values) {
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const fence = /^```space-lua[ \t]*\r?\n([\s\S]*?)^```[ \t]*(?=\r?$)/gm;
+  let block;
+  for (let m = fence.exec(text); m; m = fence.exec(text)) {
+    if (m[1].trimStart().startsWith(MANAGED_MARKER)) {
+      block = { start: m.index, end: m.index + m[0].length, inner: m[1] };
+      break;
+    }
+  }
+  const lines = block ? block.inner.replace(/\r?\n$/, "").split(/\r?\n/) : [MANAGED_MARKER];
+  const pending = new Map(Object.entries(values));
+  const kept = [];
+  for (const line of lines) {
+    const path = pathOf(line);
+    if (path === void 0 || !pending.has(path)) {
+      kept.push(line);
+      continue;
+    }
+    const value = pending.get(path);
+    pending.delete(path);
+    if (value !== void 0) kept.push(`config.set(${toLua(path)}, ${toLua(value)})`);
+  }
+  for (const [path, value] of pending) {
+    if (value !== void 0) kept.push(`config.set(${toLua(path)}, ${toLua(value)})`);
+  }
+  const empty = kept.every((line) => line.trim() === "" || line.trim() === MANAGED_MARKER);
+  if (!block) {
+    if (empty) return text;
+    const separator = text === "" || text.endsWith(eol + eol) ? "" : text.endsWith(eol) ? eol : eol + eol;
+    return `${text}${separator}\`\`\`space-lua${eol}${kept.join(eol)}${eol}\`\`\`${eol}`;
+  }
+  if (empty) {
+    const end = text.startsWith(eol, block.end) ? block.end + eol.length : block.end;
+    return text.slice(0, block.start) + text.slice(end);
+  }
+  return `${text.slice(0, block.start)}\`\`\`space-lua${eol}${kept.join(eol)}${eol}\`\`\`${text.slice(block.end)}`;
+}
+
+// table-plus/src/icons.ts
+var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var lineIcon = (body) => svg(body);
+var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
+var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
+var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
+var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
+var ICONS = {
+  grip: svg(
+    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
+    true
+  ),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  columnWidth: svg('<path d="M4 4v16M20 4v16M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3"/>'),
+  expand: svg('<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'),
+  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
+  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
+  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
+  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
+  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  editMode: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
+  selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),
+  selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
+  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
+  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
+  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Sorted lines with a check: make the sorting the real order
+  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
+  // Two arrows round: calculate again
+  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
+  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  settings: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'),
+  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
+  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
+  // A padlock: a name that stays
+  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
+  format: svg('<path d="M4 6h16M4 12h16M4 18h16M9 4v16M15 4v16"/>'),
+  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
+  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
+  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
+  // A pushpin with its needle pointing to the edge it pins to
+  pinTop: PIN_POINT_UP,
+  unpin: svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/><path d="M4 4l16 16"/>'),
+  pinBottom: PIN_POINT_DOWN,
+  pinLeft: PIN_POINT_LEFT,
+  pinRight: PIN_POINT_RIGHT
+};
+
+// table-plus/src/settings.ts
+var TABS = [
+  {
+    id: "general",
+    title: "General",
+    groups: [
+      { title: "Tables", keys: ["metadata", "autoFormat", "maxHeight"] },
+      { title: "Cell editor", keys: ["enterKey", "selectOnClick", "ctrlEnterAddsRow"] },
+      { title: "Cells with Lua expressions", keys: ["expressionsDelay"] }
+    ]
+  }
+];
+var moduleOf = (key) => /^tablePlus\.modules\.([^.]+)\./.exec(SETTINGS[key].path)?.[1];
+var enabledPath = (name) => `tablePlus.modules.${name}.enabled`;
+var SettingsDialog = class {
+  constructor(context) {
+    this.context = context;
+  }
+  context;
+  initial = /* @__PURE__ */ new Map();
+  values = /* @__PURE__ */ new Map();
+  // Number fields whose text is no valid value: Save waits for them
+  invalid = /* @__PURE__ */ new Set();
+  backdrop;
+  saveButton;
+  note;
+  moduleSettings = /* @__PURE__ */ new Map();
+  saving = false;
+  // Where the focus was before the dialog took it
+  returnFocus = null;
+  get isOpen() {
+    return !!this.backdrop?.isConnected;
+  }
+  /** Whether a node is the dialog's (its keys are not the tables') */
+  contains(node) {
+    return !!this.backdrop?.contains(node);
+  }
+  /** Reads the settings as configured now and shows them */
+  async open() {
+    if (this.isOpen) return;
+    const { bridge } = this.context;
+    const read = async (path, fallback) => {
+      try {
+        return await bridge.getConfig?.(path, fallback) ?? fallback;
+      } catch {
+        return fallback;
+      }
+    };
+    for (const key of Object.keys(SETTINGS)) {
+      const setting = SETTINGS[key];
+      const value = setting.parse(await read(setting.path, setting.default)) ?? setting.default;
+      this.initial.set(setting.path, value);
+    }
+    for (const name of FEATURE_NAMES) {
+      const value = await read(enabledPath(name), true);
+      this.initial.set(enabledPath(name), typeof value === "boolean" ? value : true);
+    }
+    for (const [path, value] of this.initial) this.values.set(path, value);
+    this.returnFocus = this.context.doc.activeElement;
+    this.render();
+  }
+  close() {
+    this.backdrop?.remove();
+    this.backdrop = void 0;
+    if (this.returnFocus instanceof HTMLElement && this.returnFocus.isConnected) this.returnFocus.focus({ preventScroll: true });
+  }
+  /** Esc or ×: closed, after asking where changes would be lost */
+  async dismiss() {
+    if (this.saving) return;
+    if (this.changed().length > 0) {
+      const { bridge } = this.context;
+      const question = "Close the Table Plus settings without saving your changes?";
+      const sure = bridge.confirm ? await bridge.confirm(question) : this.context.doc.defaultView.confirm(question);
+      if (!sure) return;
+    }
+    this.close();
+  }
+  // ---- the dialog --------------------------------------------------------------
+  el(tag, className, text) {
+    const e = this.context.doc.createElement(tag);
+    if (className) e.className = className;
+    if (text !== void 0) e.textContent = text;
+    return e;
+  }
+  render() {
+    const el = this.el.bind(this);
+    const backdrop = el("div", `${UI_CLASS} tp-settings-backdrop`);
+    const dialog = el("div", "tp-settings");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-labelledby", "tp-settings-title");
+    const head = el("div", "tp-settings-head");
+    const titles = el("div", "tp-settings-titles");
+    const title = el("h2", "tp-settings-title", "Table Plus settings");
+    title.id = "tp-settings-title";
+    titles.append(title, el("p", "tp-settings-scope", "For every table in the space: SilverBullet's configuration"));
+    const close = el("button", "tp-settings-close");
+    close.type = "button";
+    close.title = "Close (Esc)";
+    close.setAttribute("aria-label", close.title);
+    close.innerHTML = ICONS.clear;
+    close.addEventListener("click", () => void this.dismiss());
+    head.append(titles, close);
+    const tabs = el("div", "tp-settings-tabs");
+    tabs.setAttribute("role", "tablist");
+    const body = el("div", "tp-settings-body");
+    const panels = [];
+    const tabButtons = [];
+    const addTab = (id, name, panel) => {
+      const tab = el("button", "tp-settings-tab", name);
+      tab.type = "button";
+      tab.setAttribute("role", "tab");
+      tab.dataset.tpTab = id;
+      panel.setAttribute("role", "tabpanel");
+      panel.dataset.tpPanel = id;
+      tab.addEventListener("click", () => {
+        tabButtons.forEach((b) => b.setAttribute("aria-selected", String(b === tab)));
+        panels.forEach((p) => p.hidden = p !== panel);
+      });
+      tabButtons.push(tab);
+      panels.push(panel);
+      tabs.append(tab);
+      body.append(panel);
+    };
+    for (const tab of TABS) {
+      const panel = el("div", "tp-settings-panel");
+      for (const group of tab.groups) {
+        if (group.title) panel.append(el("h3", "tp-settings-group", group.title));
+        const card2 = el("div", "tp-settings-card");
+        for (const key of group.keys) card2.append(this.row(key));
+        panel.append(card2);
+      }
+      addTab(tab.id, tab.title, panel);
+    }
+    const modules = el("div", "tp-settings-panel");
+    const card = el("div", "tp-settings-card");
+    for (const name of FEATURE_NAMES) card.append(this.moduleRow(name));
+    modules.append(card);
+    addTab("modules", "Modules", modules);
+    tabButtons.forEach((b, i) => b.setAttribute("aria-selected", String(i === 0)));
+    panels.forEach((p, i) => p.hidden = i !== 0);
+    const foot = el("div", "tp-settings-foot");
+    const note = el("div", "tp-settings-note");
+    this.note = note;
+    const cancel = el("button", "tp-settings-cancel", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => {
+      if (!this.saving) this.close();
+    });
+    const save = el("button", "tp-settings-save", "Save");
+    save.type = "button";
+    save.addEventListener("click", () => void this.save());
+    this.saveButton = save;
+    foot.append(note, cancel, save);
+    dialog.append(head, tabs, body, foot);
+    backdrop.append(dialog);
+    backdrop.addEventListener("keydown", (e) => this.onKeyDown(e, dialog));
+    this.context.doc.body.append(backdrop);
+    this.backdrop = backdrop;
+    this.update();
+    dialog.tabIndex = -1;
+    dialog.focus({ preventScroll: true });
+  }
+  // Esc closes (asking where changes would be lost); Tab stays in the dialog; no key reaches the page
+  onKeyDown(e, dialog) {
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      e.preventDefault();
+      void this.dismiss();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const focusable = Array.from(dialog.querySelectorAll("button, input, select")).filter(
+      (f) => !f.disabled && f.offsetParent !== null
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = this.context.doc.activeElement;
+    if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+  /** A setting's name, and under it what it does where it says more than its name */
+  label(name, hint) {
+    const text = this.el("span", "tp-settings-label");
+    text.append(this.el("span", "tp-settings-name", name));
+    if (hint) text.append(this.el("span", "tp-settings-hint", hint));
+    return text;
+  }
+  /** A setting's row: its name left, its control right (a switch, a choice, a number) */
+  row(key) {
+    const setting = SETTINGS[key];
+    const value = this.values.get(setting.path);
+    const row = this.el("label", "tp-settings-row");
+    row.dataset.tpSetting = setting.path;
+    row.append(this.label(setting.label, setting.hint));
+    if (typeof setting.default === "boolean") {
+      row.append(this.switch(value === true, (on) => this.change(setting.path, on)));
+      return row;
+    }
+    const choices = setting.choices;
+    if (choices) {
+      const select = this.el("select");
+      const names = setting.choiceLabels ?? choices;
+      choices.forEach((choice, i) => select.append(new Option(names[i] ?? choice, choice, false, choice === value)));
+      select.addEventListener("change", () => this.change(setting.path, select.value));
+      row.append(select);
+      return row;
+    }
+    const input = this.el("input");
+    input.type = "number";
+    input.min = "0";
+    input.step = "1";
+    input.value = String(value);
+    input.addEventListener("input", () => {
+      const parsed2 = setting.parse(input.value.trim() === "" ? void 0 : Number(input.value));
+      input.classList.toggle("tp-settings-invalid", parsed2 === void 0);
+      if (parsed2 === void 0) this.invalid.add(setting.path);
+      else {
+        this.invalid.delete(setting.path);
+        this.values.set(setting.path, parsed2);
+      }
+      this.update();
+    });
+    row.append(input);
+    return row;
+  }
+  /** A module's row: its name and what it does, its switch; its own settings under it while it is on */
+  moduleRow(name) {
+    const block = this.el("div", "tp-settings-module");
+    const row = this.el("label", "tp-settings-row");
+    const toggle = this.switch(this.values.get(enabledPath(name)) === true, (on) => this.change(enabledPath(name), on));
+    toggle.querySelector("input").dataset.tpModule = name;
+    row.append(this.label(MODULE_LABELS[name], MODULE_DESCRIPTIONS[name]), toggle);
+    block.append(row);
+    const keys = Object.keys(SETTINGS).filter((key) => moduleOf(key) === name);
+    if (keys.length > 0) {
+      const own = this.el("div", "tp-settings-module-settings");
+      for (const key of keys) own.append(this.row(key));
+      block.append(own);
+      this.moduleSettings.set(name, own);
+    }
+    return block;
+  }
+  /** A switch: a checkbox drawn as one */
+  switch(on, changed) {
+    const wrap = this.el("span", "tp-settings-switch");
+    const box = this.el("input");
+    box.type = "checkbox";
+    box.setAttribute("role", "switch");
+    box.checked = on;
+    box.addEventListener("change", () => changed(box.checked));
+    wrap.append(box, this.el("span", "tp-settings-knob"));
+    return wrap;
+  }
+  change(path, value) {
+    this.values.set(path, value);
+    this.update();
+  }
+  /** What Save does and whether it can, the note, the modules' settings */
+  update() {
+    const changed = this.changed();
+    const modules = this.modulesChanged();
+    const save = this.saveButton;
+    if (save) {
+      save.textContent = this.saving ? "Saving\u2026" : modules ? "Save and reload" : "Save";
+      save.disabled = this.saving || !this.context.canSave || changed.length === 0 || this.invalid.size > 0;
+      save.title = this.context.canSave ? "" : "Settings cannot be saved here";
+    }
+    if (this.note) {
+      this.note.textContent = !this.context.canSave ? "Settings cannot be saved here." : this.invalid.size > 0 ? "A number is not valid." : modules ? "Modules apply once the page reloads." : "";
+    }
+    for (const [name, own] of this.moduleSettings) own.hidden = this.values.get(enabledPath(name)) !== true;
+    for (const input of Array.from(this.backdrop?.querySelectorAll("input, select") ?? [])) {
+      input.disabled = this.saving;
+    }
+  }
+  changed() {
+    return Array.from(this.values).filter(([path, value]) => this.initial.get(path) !== value).map(([path]) => path);
+  }
+  modulesChanged() {
+    return FEATURE_NAMES.some((name) => this.values.get(enabledPath(name)) !== this.initial.get(enabledPath(name)));
+  }
+  /**
+   * Saves what changed, then closes; reloads for modules. Each value is written
+   * as it is, its default too: the value shown may come from elsewhere (a part
+   * set in one go, another block), which the managed block, coming last, overrides.
+   */
+  async save() {
+    const changed = this.changed();
+    if (this.saving || !this.context.canSave || changed.length === 0 || this.invalid.size > 0) return;
+    const values = {};
+    for (const path of changed) values[path] = this.values.get(path);
+    const reload = this.modulesChanged();
+    this.saving = true;
+    this.update();
+    try {
+      await this.context.save(values);
+    } catch (e) {
+      this.saving = false;
+      void this.context.bridge.flash(`Table Plus: the settings could not be saved (${String(e)})`, "error");
+      this.update();
+      return;
+    }
+    this.saving = false;
+    this.close();
+    if (reload) {
+      if (this.context.bridge.reloadUI) await this.context.bridge.reloadUI();
+      else this.context.doc.defaultView?.location.reload();
+      return;
+    }
+    this.context.saved();
+  }
+};
+
 // table-plus/src/features/autoscroll.ts
 var DEAD_ZONE = 12;
 var Autoscroll = class {
@@ -1388,59 +1881,6 @@ var Autoscroll = class {
 function editorRect(editor) {
   return (editor.popup ? editor.field.closest(".tp-cell-popup") ?? editor.cell : editor.cell).getBoundingClientRect();
 }
-
-// table-plus/src/icons.ts
-var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
-var lineIcon = (body) => svg(body);
-var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
-var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
-var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
-var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
-var ICONS = {
-  grip: svg(
-    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
-    true
-  ),
-  plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  columnWidth: svg('<path d="M4 4v16M20 4v16M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3"/>'),
-  expand: svg('<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'),
-  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
-  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
-  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
-  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
-  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
-  editMode: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
-  selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),
-  selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
-  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
-  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
-  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
-  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
-  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
-  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
-  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
-  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
-  // Sorted lines with a check: make the sorting the real order
-  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
-  // Two arrows round: calculate again
-  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
-  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
-  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
-  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
-  // A padlock: a name that stays
-  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
-  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
-  format: svg('<path d="M4 6h16M4 12h16M4 18h16M9 4v16M15 4v16"/>'),
-  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
-  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
-  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
-  // A pushpin with its needle pointing to the edge it pins to
-  pinTop: PIN_POINT_UP,
-  unpin: svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/><path d="M4 4l16 16"/>'),
-  pinBottom: PIN_POINT_DOWN,
-  pinLeft: PIN_POINT_LEFT,
-  pinRight: PIN_POINT_RIGHT
-};
 
 // table-plus/src/view.ts
 var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -8047,6 +8487,9 @@ var Controller = class {
   // When a press inserted with the +: the click that ends it is no click on what is under the pointer then
   insertPressAt = 0;
   cellEditor;
+  // The settings dialog while open, and while it reads the settings to open
+  settingsDialog;
+  settingsOpening = false;
   // Countermeasures to SilverBullet and the on-screen keyboard on touch screens (a workaround, see its file)
   touchKeyboard;
   hoverWidget;
@@ -8213,6 +8656,7 @@ var Controller = class {
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.closeTableMenu(false);
     for (const el of [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)]) el.remove();
+    this.settingsDialog?.close();
   }
   onBlur = () => this.cellEditor.setNavigating(false);
   /**
@@ -8635,6 +9079,44 @@ var Controller = class {
   takeEditor() {
     const closed = this.cellEditor.close();
     return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.cellEditor.withSaved(t, closed) };
+  }
+  /** The settings dialog (the table's ⋯ menu, the "Table Plus: Settings" command) */
+  async openSettings() {
+    if (this.settingsDialog?.isOpen || this.settingsOpening) return;
+    this.settingsOpening = true;
+    const bridge = this.bridge;
+    this.settingsDialog = new SettingsDialog({
+      doc: this.doc,
+      bridge,
+      canSave: !!bridge.saveSettings || !!bridge.saveConfigPage && !!bridge.readPage,
+      save: (values) => this.saveSettings(values),
+      saved: () => {
+        this.settingsReadAt = 0;
+        void this.refreshSettings();
+      }
+    });
+    try {
+      await this.settingsDialog.open();
+    } finally {
+      this.settingsOpening = false;
+    }
+  }
+  /** Settings saved where SilverBullet keeps them: the CONFIG page's managed block (configpage.ts), or the bridge's own store */
+  async saveSettings(values) {
+    const bridge = this.bridge;
+    if (bridge.saveSettings) {
+      await bridge.saveSettings(values);
+      return;
+    }
+    if (!bridge.saveConfigPage || !bridge.readPage) throw new Error("no configuration page to save to");
+    let text = "";
+    try {
+      text = await bridge.readPage(CONFIG_PAGE) ?? "";
+    } catch (e) {
+      if (!/not.?found|does not exist|no such/i.test(String(e))) throw e;
+    }
+    if (/^(<{7}|={7}|>{7})( |$)/m.test(text)) throw new Error("the CONFIG page has a sync conflict: resolve it there first");
+    await bridge.saveConfigPage(withConfigSettings(text, values));
   }
   /** The "Table Plus: Remove table metadata" command */
   removeAllMetadata() {
@@ -9096,6 +9578,7 @@ var Controller = class {
     return { left: view.left, right: view.right, top: Math.max(view.top, visibleTop), bottom: Math.min(view.bottom, visibleBottom) };
   }
   onKeyDown = (e) => {
+    if (this.settingsDialog?.isOpen && e.target instanceof Node && this.settingsDialog.contains(e.target)) return;
     this.dropAnchor();
     if (e.key === "Escape" && this.tableMenu) {
       e.preventDefault();
@@ -9658,6 +10141,13 @@ var Controller = class {
         title: "Show this table as markdown",
         icon: ICONS.markdown,
         run: () => void this.showMarkdown(this.current(widget, info)[1])
+      },
+      // Last before the destructive ones: not about this table
+      {
+        label: "Table Plus settings\u2026",
+        title: "Settings for every table in the space (not just this one): SilverBullet's configuration",
+        icon: ICONS.settings,
+        run: () => void this.openSettings()
       }
     ];
     const more = button(
@@ -9878,6 +10368,10 @@ function pageIndexed(name) {
   const controller = globalThis[GLOBAL_KEY];
   void controller?.pageIndexed(name);
 }
+function openSettings() {
+  const controller = globalThis[GLOBAL_KEY];
+  void controller?.openSettings();
+}
 function removeAllMetadata() {
   const controller = globalThis[GLOBAL_KEY];
   void controller?.removeAllMetadata();
@@ -9900,6 +10394,7 @@ function init(bridge) {
 }
 export {
   init,
+  openSettings,
   pageIndexed,
   removeAllMetadata,
   version

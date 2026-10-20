@@ -399,7 +399,11 @@ On a phone or a tablet:
 
 ## Settings
 
-Open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* and *Table Plus: Modules* categories, or set them in your [[CONFIG]]. Settings of whole tables are `tablePlus.<setting>`, those of a part of Table Plus `tablePlus.<part>.<setting>`, and those of a module (a part that can be turned off) `tablePlus.modules.<module>.<setting>`. A part is set in one go, with only what you change (the rest keeps its default):
+These settings are for every table in the space (a table's own sorting, filters, widths and names are in its menus).
+
+**Table Plus settings** (*Table Plus settings…* in a table's ⋯ menu, or the *Table Plus: Settings* command) shows them all in one dialog: *General*, and *Modules*, each with its switch and its own settings under it. Nothing changes until *Save*: then they are written into SilverBullet's configuration, where the Configuration Manager keeps its settings (the managed block of your [[CONFIG]] page), so both always show the same. Turning a module on or off saves and reloads the page (*Save and reload*), as modules start with Table Plus. *Cancel* (or Esc) closes it unsaved.
+
+You can also open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Table Plus* and *Table Plus: Modules* categories, or set them in your [[CONFIG]]. Settings of whole tables are `tablePlus.<setting>`, those of a part of Table Plus `tablePlus.<part>.<setting>`, and those of a module (a part that can be turned off) `tablePlus.modules.<module>.<setting>`. A part is set in one go, with only what you change (the rest keeps its default):
 
 ```lua
 config.set("tablePlus.metadata", true)
@@ -440,17 +444,17 @@ Setting a part replaces what an earlier `config.set` of the same part set: set e
 
 The `longText` module (see [[#Modules]]); off, cells show as SilverBullet renders them: on one line, as wide as their text.
 
-* **Long text in cells** (`overflow`), default `wrap`
+* **Text that does not fit** (`overflow`), default `wrap`
   * `wrap`: text longer than the column's maximum width wraps onto more lines, up to the maximum cell height; the rest is cut and fades out.
   * `ellipsis`: it stays on one line, cut with `…`.
   * A cell whose text is cut shows an expand button at its top right when hovered: it opens the cell in a popup, its whole text wrapped, to read and edit (Enter saves, Esc closes). While a cell is edited, F2 (or the same button, shown when the text does not fit the field, e.g. a long formula) goes on in the popup.
 * **Maximum column width (px)** (`maxWidth`), default `500`: wider text wraps or is cut. `0`: no limit, a cell is as wide as its text.
 * **Maximum cell height (px)** (`maxHeight`), default `200`: a wrapped cell no taller than this. `0`: no limit.
 
-### `${…}` cells (`tablePlus.expressions`)
+### Cells with Lua expressions (`tablePlus.expressions`)
 
-* **Refresh ${…} cells after (ms)** (`refreshDelay`), default `500`
-  * After you edit a table, a cell that holds a `${…}` expression reading the page index (a query, or a formula of a spreadsheet library such as MdTableSheet) shows its new result once SilverBullet has indexed the page again. This is how many milliseconds it waits for the index: raise it if such cells still show old results (a slow device, a large space).
+* **Delay before refreshing (ms)** (`refreshDelay`), default `500`
+  * After you edit a table, a cell that holds a Lua expression (`${…}`) reading the page index (a query, or a formula of a spreadsheet library such as MdTableSheet) shows its new result once SilverBullet has indexed the page again. This is how many milliseconds it waits for the index: raise it if such cells still show old results (a slow device, a large space).
 
 ### Modules (`tablePlus.modules`)
 
@@ -592,8 +596,8 @@ config.define("tablePlus", {
         refreshDelay = {
           type = "number",
           default = 500,
-          description = "After you edit a table, a cell that holds a ${…} expression reading the page index (a query, or a formula of a spreadsheet library) shows its new result once SilverBullet has indexed the page again: this is how many milliseconds it waits for that. Raise it if such cells still show old results (a slow device, a large space).",
-          ui = { category = "Table Plus", label = "Refresh ${…} cells after (ms)", priority = 0.5 },
+          description = "After you edit a table, a cell that holds a Lua expression (${…}) reading the page index (a query, or a formula of a spreadsheet library) shows its new result once SilverBullet has indexed the page again: this is how many milliseconds it waits for that. Raise it if such cells still show old results (a slow device, a large space).",
+          ui = { category = "Table Plus", label = "Cells with Lua expressions: delay before refreshing (ms)", priority = 0.5 },
         },
       },
     },
@@ -730,7 +734,7 @@ config.define("tablePlus", {
               enum = { "wrap", "ellipsis" },
               default = "wrap",
               description = "Text longer than a column's maximum width. wrap: it wraps onto more lines, up to the maximum cell height. ellipsis: it stays on one line, cut with …. A cell whose text is cut shows an expand button that shows it whole (F2 while editing it).",
-              ui = { category = "Table Plus: Modules", label = "Long text in cells", priority = 3.4 },
+              ui = { category = "Table Plus: Modules", label = "Text that does not fit", priority = 3.4 },
             },
             maxWidth = {
               type = "number",
@@ -805,12 +809,35 @@ if js and js.window then
     confirm = editor.confirm,
     prompt = editor.prompt,
     readPage = space.readPage,
+    -- The settings dialog: saved as SilverBullet's Configuration Manager saves
+    -- (the CONFIG page, indexed, the configuration loaded again)
+    saveConfigPage = function(text)
+      space.writePage("CONFIG", text)
+      -- Written: the rest only loads it; a failure there says so, the page is saved
+      local ok, err = pcall(function()
+        if sync and sync.performFileSync then sync.performFileSync("CONFIG.md") end
+        mq.send("indexQueue", "CONFIG.md")
+        mq.awaitEmptyQueue("indexQueue")
+        editor.reloadConfigAndCommands()
+        if editor.rebuildEditorState then editor.rebuildEditorState() end
+      end)
+      if not ok then
+        editor.flashNotification("Table Plus: the settings are saved in CONFIG, but loading them failed (" .. tostring(err) .. "): reload the page", "error")
+      end
+    end,
+    reloadUI = editor.reloadUI,
   })
   -- Once the page is re-indexed, `${…}` cells show results from the new index
   event.listen {
     name = "page:index",
     run = function(e)
       tablePlus.pageIndexed(e.data.name)
+    end,
+  }
+  command.define {
+    name = "Table Plus: Settings",
+    run = function()
+      tablePlus.openSettings()
     end,
   }
   command.define {
@@ -1200,6 +1227,293 @@ body.tp-resizing * {
    ellipsis by the longText module) */
 .sb-table-widget.tp-table td.tp-sized > .tp-cell-content {
   overflow: hidden;
+}
+
+/* The settings dialog (Table Plus settings… in a table's ⋯ menu, "Table Plus:
+   Settings"): tabs, rows in cards (the name and what it does left, the control
+   right), switches */
+.tp-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--modal-backdrop-color, rgba(0, 0, 0, 0.35));
+  font-family: var(--ui-font, system-ui, sans-serif);
+}
+.tp-settings {
+  --tp-settings-line: var(--button-border-color, rgba(128, 128, 128, 0.3));
+  --tp-settings-card: color-mix(in srgb, var(--root-color) 4%, var(--root-background-color));
+  /* As tall as its content, as far as the window has room; then its body scrolls */
+  display: flex;
+  flex-direction: column;
+  width: min(600px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  color: var(--root-color);
+  background: var(--root-background-color);
+  border: 1px solid var(--tp-settings-line);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  font-size: 14px;
+  overflow: hidden;
+}
+.tp-settings:focus {
+  outline: none;
+}
+.tp-settings button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.tp-settings-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px 16px 8px;
+}
+.tp-settings-titles {
+  flex: 1;
+  min-width: 0;
+}
+.tp-settings-title {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+}
+.tp-settings-scope {
+  margin: 2px 0 0;
+  font-size: 12px;
+  opacity: 0.65;
+}
+.tp-settings-close {
+  display: inline-flex;
+  padding: 5px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  opacity: 0.65;
+}
+.tp-settings-close:hover {
+  opacity: 1;
+  background: var(--tp-settings-card);
+}
+.tp-settings-close svg {
+  width: 16px;
+  height: 16px;
+}
+.tp-settings-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--tp-settings-line);
+}
+.tp-settings-tab {
+  padding: 7px 10px;
+  margin-bottom: -1px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  opacity: 0.7;
+}
+.tp-settings-tab:hover {
+  opacity: 1;
+}
+.tp-settings-tab[aria-selected="true"] {
+  opacity: 1;
+  font-weight: 600;
+  border-bottom-color: var(--ui-accent-color);
+}
+.tp-settings-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 16px 12px;
+}
+.tp-settings-panel[hidden] {
+  display: none;
+}
+.tp-settings-group {
+  margin: 14px 2px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.6;
+}
+.tp-settings-panel > .tp-settings-card:first-child {
+  margin-top: 12px;
+}
+.tp-settings-card {
+  background: var(--tp-settings-card);
+  border: 1px solid var(--tp-settings-line);
+  border-radius: 8px;
+}
+.tp-settings-card > :not(:first-child) {
+  border-top: 1px solid var(--tp-settings-line);
+}
+.tp-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+}
+.tp-settings-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.tp-settings-module-name,
+.tp-settings-name {
+  font-weight: 500;
+}
+.tp-settings-hint {
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.62;
+}
+.tp-settings-row select,
+.tp-settings-row input[type="number"] {
+  flex: none;
+  font: inherit;
+  color: inherit;
+  background: var(--root-background-color);
+  border: 1px solid var(--tp-settings-line);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.tp-settings-row select {
+  max-width: 55%;
+}
+.tp-settings-row input[type="number"] {
+  width: 6.5em;
+}
+.tp-settings-row input.tp-settings-invalid {
+  border-color: var(--danger-color, #c62828);
+}
+/* A switch: the checkbox (invisible, still focusable) drawn as a track and a knob */
+.tp-settings-switch {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+}
+.tp-settings-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.tp-settings-knob {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--root-color) 22%, var(--root-background-color));
+  transition: background 0.15s;
+  pointer-events: none;
+}
+.tp-settings-knob::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s;
+}
+.tp-settings-switch input:checked + .tp-settings-knob {
+  background: var(--ui-accent-color);
+}
+.tp-settings-switch input:checked + .tp-settings-knob::after {
+  transform: translateX(14px);
+}
+.tp-settings-switch input:focus-visible + .tp-settings-knob {
+  outline: 2px solid var(--ui-accent-color);
+  outline-offset: 2px;
+}
+.tp-settings-switch input:disabled + .tp-settings-knob {
+  opacity: 0.5;
+}
+/* A module's own settings: under it, indented, while it is on */
+.tp-settings-module-settings {
+  margin: 0 12px 10px 24px;
+  border-left: 2px solid var(--tp-settings-line);
+}
+.tp-settings-module-settings .tp-settings-row {
+  padding: 6px 0 6px 12px;
+}
+.tp-settings-module-settings[hidden] {
+  display: none;
+}
+.tp-settings-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--tp-settings-line);
+}
+.tp-settings-note {
+  flex: 1;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.tp-settings-cancel,
+.tp-settings-save {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--tp-settings-line);
+  background: var(--root-background-color);
+}
+.tp-settings-save {
+  color: #fff !important;
+  background: var(--ui-accent-color);
+  border-color: var(--ui-accent-color);
+}
+.tp-settings-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* A phone: the dialog takes the screen (the buttons always at its bottom), fields
+   in 16px (no zoom on focus), larger targets for a finger */
+@media (max-width: 480px), (pointer: coarse) and (max-height: 600px) {
+  .tp-settings {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+  .tp-settings-body {
+    flex: 1 1 auto;
+  }
+  .tp-settings-tab {
+    padding: 10px 12px;
+  }
+  .tp-settings-row {
+    min-height: 44px;
+  }
+  .tp-settings-cancel,
+  .tp-settings-save {
+    padding: 10px 18px;
+  }
+  .tp-settings-row {
+    flex-wrap: wrap;
+  }
+  .tp-settings-row select {
+    max-width: 100%;
+  }
+  .tp-settings-row select,
+  .tp-settings-row input[type="number"] {
+    font-size: 16px;
+  }
 }
 
 /* The cell's popup: its editor over the cell, the whole text wrapped */

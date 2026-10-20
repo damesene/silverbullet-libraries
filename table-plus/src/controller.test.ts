@@ -84,6 +84,7 @@ describe("Controller", () => {
       "Copy as CSV",
       "Format table",
       "Edit markdown",
+      "Table Plus settings…",
       "—",
       "Remove metadata",
     ]);

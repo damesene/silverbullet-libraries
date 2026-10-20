@@ -19,6 +19,8 @@ import type {
 import { CellEditing } from "./core/editor.ts";
 import { insertColumnWith, insertRowWith } from "./core/structure.ts";
 import { TouchKeyboard } from "./core/touch-keyboard.ts";
+import { CONFIG_PAGE, withConfigSettings } from "./configpage.ts";
+import { SettingsDialog } from "./settings.ts";
 import { Autoscroll } from "./features/autoscroll.ts";
 import { ColumnTypes } from "./features/types.ts";
 import { Export } from "./features/export.ts";
@@ -178,6 +180,9 @@ export class Controller implements TableHost {
   // When a press inserted with the +: the click that ends it is no click on what is under the pointer then
   private insertPressAt = 0;
   private readonly cellEditor: CellEditing;
+  // The settings dialog while open, and while it reads the settings to open
+  private settingsDialog: SettingsDialog | undefined;
+  private settingsOpening = false;
   // Countermeasures to SilverBullet and the on-screen keyboard on touch screens (a workaround, see its file)
   private readonly touchKeyboard: TouchKeyboard;
   private hoverWidget: HTMLElement | undefined;
@@ -392,6 +397,7 @@ export class Controller implements TableHost {
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
     this.closeTableMenu(false);
     for (const el of [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)]) el.remove();
+    this.settingsDialog?.close();
   }
 
   private onBlur = (): void => this.cellEditor.setNavigating(false);
@@ -890,6 +896,50 @@ export class Controller implements TableHost {
   takeEditor(): { widget: HTMLElement; row: number; column: number; save: (table: Table) => Table | undefined } | undefined {
     const closed = this.cellEditor.close();
     return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.cellEditor.withSaved(t, closed) };
+  }
+
+  /** The settings dialog (the table's ⋯ menu, the "Table Plus: Settings" command) */
+  async openSettings(): Promise<void> {
+    if (this.settingsDialog?.isOpen || this.settingsOpening) return;
+    this.settingsOpening = true;
+    // Made anew each time: with the bridge as it is now (SilverBullet hands a new one over when it loads the configuration again)
+    const bridge = this.bridge;
+    this.settingsDialog = new SettingsDialog({
+      doc: this.doc,
+      bridge,
+      canSave: !!bridge.saveSettings || (!!bridge.saveConfigPage && !!bridge.readPage),
+      save: (values) => this.saveSettings(values),
+      saved: () => {
+        // Read at once, not after the usual second
+        this.settingsReadAt = 0;
+        void this.refreshSettings();
+      },
+    });
+    try {
+      await this.settingsDialog.open();
+    } finally {
+      this.settingsOpening = false;
+    }
+  }
+
+  /** Settings saved where SilverBullet keeps them: the CONFIG page's managed block (configpage.ts), or the bridge's own store */
+  private async saveSettings(values: Readonly<Record<string, unknown>>): Promise<void> {
+    const bridge = this.bridge;
+    if (bridge.saveSettings) {
+      await bridge.saveSettings(values);
+      return;
+    }
+    if (!bridge.saveConfigPage || !bridge.readPage) throw new Error("no configuration page to save to");
+    let text = "";
+    try {
+      text = (await bridge.readPage(CONFIG_PAGE)) ?? "";
+    } catch (e) {
+      // No configuration page yet: it is created. Any other failure writes nothing (an empty text would replace the page)
+      if (!/not.?found|does not exist|no such/i.test(String(e))) throw e;
+    }
+    // A sync conflict left in the page (its markers): its Lua is broken, written over it would be worse
+    if (/^(<{7}|={7}|>{7})( |$)/m.test(text)) throw new Error("the CONFIG page has a sync conflict: resolve it there first");
+    await bridge.saveConfigPage(withConfigSettings(text, values));
   }
 
   /** The "Table Plus: Remove table metadata" command */
@@ -1426,6 +1476,8 @@ export class Controller implements TableHost {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    // The settings dialog's keys are its own (not a selected cell's, not the table menu's)
+    if (this.settingsDialog?.isOpen && e.target instanceof Node && this.settingsDialog.contains(e.target)) return;
     // Keys may scroll (PageDown, a cell editor moving to the next cell): a table written is not held in place against them
     this.dropAnchor();
     if (e.key === "Escape" && this.tableMenu) {
@@ -2111,6 +2163,13 @@ export class Controller implements TableHost {
         title: "Show this table as markdown",
         icon: ICONS.markdown,
         run: () => void this.showMarkdown(this.current(widget, info)[1]),
+      },
+      // Last before the destructive ones: not about this table
+      {
+        label: "Table Plus settings…",
+        title: "Settings for every table in the space (not just this one): SilverBullet's configuration",
+        icon: ICONS.settings,
+        run: () => void this.openSettings(),
       },
     ];
     const more = button(
