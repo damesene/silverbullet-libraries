@@ -824,6 +824,20 @@ describe("Formulas", () => {
       expect(document.querySelector(".tp-formula-hint")!.classList.contains("tp-visible")).toBe(false);
     });
 
+    it("cuts an outline at the header held over the rows scrolled under it", async () => {
+      await setup(TOTAL);
+      // The page scrolled: the header held at the top over B1 (y 20–40), its bottom at 30
+      Object.defineProperty(document.querySelector("thead")!, "getBoundingClientRect", {
+        configurable: true,
+        value: () => ({ left: 0, top: 10, width: 1000, height: 20, right: 1000, bottom: 30, x: 0, y: 10 }) as DOMRect,
+      });
+      clickOn(cell(3, 1));
+      field().value = "=SUM([qty])";
+      field().dispatchEvent(new Event("input"));
+      // The column's body (y 20–80) from under the header down
+      expect(marks().map((m) => [m.style.top, m.style.height])).toEqual([["30px", "50px"]]);
+    });
+
     it("moves a reference by dragging its outline, and resizes a range by its corner", async () => {
       await setup(TOTAL);
       clickOn(cell(3, 1));

@@ -817,7 +817,19 @@ export class Formulas implements Feature {
    * the table's visible box
    */
   private areaBoxes(widget: HTMLElement, info: WidgetInfo, area: Area): { left: number; top: number; right: number; bottom: number }[] {
-    const clip = this.host.innerBox(widget);
+    // The table's box, cut to the page in view (a table taller than the view scrolls with the page)
+    const box = this.host.innerBox(widget);
+    const view = this.host.viewBounds(widget);
+    const clip = {
+      left: Math.max(box.left, view.left),
+      top: Math.max(box.top, view.top),
+      right: Math.min(box.right, view.right),
+      bottom: Math.min(box.bottom, view.bottom),
+    };
+    // Body rows scroll under the header held at the top and the rows pinned to the bottom
+    const { tHead: head, tFoot: foot } = info.table;
+    const under = head ? head.getBoundingClientRect().bottom : -Infinity;
+    const over = foot?.rows.length ? foot.getBoundingClientRect().top : Infinity;
     const boxes: { left: number; top: number; right: number; bottom: number }[] = [];
     let run: HTMLTableRowElement[] = [];
     const flush = () => {
@@ -827,13 +839,15 @@ export class Formulas implements Feature {
       if (!first || !last) return;
       const a = first.getBoundingClientRect();
       const b = last.getBoundingClientRect();
-      const box = {
+      const top = first.closest("tbody") ? Math.max(clip.top, under) : clip.top;
+      const bottom = last.closest("tbody") ? Math.min(clip.bottom, over) : clip.bottom;
+      const outline = {
         left: Math.max(Math.min(a.left, b.left), clip.left),
-        top: Math.max(Math.min(a.top, b.top), clip.top),
+        top: Math.max(Math.min(a.top, b.top), top),
         right: Math.min(Math.max(a.right, b.right), clip.right),
-        bottom: Math.min(Math.max(a.bottom, b.bottom), clip.bottom),
+        bottom: Math.min(Math.max(a.bottom, b.bottom), bottom),
       };
-      if (box.right > box.left && box.bottom > box.top) boxes.push(box);
+      if (outline.right > outline.left && outline.bottom > outline.top) boxes.push(outline);
     };
     for (const { tr, row } of this.shownBodyRows(info)) {
       if (row >= area.top && row <= area.bottom) run.push(tr);
