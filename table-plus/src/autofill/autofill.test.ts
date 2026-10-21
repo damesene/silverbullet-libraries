@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { parseTable, serializeTable } from "../markdown.ts";
-import { type FillLine, filled, fillLine, seriesFor } from "./index.ts";
+import { allSeries, clearCustomSeries, customSeries, customSeriesAnew, defineCustomSeries, type FillLine, filled, fillLine, seriesFor } from "./index.ts";
 
 /** The values after (and, backward, before) the ones given, as a drag fills them */
 const after = (values: string[], count = 3) => {
@@ -100,5 +100,67 @@ describe("filling a table", () => {
 
   it("copies the cells another part claims, the selected cells over again, others as their values", () => {
     expect(fillLine(TABLE, column(2), cells)).toEqual(['=moved 2 <meta cn="keep">', "x"]);
+  });
+});
+
+describe("custom series", () => {
+  afterEach(() => clearCustomSeries());
+
+  it("goes round a list of words, before the built-in series, and needs two of one not alone", () => {
+    const { series, problems } = customSeries({
+      default: () => [
+        { name: "quarters", words: ["Q1", "Q2", "Q3", "Q4"] },
+        { name: "status", words: ["todo", "doing", "done"], alone: false },
+      ],
+    });
+    expect(problems).toEqual([]);
+    defineCustomSeries(series);
+    // Not Q5: the custom list before the built-in numbered text
+    expect(after(["Q3"])).toEqual(["Q4", "Q1", "Q2"]);
+    expect(after(["DOING", "DONE"], 1)).toEqual(["TODO"]);
+    expect(after(["doing"], 1)).toEqual(["doing"]);
+  });
+
+  it("goes on with a series' generator, a mistake in it no match or the value repeated", () => {
+    defineCustomSeries(
+      customSeries([
+        { name: "weeks", match: (values: string[]) => (values.every((v) => /^W\d+$/.test(v)) ? (i: number) => `W${Number(values[0]!.slice(1)) + i}` : undefined) },
+        { name: "broken", match: (values: string[]) => (values[0] === "boom" ? () => { throw new Error("no"); } : values[0] === "bad" ? 42 : undefined) },
+      ]).series,
+    );
+    expect(after(["W7"], 2)).toEqual(["W8", "W9"]);
+    expect(before(["W7"], 1)).toEqual(["W6"]);
+    // A generator that throws gives the value repeated; a match giving no function is no match
+    expect(after(["boom"], 1)).toEqual(["boom"]);
+    expect(after(["bad"], 1)).toEqual(["bad"]);
+  });
+
+  it("replaces a built-in series of its name, in its place, and anew once Space Lua loads again", () => {
+    defineCustomSeries(customSeries([{ name: "lists", words: ["red", "green", "blue"] }]).series);
+    expect(after(["Mon"], 1)).toEqual(["Mon"]);
+    expect(after(["green"], 1)).toEqual(["blue"]);
+    expect(allSeries().map((s) => s.name)).toEqual(["dates", "times", "numbers", "lists", "numbered text"]);
+    customSeriesAnew();
+    defineCustomSeries(customSeries([{ name: "sizes", words: ["S", "M", "L"] }]).series);
+    expect(allSeries().map((s) => s.name)).toEqual(["sizes", "dates", "times", "numbers", "lists", "numbered text"]);
+    expect(after(["Mon"], 1)).toEqual(["Tue"]);
+  });
+
+  it("tells what is wrong with a definition and defines the others", () => {
+    const { series, problems } = customSeries([
+      { name: "ok", words: ["a", "b"] },
+      { name: "1st" },
+      { name: "both", words: ["a", "b"], match: () => undefined },
+      { name: "short", words: ["a"] },
+      { name: "twice", words: ["Út", "ut"] },
+    ]);
+    expect(series.map((s) => s.name)).toEqual(["ok"]);
+    expect(problems).toEqual([
+      'series 2: its name "1st" is not letters, digits, _ and spaces starting with a letter',
+      "series 3: both: it has words (a list to go round) or match (a series), one of them",
+      "series 4: short: its words are not a list of two or more texts",
+      "series 5: twice: a word is in its words twice (case and diacritics aside)",
+    ]);
+    expect(customSeries("x").problems).toEqual(["the definitions are not a list of series (or a function returning one)"]);
   });
 });

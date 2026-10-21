@@ -1,503 +1,3 @@
-// table-plus/src/themes.ts
-var BUILT_IN_THEMES = ["native", "playground", "minimal", "slate", "grid", "ocean", "paper", "contrast", "compact", "bold", "soft", "ledger"];
-var NATIVE_THEME = "native";
-var THEME_NAME_RE = /^[\w-]+$/;
-var THEME_SELECTOR_RE = /data-tp-theme\s*=\s*["']?([\w-]+)["']?\s*\]/g;
-function themeName(value) {
-  const name = typeof value === "string" ? value.trim() : "";
-  return THEME_NAME_RE.test(name) ? name : void 0;
-}
-function themeLabel(name) {
-  const words = name.replace(/[-_]+/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-function themesInStyles(doc) {
-  const found = /* @__PURE__ */ new Set();
-  const visit = (rules) => {
-    for (const rule of Array.from(rules)) {
-      if ("selectorText" in rule && typeof rule.selectorText === "string") {
-        for (const match of rule.selectorText.matchAll(THEME_SELECTOR_RE)) found.add(match[1]);
-      }
-      if ("cssRules" in rule && rule.cssRules) visit(rule.cssRules);
-    }
-  };
-  for (const sheet of Array.from(doc.styleSheets)) {
-    try {
-      visit(sheet.cssRules);
-    } catch {
-    }
-  }
-  return [...found];
-}
-var STRIPES = ["none", "rows", "columns"];
-function stripesName(value) {
-  return STRIPES.find((s) => s === value);
-}
-function stripesLabel(stripes) {
-  return themeLabel(stripes);
-}
-function allThemes(doc) {
-  return [.../* @__PURE__ */ new Set([...BUILT_IN_THEMES, ...themesInStyles(doc)])];
-}
-
-// table-plus/src/bridge.ts
-var pixels = (v) => {
-  const n = typeof v === "string" ? Number(v) : v;
-  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : void 0;
-};
-var FEATURE_NAMES = [
-  "formulas",
-  "names",
-  "pageLinks",
-  "filters",
-  "columnTypes",
-  "selection",
-  "autofill",
-  "lazy",
-  "themes",
-  "export",
-  "excel",
-  "paste",
-  "handles",
-  "widths",
-  "longText",
-  "sticky",
-  "autoscroll",
-  "largeTables",
-  "fullScreen"
-];
-var MODULES_OFF_BY_DEFAULT = /* @__PURE__ */ new Set(["largeTables"]);
-function moduleOnByDefault(name) {
-  return !MODULES_OFF_BY_DEFAULT.has(name);
-}
-var MODULE_LABELS = {
-  formulas: "Formulas",
-  names: "Names",
-  pageLinks: "Links to other pages",
-  filters: "Filters",
-  columnTypes: "Column types",
-  selection: "Cell selection",
-  autofill: "AutoFill",
-  lazy: "Lazy saving",
-  themes: "Themes",
-  export: "Export",
-  excel: "Excel",
-  paste: "Paste from spreadsheets",
-  handles: "Row and column handles",
-  widths: "Column widths",
-  longText: "Long text in cells",
-  sticky: "Sticky header",
-  autoscroll: "Middle-button scrolling",
-  largeTables: "Large tables",
-  fullScreen: "Full screen"
-};
-var MODULE_DESCRIPTIONS = {
-  formulas: "Formulas in cells (=SUM(B1:B3)), recalculated on every edit",
-  names: "Name tables, columns, rows and cells, to refer to them in formulas",
-  pageLinks: "Formulas can refer to tables and named cells on other pages",
-  filters: "Show only the rows whose cells match what you type under a header",
-  columnTypes: "A header's hashtag formats its column (#currency, #stars\u2026)",
-  selection: "A click selects a cell, as in a spreadsheet; drag or Shift to select more, to copy, paste over or empty them",
-  autofill: "A square at the corner of the cells selected: drag it to fill the cells after them (1, 2 \u2192 3, 4; Mon \u2192 Tue; formulas with their references moved), double-click it to fill down",
-  lazy: "An icon in a table's toolbar switches it to saving its cells edited together, a moment after editing stops: quicker typing in large tables",
-  themes: "How tables look (header, lines, stripes, spacing): a theme for every table, another one for a table from its \u22EF menu",
-  export: "Copy as CSV in a table's \u22EF menu",
-  excel: "Export to Excel\u2026 in a table's \u22EF menu: copy for Excel (numbers and dates as Excel's), or download an .xlsx file with the formulas",
-  paste: "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
-  handles: "Handles beside rows and above columns: drag to move them, click for their menu",
-  widths: "Drag the right edge of a header to set its column's width",
-  longText: "Text wider than a maximum column width wraps or is cut, the expand button shows it whole",
-  sticky: "A table's header stays in view while the page scrolls past it",
-  autoscroll: "The middle mouse button over a table scrolls it in the direction the pointer moves",
-  largeTables: "Tables with many rows scroll in a box of their own (Maximum table height, else the window's height), and only the rows in view are in the page: editing stays quick",
-  fullScreen: "An icon in the table's toolbar shows the table over the whole window; the same icon or Esc closes it"
-};
-var SETTINGS = {
-  enterKey: {
-    path: "tablePlus.editor.enterKey",
-    label: "Enter in a cell editor",
-    hint: "What Enter does while a cell is edited",
-    default: "moveDown",
-    choices: ["save", "moveDown"],
-    choiceLabels: ["Save", "Save, edit the cell below"],
-    parse: (v) => v === "save" || v === "moveDown" ? v : void 0
-  },
-  smartFilters: {
-    path: "tablePlus.modules.filters.smart",
-    label: "Smart filters",
-    hint: "Filters understand >10, /pattern/, =text, a|b and !text; off, what is typed is text to find",
-    default: true,
-    parse: (v) => typeof v === "boolean" ? v : void 0
-  },
-  // Store table settings (sorting, filters, pins, names) in the table's metadata row
-  metadata: {
-    path: "tablePlus.metadata",
-    label: "Store table metadata",
-    hint: "Tables keep their sorting, filters, column widths, pins, names and formulas in a hidden last row; pinning and new formulas need it. Off, sorting and filters are only a view",
-    default: false,
-    parse: (v) => typeof v === "boolean" ? v : void 0
-  },
-  // A click, Enter, Tab and Ctrl+arrows open a cell with its text selected (Shift+Enter does not); off: the reverse
-  selectOnClick: {
-    path: "tablePlus.editor.selectOnClick",
-    label: "Click selects the cell's text",
-    hint: "A cell opened for editing (a click, Enter, Tab, Ctrl+arrows) has its whole text selected; off, the cursor is at its end",
-    default: false,
-    parse: (v) => typeof v === "boolean" ? v : void 0
-  },
-  // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
-  ctrlEnterAddsRow: {
-    path: "tablePlus.editor.ctrlEnterAddsRow",
-    label: "Ctrl+Enter adds a row",
-    hint: "While a cell is edited, Ctrl+Enter saves it, adds an empty row below and edits it; off, it works like Enter",
-    default: true,
-    parse: (v) => typeof v === "boolean" ? v : void 0
-  },
-  // Write edited tables with aligned pipes; off: keep each table's own style
-  autoFormat: {
-    path: "tablePlus.autoFormat",
-    label: "Format tables",
-    hint: "A table edited with Table Plus is written with its columns aligned; off, each table keeps its own style",
-    default: true,
-    parse: (v) => typeof v === "boolean" ? v : void 0
-  },
-  // Milliseconds `${…}` cells wait after `page:index` for the indexers to write the index
-  expressionsDelay: {
-    path: "tablePlus.expressions.refreshDelay",
-    label: "Delay before refreshing (ms)",
-    hint: "After an edit, cells with ${\u2026} (a query, a sum) are evaluated again once SilverBullet has indexed the page: how long to wait for that; raise it if they still show old values",
-    default: 500,
-    parse: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0
-  },
-  // How long after editing stops a table in lazy saving writes its cells (the lazy module)
-  lazyDelay: {
-    path: "tablePlus.modules.lazy.delay",
-    label: "Saves after (ms)",
-    hint: "In lazy saving, the cells edited are saved this long after no cell is being edited",
-    default: 500,
-    parse: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0
-  },
-  // The tables' theme (the themes module); a table's metadata may choose another
-  theme: {
-    path: "tablePlus.modules.themes.theme",
-    label: "Theme",
-    hint: "How tables look: their header, lines, stripes and spacing. Native leaves them as SilverBullet shows them; a table's \u22EF menu can choose another theme for it",
-    default: NATIVE_THEME,
-    choices: BUILT_IN_THEMES,
-    choiceLabels: BUILT_IN_THEMES.map(themeLabel),
-    moreChoices: themesInStyles,
-    moreLabel: themeLabel,
-    parse: themeName
-  },
-  // Every other row or column tinted, in the theme's color (the themes module); a table's metadata may say otherwise
-  stripes: {
-    path: "tablePlus.modules.themes.stripes",
-    label: "Stripes",
-    hint: "Every other row (or column) is tinted, in the theme's color; the icons in Theme in a table's \u22EF menu can choose otherwise for that table",
-    default: "rows",
-    choices: STRIPES,
-    choiceLabels: STRIPES.map(stripesLabel),
-    parse: stripesName
-  },
-  // Pixels; 0: no limit
-  maxHeight: {
-    path: "tablePlus.maxHeight",
-    label: "Maximum table height (px)",
-    hint: "A taller table gets its own scrollbar; 0: no limit",
-    default: 0,
-    parse: pixels
-  },
-  // Text longer than a cell's maximum width: wrapped onto more lines, or cut with an ellipsis (…)
-  cellOverflow: {
-    path: "tablePlus.modules.longText.overflow",
-    label: "Text that does not fit",
-    hint: "What text wider than the maximum column width does",
-    default: "wrap",
-    choices: ["wrap", "ellipsis"],
-    choiceLabels: ["Wrap", "Cut with an ellipsis (\u2026)"],
-    parse: (v) => v === "wrap" || v === "ellipsis" ? v : void 0
-  },
-  // A column's maximum width in pixels; 0: no limit
-  cellMaxWidth: {
-    path: "tablePlus.modules.longText.maxWidth",
-    label: "Maximum column width (px)",
-    hint: "Text wider than this wraps or is cut, as set above; 0: no limit",
-    default: 500,
-    parse: pixels
-  },
-  // From how many rows a table is a large one (the largeTables module)
-  largeTablesMinRows: {
-    path: "tablePlus.modules.largeTables.minRows",
-    label: "Applies from (rows)",
-    hint: "A table with at least this many rows gets its own box, and only the rows in view are kept in the page",
-    default: 200,
-    parse: (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : void 0
-  },
-  // A wrapped cell's maximum height in pixels, the rest cut; 0: no limit
-  cellMaxHeight: {
-    path: "tablePlus.modules.longText.maxHeight",
-    label: "Maximum cell height (px)",
-    hint: "Wrapped text grows a cell up to this height, the rest is cut (the expand button shows it whole); 0: no limit",
-    default: 200,
-    parse: pixels
-  }
-};
-function settingChoices(key2, doc, current) {
-  const setting = SETTINGS[key2];
-  if (!setting.choices) return [];
-  const options = setting.choices.map((value, i) => ({ value, label: setting.choiceLabels?.[i] ?? value }));
-  const more = (value) => ({ value, label: setting.moreLabel?.(value) ?? value });
-  for (const value of setting.moreChoices?.(doc) ?? []) if (!options.some((o) => o.value === value)) options.push(more(value));
-  if (typeof current === "string" && current !== "" && !options.some((o) => o.value === current)) options.push(more(current));
-  return options;
-}
-var REQUIRED = [
-  "getText",
-  "replaceRange",
-  "moveCursor",
-  "getCurrentPage",
-  "flash"
-];
-function missingBridgeFunctions(bridge) {
-  return REQUIRED.filter((name) => typeof bridge?.[name] !== "function");
-}
-
-// table-plus/src/dom.ts
-var WIDGET_SELECTOR = ".sb-table-widget";
-var EDITOR_SELECTOR = ".cm-content";
-var SCROLLER_SELECTOR = ".cm-scroller";
-var NATIVE_ACTION_SELECTOR = "a[data-ref], [data-mention-name], button[data-onclick], span.sb-task-state";
-var INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
-var UI_CLASS = "tp-ui";
-var OUT_OF_LINE_CLASS = "tp-out-of-line";
-function renderedTable(widget) {
-  return widget.querySelector("table");
-}
-function positionHint(table) {
-  const element = table.dataset.pos !== void 0 ? table : table.querySelector("[data-pos]");
-  const pos = element instanceof HTMLElement ? Number(element.dataset.pos) : NaN;
-  return Number.isFinite(pos) ? pos : void 0;
-}
-var TYPE_TAG_CLASS = "tp-type-tag";
-function cellText(cell) {
-  let text = "";
-  const walk = (parent) => {
-    for (let node = parent.firstChild; node; node = node.nextSibling) {
-      if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
-      if (node.nodeType === 3) text += node.textContent ?? "";
-      else walk(node);
-    }
-  };
-  walk(cell);
-  return text.replace(/\s+/g, " ").trim();
-}
-var HEAD_CLASS = "tp-head";
-var HEAD_NAME_CLASS = "tp-head-name";
-function layOutHeaderCell(cell) {
-  if (cell.querySelector(`:scope > .${HEAD_CLASS}`)) return;
-  const doc = cell.ownerDocument;
-  const head = doc.createElement("span");
-  head.className = HEAD_CLASS;
-  const name = doc.createElement("span");
-  name.className = HEAD_NAME_CLASS;
-  head.append(name);
-  for (const node of Array.from(cell.childNodes)) {
-    const ui = node instanceof Element && node.classList.contains(UI_CLASS);
-    if (ui && node.classList.contains(OUT_OF_LINE_CLASS)) continue;
-    (ui ? head : name).append(node);
-  }
-  cell.prepend(head);
-}
-function cellValue(cell) {
-  return cell.dataset.tpValue ?? cellText(cell);
-}
-function caretTextOffset(cell, x, y) {
-  const doc = cell.ownerDocument;
-  let node;
-  let offset = 0;
-  if (typeof doc.caretPositionFromPoint === "function") {
-    const position = doc.caretPositionFromPoint(x, y);
-    node = position?.offsetNode;
-    offset = position?.offset ?? 0;
-  } else if (typeof doc.caretRangeFromPoint === "function") {
-    const range = doc.caretRangeFromPoint(x, y);
-    node = range?.startContainer;
-    offset = range?.startOffset ?? 0;
-  }
-  if (!node || node.nodeType !== Node.TEXT_NODE || !cell.contains(node)) return void 0;
-  let before = "";
-  const walker = doc.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
-  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
-    if (text.parentElement?.closest(`.${UI_CLASS}`)) continue;
-    if (text === node) {
-      before += (text.textContent ?? "").slice(0, offset);
-      break;
-    }
-    before += text.textContent ?? "";
-  }
-  return before.replace(/\s+/g, " ").trimStart().length;
-}
-
-// table-plus/src/icons.ts
-var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
-var lineIcon = (body) => svg(body);
-var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
-var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
-var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
-var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
-var ICONS = {
-  grip: svg(
-    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
-    true
-  ),
-  plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  columnWidth: svg('<path d="M4 4v16M20 4v16M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3"/>'),
-  expand: svg('<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'),
-  fullScreen: svg('<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>'),
-  exitFullScreen: svg('<path d="M9 4v5H4M15 4v5h5M15 20v-5h5M9 20v-5H4"/>'),
-  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
-  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
-  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
-  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
-  download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
-  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
-  // No stripes: an empty table, struck through (rows and columns: its tinted lines)
-  stripesNone: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M5 18L19 6"/>'),
-  stripesRows: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18"/><path d="M4 10h16v4H4z" fill="currentColor" stroke="none" opacity="0.4"/>'),
-  stripesColumns: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><path d="M9.5 5h5v14h-5z" fill="currentColor" stroke="none" opacity="0.4"/>'),
-  theme: svg('<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.9 1.4-1.8l-.3-.8a1.7 1.7 0 0 1 1.6-2.4H17a4 4 0 0 0 4-4c0-4.9-4-9-9-9z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>'),
-  lazy: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
-  editMode: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
-  selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),
-  selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
-  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
-  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
-  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
-  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
-  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
-  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
-  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
-  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
-  // Sorted lines with a check: make the sorting the real order
-  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
-  // Two arrows round: calculate again
-  // fx: a formula's function (the Functions dialog)
-  function: svg('<path d="M8 20c2 0 2.6-1.4 3-3.5l2-10C13.4 4.4 14 3 16 3M8 9h7M14 13l6 7M20 13l-6 7"/>'),
-  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
-  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
-  settings: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'),
-  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
-  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
-  // A padlock: a name that stays
-  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
-  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
-  format: svg('<path d="M4 6h16M4 12h16M4 18h16M9 4v16M15 4v16"/>'),
-  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
-  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
-  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
-  // A pushpin with its needle pointing to the edge it pins to
-  pinTop: PIN_POINT_UP,
-  unpin: svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/><path d="M4 4l16 16"/>'),
-  pinBottom: PIN_POINT_DOWN,
-  pinLeft: PIN_POINT_LEFT,
-  pinRight: PIN_POINT_RIGHT
-};
-
-// table-plus/src/core/dialog.ts
-var Dialogs = class {
-  constructor(doc) {
-    this.doc = doc;
-  }
-  doc;
-  shown;
-  get isOpen() {
-    return !!this.shown?.backdrop.isConnected;
-  }
-  /** Whether a node is the open dialog's */
-  contains(node) {
-    return !!this.shown?.backdrop.contains(node);
-  }
-  open(options) {
-    this.close();
-    const { doc } = this;
-    const el = (tag, className, text) => {
-      const e = doc.createElement(tag);
-      e.className = className;
-      if (text !== void 0) e.textContent = text;
-      return e;
-    };
-    const backdrop = el("div", `${UI_CLASS} tp-dialog-backdrop`);
-    const dialog = el("div", `tp-dialog${options.className ? ` ${options.className}` : ""}`);
-    dialog.setAttribute("role", "dialog");
-    dialog.setAttribute("aria-modal", "true");
-    dialog.setAttribute("aria-label", options.title);
-    dialog.tabIndex = -1;
-    const head = el("div", "tp-dialog-head");
-    const titles = el("div", "tp-dialog-titles");
-    titles.append(el("h2", "tp-dialog-title", options.title));
-    if (options.subtitle) titles.append(el("p", "tp-dialog-subtitle", options.subtitle));
-    const close = el("button", "tp-dialog-close");
-    close.type = "button";
-    close.title = "Close (Esc)";
-    close.setAttribute("aria-label", close.title);
-    close.innerHTML = ICONS.clear;
-    close.addEventListener("click", () => this.close());
-    head.append(titles, close);
-    const body = el("div", "tp-dialog-body");
-    body.append(options.content);
-    dialog.append(head, body);
-    if (options.footer) {
-      const foot = el("div", "tp-dialog-foot");
-      foot.append(options.footer);
-      dialog.append(foot);
-    }
-    backdrop.append(dialog);
-    backdrop.addEventListener("keydown", (e) => this.onKeyDown(e, dialog));
-    backdrop.addEventListener("mousedown", (e) => {
-      if (e.target === backdrop) {
-        e.preventDefault();
-        this.close();
-      }
-    });
-    this.shown = { backdrop, returnFocus: doc.activeElement, ...options.closed ? { closed: options.closed } : {} };
-    doc.body.append(backdrop);
-    (options.focus ?? dialog).focus({ preventScroll: true });
-    return { element: dialog, close: () => this.close() };
-  }
-  close() {
-    const shown = this.shown;
-    if (!shown) return;
-    this.shown = void 0;
-    shown.backdrop.remove();
-    if (shown.returnFocus instanceof HTMLElement && shown.returnFocus.isConnected) shown.returnFocus.focus({ preventScroll: true });
-    shown.closed?.();
-  }
-  // Esc closes; Tab stays in the dialog; no key goes on to the page
-  onKeyDown(e, dialog) {
-    e.stopPropagation();
-    if (e.key === "Escape") {
-      e.preventDefault();
-      this.close();
-      return;
-    }
-    if (e.key !== "Tab") return;
-    const focusable = Array.from(dialog.querySelectorAll("button, input, select, [tabindex='0']")).filter(
-      (f) => !f.disabled && f.offsetParent !== null
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = this.doc.activeElement;
-    if (e.shiftKey && active === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-};
-
 // table-plus/src/markdown.ts
 var DELIMITER_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 var FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
@@ -948,6 +448,1240 @@ function columnAfterMove(c, from, to) {
   return c;
 }
 
+// table-plus/src/tags.ts
+var TAG_RE = /\s*<meta\b[^>]*>/gi;
+var ATTRIBUTE_RE = /([\w.:-]+)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g;
+function cellTags(cell) {
+  return Array.from(cell.matchAll(TAG_RE), (match) => match[0].trim());
+}
+function withoutTags(cell) {
+  return cell.replace(TAG_RE, "").trim();
+}
+function attributesOf(tag) {
+  return Array.from(tag.matchAll(ATTRIBUTE_RE), (match) => match[1].toLowerCase());
+}
+function withoutTagsWith(cell, attributes) {
+  const kept = cellTags(cell).filter((tag) => !attributesOf(tag).some((name) => attributes.has(name)));
+  return [withoutTags(cell), ...kept].filter((part) => part !== "").join(" ");
+}
+function keepTags(value, from, taken = /* @__PURE__ */ new Set()) {
+  const own = new Set(cellTags(value).flatMap(attributesOf));
+  const kept = cellTags(from).filter((tag) => !attributesOf(tag).some((name) => own.has(name) || taken.has(name)));
+  return [value.trim(), ...kept].filter((part) => part !== "").join(" ");
+}
+
+// table-plus/src/format.ts
+function formatLuaNumber(n) {
+  if (Number.isInteger(n)) return String(n);
+  if (Number.isNaN(n)) return "-nan";
+  if (n === Infinity) return "inf";
+  if (n === -Infinity) return "-inf";
+  const [mantissa, exp] = n.toExponential(13).split("e");
+  const exponent = Number(exp);
+  if (exponent < -4 || exponent >= 14) {
+    const digits = Math.abs(exponent) < 10 ? `0${Math.abs(exponent)}` : String(Math.abs(exponent));
+    return `${trimZeros(mantissa)}e${exponent < 0 ? "-" : "+"}${digits}`;
+  }
+  return trimZeros(n.toFixed(13 - exponent));
+}
+function trimZeros(s) {
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
+}
+
+// table-plus/src/view.ts
+var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
+var DEFAULT_VIEW = {};
+function pinsOf(view) {
+  return view.pins ?? NO_PINS;
+}
+function hasPins(pins) {
+  return pins.top + pins.bottom + pins.left + pins.right > 0;
+}
+function withPins(view, pins) {
+  if (hasPins(pins)) return { ...view, pins };
+  const { pins: _pins, ...rest } = view;
+  return rest;
+}
+function cycleSort(view, column) {
+  if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
+  if (view.sort.direction === "asc") return { ...view, sort: { column, direction: "desc" } };
+  return withoutSort(view);
+}
+function withSort(view, column, direction) {
+  return { ...view, sort: { column, direction } };
+}
+function withoutSort(view) {
+  const { sort: _sort, ...rest } = view;
+  return rest;
+}
+function remapColumns(view, map) {
+  const column = view.sort ? map(view.sort.column) : void 0;
+  const result = withoutSort(view);
+  return view.sort && column !== void 0 ? { ...result, sort: { column, direction: view.sort.direction } } : result;
+}
+var NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
+function asNumber(s) {
+  const m = NUMBER_RE.exec(s.trim());
+  return m ? Number(m[1].replace(/[ \u00a0]/g, "").replace(",", ".")) : void 0;
+}
+var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
+function compareValues(a, b) {
+  const na = asNumber(a);
+  const nb = asNumber(b);
+  if (na !== void 0 && nb !== void 0) return na - nb;
+  return collator.compare(a.trim(), b.trim());
+}
+function visibleRows(values, view, hidden = /* @__PURE__ */ new Set()) {
+  const { top, bottom } = pinsOf(view);
+  const indexes = values.map((_, i) => i).filter((i) => i >= top && i < values.length - bottom && !hidden.has(i));
+  const sort = view.sort;
+  if (!sort) return indexes;
+  const sign = sort.direction === "asc" ? 1 : -1;
+  return indexes.sort((a, b) => {
+    const va = values[a][sort.column] ?? "";
+    const vb = values[b][sort.column] ?? "";
+    const ea = va.trim() === "";
+    const eb = vb.trim() === "";
+    if (ea !== eb) return ea ? 1 : -1;
+    return sign * compareValues(va, vb) || a - b;
+  });
+}
+
+// table-plus/src/formulas/values.ts
+var ERROR_CODES = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NUM!", "#N/A", "#CYCLE!", "#ERROR!"];
+var FormulaError = class {
+  constructor(code, detail) {
+    this.code = code;
+    this.detail = detail;
+  }
+  code;
+  detail;
+};
+var TimeValue = class {
+  constructor(seconds, text) {
+    this.seconds = seconds;
+    this.text = text;
+  }
+  seconds;
+  text;
+};
+var DAY_SECONDS = 86400;
+var CLOCK_RE = /^(-)?(\d+):([0-5]\d)(?::([0-5]\d))?$/;
+function parseClock(text) {
+  const m = CLOCK_RE.exec(text.trim());
+  if (!m) return void 0;
+  const seconds = Number(m[2]) * 3600 + Number(m[3]) * 60 + Number(m[4] ?? 0);
+  return new TimeValue(m[1] ? -seconds : seconds, text.trim());
+}
+function formatClock(seconds) {
+  const total = Math.round(Math.abs(seconds));
+  const two = (n) => String(n).padStart(2, "0");
+  const rest = total % 60;
+  const text = `${two(Math.floor(total / 3600))}:${two(Math.floor(total / 60) % 60)}${rest ? `:${two(rest)}` : ""}`;
+  return seconds < 0 && total > 0 ? `-${text}` : text;
+}
+function asTime(value) {
+  if (value instanceof TimeValue) return value;
+  return typeof value === "string" ? parseClock(value) : void 0;
+}
+function isError(value) {
+  return value instanceof FormulaError;
+}
+function isRange(value) {
+  return Array.isArray(value);
+}
+function firstError(values) {
+  for (const value of values) {
+    for (const item of isRange(value) ? value : [value]) {
+      if (isError(item)) return item;
+    }
+  }
+  return void 0;
+}
+function single(value) {
+  if (!isRange(value)) return value;
+  return value.length === 1 ? value[0] : new FormulaError("#VALUE!", "a range where one value is expected");
+}
+function toNumber(value) {
+  const v = single(value);
+  if (isError(v) || typeof v === "number") return v;
+  if (v === null) return 0;
+  if (typeof v === "boolean") return v ? 1 : 0;
+  if (v instanceof TimeValue) return v.seconds / DAY_SECONDS;
+  if (v.trim() === "") return 0;
+  const time = parseClock(v);
+  return asNumber(v) ?? (time ? time.seconds / DAY_SECONDS : new FormulaError("#VALUE!", `"${v}" is not a number`));
+}
+function toText(value) {
+  const v = single(value);
+  if (isError(v)) return v;
+  if (v === null) return "";
+  if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
+  if (typeof v === "number") return formatNumber(v);
+  if (v instanceof TimeValue) return v.text ?? formatClock(v.seconds);
+  return v;
+}
+function toBoolean(value) {
+  const v = single(value);
+  if (isError(v) || typeof v === "boolean") return v;
+  if (v === null) return false;
+  if (typeof v === "number") return v !== 0;
+  if (v instanceof TimeValue) return v.seconds !== 0;
+  const upper = v.trim().toUpperCase();
+  if (upper === "TRUE") return true;
+  if (upper === "FALSE") return false;
+  const n = asNumber(v);
+  return n !== void 0 ? n !== 0 : new FormulaError("#VALUE!", `"${v}" is not TRUE or FALSE`);
+}
+function numbers(args) {
+  const result = [];
+  for (const arg of args) {
+    if (isRange(arg)) {
+      for (const item of arg) {
+        if (isError(item)) return item;
+        if (typeof item === "number") result.push(item);
+        else if (item instanceof TimeValue) result.push(item.seconds / DAY_SECONDS);
+        else if (typeof item === "string") {
+          const n = asNumber(item);
+          if (n !== void 0) result.push(n);
+        }
+      }
+    } else if (arg !== null) {
+      const n = toNumber(arg);
+      if (isError(n)) return n;
+      result.push(n);
+    }
+  }
+  return result;
+}
+function allTimes(args) {
+  let times = 0;
+  for (const arg of args) {
+    for (const item of isRange(arg) ? arg : [arg]) {
+      if (asTime(item)) times++;
+      else if (typeof item === "number" || typeof item === "string" && asNumber(item) !== void 0) return false;
+      else if (!isRange(arg) && typeof item === "boolean") return false;
+    }
+  }
+  return times > 0;
+}
+function timeArithmetic(op, left, right) {
+  const a = asTime(left);
+  const b = asTime(right);
+  if (!a && !b) return void 0;
+  const days = (v) => toNumber(v);
+  if (op === "+" || op === "-") {
+    if (a && b) return new TimeValue(op === "+" ? a.seconds + b.seconds : a.seconds - b.seconds);
+    const d = days(a ? right : left);
+    if (isError(d)) return d;
+    const s = d * DAY_SECONDS;
+    if (op === "+") return new TimeValue(Math.round((a ?? b).seconds + s));
+    return new TimeValue(Math.round(a ? a.seconds - s : s - b.seconds));
+  }
+  if (op === "*" && !(a && b)) {
+    const k = days(a ? right : left);
+    return isError(k) ? k : new TimeValue(Math.round((a ?? b).seconds * k));
+  }
+  if (op === "/" && a && !b) {
+    const k = days(right);
+    if (isError(k)) return k;
+    return k === 0 ? new FormulaError("#DIV/0!", "division by zero") : new TimeValue(Math.round(a.seconds / k));
+  }
+  return void 0;
+}
+function flatten(args) {
+  return args.flatMap((arg) => isRange(arg) ? [...arg] : [arg]);
+}
+function formatNumber(n) {
+  return formatLuaNumber(n);
+}
+function sameValue(a, b) {
+  if (isError(a) || isError(b)) return false;
+  const emptyA = a === null || typeof a === "string" && a.trim() === "";
+  const emptyB = b === null || typeof b === "string" && b.trim() === "";
+  if (emptyA || emptyB) return emptyA && emptyB;
+  if (typeof a !== "boolean" && typeof b !== "boolean") {
+    const na = toNumber(a);
+    const nb = toNumber(b);
+    if (!isError(na) && !isError(nb)) return na === nb;
+  }
+  return toText(a).toLowerCase() === toText(b).toLowerCase();
+}
+
+// table-plus/src/formulas/dates.ts
+var DAY = 864e5;
+function timeOfDay(ms) {
+  return (ms % DAY + DAY) % DAY;
+}
+function utc(year, month, day, ms = 0) {
+  const date = new Date(Date.UTC(2e3, month, day) + ms);
+  date.setUTCFullYear(date.getUTCFullYear() - 2e3 + year);
+  return date.getTime();
+}
+var DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/;
+function parseDate(text) {
+  const m = DATE_RE.exec(text.trim());
+  if (!m) return void 0;
+  const [y, mo, d, h = 0, mi = 0, s = 0] = m.slice(1).map((part) => part === void 0 ? void 0 : Number(part));
+  if (h > 23 || mi > 59 || s > 59) return void 0;
+  const ms = utc(y, mo - 1, d, ((h * 60 + mi) * 60 + s) * 1e3);
+  const date = new Date(ms);
+  if (date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return void 0;
+  return { ms, time: m[4] !== void 0 };
+}
+function formatDate({ ms, time }) {
+  const year = new Date(ms).getUTCFullYear();
+  if (!(year >= 0 && year <= 9999)) return new FormulaError("#NUM!", "the date is not in the years 0 to 9999");
+  const iso = new Date(ms).toISOString();
+  const date = iso.slice(0, 10);
+  if (!time && timeOfDay(ms) === 0) return date;
+  const seconds = iso.slice(17, 19);
+  return `${date} ${iso.slice(11, 16)}${seconds === "00" ? "" : `:${seconds}`}`;
+}
+function toClock(value) {
+  const v = single(value);
+  const time = asTime(v);
+  if (time) return { ms: time.seconds * 1e3, time: true };
+  return typeof v === "number" ? { ms: Math.round(v * DAY_SECONDS) * 1e3, time: true } : toDate(value);
+}
+function now(time) {
+  const d = /* @__PURE__ */ new Date();
+  const ms = time ? Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()) : Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  return { ms, time };
+}
+function toDate(value) {
+  const v = single(value);
+  if (isError(v)) return v;
+  const date = typeof v === "string" ? parseDate(v) : void 0;
+  return date ?? new FormulaError("#VALUE!", `${v === null ? "an empty cell" : `"${toText(v)}"`} is not a date written as 2025-11-06`);
+}
+var UNIT_NAMES = {
+  s: "s",
+  sec: "s",
+  second: "s",
+  seconds: "s",
+  min: "min",
+  minute: "min",
+  minutes: "min",
+  h: "h",
+  hour: "h",
+  hours: "h",
+  d: "d",
+  day: "d",
+  days: "d",
+  w: "w",
+  week: "w",
+  weeks: "w",
+  m: "m",
+  month: "m",
+  months: "m",
+  y: "y",
+  year: "y",
+  years: "y"
+};
+var UNITS_HELP = `"s", "min", "h", "d", "w", "m" (months) or "y"`;
+function toUnit(value) {
+  const v = single(value);
+  if (isError(v)) return v;
+  const unit = typeof v === "string" ? UNIT_NAMES[v.trim().toLowerCase()] : void 0;
+  return unit ?? new FormulaError("#VALUE!", `"${toText(v)}" is not a unit of time: ${UNITS_HELP}`);
+}
+var UNIT_MS = { s: 1e3, min: 6e4, h: 36e5, d: DAY, w: 7 * DAY };
+function addUnits(date, amount, unit) {
+  const ms = UNIT_MS[unit];
+  if (ms !== void 0) {
+    const added = date.ms + Math.round(amount * ms);
+    return { ms: added, time: date.time || timeOfDay(added) !== 0 };
+  }
+  const months = Math.trunc(amount) * (unit === "y" ? 12 : 1);
+  const d = new Date(date.ms);
+  const target = d.getUTCMonth() + months;
+  const year = d.getUTCFullYear() + Math.floor(target / 12);
+  const month = (target % 12 + 12) % 12;
+  const lastDay = new Date(utc(year, month + 1, 1) - DAY).getUTCDate();
+  const day = Math.min(d.getUTCDate(), lastDay);
+  return { ms: utc(year, month, day, timeOfDay(date.ms)), time: date.time };
+}
+function unitsBetween(from, to, unit) {
+  const ms = UNIT_MS[unit];
+  if (ms !== void 0) return Math.trunc((to.ms - from.ms) / ms);
+  const a = new Date(from.ms);
+  const b = new Date(to.ms);
+  let months = (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
+  if (months > 0 && addUnits(from, months, "m").ms > to.ms) months--;
+  if (months < 0 && addUnits(from, months, "m").ms < to.ms) months++;
+  return unit === "y" ? Math.trunc(months / 12) : months;
+}
+function dateArithmetic(op, left, right) {
+  const a = typeof left === "string" ? parseDate(left) : void 0;
+  const b = typeof right === "string" ? parseDate(right) : void 0;
+  if (!a && !b) return void 0;
+  if (a && b) {
+    return op === "-" ? (a.ms - b.ms) / DAY : new FormulaError("#VALUE!", "two dates cannot be added: subtract them for the days between");
+  }
+  if (b && op === "-") return new FormulaError("#VALUE!", "a date cannot be subtracted from a number");
+  const other = a ? right : left;
+  const time = asTime(other);
+  const days = other === null ? 0 : typeof other === "number" ? other : time ? time.seconds / DAY_SECONDS : void 0;
+  if (days === void 0) return new FormulaError("#VALUE!", `"${typeof other === "string" ? other : String(other)}" is not a number of days or a time to add to a date`);
+  return formatDate(addUnits(a ?? b, op === "-" ? -days : days, "d"));
+}
+function dayNumber(date) {
+  return Math.floor(date.ms / DAY);
+}
+function dayDate(day) {
+  return formatDate({ ms: day * DAY, time: false });
+}
+function weekdayOf(day) {
+  return ((day + 4) % 7 + 7) % 7;
+}
+function holidayDays(value) {
+  const days = /* @__PURE__ */ new Set();
+  if (value === void 0 || value === null) return days;
+  for (const item of isRange(value) ? value : [value]) {
+    if (item === null || typeof item === "string" && item.trim() === "") continue;
+    const date = toDate(item);
+    if (isError(date)) return date;
+    days.add(dayNumber(date));
+  }
+  return days;
+}
+function partOf(date, part) {
+  const d = new Date(date.ms);
+  switch (part) {
+    case "year":
+      return d.getUTCFullYear();
+    case "month":
+      return d.getUTCMonth() + 1;
+    case "day":
+      return d.getUTCDate();
+    case "hour":
+      return d.getUTCHours();
+    case "minute":
+      return d.getUTCMinutes();
+    case "second":
+      return d.getUTCSeconds();
+    case "weekday":
+      return d.getUTCDay();
+  }
+}
+
+// table-plus/src/autofill/builtin/dates.ts
+var DAY2 = 864e5;
+var DOTTED_RE = /^(\d{1,2})\.(\s?)(\d{1,2})\.(\s?)(\d{4})$/;
+var ISO = {
+  read: parseDate,
+  // A date past the years 0 to 9999 cannot be written: shown as the error a formula gives
+  write: (date) => {
+    const written = formatDate(date);
+    return typeof written === "string" ? written : written.code;
+  }
+};
+function dotted(first) {
+  const m = DOTTED_RE.exec(first.trim());
+  if (!m) return void 0;
+  const pad2 = (n, as) => String(n).padStart(as.length, "0");
+  return {
+    read: (text) => {
+      const d = DOTTED_RE.exec(text.trim());
+      return d ? parseDate(`${d[5]}-${d[3].padStart(2, "0")}-${d[1].padStart(2, "0")}`) : void 0;
+    },
+    write: (date) => {
+      const d = new Date(date.ms);
+      return `${pad2(d.getUTCDate(), m[1])}.${m[2]}${pad2(d.getUTCMonth() + 1, m[3])}.${m[4]}${d.getUTCFullYear()}`;
+    }
+  };
+}
+function monthOf(date) {
+  const d = new Date(date.ms);
+  return d.getUTCFullYear() * 12 + d.getUTCMonth();
+}
+var dates_default = {
+  name: "dates",
+  match: (values) => {
+    if (values.length === 0) return void 0;
+    const written = dotted(values[0]) ?? ISO;
+    const dates = values.map((v) => written.read(v));
+    if (!dates.every((d) => d)) return void 0;
+    const all = dates;
+    const first = all[0];
+    const text = written.write;
+    if (all.length === 1) return (i) => text({ ms: first.ms + i * DAY2, time: first.time });
+    const months = monthOf(all[1]) - monthOf(first);
+    const byMonths = months !== 0 && all.every((d, i) => d.ms === addUnits(first, i * months, "m").ms);
+    if (byMonths) return (i) => text(addUnits(first, i * months, "m"));
+    const step = all[1].ms - first.ms;
+    if (step === 0 || !all.every((d, i) => d.ms === first.ms + i * step)) return void 0;
+    return (i) => text({ ms: first.ms + i * step, time: all.some((d) => d.time) });
+  }
+};
+
+// table-plus/src/autofill/builtin/lists.ts
+var LISTS = [
+  { words: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], alone: true },
+  { words: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], alone: true },
+  { words: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"], alone: true },
+  { words: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], alone: true },
+  { words: ["pond\u011Bl\xED", "\xFAter\xFD", "st\u0159eda", "\u010Dtvrtek", "p\xE1tek", "sobota", "ned\u011Ble"], alone: true },
+  { words: ["po", "\xFAt", "st", "\u010Dt", "p\xE1", "so", "ne"], alone: false },
+  { words: ["leden", "\xFAnor", "b\u0159ezen", "duben", "kv\u011Bten", "\u010Derven", "\u010Dervenec", "srpen", "z\xE1\u0159\xED", "\u0159\xEDjen", "listopad", "prosinec"], alone: true },
+  { words: ["led", "\xFAno", "b\u0159e", "dub", "kv\u011B", "\u010Dvn", "\u010Dvc", "srp", "z\xE1\u0159", "\u0159\xEDj", "lis", "pro"], alone: false }
+];
+function key(word) {
+  return plain(word.trim().toLowerCase());
+}
+function plain(word) {
+  return word.normalize("NFD").replace(/\p{M}/gu, "");
+}
+function inCase(word, as) {
+  if (as.length > 1 && as === as.toUpperCase() && as !== as.toLowerCase()) return word.toUpperCase();
+  if (as[0] === as[0].toUpperCase() && as[0] !== as[0].toLowerCase()) return word[0].toUpperCase() + word.slice(1).toLowerCase();
+  return word.toLowerCase();
+}
+function listSeries(name, lists) {
+  return {
+    name,
+    match: (values) => {
+      if (values.length === 0) return void 0;
+      for (const { words: list, alone } of lists) {
+        if (!alone && values.length < 2) continue;
+        const keys = list.map(key);
+        const indexes = values.map((v) => keys.indexOf(key(v)));
+        if (indexes.some((i) => i < 0)) continue;
+        const n = list.length;
+        const step = indexes.length === 1 ? 1 : ((indexes[1] - indexes[0]) % n + n) % n;
+        if (step === 0 || !indexes.every((index, i) => index === ((indexes[0] + i * step) % n + n) % n)) continue;
+        const bare2 = values.every((v) => plain(v) === v) && values.some((_, i) => plain(list[indexes[i]]) !== list[indexes[i]]);
+        const first = values[0].trim();
+        return (i) => {
+          const word = list[((indexes[0] + i * step) % n + n) % n];
+          return inCase(bare2 ? plain(word) : word, first);
+        };
+      }
+      return void 0;
+    }
+  };
+}
+var lists_default = listSeries("lists", LISTS);
+
+// table-plus/src/autofill/builtin/numbers.ts
+var NUMBER_RE2 = /^([-+]?)(\d+)(?:([.,])(\d+))?$/;
+var MAX_DIGITS = 15;
+var numbers_default = {
+  name: "numbers",
+  match: (values) => {
+    const parts = values.map((v) => NUMBER_RE2.exec(v.trim()));
+    if (parts.length < 2 || !parts.every((m) => m)) return void 0;
+    const all = parts;
+    if (all.some((m) => m[2].length + (m[4]?.length ?? 0) > MAX_DIGITS)) return void 0;
+    const numbers2 = all.map((m) => Number(`${m[1]}${m[2]}.${m[4] ?? "0"}`));
+    const comma = all.find((m) => m[3])?.[3] === ",";
+    const decimals = Math.max(...all.map((m) => m[4]?.length ?? 0));
+    const width = Math.max(0, ...all.filter((m) => m[2].length > 1 && m[2].startsWith("0")).map((m) => m[2].length));
+    const n = numbers2.length;
+    const meanX = (n - 1) / 2;
+    const meanY = numbers2.reduce((a, b) => a + b, 0) / n;
+    const slope = numbers2.reduce((sum, y, x) => sum + (x - meanX) * (y - meanY), 0) / numbers2.reduce((sum, _, x) => sum + (x - meanX) ** 2, 0);
+    const steps = numbers2.slice(1).map((y, x) => y - numbers2[x]);
+    const even = steps.every((s) => Math.abs(s - steps[0]) < 1e-9);
+    const places = even ? decimals : decimals + 2;
+    return (i) => {
+      const value = even ? numbers2[0] + i * steps[0] : meanY + (i - meanX) * slope;
+      let text = (Math.round(value * 10 ** places) / 10 ** places).toFixed(places);
+      if (!even && places > decimals) text = text.replace(/0+$/, "").replace(/\.$/, "");
+      const [sign, digits] = text.startsWith("-") ? ["-", text.slice(1)] : ["", text];
+      const [whole, fraction2] = digits.split(".");
+      const padded3 = whole.padStart(width, "0");
+      return `${sign}${padded3}${fraction2 ? `${comma ? "," : "."}${fraction2}` : ""}`;
+    };
+  }
+};
+
+// table-plus/src/autofill/builtin/numbered.ts
+var NUMBERED_RE = /^(.*?)(\d+)(\D*)$/s;
+var numbered_default = {
+  name: "numbered text",
+  match: (values) => {
+    if (values.some((v) => NUMBER_RE2.test(v.trim()))) return void 0;
+    const parts = values.map((v) => NUMBERED_RE.exec(v));
+    if (parts.length === 0 || !parts.every((m) => m)) return void 0;
+    const all = parts;
+    const [, prefix, , suffix] = all[0];
+    if (prefix.trim() === "" && suffix.trim() === "") return void 0;
+    if (!all.every((m) => m[1] === prefix && m[3] === suffix)) return void 0;
+    if (all.some((m) => m[2].length > 15)) return void 0;
+    const numbers2 = all.map((m) => Number(m[2]));
+    const step = numbers2.length === 1 ? 1 : numbers2[1] - numbers2[0];
+    if (step === 0 || !numbers2.every((n, i) => n === numbers2[0] + i * step)) return void 0;
+    const width = all[0][2].startsWith("0") ? all[0][2].length : 0;
+    return (i) => {
+      const n = numbers2[0] + i * step;
+      return `${prefix}${String(Math.abs(n)).padStart(width, "0")}${suffix}`;
+    };
+  }
+};
+
+// table-plus/src/autofill/builtin/times.ts
+var DAY3 = 86400;
+var times_default = {
+  name: "times",
+  match: (values) => {
+    const times = values.map((v) => parseClock(v)?.seconds);
+    if (times.length === 0 || !times.every((t) => t !== void 0)) return void 0;
+    const all = times;
+    const first = all[0];
+    const step = all.length === 1 ? 3600 : all[1] - first;
+    if (step === 0 || !all.every((t, i) => t === first + i * step)) return void 0;
+    const ofDay = all.every((t) => t >= 0 && t < DAY3);
+    return (i) => {
+      const seconds = first + i * step;
+      return formatClock(ofDay ? (seconds % DAY3 + DAY3) % DAY3 : seconds);
+    };
+  }
+};
+
+// table-plus/src/autofill/builtin/index.ts
+var BUILT_IN_SERIES = [dates_default, times_default, numbers_default, lists_default, numbered_default];
+
+// table-plus/src/autofill/registry.ts
+var custom = [];
+var anew = false;
+function allSeries() {
+  const replacing = new Map(custom.map((s) => [s.name, s]));
+  return [...custom.filter((s) => !BUILT_IN_SERIES.some((b) => b.name === s.name)), ...BUILT_IN_SERIES.map((s) => replacing.get(s.name) ?? s)];
+}
+function seriesFor(values) {
+  for (const series of allSeries()) {
+    const next = series.match(values);
+    if (next) return { name: series.name, next };
+  }
+  const k = values.length;
+  return { name: "repeat", next: (i) => values[(i % k + k) % k] ?? "" };
+}
+function defineCustomSeries(series) {
+  custom = Array.from(new Map([...anew ? [] : custom, ...series].map((s) => [s.name, s])).values());
+  anew = false;
+}
+function customSeriesAnew() {
+  anew = true;
+}
+
+// table-plus/src/autofill/fill.ts
+function cellValue(cell) {
+  return unescapeCell(withoutTags(cell)).trim();
+}
+function fillLine(table, line, cells) {
+  const raw = (cell) => table.rows[cell.row]?.cells[cell.column] ?? "";
+  const { sources, targets, backward } = line;
+  const k = sources.length;
+  if (k === 0) return targets.map(() => "");
+  const sourceOf = (j) => backward ? sources[k - 1 - j % k] : sources[j % k];
+  if (sources.some((s) => cells.claim(raw(s), s, s) !== void 0)) {
+    return targets.map((target, j) => {
+      const source = sourceOf(j);
+      const copy = cells.claim(raw(source), source, target) ?? escapeCell(cellValue(raw(source)));
+      return cells.keepTags(copy, raw(target));
+    });
+  }
+  const { next } = seriesFor(sources.map((s) => cellValue(raw(s))));
+  return targets.map((target, j) => cells.keepTags(escapeCell(next(backward ? -1 - j : k + j)), raw(target)));
+}
+function filled(table, lines, cells) {
+  let result = table;
+  for (const line of lines) {
+    fillLine(table, line, cells).forEach((cell, j) => {
+      const target = line.targets[j];
+      result = setCell(result, target.row, target.column, cell);
+    });
+  }
+  return result;
+}
+
+// table-plus/src/autofill/custom.ts
+var HELPERS = {
+  parseDate,
+  // A date as formulas write it, or the error code of one past the years 0 to 9999
+  formatDate: (date) => {
+    const written = formatDate(date);
+    return typeof written === "string" ? written : written.code;
+  }
+};
+var NAME_RE = /^[a-z][a-z0-9_ ]*$/i;
+function customSeries(definitions) {
+  let list = definitions;
+  if (isObject(list) && !Array.isArray(list) && "default" in list) list = list.default;
+  if (typeof list === "function") {
+    try {
+      list = list(HELPERS);
+    } catch (e) {
+      return { series: [], problems: [`the definitions failed: ${message(e)}`] };
+    }
+  }
+  if (!Array.isArray(list)) return { series: [], problems: ["the definitions are not a list of series (or a function returning one)"] };
+  const series = [];
+  const problems = [];
+  list.forEach((definition, i) => {
+    const one = customOne(definition);
+    if (typeof one === "string") problems.push(`series ${i + 1}: ${one}`);
+    else series.push(one);
+  });
+  return { series, problems };
+}
+function customOne(definition) {
+  if (!isObject(definition)) return "not an object";
+  const { name, words, alone, match } = definition;
+  if (typeof name !== "string" || !NAME_RE.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and spaces starting with a letter`;
+  if (words === void 0 === (match === void 0)) return `${name}: it has words (a list to go round) or match (a series), one of them`;
+  if (words !== void 0) {
+    if (!Array.isArray(words) || words.length < 2 || !words.every((w) => typeof w === "string" && w.trim() !== "")) return `${name}: its words are not a list of two or more texts`;
+    const keys = words.map(key);
+    if (new Set(keys).size < keys.length) return `${name}: a word is in its words twice (case and diacritics aside)`;
+    if (alone !== void 0 && typeof alone !== "boolean") return `${name}: alone is not true or false`;
+    return listSeries(name, [{ words: words.map((w) => w.trim()), alone: alone ?? true }]);
+  }
+  if (typeof match !== "function") return `${name}: match is not a function`;
+  return { name, match: (values) => checkedGenerator(name, values, match) };
+}
+function checkedGenerator(name, values, match) {
+  let next;
+  try {
+    next = match(values);
+  } catch (e) {
+    console.warn(`Table Plus: the series ${name} failed: ${message(e)}`);
+    return void 0;
+  }
+  if (next === void 0 || next === null) return void 0;
+  if (typeof next !== "function") {
+    console.warn(`Table Plus: the series ${name}: match gave ${kindOf(next)}, not a function of the index (or nothing)`);
+    return void 0;
+  }
+  const k = values.length;
+  let warned = false;
+  return (i) => {
+    let text;
+    try {
+      text = next(i);
+      if (typeof text === "number" && Number.isFinite(text)) return String(text);
+      if (typeof text === "string") return text;
+      throw new Error(`it gave ${kindOf(text)} for index ${i}: a text or a number`);
+    } catch (e) {
+      if (!warned) console.warn(`Table Plus: the series ${name}: ${message(e)}`);
+      warned = true;
+      return values[(i % k + k) % k] ?? "";
+    }
+  };
+}
+function kindOf(value) {
+  if (isObject(value) && typeof value.then === "function") return "a promise";
+  return value === null ? "null" : Array.isArray(value) ? "a list" : typeof value === "object" ? "an object" : `a ${typeof value}`;
+}
+function isObject(value) {
+  return typeof value === "object" && value !== null;
+}
+function message(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+// table-plus/src/themes.ts
+var BUILT_IN_THEMES = ["native", "playground", "minimal", "slate", "grid", "ocean", "paper", "contrast", "compact", "bold", "soft", "ledger"];
+var NATIVE_THEME = "native";
+var THEME_NAME_RE = /^[\w-]+$/;
+var THEME_SELECTOR_RE = /data-tp-theme\s*=\s*["']?([\w-]+)["']?\s*\]/g;
+function themeName(value) {
+  const name = typeof value === "string" ? value.trim() : "";
+  return THEME_NAME_RE.test(name) ? name : void 0;
+}
+function themeLabel(name) {
+  const words = name.replace(/[-_]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+function themesInStyles(doc) {
+  const found = /* @__PURE__ */ new Set();
+  const visit = (rules) => {
+    for (const rule of Array.from(rules)) {
+      if ("selectorText" in rule && typeof rule.selectorText === "string") {
+        for (const match of rule.selectorText.matchAll(THEME_SELECTOR_RE)) found.add(match[1]);
+      }
+      if ("cssRules" in rule && rule.cssRules) visit(rule.cssRules);
+    }
+  };
+  for (const sheet of Array.from(doc.styleSheets)) {
+    try {
+      visit(sheet.cssRules);
+    } catch {
+    }
+  }
+  return [...found];
+}
+var STRIPES = ["none", "rows", "columns"];
+function stripesName(value) {
+  return STRIPES.find((s) => s === value);
+}
+function stripesLabel(stripes) {
+  return themeLabel(stripes);
+}
+function allThemes(doc) {
+  return [.../* @__PURE__ */ new Set([...BUILT_IN_THEMES, ...themesInStyles(doc)])];
+}
+
+// table-plus/src/bridge.ts
+var pixels = (v) => {
+  const n = typeof v === "string" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : void 0;
+};
+var FEATURE_NAMES = [
+  "formulas",
+  "names",
+  "pageLinks",
+  "filters",
+  "columnTypes",
+  "selection",
+  "autofill",
+  "lazy",
+  "themes",
+  "export",
+  "excel",
+  "paste",
+  "handles",
+  "widths",
+  "longText",
+  "sticky",
+  "autoscroll",
+  "largeTables",
+  "fullScreen"
+];
+var MODULES_OFF_BY_DEFAULT = /* @__PURE__ */ new Set(["largeTables"]);
+function moduleOnByDefault(name) {
+  return !MODULES_OFF_BY_DEFAULT.has(name);
+}
+var MODULE_LABELS = {
+  formulas: "Formulas",
+  names: "Names",
+  pageLinks: "Links to other pages",
+  filters: "Filters",
+  columnTypes: "Column types",
+  selection: "Cell selection",
+  autofill: "AutoFill",
+  lazy: "Lazy saving",
+  themes: "Themes",
+  export: "Export",
+  excel: "Excel",
+  paste: "Paste from spreadsheets",
+  handles: "Row and column handles",
+  widths: "Column widths",
+  longText: "Long text in cells",
+  sticky: "Sticky header",
+  autoscroll: "Middle-button scrolling",
+  largeTables: "Large tables",
+  fullScreen: "Full screen"
+};
+var MODULE_DESCRIPTIONS = {
+  formulas: "Formulas in cells (=SUM(B1:B3)), recalculated on every edit",
+  names: "Name tables, columns, rows and cells, to refer to them in formulas",
+  pageLinks: "Formulas can refer to tables and named cells on other pages",
+  filters: "Show only the rows whose cells match what you type under a header",
+  columnTypes: "A header's hashtag formats its column (#currency, #stars\u2026)",
+  selection: "A click selects a cell, as in a spreadsheet; drag or Shift to select more, to copy, paste over or empty them",
+  autofill: "A square at the corner of the cells selected: drag it to fill the cells after them (1, 2 \u2192 3, 4; Mon \u2192 Tue; formulas with their references moved), double-click it to fill down",
+  lazy: "An icon in a table's toolbar switches it to saving its cells edited together, a moment after editing stops: quicker typing in large tables",
+  themes: "How tables look (header, lines, stripes, spacing): a theme for every table, another one for a table from its \u22EF menu",
+  export: "Copy as CSV in a table's \u22EF menu",
+  excel: "Export to Excel\u2026 in a table's \u22EF menu: copy for Excel (numbers and dates as Excel's), or download an .xlsx file with the formulas",
+  paste: "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
+  handles: "Handles beside rows and above columns: drag to move them, click for their menu",
+  widths: "Drag the right edge of a header to set its column's width",
+  longText: "Text wider than a maximum column width wraps or is cut, the expand button shows it whole",
+  sticky: "A table's header stays in view while the page scrolls past it",
+  autoscroll: "The middle mouse button over a table scrolls it in the direction the pointer moves",
+  largeTables: "Tables with many rows scroll in a box of their own (Maximum table height, else the window's height), and only the rows in view are in the page: editing stays quick",
+  fullScreen: "An icon in the table's toolbar shows the table over the whole window; the same icon or Esc closes it"
+};
+var SETTINGS = {
+  enterKey: {
+    path: "tablePlus.editor.enterKey",
+    label: "Enter in a cell editor",
+    hint: "What Enter does while a cell is edited",
+    default: "moveDown",
+    choices: ["save", "moveDown"],
+    choiceLabels: ["Save", "Save, edit the cell below"],
+    parse: (v) => v === "save" || v === "moveDown" ? v : void 0
+  },
+  smartFilters: {
+    path: "tablePlus.modules.filters.smart",
+    label: "Smart filters",
+    hint: "Filters understand >10, /pattern/, =text, a|b and !text; off, what is typed is text to find",
+    default: true,
+    parse: (v) => typeof v === "boolean" ? v : void 0
+  },
+  // Store table settings (sorting, filters, pins, names) in the table's metadata row
+  metadata: {
+    path: "tablePlus.metadata",
+    label: "Store table metadata",
+    hint: "Tables keep their sorting, filters, column widths, pins, names and formulas in a hidden last row; pinning and new formulas need it. Off, sorting and filters are only a view",
+    default: false,
+    parse: (v) => typeof v === "boolean" ? v : void 0
+  },
+  // A click, Enter, Tab and Ctrl+arrows open a cell with its text selected (Shift+Enter does not); off: the reverse
+  selectOnClick: {
+    path: "tablePlus.editor.selectOnClick",
+    label: "Click selects the cell's text",
+    hint: "A cell opened for editing (a click, Enter, Tab, Ctrl+arrows) has its whole text selected; off, the cursor is at its end",
+    default: false,
+    parse: (v) => typeof v === "boolean" ? v : void 0
+  },
+  // Ctrl+Enter in a cell editor adds a row below; off: it is a plain Enter
+  ctrlEnterAddsRow: {
+    path: "tablePlus.editor.ctrlEnterAddsRow",
+    label: "Ctrl+Enter adds a row",
+    hint: "While a cell is edited, Ctrl+Enter saves it, adds an empty row below and edits it; off, it works like Enter",
+    default: true,
+    parse: (v) => typeof v === "boolean" ? v : void 0
+  },
+  // Write edited tables with aligned pipes; off: keep each table's own style
+  autoFormat: {
+    path: "tablePlus.autoFormat",
+    label: "Format tables",
+    hint: "A table edited with Table Plus is written with its columns aligned; off, each table keeps its own style",
+    default: true,
+    parse: (v) => typeof v === "boolean" ? v : void 0
+  },
+  // Milliseconds `${…}` cells wait after `page:index` for the indexers to write the index
+  expressionsDelay: {
+    path: "tablePlus.expressions.refreshDelay",
+    label: "Delay before refreshing (ms)",
+    hint: "After an edit, cells with ${\u2026} (a query, a sum) are evaluated again once SilverBullet has indexed the page: how long to wait for that; raise it if they still show old values",
+    default: 500,
+    parse: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0
+  },
+  // How long after editing stops a table in lazy saving writes its cells (the lazy module)
+  lazyDelay: {
+    path: "tablePlus.modules.lazy.delay",
+    label: "Saves after (ms)",
+    hint: "In lazy saving, the cells edited are saved this long after no cell is being edited",
+    default: 500,
+    parse: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0
+  },
+  // The tables' theme (the themes module); a table's metadata may choose another
+  theme: {
+    path: "tablePlus.modules.themes.theme",
+    label: "Theme",
+    hint: "How tables look: their header, lines, stripes and spacing. Native leaves them as SilverBullet shows them; a table's \u22EF menu can choose another theme for it",
+    default: NATIVE_THEME,
+    choices: BUILT_IN_THEMES,
+    choiceLabels: BUILT_IN_THEMES.map(themeLabel),
+    moreChoices: themesInStyles,
+    moreLabel: themeLabel,
+    parse: themeName
+  },
+  // Every other row or column tinted, in the theme's color (the themes module); a table's metadata may say otherwise
+  stripes: {
+    path: "tablePlus.modules.themes.stripes",
+    label: "Stripes",
+    hint: "Every other row (or column) is tinted, in the theme's color; the icons in Theme in a table's \u22EF menu can choose otherwise for that table",
+    default: "rows",
+    choices: STRIPES,
+    choiceLabels: STRIPES.map(stripesLabel),
+    parse: stripesName
+  },
+  // Pixels; 0: no limit
+  maxHeight: {
+    path: "tablePlus.maxHeight",
+    label: "Maximum table height (px)",
+    hint: "A taller table gets its own scrollbar; 0: no limit",
+    default: 0,
+    parse: pixels
+  },
+  // Text longer than a cell's maximum width: wrapped onto more lines, or cut with an ellipsis (…)
+  cellOverflow: {
+    path: "tablePlus.modules.longText.overflow",
+    label: "Text that does not fit",
+    hint: "What text wider than the maximum column width does",
+    default: "wrap",
+    choices: ["wrap", "ellipsis"],
+    choiceLabels: ["Wrap", "Cut with an ellipsis (\u2026)"],
+    parse: (v) => v === "wrap" || v === "ellipsis" ? v : void 0
+  },
+  // A column's maximum width in pixels; 0: no limit
+  cellMaxWidth: {
+    path: "tablePlus.modules.longText.maxWidth",
+    label: "Maximum column width (px)",
+    hint: "Text wider than this wraps or is cut, as set above; 0: no limit",
+    default: 500,
+    parse: pixels
+  },
+  // From how many rows a table is a large one (the largeTables module)
+  largeTablesMinRows: {
+    path: "tablePlus.modules.largeTables.minRows",
+    label: "Applies from (rows)",
+    hint: "A table with at least this many rows gets its own box, and only the rows in view are kept in the page",
+    default: 200,
+    parse: (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : void 0
+  },
+  // A wrapped cell's maximum height in pixels, the rest cut; 0: no limit
+  cellMaxHeight: {
+    path: "tablePlus.modules.longText.maxHeight",
+    label: "Maximum cell height (px)",
+    hint: "Wrapped text grows a cell up to this height, the rest is cut (the expand button shows it whole); 0: no limit",
+    default: 200,
+    parse: pixels
+  }
+};
+function settingChoices(key2, doc, current) {
+  const setting = SETTINGS[key2];
+  if (!setting.choices) return [];
+  const options = setting.choices.map((value, i) => ({ value, label: setting.choiceLabels?.[i] ?? value }));
+  const more = (value) => ({ value, label: setting.moreLabel?.(value) ?? value });
+  for (const value of setting.moreChoices?.(doc) ?? []) if (!options.some((o) => o.value === value)) options.push(more(value));
+  if (typeof current === "string" && current !== "" && !options.some((o) => o.value === current)) options.push(more(current));
+  return options;
+}
+var REQUIRED = [
+  "getText",
+  "replaceRange",
+  "moveCursor",
+  "getCurrentPage",
+  "flash"
+];
+function missingBridgeFunctions(bridge) {
+  return REQUIRED.filter((name) => typeof bridge?.[name] !== "function");
+}
+
+// table-plus/src/dom.ts
+var WIDGET_SELECTOR = ".sb-table-widget";
+var EDITOR_SELECTOR = ".cm-content";
+var SCROLLER_SELECTOR = ".cm-scroller";
+var NATIVE_ACTION_SELECTOR = "a[data-ref], [data-mention-name], button[data-onclick], span.sb-task-state";
+var INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
+var UI_CLASS = "tp-ui";
+var OUT_OF_LINE_CLASS = "tp-out-of-line";
+function renderedTable(widget) {
+  return widget.querySelector("table");
+}
+function positionHint(table) {
+  const element = table.dataset.pos !== void 0 ? table : table.querySelector("[data-pos]");
+  const pos = element instanceof HTMLElement ? Number(element.dataset.pos) : NaN;
+  return Number.isFinite(pos) ? pos : void 0;
+}
+var TYPE_TAG_CLASS = "tp-type-tag";
+function cellText(cell) {
+  let text = "";
+  const walk = (parent) => {
+    for (let node = parent.firstChild; node; node = node.nextSibling) {
+      if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
+      if (node.nodeType === 3) text += node.textContent ?? "";
+      else walk(node);
+    }
+  };
+  walk(cell);
+  return text.replace(/\s+/g, " ").trim();
+}
+var HEAD_CLASS = "tp-head";
+var HEAD_NAME_CLASS = "tp-head-name";
+function layOutHeaderCell(cell) {
+  if (cell.querySelector(`:scope > .${HEAD_CLASS}`)) return;
+  const doc = cell.ownerDocument;
+  const head = doc.createElement("span");
+  head.className = HEAD_CLASS;
+  const name = doc.createElement("span");
+  name.className = HEAD_NAME_CLASS;
+  head.append(name);
+  for (const node of Array.from(cell.childNodes)) {
+    const ui = node instanceof Element && node.classList.contains(UI_CLASS);
+    if (ui && node.classList.contains(OUT_OF_LINE_CLASS)) continue;
+    (ui ? head : name).append(node);
+  }
+  cell.prepend(head);
+}
+function cellValue2(cell) {
+  return cell.dataset.tpValue ?? cellText(cell);
+}
+function caretTextOffset(cell, x, y) {
+  const doc = cell.ownerDocument;
+  let node;
+  let offset = 0;
+  if (typeof doc.caretPositionFromPoint === "function") {
+    const position = doc.caretPositionFromPoint(x, y);
+    node = position?.offsetNode;
+    offset = position?.offset ?? 0;
+  } else if (typeof doc.caretRangeFromPoint === "function") {
+    const range = doc.caretRangeFromPoint(x, y);
+    node = range?.startContainer;
+    offset = range?.startOffset ?? 0;
+  }
+  if (!node || node.nodeType !== Node.TEXT_NODE || !cell.contains(node)) return void 0;
+  let before = "";
+  const walker = doc.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    if (text.parentElement?.closest(`.${UI_CLASS}`)) continue;
+    if (text === node) {
+      before += (text.textContent ?? "").slice(0, offset);
+      break;
+    }
+    before += text.textContent ?? "";
+  }
+  return before.replace(/\s+/g, " ").trimStart().length;
+}
+
+// table-plus/src/icons.ts
+var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var lineIcon = (body) => svg(body);
+var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
+var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
+var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
+var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
+var ICONS = {
+  grip: svg(
+    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
+    true
+  ),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  columnWidth: svg('<path d="M4 4v16M20 4v16M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3"/>'),
+  expand: svg('<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'),
+  fullScreen: svg('<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>'),
+  exitFullScreen: svg('<path d="M9 4v5H4M15 4v5h5M15 20v-5h5M9 20v-5H4"/>'),
+  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
+  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
+  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
+  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
+  download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  // No stripes: an empty table, struck through (rows and columns: its tinted lines)
+  stripesNone: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M5 18L19 6"/>'),
+  stripesRows: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18"/><path d="M4 10h16v4H4z" fill="currentColor" stroke="none" opacity="0.4"/>'),
+  stripesColumns: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><path d="M9.5 5h5v14h-5z" fill="currentColor" stroke="none" opacity="0.4"/>'),
+  theme: svg('<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.9 1.4-1.8l-.3-.8a1.7 1.7 0 0 1 1.6-2.4H17a4 4 0 0 0 4-4c0-4.9-4-9-9-9z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>'),
+  lazy: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
+  editMode: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
+  selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),
+  selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
+  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
+  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
+  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Sorted lines with a check: make the sorting the real order
+  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
+  // Two arrows round: calculate again
+  // fx: a formula's function (the Functions dialog)
+  function: svg('<path d="M8 20c2 0 2.6-1.4 3-3.5l2-10C13.4 4.4 14 3 16 3M8 9h7M14 13l6 7M20 13l-6 7"/>'),
+  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
+  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  settings: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'),
+  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
+  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
+  // A padlock: a name that stays
+  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
+  format: svg('<path d="M4 6h16M4 12h16M4 18h16M9 4v16M15 4v16"/>'),
+  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
+  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
+  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
+  // A pushpin with its needle pointing to the edge it pins to
+  pinTop: PIN_POINT_UP,
+  unpin: svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/><path d="M4 4l16 16"/>'),
+  pinBottom: PIN_POINT_DOWN,
+  pinLeft: PIN_POINT_LEFT,
+  pinRight: PIN_POINT_RIGHT
+};
+
+// table-plus/src/core/dialog.ts
+var Dialogs = class {
+  constructor(doc) {
+    this.doc = doc;
+  }
+  doc;
+  shown;
+  get isOpen() {
+    return !!this.shown?.backdrop.isConnected;
+  }
+  /** Whether a node is the open dialog's */
+  contains(node) {
+    return !!this.shown?.backdrop.contains(node);
+  }
+  open(options) {
+    this.close();
+    const { doc } = this;
+    const el = (tag, className, text) => {
+      const e = doc.createElement(tag);
+      e.className = className;
+      if (text !== void 0) e.textContent = text;
+      return e;
+    };
+    const backdrop = el("div", `${UI_CLASS} tp-dialog-backdrop`);
+    const dialog = el("div", `tp-dialog${options.className ? ` ${options.className}` : ""}`);
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", options.title);
+    dialog.tabIndex = -1;
+    const head = el("div", "tp-dialog-head");
+    const titles = el("div", "tp-dialog-titles");
+    titles.append(el("h2", "tp-dialog-title", options.title));
+    if (options.subtitle) titles.append(el("p", "tp-dialog-subtitle", options.subtitle));
+    const close = el("button", "tp-dialog-close");
+    close.type = "button";
+    close.title = "Close (Esc)";
+    close.setAttribute("aria-label", close.title);
+    close.innerHTML = ICONS.clear;
+    close.addEventListener("click", () => this.close());
+    head.append(titles, close);
+    const body = el("div", "tp-dialog-body");
+    body.append(options.content);
+    dialog.append(head, body);
+    if (options.footer) {
+      const foot = el("div", "tp-dialog-foot");
+      foot.append(options.footer);
+      dialog.append(foot);
+    }
+    backdrop.append(dialog);
+    backdrop.addEventListener("keydown", (e) => this.onKeyDown(e, dialog));
+    backdrop.addEventListener("mousedown", (e) => {
+      if (e.target === backdrop) {
+        e.preventDefault();
+        this.close();
+      }
+    });
+    this.shown = { backdrop, returnFocus: doc.activeElement, ...options.closed ? { closed: options.closed } : {} };
+    doc.body.append(backdrop);
+    (options.focus ?? dialog).focus({ preventScroll: true });
+    return { element: dialog, close: () => this.close() };
+  }
+  close() {
+    const shown = this.shown;
+    if (!shown) return;
+    this.shown = void 0;
+    shown.backdrop.remove();
+    if (shown.returnFocus instanceof HTMLElement && shown.returnFocus.isConnected) shown.returnFocus.focus({ preventScroll: true });
+    shown.closed?.();
+  }
+  // Esc closes; Tab stays in the dialog; no key goes on to the page
+  onKeyDown(e, dialog) {
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      e.preventDefault();
+      this.close();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const focusable = Array.from(dialog.querySelectorAll("button, input, select, [tabindex='0']")).filter(
+      (f) => !f.disabled && f.offsetParent !== null
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = this.doc.activeElement;
+    if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+};
+
 // table-plus/src/pins.ts
 function rowZone(pins, rows, row) {
   if (row >= 1 && row <= pins.top) return "top";
@@ -1044,28 +1778,6 @@ function pinColumn(pins, columns, column, pin) {
 
 // table-plus/src/core/layout.ts
 var STICKY_GAP = 42;
-
-// table-plus/src/tags.ts
-var TAG_RE = /\s*<meta\b[^>]*>/gi;
-var ATTRIBUTE_RE = /([\w.:-]+)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g;
-function cellTags(cell) {
-  return Array.from(cell.matchAll(TAG_RE), (match) => match[0].trim());
-}
-function withoutTags(cell) {
-  return cell.replace(TAG_RE, "").trim();
-}
-function attributesOf(tag) {
-  return Array.from(tag.matchAll(ATTRIBUTE_RE), (match) => match[1].toLowerCase());
-}
-function withoutTagsWith(cell, attributes) {
-  const kept = cellTags(cell).filter((tag) => !attributesOf(tag).some((name) => attributes.has(name)));
-  return [withoutTags(cell), ...kept].filter((part) => part !== "").join(" ");
-}
-function keepTags(value, from, taken = /* @__PURE__ */ new Set()) {
-  const own = new Set(cellTags(value).flatMap(attributesOf));
-  const kept = cellTags(from).filter((tag) => !attributesOf(tag).some((name) => own.has(name) || taken.has(name)));
-  return [value.trim(), ...kept].filter((part) => part !== "").join(" ");
-}
 
 // table-plus/src/core/structure.ts
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
@@ -2171,65 +2883,6 @@ function editorRect(editor) {
   return (editor.popup ? editor.field.closest(".tp-cell-popup") ?? editor.cell : editor.cell).getBoundingClientRect();
 }
 
-// table-plus/src/view.ts
-var NO_PINS = { top: 0, bottom: 0, left: 0, right: 0 };
-var DEFAULT_VIEW = {};
-function pinsOf(view) {
-  return view.pins ?? NO_PINS;
-}
-function hasPins(pins) {
-  return pins.top + pins.bottom + pins.left + pins.right > 0;
-}
-function withPins(view, pins) {
-  if (hasPins(pins)) return { ...view, pins };
-  const { pins: _pins, ...rest } = view;
-  return rest;
-}
-function cycleSort(view, column) {
-  if (view.sort?.column !== column) return { ...view, sort: { column, direction: "asc" } };
-  if (view.sort.direction === "asc") return { ...view, sort: { column, direction: "desc" } };
-  return withoutSort(view);
-}
-function withSort(view, column, direction) {
-  return { ...view, sort: { column, direction } };
-}
-function withoutSort(view) {
-  const { sort: _sort, ...rest } = view;
-  return rest;
-}
-function remapColumns(view, map) {
-  const column = view.sort ? map(view.sort.column) : void 0;
-  const result = withoutSort(view);
-  return view.sort && column !== void 0 ? { ...result, sort: { column, direction: view.sort.direction } } : result;
-}
-var NUMBER_RE = /^\p{Sc}?\s*([-+]?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?)\s*[\p{L}\p{Sc}%°]*$/u;
-function asNumber(s) {
-  const m = NUMBER_RE.exec(s.trim());
-  return m ? Number(m[1].replace(/[ \u00a0]/g, "").replace(",", ".")) : void 0;
-}
-var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
-function compareValues(a, b) {
-  const na = asNumber(a);
-  const nb = asNumber(b);
-  if (na !== void 0 && nb !== void 0) return na - nb;
-  return collator.compare(a.trim(), b.trim());
-}
-function visibleRows(values, view, hidden = /* @__PURE__ */ new Set()) {
-  const { top, bottom } = pinsOf(view);
-  const indexes = values.map((_, i) => i).filter((i) => i >= top && i < values.length - bottom && !hidden.has(i));
-  const sort = view.sort;
-  if (!sort) return indexes;
-  const sign = sort.direction === "asc" ? 1 : -1;
-  return indexes.sort((a, b) => {
-    const va = values[a][sort.column] ?? "";
-    const vb = values[b][sort.column] ?? "";
-    const ea = va.trim() === "";
-    const eb = vb.trim() === "";
-    if (ea !== eb) return ea ? 1 : -1;
-    return sign * compareValues(va, vb) || a - b;
-  });
-}
-
 // table-plus/src/columntypes/format.ts
 function numberOf(text) {
   return asNumber(text);
@@ -2251,7 +2904,7 @@ function dateTimeFormat(locale, options) {
   if (!format) dateFormats.set(key2, format = new Intl.DateTimeFormat(locale, options));
   return format;
 }
-function formatNumber(n, locale, options = {}) {
+function formatNumber2(n, locale, options = {}) {
   return numberFormat(locale, options).format(n);
 }
 
@@ -2322,343 +2975,6 @@ var currency_default = columnType({
   format: (text, { code }, locale) => formatMoney(numberOf(text), code.toUpperCase(), locale)
 });
 
-// table-plus/src/format.ts
-function formatLuaNumber(n) {
-  if (Number.isInteger(n)) return String(n);
-  if (Number.isNaN(n)) return "-nan";
-  if (n === Infinity) return "inf";
-  if (n === -Infinity) return "-inf";
-  const [mantissa, exp] = n.toExponential(13).split("e");
-  const exponent = Number(exp);
-  if (exponent < -4 || exponent >= 14) {
-    const digits = Math.abs(exponent) < 10 ? `0${Math.abs(exponent)}` : String(Math.abs(exponent));
-    return `${trimZeros(mantissa)}e${exponent < 0 ? "-" : "+"}${digits}`;
-  }
-  return trimZeros(n.toFixed(13 - exponent));
-}
-function trimZeros(s) {
-  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
-}
-
-// table-plus/src/formulas/values.ts
-var ERROR_CODES = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NUM!", "#N/A", "#CYCLE!", "#ERROR!"];
-var FormulaError = class {
-  constructor(code, detail) {
-    this.code = code;
-    this.detail = detail;
-  }
-  code;
-  detail;
-};
-var TimeValue = class {
-  constructor(seconds, text) {
-    this.seconds = seconds;
-    this.text = text;
-  }
-  seconds;
-  text;
-};
-var DAY_SECONDS = 86400;
-var CLOCK_RE = /^(-)?(\d+):([0-5]\d)(?::([0-5]\d))?$/;
-function parseClock(text) {
-  const m = CLOCK_RE.exec(text.trim());
-  if (!m) return void 0;
-  const seconds = Number(m[2]) * 3600 + Number(m[3]) * 60 + Number(m[4] ?? 0);
-  return new TimeValue(m[1] ? -seconds : seconds, text.trim());
-}
-function formatClock(seconds) {
-  const total = Math.round(Math.abs(seconds));
-  const two = (n) => String(n).padStart(2, "0");
-  const rest = total % 60;
-  const text = `${two(Math.floor(total / 3600))}:${two(Math.floor(total / 60) % 60)}${rest ? `:${two(rest)}` : ""}`;
-  return seconds < 0 && total > 0 ? `-${text}` : text;
-}
-function asTime(value) {
-  if (value instanceof TimeValue) return value;
-  return typeof value === "string" ? parseClock(value) : void 0;
-}
-function isError(value) {
-  return value instanceof FormulaError;
-}
-function isRange(value) {
-  return Array.isArray(value);
-}
-function firstError(values) {
-  for (const value of values) {
-    for (const item of isRange(value) ? value : [value]) {
-      if (isError(item)) return item;
-    }
-  }
-  return void 0;
-}
-function single(value) {
-  if (!isRange(value)) return value;
-  return value.length === 1 ? value[0] : new FormulaError("#VALUE!", "a range where one value is expected");
-}
-function toNumber(value) {
-  const v = single(value);
-  if (isError(v) || typeof v === "number") return v;
-  if (v === null) return 0;
-  if (typeof v === "boolean") return v ? 1 : 0;
-  if (v instanceof TimeValue) return v.seconds / DAY_SECONDS;
-  if (v.trim() === "") return 0;
-  const time = parseClock(v);
-  return asNumber(v) ?? (time ? time.seconds / DAY_SECONDS : new FormulaError("#VALUE!", `"${v}" is not a number`));
-}
-function toText(value) {
-  const v = single(value);
-  if (isError(v)) return v;
-  if (v === null) return "";
-  if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
-  if (typeof v === "number") return formatNumber2(v);
-  if (v instanceof TimeValue) return v.text ?? formatClock(v.seconds);
-  return v;
-}
-function toBoolean(value) {
-  const v = single(value);
-  if (isError(v) || typeof v === "boolean") return v;
-  if (v === null) return false;
-  if (typeof v === "number") return v !== 0;
-  if (v instanceof TimeValue) return v.seconds !== 0;
-  const upper = v.trim().toUpperCase();
-  if (upper === "TRUE") return true;
-  if (upper === "FALSE") return false;
-  const n = asNumber(v);
-  return n !== void 0 ? n !== 0 : new FormulaError("#VALUE!", `"${v}" is not TRUE or FALSE`);
-}
-function numbers(args) {
-  const result = [];
-  for (const arg of args) {
-    if (isRange(arg)) {
-      for (const item of arg) {
-        if (isError(item)) return item;
-        if (typeof item === "number") result.push(item);
-        else if (item instanceof TimeValue) result.push(item.seconds / DAY_SECONDS);
-        else if (typeof item === "string") {
-          const n = asNumber(item);
-          if (n !== void 0) result.push(n);
-        }
-      }
-    } else if (arg !== null) {
-      const n = toNumber(arg);
-      if (isError(n)) return n;
-      result.push(n);
-    }
-  }
-  return result;
-}
-function allTimes(args) {
-  let times = 0;
-  for (const arg of args) {
-    for (const item of isRange(arg) ? arg : [arg]) {
-      if (asTime(item)) times++;
-      else if (typeof item === "number" || typeof item === "string" && asNumber(item) !== void 0) return false;
-      else if (!isRange(arg) && typeof item === "boolean") return false;
-    }
-  }
-  return times > 0;
-}
-function timeArithmetic(op, left, right) {
-  const a = asTime(left);
-  const b = asTime(right);
-  if (!a && !b) return void 0;
-  const days = (v) => toNumber(v);
-  if (op === "+" || op === "-") {
-    if (a && b) return new TimeValue(op === "+" ? a.seconds + b.seconds : a.seconds - b.seconds);
-    const d = days(a ? right : left);
-    if (isError(d)) return d;
-    const s = d * DAY_SECONDS;
-    if (op === "+") return new TimeValue(Math.round((a ?? b).seconds + s));
-    return new TimeValue(Math.round(a ? a.seconds - s : s - b.seconds));
-  }
-  if (op === "*" && !(a && b)) {
-    const k = days(a ? right : left);
-    return isError(k) ? k : new TimeValue(Math.round((a ?? b).seconds * k));
-  }
-  if (op === "/" && a && !b) {
-    const k = days(right);
-    if (isError(k)) return k;
-    return k === 0 ? new FormulaError("#DIV/0!", "division by zero") : new TimeValue(Math.round(a.seconds / k));
-  }
-  return void 0;
-}
-function flatten(args) {
-  return args.flatMap((arg) => isRange(arg) ? [...arg] : [arg]);
-}
-function formatNumber2(n) {
-  return formatLuaNumber(n);
-}
-function sameValue(a, b) {
-  if (isError(a) || isError(b)) return false;
-  const emptyA = a === null || typeof a === "string" && a.trim() === "";
-  const emptyB = b === null || typeof b === "string" && b.trim() === "";
-  if (emptyA || emptyB) return emptyA && emptyB;
-  if (typeof a !== "boolean" && typeof b !== "boolean") {
-    const na = toNumber(a);
-    const nb = toNumber(b);
-    if (!isError(na) && !isError(nb)) return na === nb;
-  }
-  return toText(a).toLowerCase() === toText(b).toLowerCase();
-}
-
-// table-plus/src/formulas/dates.ts
-var DAY = 864e5;
-function timeOfDay(ms) {
-  return (ms % DAY + DAY) % DAY;
-}
-function utc(year, month, day, ms = 0) {
-  const date = new Date(Date.UTC(2e3, month, day) + ms);
-  date.setUTCFullYear(date.getUTCFullYear() - 2e3 + year);
-  return date.getTime();
-}
-var DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/;
-function parseDate(text) {
-  const m = DATE_RE.exec(text.trim());
-  if (!m) return void 0;
-  const [y, mo, d, h = 0, mi = 0, s = 0] = m.slice(1).map((part) => part === void 0 ? void 0 : Number(part));
-  if (h > 23 || mi > 59 || s > 59) return void 0;
-  const ms = utc(y, mo - 1, d, ((h * 60 + mi) * 60 + s) * 1e3);
-  const date = new Date(ms);
-  if (date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return void 0;
-  return { ms, time: m[4] !== void 0 };
-}
-function formatDate({ ms, time }) {
-  const year = new Date(ms).getUTCFullYear();
-  if (!(year >= 0 && year <= 9999)) return new FormulaError("#NUM!", "the date is not in the years 0 to 9999");
-  const iso = new Date(ms).toISOString();
-  const date = iso.slice(0, 10);
-  if (!time && timeOfDay(ms) === 0) return date;
-  const seconds = iso.slice(17, 19);
-  return `${date} ${iso.slice(11, 16)}${seconds === "00" ? "" : `:${seconds}`}`;
-}
-function toClock(value) {
-  const v = single(value);
-  const time = asTime(v);
-  if (time) return { ms: time.seconds * 1e3, time: true };
-  return typeof v === "number" ? { ms: Math.round(v * DAY_SECONDS) * 1e3, time: true } : toDate(value);
-}
-function now(time) {
-  const d = /* @__PURE__ */ new Date();
-  const ms = time ? Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()) : Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
-  return { ms, time };
-}
-function toDate(value) {
-  const v = single(value);
-  if (isError(v)) return v;
-  const date = typeof v === "string" ? parseDate(v) : void 0;
-  return date ?? new FormulaError("#VALUE!", `${v === null ? "an empty cell" : `"${toText(v)}"`} is not a date written as 2025-11-06`);
-}
-var UNIT_NAMES = {
-  s: "s",
-  sec: "s",
-  second: "s",
-  seconds: "s",
-  min: "min",
-  minute: "min",
-  minutes: "min",
-  h: "h",
-  hour: "h",
-  hours: "h",
-  d: "d",
-  day: "d",
-  days: "d",
-  w: "w",
-  week: "w",
-  weeks: "w",
-  m: "m",
-  month: "m",
-  months: "m",
-  y: "y",
-  year: "y",
-  years: "y"
-};
-var UNITS_HELP = `"s", "min", "h", "d", "w", "m" (months) or "y"`;
-function toUnit(value) {
-  const v = single(value);
-  if (isError(v)) return v;
-  const unit = typeof v === "string" ? UNIT_NAMES[v.trim().toLowerCase()] : void 0;
-  return unit ?? new FormulaError("#VALUE!", `"${toText(v)}" is not a unit of time: ${UNITS_HELP}`);
-}
-var UNIT_MS = { s: 1e3, min: 6e4, h: 36e5, d: DAY, w: 7 * DAY };
-function addUnits(date, amount, unit) {
-  const ms = UNIT_MS[unit];
-  if (ms !== void 0) {
-    const added = date.ms + Math.round(amount * ms);
-    return { ms: added, time: date.time || timeOfDay(added) !== 0 };
-  }
-  const months = Math.trunc(amount) * (unit === "y" ? 12 : 1);
-  const d = new Date(date.ms);
-  const target = d.getUTCMonth() + months;
-  const year = d.getUTCFullYear() + Math.floor(target / 12);
-  const month = (target % 12 + 12) % 12;
-  const lastDay = new Date(utc(year, month + 1, 1) - DAY).getUTCDate();
-  const day = Math.min(d.getUTCDate(), lastDay);
-  return { ms: utc(year, month, day, timeOfDay(date.ms)), time: date.time };
-}
-function unitsBetween(from, to, unit) {
-  const ms = UNIT_MS[unit];
-  if (ms !== void 0) return Math.trunc((to.ms - from.ms) / ms);
-  const a = new Date(from.ms);
-  const b = new Date(to.ms);
-  let months = (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
-  if (months > 0 && addUnits(from, months, "m").ms > to.ms) months--;
-  if (months < 0 && addUnits(from, months, "m").ms < to.ms) months++;
-  return unit === "y" ? Math.trunc(months / 12) : months;
-}
-function dateArithmetic(op, left, right) {
-  const a = typeof left === "string" ? parseDate(left) : void 0;
-  const b = typeof right === "string" ? parseDate(right) : void 0;
-  if (!a && !b) return void 0;
-  if (a && b) {
-    return op === "-" ? (a.ms - b.ms) / DAY : new FormulaError("#VALUE!", "two dates cannot be added: subtract them for the days between");
-  }
-  if (b && op === "-") return new FormulaError("#VALUE!", "a date cannot be subtracted from a number");
-  const other = a ? right : left;
-  const time = asTime(other);
-  const days = other === null ? 0 : typeof other === "number" ? other : time ? time.seconds / DAY_SECONDS : void 0;
-  if (days === void 0) return new FormulaError("#VALUE!", `"${typeof other === "string" ? other : String(other)}" is not a number of days or a time to add to a date`);
-  return formatDate(addUnits(a ?? b, op === "-" ? -days : days, "d"));
-}
-function dayNumber(date) {
-  return Math.floor(date.ms / DAY);
-}
-function dayDate(day) {
-  return formatDate({ ms: day * DAY, time: false });
-}
-function weekdayOf(day) {
-  return ((day + 4) % 7 + 7) % 7;
-}
-function holidayDays(value) {
-  const days = /* @__PURE__ */ new Set();
-  if (value === void 0 || value === null) return days;
-  for (const item of isRange(value) ? value : [value]) {
-    if (item === null || typeof item === "string" && item.trim() === "") continue;
-    const date = toDate(item);
-    if (isError(date)) return date;
-    days.add(dayNumber(date));
-  }
-  return days;
-}
-function partOf(date, part) {
-  const d = new Date(date.ms);
-  switch (part) {
-    case "year":
-      return d.getUTCFullYear();
-    case "month":
-      return d.getUTCMonth() + 1;
-    case "day":
-      return d.getUTCDate();
-    case "hour":
-      return d.getUTCHours();
-    case "minute":
-      return d.getUTCMinutes();
-    case "second":
-      return d.getUTCSeconds();
-    case "weekday":
-      return d.getUTCDay();
-  }
-}
-
 // table-plus/src/columntypes/builtin/date.ts
 var date_default = columnType({
   name: "date",
@@ -2694,7 +3010,7 @@ var number_default = columnType({
   params: { digits: { kind: "number", integer: true, min: 0, max: 9 } },
   aliases: { int: "0", float: "2" },
   check: notANumber,
-  format: (text, { digits }, locale) => formatNumber(numberOf(text), locale, {
+  format: (text, { digits }, locale) => formatNumber2(numberOf(text), locale, {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits ?? 10
   })
@@ -2712,7 +3028,7 @@ var percent_default = columnType({
   icon: lineIcon('<path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>'),
   params: { digits: { kind: "number", integer: true, min: 0, max: 9, default: 0 } },
   check: notANumber,
-  format: (text, { digits }, locale) => formatNumber(fraction(text), locale, { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits }),
+  format: (text, { digits }, locale) => formatNumber2(fraction(text), locale, { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits }),
   sortValue: (text) => String(fraction(text))
 });
 
@@ -2731,7 +3047,7 @@ var progress_default = columnType({
   format: (text, { max }, locale) => {
     const share = numberOf(text) / max;
     const filled2 = Math.round(share * 10);
-    return `${"\u25B0".repeat(filled2)}${"\u25B1".repeat(10 - filled2)} ${formatNumber(share, locale, { style: "percent" })}`;
+    return `${"\u25B0".repeat(filled2)}${"\u25B1".repeat(10 - filled2)} ${formatNumber2(share, locale, { style: "percent" })}`;
   }
 });
 
@@ -2809,39 +3125,39 @@ var unit_default = columnType({
   params: { unit: { kind: "text" } },
   aliases: { kg: "kg", km: "km", watt: "W" },
   check: (text, { unit }) => unit === void 0 ? "#unit needs a unit, e.g. #unit-kg" : notANumber(text),
-  format: (text, { unit }, locale) => `${formatNumber(numberOf(text), locale, { maximumFractionDigits: 10 })} ${unit}`
+  format: (text, { unit }, locale) => `${formatNumber2(numberOf(text), locale, { maximumFractionDigits: 10 })} ${unit}`
 });
 
 // table-plus/src/columntypes/builtin/index.ts
 var BUILT_IN_TYPES = [currency_default, number_default, percent_default, unit_default, stars_default, check_default, date_default, time_default, trend_default, progress_default, link_default];
 
 // table-plus/src/columntypes/registry.ts
-function knownOf(custom3) {
-  const replacing = new Map(custom3.map((t) => [t.name, t]));
-  const all = [...BUILT_IN_TYPES.map((t) => replacing.get(t.name) ?? t), ...custom3.filter((t) => !BUILT_IN_TYPES.some((b) => b.name === t.name))];
+function knownOf(custom4) {
+  const replacing = new Map(custom4.map((t) => [t.name, t]));
+  const all = [...BUILT_IN_TYPES.map((t) => replacing.get(t.name) ?? t), ...custom4.filter((t) => !BUILT_IN_TYPES.some((b) => b.name === t.name))];
   return {
     all,
     byName: new Map(all.map((t) => [t.name, t])),
     aliases: new Map(
-      [...all.filter((t) => !custom3.includes(t)), ...custom3].flatMap(
+      [...all.filter((t) => !custom4.includes(t)), ...custom4].flatMap(
         (t) => Object.entries(t.aliases ?? {}).map(([alias, written]) => [alias, { type: t, written: written || void 0 }])
       )
     )
   };
 }
-var custom = [];
-var known = knownOf(custom);
-var anew = false;
+var custom2 = [];
+var known = knownOf(custom2);
+var anew2 = false;
 function allTypes() {
   return known.all;
 }
 function defineCustomTypes(types) {
-  custom = Array.from(new Map([...anew ? [] : custom, ...types].map((t) => [t.name, t])).values());
-  known = knownOf(custom);
-  anew = false;
+  custom2 = Array.from(new Map([...anew2 ? [] : custom2, ...types].map((t) => [t.name, t])).values());
+  known = knownOf(custom2);
+  anew2 = false;
 }
 function customTypesAnew() {
-  anew = true;
+  anew2 = true;
 }
 var HASHTAG_RE = /(^|\s)#([^\s#]+)/g;
 function typeOfTag(tag) {
@@ -3180,9 +3496,9 @@ ${shown}` : shown;
 var NAMES_TAG_RE = /\s*<meta((?:\s+c?n\s*=\s*(?:"[^"]*"|'[^']*'))+)\s*\/?>/gi;
 var NAMES_ATTRIBUTE_RE = /(c?n)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 var CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
-var NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+var NAME_RE2 = /^[A-Za-z_][A-Za-z0-9_]*$/;
 function nameProblem(name, what) {
-  if (!NAME_RE.test(name)) return `"${name}" is not a ${what} name: letters, digits and _, not starting with a digit`;
+  if (!NAME_RE2.test(name)) return `"${name}" is not a ${what} name: letters, digits and _, not starting with a digit`;
   if (CELL_RE.test(name) || /^(true|false)$/i.test(name)) return `"${name}" would read as a cell or a value`;
   return void 0;
 }
@@ -4038,11 +4354,11 @@ var dateadd_default = {
 };
 
 // table-plus/src/formulas/builtin/datedif.ts
-var DAY2 = 864e5;
+var DAY4 = 864e5;
 function partial(a, b, unit) {
   if (unit === "ym") return unitsBetween(a, b, "m") % 12;
   const months = unit === "md" ? unitsBetween(a, b, "m") : unitsBetween(a, b, "y") * 12;
-  return Math.floor((b.ms - addUnits(a, months, "m").ms) / DAY2);
+  return Math.floor((b.ms - addUnits(a, months, "m").ms) / DAY4);
 }
 var datedif_default = {
   name: "DATEDIF",
@@ -4361,7 +4677,7 @@ var rank_default = {
     if (isError(n)) return n;
     if (isError(ns)) return ns;
     if (isError(ascending)) return ascending;
-    if (!ns.includes(n)) return new FormulaError("#N/A", `${formatNumber2(n)} is not among the numbers ranked`);
+    if (!ns.includes(n)) return new FormulaError("#N/A", `${formatNumber(n)} is not among the numbers ranked`);
     return 1 + ns.filter((x) => ascending ? x < n : x > n).length;
   }
 };
@@ -4851,26 +5167,26 @@ var ALL = [
 var BUILT_IN_FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
 
 // table-plus/src/formulas/registry.ts
-var custom2 = /* @__PURE__ */ new Map();
+var custom3 = /* @__PURE__ */ new Map();
 function functionNamed(name) {
-  return custom2.get(name) ?? BUILT_IN_FUNCTIONS[name];
+  return custom3.get(name) ?? BUILT_IN_FUNCTIONS[name];
 }
 function functionNames() {
-  return Array.from(/* @__PURE__ */ new Set([...Object.keys(BUILT_IN_FUNCTIONS), ...custom2.keys()]));
+  return Array.from(/* @__PURE__ */ new Set([...Object.keys(BUILT_IN_FUNCTIONS), ...custom3.keys()]));
 }
 function isCustomFunction(name) {
-  return custom2.has(name);
+  return custom3.has(name);
 }
 function isBuiltInFunction(name) {
   return name in BUILT_IN_FUNCTIONS;
 }
-var anew2 = false;
+var anew3 = false;
 function defineCustomFunctions(functions) {
-  custom2 = new Map([...anew2 ? [] : custom2, ...functions.map((f) => [f.name, f])]);
-  anew2 = false;
+  custom3 = new Map([...anew3 ? [] : custom3, ...functions.map((f) => [f.name, f])]);
+  anew3 = false;
 }
 function customFunctionsAnew() {
-  anew2 = true;
+  anew3 = true;
 }
 
 // table-plus/src/formulas/tokens.ts
@@ -6037,15 +6353,15 @@ function sheetXml(sheet) {
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>' + (cols ? `<cols>${cols}</cols>` : "") + `<sheetData>${header}${rows}</sheetData></worksheet>`;
 }
 function stylesXml() {
-  const custom3 = FORMAT_STYLES.map((f) => FORMAT_CODES[f]).filter((f) => f.code);
-  const numFmts = custom3.map((f) => `<numFmt numFmtId="${f.id}" formatCode="${xmlText(f.code)}"/>`).join("");
+  const custom4 = FORMAT_STYLES.map((f) => FORMAT_CODES[f]).filter((f) => f.code);
+  const numFmts = custom4.map((f) => `<numFmt numFmtId="${f.id}" formatCode="${xmlText(f.code)}"/>`).join("");
   const xfs = [
     '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>',
     '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>',
     ...FORMAT_STYLES.map((f) => `<xf numFmtId="${FORMAT_CODES[f].id}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>`)
   ];
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="${custom3.length}">${numFmts}</numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="${custom4.length}">${numFmts}</numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 }
 var XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 function xlsxParts(sheet) {
@@ -6144,11 +6460,11 @@ function xlsxFile(sheet) {
 }
 
 // table-plus/src/excel/values.ts
-var DAY3 = 864e5;
+var DAY5 = 864e5;
 var EXCEL_LEAP_BUG = -25508;
 var EPOCH = 25569;
 function serialOf(ms) {
-  const days = ms / DAY3;
+  const days = ms / DAY5;
   return days < EXCEL_LEAP_BUG ? void 0 : days + EPOCH;
 }
 var PLAIN_NUMBER_RE = /^(?:\p{Sc}\s*)?-?(?:0|[1-9]\d{0,2}(?:[  ]\d{3})+|[1-9]\d*)(?:[.,]\d+)?(?:\s*[\p{Sc}%])?$/u;
@@ -6376,7 +6692,7 @@ var templateOf = (name, templates) => Object.entries(templates).find(([n]) => n.
 function hasTemplate(name, templates) {
   return templateOf(name, templates) !== void 0;
 }
-function excelCall(name, args, templates, custom3 = false) {
+function excelCall(name, args, templates, custom4 = false) {
   const template = templateOf(name, templates);
   if (template === false) return { reason: `${name} is set to be written as its value` };
   if (typeof template === "string") {
@@ -6387,7 +6703,7 @@ function excelCall(name, args, templates, custom3 = false) {
     });
     return `(${withFutureNames(filled2)})`;
   }
-  if (custom3) return { reason: `${name} is a custom function with no Excel form (see tablePlus.modules.excel.functions)` };
+  if (custom4) return { reason: `${name} is a custom function with no Excel form (see tablePlus.modules.excel.functions)` };
   const own = EXCEL_FUNCTIONS[name];
   if (own) return own(args);
   if (SAME_IN_EXCEL.has(name)) return call(name, texts(args));
@@ -11746,7 +12062,7 @@ var Selection = class {
     for (const ref of cells) {
       const cell = this.host.cellAt(info, ref, true);
       const row = rows.get(ref.row) ?? [];
-      row.push(cell ? cellValue(cell) : "");
+      row.push(cell ? cellValue2(cell) : "");
       rows.set(ref.row, row);
     }
     const values = Array.from(rows.values());
@@ -11866,7 +12182,7 @@ var Selection = class {
     const cells = this.selection && this.cells();
     const active = this.host.doc.activeElement;
     if (!cells || !e.clipboardData || (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd) return;
-    const values = cells.map((row) => row.map(cellValue));
+    const values = cells.map((row) => row.map(cellValue2));
     e.clipboardData.setData("text/plain", clipboardText(values));
     e.clipboardData.setData("text/html", clipboardHtml(values));
     e.preventDefault();
@@ -11874,227 +12190,6 @@ var Selection = class {
     void this.host.bridge.flash(`Table Plus: copied ${values.length} \xD7 ${values[0]?.length ?? 0} cells`, "info");
   };
 };
-
-// table-plus/src/autofill/builtin/dates.ts
-var DAY4 = 864e5;
-var DOTTED_RE = /^(\d{1,2})\.(\s?)(\d{1,2})\.(\s?)(\d{4})$/;
-var ISO = {
-  read: parseDate,
-  // A date past the years 0 to 9999 cannot be written: shown as the error a formula gives
-  write: (date) => {
-    const written = formatDate(date);
-    return typeof written === "string" ? written : written.code;
-  }
-};
-function dotted(first) {
-  const m = DOTTED_RE.exec(first.trim());
-  if (!m) return void 0;
-  const pad2 = (n, as) => String(n).padStart(as.length, "0");
-  return {
-    read: (text) => {
-      const d = DOTTED_RE.exec(text.trim());
-      return d ? parseDate(`${d[5]}-${d[3].padStart(2, "0")}-${d[1].padStart(2, "0")}`) : void 0;
-    },
-    write: (date) => {
-      const d = new Date(date.ms);
-      return `${pad2(d.getUTCDate(), m[1])}.${m[2]}${pad2(d.getUTCMonth() + 1, m[3])}.${m[4]}${d.getUTCFullYear()}`;
-    }
-  };
-}
-function monthOf(date) {
-  const d = new Date(date.ms);
-  return d.getUTCFullYear() * 12 + d.getUTCMonth();
-}
-var dates_default = {
-  name: "dates",
-  match: (values) => {
-    if (values.length === 0) return void 0;
-    const written = dotted(values[0]) ?? ISO;
-    const dates = values.map((v) => written.read(v));
-    if (!dates.every((d) => d)) return void 0;
-    const all = dates;
-    const first = all[0];
-    const text = written.write;
-    if (all.length === 1) return (i) => text({ ms: first.ms + i * DAY4, time: first.time });
-    const months = monthOf(all[1]) - monthOf(first);
-    const byMonths = months !== 0 && all.every((d, i) => d.ms === addUnits(first, i * months, "m").ms);
-    if (byMonths) return (i) => text(addUnits(first, i * months, "m"));
-    const step = all[1].ms - first.ms;
-    if (step === 0 || !all.every((d, i) => d.ms === first.ms + i * step)) return void 0;
-    return (i) => text({ ms: first.ms + i * step, time: all.some((d) => d.time) });
-  }
-};
-
-// table-plus/src/autofill/builtin/lists.ts
-var LISTS = [
-  { words: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], alone: true },
-  { words: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], alone: true },
-  { words: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"], alone: true },
-  { words: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], alone: true },
-  { words: ["pond\u011Bl\xED", "\xFAter\xFD", "st\u0159eda", "\u010Dtvrtek", "p\xE1tek", "sobota", "ned\u011Ble"], alone: true },
-  { words: ["po", "\xFAt", "st", "\u010Dt", "p\xE1", "so", "ne"], alone: false },
-  { words: ["leden", "\xFAnor", "b\u0159ezen", "duben", "kv\u011Bten", "\u010Derven", "\u010Dervenec", "srpen", "z\xE1\u0159\xED", "\u0159\xEDjen", "listopad", "prosinec"], alone: true },
-  { words: ["led", "\xFAno", "b\u0159e", "dub", "kv\u011B", "\u010Dvn", "\u010Dvc", "srp", "z\xE1\u0159", "\u0159\xEDj", "lis", "pro"], alone: false }
-];
-function key(word) {
-  return plain(word.trim().toLowerCase());
-}
-function plain(word) {
-  return word.normalize("NFD").replace(/\p{M}/gu, "");
-}
-function inCase(word, as) {
-  if (as.length > 1 && as === as.toUpperCase() && as !== as.toLowerCase()) return word.toUpperCase();
-  if (as[0] === as[0].toUpperCase() && as[0] !== as[0].toLowerCase()) return word[0].toUpperCase() + word.slice(1).toLowerCase();
-  return word.toLowerCase();
-}
-function listSeries(name, lists) {
-  return {
-    name,
-    match: (values) => {
-      if (values.length === 0) return void 0;
-      for (const { words: list, alone } of lists) {
-        if (!alone && values.length < 2) continue;
-        const keys = list.map(key);
-        const indexes = values.map((v) => keys.indexOf(key(v)));
-        if (indexes.some((i) => i < 0)) continue;
-        const n = list.length;
-        const step = indexes.length === 1 ? 1 : ((indexes[1] - indexes[0]) % n + n) % n;
-        if (step === 0 || !indexes.every((index, i) => index === ((indexes[0] + i * step) % n + n) % n)) continue;
-        const bare2 = values.every((v) => plain(v) === v) && values.some((_, i) => plain(list[indexes[i]]) !== list[indexes[i]]);
-        const first = values[0].trim();
-        return (i) => {
-          const word = list[((indexes[0] + i * step) % n + n) % n];
-          return inCase(bare2 ? plain(word) : word, first);
-        };
-      }
-      return void 0;
-    }
-  };
-}
-var lists_default = listSeries("lists", LISTS);
-
-// table-plus/src/autofill/builtin/numbers.ts
-var NUMBER_RE2 = /^([-+]?)(\d+)(?:([.,])(\d+))?$/;
-var MAX_DIGITS = 15;
-var numbers_default = {
-  name: "numbers",
-  match: (values) => {
-    const parts = values.map((v) => NUMBER_RE2.exec(v.trim()));
-    if (parts.length < 2 || !parts.every((m) => m)) return void 0;
-    const all = parts;
-    if (all.some((m) => m[2].length + (m[4]?.length ?? 0) > MAX_DIGITS)) return void 0;
-    const numbers2 = all.map((m) => Number(`${m[1]}${m[2]}.${m[4] ?? "0"}`));
-    const comma = all.find((m) => m[3])?.[3] === ",";
-    const decimals = Math.max(...all.map((m) => m[4]?.length ?? 0));
-    const width = Math.max(0, ...all.filter((m) => m[2].length > 1 && m[2].startsWith("0")).map((m) => m[2].length));
-    const n = numbers2.length;
-    const meanX = (n - 1) / 2;
-    const meanY = numbers2.reduce((a, b) => a + b, 0) / n;
-    const slope = numbers2.reduce((sum, y, x) => sum + (x - meanX) * (y - meanY), 0) / numbers2.reduce((sum, _, x) => sum + (x - meanX) ** 2, 0);
-    const steps = numbers2.slice(1).map((y, x) => y - numbers2[x]);
-    const even = steps.every((s) => Math.abs(s - steps[0]) < 1e-9);
-    const places = even ? decimals : decimals + 2;
-    return (i) => {
-      const value = even ? numbers2[0] + i * steps[0] : meanY + (i - meanX) * slope;
-      let text = (Math.round(value * 10 ** places) / 10 ** places).toFixed(places);
-      if (!even && places > decimals) text = text.replace(/0+$/, "").replace(/\.$/, "");
-      const [sign, digits] = text.startsWith("-") ? ["-", text.slice(1)] : ["", text];
-      const [whole, fraction2] = digits.split(".");
-      const padded3 = whole.padStart(width, "0");
-      return `${sign}${padded3}${fraction2 ? `${comma ? "," : "."}${fraction2}` : ""}`;
-    };
-  }
-};
-
-// table-plus/src/autofill/builtin/numbered.ts
-var NUMBERED_RE = /^(.*?)(\d+)(\D*)$/s;
-var numbered_default = {
-  name: "numbered text",
-  match: (values) => {
-    if (values.some((v) => NUMBER_RE2.test(v.trim()))) return void 0;
-    const parts = values.map((v) => NUMBERED_RE.exec(v));
-    if (parts.length === 0 || !parts.every((m) => m)) return void 0;
-    const all = parts;
-    const [, prefix, , suffix] = all[0];
-    if (prefix.trim() === "" && suffix.trim() === "") return void 0;
-    if (!all.every((m) => m[1] === prefix && m[3] === suffix)) return void 0;
-    if (all.some((m) => m[2].length > 15)) return void 0;
-    const numbers2 = all.map((m) => Number(m[2]));
-    const step = numbers2.length === 1 ? 1 : numbers2[1] - numbers2[0];
-    if (step === 0 || !numbers2.every((n, i) => n === numbers2[0] + i * step)) return void 0;
-    const width = all[0][2].startsWith("0") ? all[0][2].length : 0;
-    return (i) => {
-      const n = numbers2[0] + i * step;
-      return `${prefix}${String(Math.abs(n)).padStart(width, "0")}${suffix}`;
-    };
-  }
-};
-
-// table-plus/src/autofill/builtin/times.ts
-var DAY5 = 86400;
-var times_default = {
-  name: "times",
-  match: (values) => {
-    const times = values.map((v) => parseClock(v)?.seconds);
-    if (times.length === 0 || !times.every((t) => t !== void 0)) return void 0;
-    const all = times;
-    const first = all[0];
-    const step = all.length === 1 ? 3600 : all[1] - first;
-    if (step === 0 || !all.every((t, i) => t === first + i * step)) return void 0;
-    const ofDay = all.every((t) => t >= 0 && t < DAY5);
-    return (i) => {
-      const seconds = first + i * step;
-      return formatClock(ofDay ? (seconds % DAY5 + DAY5) % DAY5 : seconds);
-    };
-  }
-};
-
-// table-plus/src/autofill/builtin/index.ts
-var BUILT_IN_SERIES = [dates_default, times_default, numbers_default, lists_default, numbered_default];
-
-// table-plus/src/autofill/registry.ts
-function allSeries() {
-  return BUILT_IN_SERIES;
-}
-function seriesFor(values) {
-  for (const series of allSeries()) {
-    const next = series.match(values);
-    if (next) return { name: series.name, next };
-  }
-  const k = values.length;
-  return { name: "repeat", next: (i) => values[(i % k + k) % k] ?? "" };
-}
-
-// table-plus/src/autofill/fill.ts
-function cellValue2(cell) {
-  return unescapeCell(withoutTags(cell)).trim();
-}
-function fillLine(table, line, cells) {
-  const raw = (cell) => table.rows[cell.row]?.cells[cell.column] ?? "";
-  const { sources, targets, backward } = line;
-  const k = sources.length;
-  if (k === 0) return targets.map(() => "");
-  const sourceOf = (j) => backward ? sources[k - 1 - j % k] : sources[j % k];
-  if (sources.some((s) => cells.claim(raw(s), s, s) !== void 0)) {
-    return targets.map((target, j) => {
-      const source = sourceOf(j);
-      const copy = cells.claim(raw(source), source, target) ?? escapeCell(cellValue2(raw(source)));
-      return cells.keepTags(copy, raw(target));
-    });
-  }
-  const { next } = seriesFor(sources.map((s) => cellValue2(raw(s))));
-  return targets.map((target, j) => cells.keepTags(escapeCell(next(backward ? -1 - j : k + j)), raw(target)));
-}
-function filled(table, lines, cells) {
-  let result = table;
-  for (const line of lines) {
-    fillLine(table, line, cells).forEach((cell, j) => {
-      const target = line.targets[j];
-      result = setCell(result, target.row, target.column, cell);
-    });
-  }
-  return result;
-}
 
 // table-plus/src/features/autofill.ts
 var AutoFill = class {
@@ -12344,7 +12439,7 @@ var AutoFill = class {
     }
     const lines = this.lines(selected, extent);
     const cells = lines[0] ? fillLine(table, lines[0], this.fillCells(selected.info)) : [];
-    const value = cells.length ? cellValue2(cells[cells.length - 1]) : "";
+    const value = cells.length ? cellValue(cells[cells.length - 1]) : "";
     const count = lines.reduce((n, l) => n + l.targets.length, 0);
     this.tip.textContent = value || `${count} ${count === 1 ? "cell" : "cells"}`;
     this.host.place(this.tip, x + 14, y + 14);
@@ -12357,7 +12452,7 @@ var AutoFill = class {
     const columns = table.rows[0]?.cells.length ?? 0;
     const beside = [selected.left - 1, selected.right + 1].filter((c) => c >= 0 && c < columns);
     const last = selected.rowZone[1];
-    const filledBeside = (column, shown) => shown <= last && cellValue2(table.rows[this.rowOf(selected, shown)]?.cells[column] ?? "") !== "";
+    const filledBeside = (column, shown) => shown <= last && cellValue(table.rows[this.rowOf(selected, shown)]?.cells[column] ?? "") !== "";
     let to = selected.bottom;
     for (const column of beside) {
       if (!filledBeside(column, selected.bottom + 1)) continue;
@@ -12843,8 +12938,8 @@ var Controller = class {
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
     else setTimeout(run, 0);
   }
-  async promptText(message3, value = "") {
-    const answer = this.bridge.prompt ? await this.bridge.prompt(message3, value) : this.doc.defaultView.prompt(message3, value);
+  async promptText(message4, value = "") {
+    const answer = this.bridge.prompt ? await this.bridge.prompt(message4, value) : this.doc.defaultView.prompt(message4, value);
     return answer ?? void 0;
   }
   /**
@@ -12864,7 +12959,7 @@ var Controller = class {
     this.sortsWaiting.delete(shownInfo.key);
     const [widget, info] = this.current(shownWidget, shownInfo);
     const rows = this.bodyRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map(cellValue));
+    const values = rows.map((tr) => Array.from(tr.cells).map(cellValue2));
     const { top, bottom } = info.pins;
     const middle = visibleRows(values, withPins(view, info.pins));
     const order2 = [
@@ -13044,9 +13139,9 @@ var Controller = class {
     widget.dataset.tpUnsupported = "true";
     if (!incompatible || this.warnedIncompatible) return;
     this.warnedIncompatible = true;
-    const message3 = "Table Plus is inactive: this SilverBullet version renders tables differently than expected";
-    console.warn(message3);
-    void this.bridge.flash(message3, "error");
+    const message4 = "Table Plus is inactive: this SilverBullet version renders tables differently than expected";
+    console.warn(message4);
+    void this.bridge.flash(message4, "error");
   }
   /**
    * A table with unnamed columns renders with its header shifted against its
@@ -13359,7 +13454,7 @@ var Controller = class {
    */
   cellValue(cell) {
     const active = this.cellEditor.active;
-    return active?.cell === cell && cell.dataset.tpValue === void 0 ? active.field.value : cellValue(cell);
+    return active?.cell === cell && cell.dataset.tpValue === void 0 ? active.field.value : cellValue2(cell);
   }
   /**
    * Each body cell's content in a box of its own (Table Plus' own elements
@@ -14591,16 +14686,16 @@ var Controller = class {
 };
 
 // table-plus/src/columntypes/custom.ts
-var HELPERS = { numberOf, notANumber, formatNumber, numberFormat, dateTimeFormat, parseDate, lineIcon };
-var NAME_RE2 = /^[a-z][a-z0-9_]*$/i;
+var HELPERS2 = { numberOf, notANumber, formatNumber: formatNumber2, numberFormat, dateTimeFormat, parseDate, lineIcon };
+var NAME_RE3 = /^[a-z][a-z0-9_]*$/i;
 function customTypes(definitions) {
   let list = definitions;
-  if (isObject(list) && !Array.isArray(list) && "default" in list) list = list.default;
+  if (isObject2(list) && !Array.isArray(list) && "default" in list) list = list.default;
   if (typeof list === "function") {
     try {
-      list = list(HELPERS);
+      list = list(HELPERS2);
     } catch (e) {
-      return { types: [], problems: [`the definitions failed: ${message(e)}`] };
+      return { types: [], problems: [`the definitions failed: ${message2(e)}`] };
     }
   }
   if (!Array.isArray(list)) return { types: [], problems: ["the definitions are not a list of types (or a function returning one)"] };
@@ -14614,9 +14709,9 @@ function customTypes(definitions) {
   return { types, problems };
 }
 function customType(definition) {
-  if (!isObject(definition)) return "not an object";
+  if (!isObject2(definition)) return "not an object";
   const { name, syntax, description, icon, params = {}, aliases = {}, check, format, sortValue, choices } = definition;
-  if (typeof name !== "string" || !NAME_RE2.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits and _ starting with a letter`;
+  if (typeof name !== "string" || !NAME_RE3.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits and _ starting with a letter`;
   const lower = name.toLowerCase();
   const tag = `#${lower}`;
   if (syntax !== void 0 && typeof syntax !== "string") return `${tag}: its syntax is not text`;
@@ -14627,13 +14722,13 @@ function customType(definition) {
   }
   const specs = specsOf(params);
   if (typeof specs === "string") return `${tag}: ${specs}`;
-  if (!isObject(aliases) || Array.isArray(aliases)) return `${tag}: its aliases are not an object`;
+  if (!isObject2(aliases) || Array.isArray(aliases)) return `${tag}: its aliases are not an object`;
   for (const [alias, written] of Object.entries(aliases)) {
-    if (!NAME_RE2.test(alias)) return `${tag}: the alias ${alias} is not letters, digits and _`;
+    if (!NAME_RE3.test(alias)) return `${tag}: the alias ${alias} is not letters, digits and _`;
     if (typeof written !== "string" || !readParams(specs, written || void 0)) return `${tag}: the alias ${alias} stands for parameters ${JSON.stringify(written)} the type does not take`;
   }
   const call2 = (method, result) => {
-    if (isObject(result) && typeof result.then === "function") throw new Error(`${method} returned a promise: a type gives its result at once`);
+    if (isObject2(result) && typeof result.then === "function") throw new Error(`${method} returned a promise: a type gives its result at once`);
     return result;
   };
   return {
@@ -14647,7 +14742,7 @@ function customType(definition) {
       if (!check) return void 0;
       const why = call2("check", check(text, p));
       if (why === void 0 || why === null || why === "") return void 0;
-      if (typeof why !== "string") throw new Error(`check returned ${kindOf(why)}: it gives why a value is not one of the type (text), or nothing`);
+      if (typeof why !== "string") throw new Error(`check returned ${kindOf2(why)}: it gives why a value is not one of the type (text), or nothing`);
       return why;
     },
     format: (text, p, locale) => {
@@ -14655,31 +14750,31 @@ function customType(definition) {
       const shown = call2("format", format(text, p, locale));
       if (typeof shown === "string") return shown;
       if (typeof shown === "number") return String(shown);
-      if (isObject(shown) && typeof shown.text === "string" && typeof shown.href === "string") return { text: shown.text, href: shown.href };
-      throw new Error(`format returned ${kindOf(shown)}: it gives a text, or a link { text, href }`);
+      if (isObject2(shown) && typeof shown.text === "string" && typeof shown.href === "string") return { text: shown.text, href: shown.href };
+      throw new Error(`format returned ${kindOf2(shown)}: it gives a text, or a link { text, href }`);
     },
     ...sortValue ? {
       sortValue: (text, p) => {
         const value = call2("sortValue", sortValue(text, p));
         if (typeof value === "string" || typeof value === "number") return String(value);
-        throw new Error(`sortValue returned ${kindOf(value)}: it gives a text or a number`);
+        throw new Error(`sortValue returned ${kindOf2(value)}: it gives a text or a number`);
       }
     } : {},
     ...choices ? {
       choices: (p) => {
         const list = call2("choices", choices(p));
-        if (!Array.isArray(list)) throw new Error(`choices returned ${kindOf(list)}: it gives a list`);
+        if (!Array.isArray(list)) throw new Error(`choices returned ${kindOf2(list)}: it gives a list`);
         return list.map((choice) => {
           if (typeof choice === "string") return { value: choice, label: choice };
-          if (isObject(choice) && typeof choice.value === "string") return { value: choice.value, label: typeof choice.label === "string" ? choice.label : choice.value };
-          throw new Error(`choices gave ${kindOf(choice)}: a choice is a text or { value, label }`);
+          if (isObject2(choice) && typeof choice.value === "string") return { value: choice.value, label: typeof choice.label === "string" ? choice.label : choice.value };
+          throw new Error(`choices gave ${kindOf2(choice)}: a choice is a text or { value, label }`);
         });
       }
     } : {}
   };
 }
 function specsOf(params) {
-  if (!isObject(params) || Array.isArray(params)) return "its params are not an object";
+  if (!isObject2(params) || Array.isArray(params)) return "its params are not an object";
   const names = Object.keys(params);
   const specs = {};
   for (const [i, name] of names.entries()) {
@@ -14690,7 +14785,7 @@ function specsOf(params) {
   return specs;
 }
 function specOf(spec, last) {
-  if (!isObject(spec)) return "not an object";
+  if (!isObject2(spec)) return "not an object";
   switch (spec.kind) {
     case "number": {
       const { integer, min, max, default: d } = spec;
@@ -14722,18 +14817,18 @@ function specOf(spec, last) {
       return `its kind is not "number", "choice" or "text"`;
   }
 }
-function kindOf(value) {
+function kindOf2(value) {
   return value === null ? "null" : Array.isArray(value) ? "a list" : typeof value === "object" ? "an object" : `a ${typeof value}`;
 }
-function isObject(value) {
+function isObject2(value) {
   return typeof value === "object" && value !== null;
 }
-function message(e) {
+function message2(e) {
   return e instanceof Error ? e.message : String(e);
 }
 
 // table-plus/src/formulas/custom.ts
-var HELPERS2 = {
+var HELPERS3 = {
   FormulaError,
   TimeValue,
   isError,
@@ -14749,15 +14844,15 @@ var HELPERS2 = {
   formatDate,
   parseDate
 };
-var NAME_RE3 = /^[A-Za-z][A-Za-z0-9_.]*$/;
+var NAME_RE4 = /^[A-Za-z][A-Za-z0-9_.]*$/;
 function customFunctions(definitions) {
   let list = definitions;
-  if (isObject2(list) && !Array.isArray(list) && "default" in list) list = list.default;
+  if (isObject3(list) && !Array.isArray(list) && "default" in list) list = list.default;
   if (typeof list === "function") {
     try {
-      list = list(HELPERS2);
+      list = list(HELPERS3);
     } catch (e) {
-      return { functions: [], problems: [`the definitions failed: ${message2(e)}`] };
+      return { functions: [], problems: [`the definitions failed: ${message3(e)}`] };
     }
   }
   if (!Array.isArray(list)) return { functions: [], problems: ["the definitions are not a list of functions (or a function returning one)"] };
@@ -14771,9 +14866,9 @@ function customFunctions(definitions) {
   return { functions, problems };
 }
 function customFunction(definition) {
-  if (!isObject2(definition)) return "not an object";
+  if (!isObject3(definition)) return "not an object";
   const { name, syntax, description, category, example, minArgs = 0, maxArgs, call: call2 } = definition;
-  if (typeof name !== "string" || !NAME_RE3.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and . starting with a letter`;
+  if (typeof name !== "string" || !NAME_RE4.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and . starting with a letter`;
   const upper = name.toUpperCase();
   if (CELL_RE.test(name) || upper === "TRUE" || upper === "FALSE") return `its name ${name} reads as ${upper === "TRUE" || upper === "FALSE" ? "a value" : "a cell"} in formulas`;
   if (typeof call2 !== "function") return `${upper} has no call function`;
@@ -14798,7 +14893,7 @@ function customFunction(definition) {
       try {
         result = call2(args, context);
       } catch (e) {
-        result = e instanceof FormulaError ? e : new FormulaError("#VALUE!", `${upper} failed: ${message2(e)}`);
+        result = e instanceof FormulaError ? e : new FormulaError("#VALUE!", `${upper} failed: ${message3(e)}`);
       }
       return resultOf(upper, result);
     }
@@ -14811,18 +14906,18 @@ function resultOf(name, result) {
     return ERROR_CODES.includes(result.code) ? result : new FormulaError("#VALUE!", `${name} gave the error ${String(result.code)}, which is none of ${ERROR_CODES.join(" ")}`);
   }
   if (result instanceof TimeValue) return result;
-  if (isObject2(result) && typeof result.then === "function") {
+  if (isObject3(result) && typeof result.then === "function") {
     return new FormulaError("#VALUE!", `${name} returned a promise: a function gives its result at once (it cannot wait for anything)`);
   }
   return new FormulaError("#VALUE!", `${name} returned ${Array.isArray(result) ? "a list" : "an object"}: a function gives one value (a number, a text, TRUE or FALSE)`);
 }
-function isObject2(value) {
+function isObject3(value) {
   return typeof value === "object" && value !== null;
 }
 function isCount(value) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
-function message2(e) {
+function message3(e) {
   return e instanceof Error ? e.message : String(e);
 }
 
@@ -14857,9 +14952,15 @@ function defineTypes(definitions) {
   definitionsChanged();
   return problems.length ? `Table Plus: custom column types not defined: ${problems.join("; ")}` : void 0;
 }
+function defineSeries(definitions) {
+  const { series, problems } = customSeries(definitions);
+  defineCustomSeries(series);
+  return problems.length ? `Table Plus: custom series not defined: ${problems.join("; ")}` : void 0;
+}
 function resetDefinitions() {
   customFunctionsAnew();
   customTypesAnew();
+  customSeriesAnew();
 }
 var checkQueued = false;
 function definitionsChanged() {
@@ -14889,6 +14990,7 @@ function init(bridge) {
 }
 export {
   defineFunctions,
+  defineSeries,
   defineTypes,
   init,
   openSettings,

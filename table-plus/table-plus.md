@@ -126,6 +126,43 @@ Select cells and drag the small square at the bottom right corner of the selecti
 * Not while the table is sorted or filtered: the rows shown are not where the cells would go (the square does not show).
 * Cells filled over keep the hidden tags they had (a cell's name).
 
+### Custom series
+
+Your own series, for words AutoFill should go round (quarters, statuses, sprints) or values it should go on with in a way of your own, are written in JavaScript, in a file of your space, and given to Table Plus from Space Lua, as [[#Custom functions]] are. For example `Library/me/series.js`:
+
+```js
+export default () => [
+  { name: "quarters", words: ["Q1", "Q2", "Q3", "Q4"] },
+  { name: "status", words: ["todo", "doing", "review", "done"], alone: false },
+  {
+    name: "fiscal weeks",
+    // FW52 → FW1: the year's weeks round
+    match: (values) => {
+      const weeks = values.map((v) => /^FW(\d+)$/.exec(v)?.[1]);
+      if (!weeks.every(Boolean)) return undefined;
+      const first = Number(weeks[0]);
+      return (i) => `FW${((((first - 1 + i) % 52) + 52) % 52) + 1}`;
+    },
+  },
+];
+```
+
+and in a `space-lua` block of any page (with a priority of its own, one below 50):
+
+```lua
+tablePlus.defineSeries(js.importFromSpace("Library/me/series.js"))
+```
+
+Then `Q3` filled down gives `Q4`, `Q1`, `Q2` (not `Q5`), and `todo`, `doing` gives `review`, `done`.
+
+* The file's default export is the list of series, or a function that gets Table Plus' helpers (below) and returns the list. Each has a `name` (letters, digits, `_` and spaces, starting with a letter) and either:
+  * `words`: a list of two or more words to go round, matched as the built-in days and months are (any case, with or without diacritics, written in the case of the first selected; several selected a step apart go on by that step). One word selected starts the series too, unless `alone: false`: then two are needed, and one is copied (for words also used otherwise, as `ne`, `po` are in Czech);
+  * or `match(values)`: given the selected cells' texts (in their order, empty cells `""`), a function giving the text of each cell filled, or nothing when the values are not the series'. The function gets the cell's index: `0` to one less than the number of values are the values themselves, the cells after them (filling down or right) are counted on, those before them (up or left) are `-1`, `-2` … A number it gives is written as text.
+* Your series are tried before the built-in ones (`dates`, `times`, `numbers`, `lists`, `numbered text`, in this order), so they can take values a built-in one would. One with a built-in series' name replaces it, in its place (`lists`: your words instead of the days and months). Of two series of one name, the last defined counts.
+* They must give their results at once. A `match` that throws, or gives something else, is no match (the next series is tried); a result that is not a text or a number gives that cell the value repeated. Both are logged in the browser's console.
+* The helpers are `parseDate` (a date written as `2025-11-06` as `{ ms, time }`) and `formatDate` (written back).
+* Series are defined again whenever SilverBullet loads Space Lua again; a change of the file shows after reloading the page. A mistake in a definition is shown in a notification; the other series are defined.
+
 ## Cell menu
 
 Right-click a cell (on a touch screen: press and hold it; in the cell editor: the Menu key or Shift+F10) for its menu: the cell is selected (marked, not edited), and stays so afterwards for Ctrl+C and Delete. Right-click a cell of a selection for the selection's menu. Shift+right-click, and a right click in the cell editor, give the browser's menu.
@@ -777,8 +814,8 @@ With the *Store table metadata* setting on, Table Plus stores a table's settings
 ```space-lua
 -- priority: 50
 -- Table Plus' Space Lua API, loaded before your scripts (they have priority 0
--- unless they say otherwise): tablePlus.defineFunctions and tablePlus.defineTypes,
--- see "Custom functions" and "Custom column types"
+-- unless they say otherwise): tablePlus.defineFunctions, tablePlus.defineTypes and
+-- tablePlus.defineSeries, see "Custom functions", "Custom column types" and "Custom series"
 tablePlus = tablePlus or {}
 if js and js.window then
   local tablePlusJs = js.importFromSpace("Library/damesene/table-plus.js")
@@ -796,10 +833,14 @@ if js and js.window then
   function tablePlus.defineTypes(definitions)
     shown(tablePlusJs.defineTypes(definitions))
   end
+  function tablePlus.defineSeries(definitions)
+    shown(tablePlusJs.defineSeries(definitions))
+  end
 else
   -- Space Lua without a window (no tables to show): nothing to define
   function tablePlus.defineFunctions() end
   function tablePlus.defineTypes() end
+  function tablePlus.defineSeries() end
 end
 ```
 

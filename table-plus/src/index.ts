@@ -1,5 +1,6 @@
 // Table Plus entry point, loaded by the library page's Space Lua:
 //   js.importFromSpace("Library/damesene/table-plus.js").init({ ... editor functions ... })
+import { customSeries, customSeriesAnew, defineCustomSeries } from "./autofill/index.ts";
 import { type Bridge, missingBridgeFunctions } from "./bridge.ts";
 import { Controller } from "./controller.ts";
 import { customTypes } from "./columntypes/custom.ts";
@@ -62,10 +63,23 @@ export function defineTypes(definitions: unknown): string | undefined {
   return problems.length ? `Table Plus: custom column types not defined: ${problems.join("; ")}` : undefined;
 }
 
+/**
+ * `tablePlus.defineSeries`: custom series for AutoFill (lists of words to go
+ * round, or series as the built-in ones), as `defineFunctions` takes
+ * functions. The next fill uses them (no table shows them); what is wrong with
+ * any of them, for a notification.
+ */
+export function defineSeries(definitions: unknown): string | undefined {
+  const { series, problems } = customSeries(definitions);
+  defineCustomSeries(series);
+  return problems.length ? `Table Plus: custom series not defined: ${problems.join("; ")}` : undefined;
+}
+
 /** Space Lua is loaded (again): the custom definitions are made anew, replacing those of before */
 export function resetDefinitions(): void {
   customFunctionsAnew();
   customTypesAnew();
+  customSeriesAnew();
 }
 
 // Tables are checked again once for definitions made in one go (a script's calls one after another)

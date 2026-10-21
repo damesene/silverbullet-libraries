@@ -20,7 +20,7 @@ export const LISTS: readonly FillList[] = [
 ];
 
 /** A word as lists are matched: lower case, without diacritics (Út is út, ut and UT) */
-function key(word: string): string {
+export function key(word: string): string {
   return plain(word.trim().toLowerCase());
 }
 
