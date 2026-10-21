@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { PAGE, bodyTexts, cell, cellMenuItem, clickOn, controller, editor, flush, key, press, setup, text, useTablePage } from "../testing/page.ts";
+import { bodyTexts, buttonLabel, cell, cellMenuItem, clickOn, controller, editor, flush, key, PAGE, press, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Cell menu", () => {
   useTablePage();
 
   const menu = () => document.querySelector<HTMLElement>(".tp-menu");
-  const entries = () => Array.from(menu()?.querySelectorAll(".tp-menu-item, .tp-menu-separator") ?? []).map((e) => e.textContent || "—");
+  // Items, the buttons of bars (by their full names) and separators (—), in order
+  const entries = () =>
+    Array.from(menu()?.querySelectorAll(".tp-menu-item, .tp-action, .tp-segment, .tp-menu-separator") ?? []).map((e) =>
+      e.classList.contains("tp-menu-separator") ? "—" : e.classList.contains("tp-menu-item") ? e.textContent : buttonLabel(e),
+    );
   const rightClick = (target: Element, init: MouseEventInit = {}) => {
     const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, ...init });
     target.dispatchEvent(event);
@@ -18,7 +22,7 @@ describe("Cell menu", () => {
     window.dispatchEvent(new MouseEvent("mouseup"));
   };
 
-  it("opens on a right click: a function and naming first, then copying and clearing, then filtering", async () => {
+  it("opens on a right click: the clipboard's bar first, then clearing and moving, a function, filtering, naming", async () => {
     await setup(PAGE, { "tablePlus.metadata": true });
     clickOn(cell(2, 0));
     editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "apples";
@@ -31,10 +35,13 @@ describe("Cell menu", () => {
     await controller.scan();
     rightClick(cell(1, 1));
     expect(menu()!.querySelector(".tp-menu-title")!.textContent).toBe("Cell: Qty, row 1");
-    expect(entries()).toEqual(["Insert function…", "—", "Name cell", "Name row", "—", "Copy", "Cut", "Paste", "Paste as new rows", "—", "Clear", "Move to…", "—", "AutoFill to…", "—", "Filter: = 3", "Filter: ≠ 3"]);
-    // A header: its name, no clearing, no filter
+    expect(entries()).toEqual([
+      ...["Copy", "Cut", "Paste", "Paste as new rows", "—"],
+      ...["Clear", "Move to…", "—", "Insert function…", "—", "AutoFill to…", "—", "Filter: = 3", "Filter: ≠ 3", "—", "Name cell", "Name row"],
+    ]);
+    // A header: no clearing, no filter, its name last
     rightClick(cell(0, 1));
-    expect(entries()).toEqual(["Name column", "—", "Copy", "Cut", "Paste", "Paste as new rows"]);
+    expect(entries()).toEqual(["Copy", "Cut", "Paste", "Paste as new rows", "—", "Name column"]);
   });
 
   it("filters by a cell's value, adding to the column's list; and leaves it out with ≠", async () => {

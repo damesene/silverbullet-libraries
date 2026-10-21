@@ -361,7 +361,8 @@ export class Formulas implements Feature {
     const hasFormula = formulaOf(parseTable(info.source).rows[cell.row]?.cells[cell.column] ?? "") !== undefined;
     const allowed = this.host.metadataEnabled || hasFormula;
     return {
-      order: 0,
+      // After clearing and moving: what is written into the cell
+      order: 1.2,
       entries: [
         {
           kind: "item",

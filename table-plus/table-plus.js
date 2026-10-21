@@ -1550,7 +1550,10 @@ var ICONS = {
   columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
   columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
   download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
-  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  // Two sheets: copied to the clipboard
+  copy: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  // A row and its copy under it
+  duplicate: svg('<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1" stroke-dasharray="2 2"/>'),
   // No stripes: an empty table, struck through (rows and columns: its tinted lines)
   stripesNone: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M5 18L19 6"/>'),
   stripesRows: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18"/><path d="M4 10h16v4H4z" fill="currentColor" stroke="none" opacity="0.4"/>'),
@@ -1576,6 +1579,8 @@ var ICONS = {
   cut: svg('<circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.2 16 18 4M15.8 16 6 4"/>'),
   // A clipboard
   paste: svg('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 11h6M9 15h4"/>'),
+  // The clipboard and a +: pasted as new rows
+  pasteRows: svg('<rect x="3" y="4" width="13" height="17" rx="2"/><path d="M7 4V3h5v1M7 11h5M7 15h3M19.5 14v7M16 17.5h7"/>'),
   // Sorted lines with a check: make the sorting the real order
   applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
   // Two arrows round: calculate again
@@ -7450,7 +7455,7 @@ var Export = class {
       {
         label: "Copy as CSV",
         title: "Copy the table as CSV: its rows as shown (sorted, filtered), cells as Ctrl+C copies them",
-        icon: ICONS.duplicate,
+        icon: ICONS.copy,
         run: () => void this.copyCsv(widget, info)
       }
     ];
@@ -8699,7 +8704,8 @@ var Formulas = class {
     const hasFormula = formulaOf(parseTable(info.source).rows[cell.row]?.cells[cell.column] ?? "") !== void 0;
     const allowed = this.host.metadataEnabled || hasFormula;
     return {
-      order: 0,
+      // After clearing and moving: what is written into the cell
+      order: 1.2,
       entries: [
         {
           kind: "item",
@@ -9292,6 +9298,11 @@ ${error}` : stored.formula;
 };
 
 // table-plus/src/menu.ts
+function wrapRuns(entries, wrap) {
+  return entries.map(
+    (entry) => entry.kind === "item" ? { ...entry, run: wrap(entry.run) } : entry.kind === "segmented" || entry.kind === "actions" ? { ...entry, options: entry.options.map((option) => ({ ...option, run: wrap(option.run) })) } : entry
+  );
+}
 function renderMenu(doc, title, entries, back) {
   const menu = doc.createElement("div");
   menu.setAttribute("role", "menu");
@@ -9411,6 +9422,23 @@ function renderMenu(doc, title, entries, back) {
       }
       item.append(label);
       menu.append(item);
+    } else if (entry.kind === "actions") {
+      const bar = doc.createElement("div");
+      bar.className = "tp-menu-actions";
+      bar.setAttribute("role", "group");
+      for (const option of entry.options) {
+        const b = button("tp-action", option.run, option.disabled);
+        b.setAttribute("role", "menuitem");
+        b.setAttribute("aria-label", option.title);
+        if (!option.disabled) b.title = option.title;
+        b.innerHTML = `<span class="tp-icon">${option.icon}</span>`;
+        const caption = doc.createElement("span");
+        caption.className = "tp-action-caption";
+        caption.textContent = option.caption;
+        b.append(caption);
+        bar.append(b);
+      }
+      menu.append(bar);
     } else {
       const row = doc.createElement("div");
       row.className = "tp-menu-segmented";
@@ -9422,10 +9450,13 @@ function renderMenu(doc, title, entries, back) {
       group.setAttribute("role", "group");
       group.setAttribute("aria-label", entry.label);
       for (const option of entry.options) {
-        const b = button("tp-segment", option.run);
-        b.setAttribute("role", "menuitemradio");
-        b.setAttribute("aria-checked", String(option.active));
-        b.title = option.title;
+        const b = button("tp-segment", option.run, option.disabled);
+        if (option.active === void 0) b.setAttribute("role", "menuitem");
+        else {
+          b.setAttribute("role", "menuitemradio");
+          b.setAttribute("aria-checked", String(option.active));
+        }
+        b.title = option.disabled ? `${option.title}: ${option.disabled}` : option.title;
         b.setAttribute("aria-label", option.title);
         b.innerHTML = option.icon;
         group.append(b);
@@ -9441,10 +9472,11 @@ function renderMenu(doc, title, entries, back) {
     );
     const index = buttons.indexOf(doc.activeElement);
     const focus = (i) => buttons[(i + buttons.length) % buttons.length]?.focus({ preventScroll: true });
-    if (e.key === "ArrowDown" || e.key === "ArrowRight" && index >= 0 && buttons[index].classList.contains("tp-segment")) {
+    const inRow = index >= 0 && (buttons[index].classList.contains("tp-segment") || buttons[index].classList.contains("tp-action"));
+    if (e.key === "ArrowDown" || e.key === "ArrowRight" && inRow) {
       e.preventDefault();
       focus(index + 1);
-    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft" && index >= 0 && buttons[index].classList.contains("tp-segment")) {
+    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft" && inRow) {
       e.preventDefault();
       focus(index < 0 ? -1 : index - 1);
     } else if (e.key === "ArrowLeft" && back) {
@@ -10119,57 +10151,67 @@ var Grips = class {
     const pinBlocked = (to) => host.metadataEnabled || zone === to ? void 0 : PIN_NEEDS_METADATA;
     const insertBlocked = (at) => insertRowAt(info.pins, info.rows, at).at === at ? void 0 : zone === "top" ? "Rows pinned to the top stay at the top" : "Rows pinned to the bottom stay at the bottom";
     return [
-      // Naming first, then the clipboard, as in the cell menu
-      ...this.topEntries(this.host.rowMenuEntries(widget, info, row, column)),
-      ...this.topEntries(this.host.lineMenuEntries(widget, info, "row", this.selectedLines(info, "row", row))),
+      ...this.lineSections(widget, info, "row", row),
       {
-        kind: "item",
-        label: "Insert row above",
-        icon: ICONS.rowAbove,
-        run: act(() => insertRowWith(host, widget, info, row, column, void 0, { before: row })),
-        disabled: insertBlocked(row)
-      },
-      {
-        kind: "item",
-        label: "Insert row below",
-        icon: ICONS.rowBelow,
-        run: act(() => insertRowWith(host, widget, info, row + 1, column, void 0, { after: row })),
-        disabled: insertBlocked(row + 1)
+        kind: "segmented",
+        label: "Insert",
+        options: [
+          {
+            icon: ICONS.rowAbove,
+            title: "Insert row above",
+            run: act(() => insertRowWith(host, widget, info, row, column, void 0, { before: row })),
+            disabled: insertBlocked(row)
+          },
+          {
+            icon: ICONS.rowBelow,
+            title: "Insert row below",
+            run: act(() => insertRowWith(host, widget, info, row + 1, column, void 0, { after: row })),
+            disabled: insertBlocked(row + 1)
+          }
+        ]
       },
       { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: act(() => duplicateRowAt(host, widget, info, row)) },
       { kind: "separator" },
       {
-        kind: "item",
-        label: rows > 1 ? `Move ${rows} rows up` : "Move up",
-        icon: ICONS.arrowUp,
-        run: act(() => this.moveBlock(widget, info, "row", block, block.first - 1)),
-        disabled: moveBlocked(block.first - 1)
+        kind: "segmented",
+        label: rows > 1 ? `Move ${rows} rows` : "Move",
+        options: [
+          {
+            icon: ICONS.arrowUp,
+            title: rows > 1 ? `Move ${rows} rows up` : "Move up",
+            run: act(() => this.moveBlock(widget, info, "row", block, block.first - 1)),
+            disabled: moveBlocked(block.first - 1)
+          },
+          {
+            icon: ICONS.arrowDown,
+            title: rows > 1 ? `Move ${rows} rows down` : "Move down",
+            run: act(() => this.moveBlock(widget, info, "row", block, block.first + 1)),
+            disabled: moveBlocked(block.first + 1)
+          }
+        ]
       },
       {
-        kind: "item",
-        label: rows > 1 ? `Move ${rows} rows down` : "Move down",
-        icon: ICONS.arrowDown,
-        run: act(() => this.moveBlock(widget, info, "row", block, block.first + 1)),
-        disabled: moveBlocked(block.first + 1)
+        kind: "segmented",
+        label: "Pin",
+        options: [
+          {
+            icon: ICONS.pinTop,
+            title: zone === "top" ? "Unpin from the top" : "Pin to top",
+            active: zone === "top",
+            run: act(() => pinRowAt(host, widget, info, row, zone === "top" ? void 0 : "top")),
+            disabled: pinBlocked("top")
+          },
+          {
+            icon: ICONS.pinBottom,
+            title: zone === "bottom" ? "Unpin from the bottom" : "Pin to bottom",
+            active: zone === "bottom",
+            run: act(() => pinRowAt(host, widget, info, row, zone === "bottom" ? void 0 : "bottom")),
+            disabled: pinBlocked("bottom")
+          }
+        ]
       },
       { kind: "separator" },
-      {
-        kind: "item",
-        label: "Pin to top",
-        icon: ICONS.pinTop,
-        checked: zone === "top",
-        run: act(() => pinRowAt(host, widget, info, row, zone === "top" ? void 0 : "top")),
-        disabled: pinBlocked("top")
-      },
-      {
-        kind: "item",
-        label: "Pin to bottom",
-        icon: ICONS.pinBottom,
-        checked: zone === "bottom",
-        run: act(() => pinRowAt(host, widget, info, row, zone === "bottom" ? void 0 : "bottom")),
-        disabled: pinBlocked("bottom")
-      },
-      { kind: "separator" },
+      ...this.section(this.host.rowMenuEntries(widget, info, row, column)),
       this.selectEntry(info, "row", row),
       this.deleteEntry(widget, info, "row", row)
     ];
@@ -10191,12 +10233,15 @@ var Grips = class {
     };
   }
   /** Entries features add at the top of a menu (naming), before a separator, closing the menu when run */
-  topEntries(entries) {
+  /** The features' entries for the lines a grip acts on: the clipboard's bar, then the others (Clear), each a section as in the cell menu */
+  lineSections(widget, info, axis, line) {
+    const entries = this.host.lineMenuEntries(widget, info, axis, this.selectedLines(info, axis, line));
+    return [...this.section(entries.filter((e) => e.kind === "actions")), ...this.section(entries.filter((e) => e.kind !== "actions"))];
+  }
+  /** The features' entries as a section of the menu: run, they close it; a separator after them */
+  section(entries) {
     if (entries.length === 0) return [];
-    return [
-      ...entries.map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry),
-      { kind: "separator" }
-    ];
+    return [...wrapRuns(entries, (run) => this.runAndClose(run)), { kind: "separator" }];
   }
   /**
    * The entries features add to a column's menu: run, they close the menu,
@@ -10231,29 +10276,72 @@ var Grips = class {
     const pinBlocked = (to) => host.metadataEnabled || zone === to ? void 0 : PIN_NEEDS_METADATA;
     const insertBlocked = (at) => insertColumnAt(info.pins, info.columns, at).at === at ? void 0 : zone === "left" ? "Columns pinned to the left stay at the left" : "Columns pinned to the right stay at the right";
     const entries = [
-      ...this.topEntries(host.columnMenuTopEntries(widget, info, column)),
-      ...this.topEntries(host.lineMenuEntries(widget, info, "column", this.selectedLines(info, "column", column))),
+      ...this.lineSections(widget, info, "column", column),
       {
-        kind: "item",
-        label: "Sort ascending",
-        icon: ICONS.sortAsc,
-        checked: sorted === "asc",
-        run: sortBy(withSort(view, column, "asc"))
+        kind: "segmented",
+        label: "Insert",
+        options: [
+          { icon: ICONS.columnLeft, title: "Insert column left", run: act(() => insertColumnWith(host, widget, info, column)), disabled: insertBlocked(column) },
+          { icon: ICONS.columnRight, title: "Insert column right", run: act(() => insertColumnWith(host, widget, info, column + 1)), disabled: insertBlocked(column + 1) }
+        ]
+      },
+      // The features' (a numbered column), closing the menu when run
+      ...wrapRuns(host.columnMenuInsertEntries(widget, info, column), (run) => this.runAndClose(run)),
+      { kind: "separator" },
+      {
+        kind: "segmented",
+        label: columns > 1 ? `Move ${columns} columns` : "Move",
+        options: [
+          {
+            icon: ICONS.arrowLeft,
+            title: columns > 1 ? `Move ${columns} columns left` : "Move left",
+            run: act(() => this.moveBlock(widget, info, "column", block, block.first - 1)),
+            disabled: columnMoveBlocked(block.first - 1)
+          },
+          {
+            icon: ICONS.arrowRight,
+            title: columns > 1 ? `Move ${columns} columns right` : "Move right",
+            run: act(() => this.moveBlock(widget, info, "column", block, block.first + 1)),
+            disabled: columnMoveBlocked(block.first + 1)
+          }
+        ]
       },
       {
-        kind: "item",
-        label: "Sort descending",
-        icon: ICONS.sortDesc,
-        checked: sorted === "desc",
-        run: sortBy(withSort(view, column, "desc"))
-      }
-    ];
-    if (view.sort) {
-      entries.push({ kind: "item", label: "Clear sorting", icon: ICONS.clear, run: sortBy(withoutSort(view)) });
-    }
-    entries.push(
-      ...this.featureColumnEntries(widget, info, column),
+        kind: "segmented",
+        label: "Pin",
+        options: [
+          {
+            icon: ICONS.pinLeft,
+            title: zone === "left" ? "Unpin from the left" : "Pin left",
+            active: zone === "left",
+            run: act(() => pinColumnAt(host, widget, info, column, zone === "left" ? void 0 : "left")),
+            disabled: pinBlocked("left")
+          },
+          {
+            icon: ICONS.pinRight,
+            title: zone === "right" ? "Unpin from the right" : "Pin right",
+            active: zone === "right",
+            run: act(() => pinColumnAt(host, widget, info, column, zone === "right" ? void 0 : "right")),
+            disabled: pinBlocked("right")
+          }
+        ]
+      },
       { kind: "separator" },
+      {
+        kind: "segmented",
+        label: "Sort",
+        options: [
+          { icon: ICONS.sortAsc, title: "Sort ascending", active: sorted === "asc", run: sortBy(withSort(view, column, "asc")) },
+          { icon: ICONS.sortDesc, title: "Sort descending", active: sorted === "desc", run: sortBy(withSort(view, column, "desc")) },
+          {
+            icon: ICONS.clear,
+            title: "Clear sorting",
+            run: sortBy(withoutSort(view)),
+            ...view.sort ? {} : { disabled: "Not sorted" }
+          }
+        ]
+      },
+      ...this.featureColumnEntries(widget, info, column),
       {
         kind: "segmented",
         label: "Align",
@@ -10264,56 +10352,10 @@ var Grips = class {
         ]
       },
       { kind: "separator" },
-      {
-        kind: "item",
-        label: "Insert column left",
-        icon: ICONS.columnLeft,
-        run: act(() => insertColumnWith(host, widget, info, column)),
-        disabled: insertBlocked(column)
-      },
-      {
-        kind: "item",
-        label: "Insert column right",
-        icon: ICONS.columnRight,
-        run: act(() => insertColumnWith(host, widget, info, column + 1)),
-        disabled: insertBlocked(column + 1)
-      },
-      {
-        kind: "item",
-        label: columns > 1 ? `Move ${columns} columns left` : "Move left",
-        icon: ICONS.arrowLeft,
-        run: act(() => this.moveBlock(widget, info, "column", block, block.first - 1)),
-        disabled: columnMoveBlocked(block.first - 1)
-      },
-      {
-        kind: "item",
-        label: columns > 1 ? `Move ${columns} columns right` : "Move right",
-        icon: ICONS.arrowRight,
-        run: act(() => this.moveBlock(widget, info, "column", block, block.first + 1)),
-        disabled: columnMoveBlocked(block.first + 1)
-      },
-      ...host.columnMenuInsertEntries(widget, info, column).map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry),
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Pin left",
-        icon: ICONS.pinLeft,
-        checked: zone === "left",
-        run: act(() => pinColumnAt(host, widget, info, column, zone === "left" ? void 0 : "left")),
-        disabled: pinBlocked("left")
-      },
-      {
-        kind: "item",
-        label: "Pin right",
-        icon: ICONS.pinRight,
-        checked: zone === "right",
-        run: act(() => pinColumnAt(host, widget, info, column, zone === "right" ? void 0 : "right")),
-        disabled: pinBlocked("right")
-      },
-      { kind: "separator" },
+      ...this.section(host.columnMenuTopEntries(widget, info, column)),
       this.selectEntry(info, "column", column),
       this.deleteEntry(widget, info, "column", column)
-    );
+    ];
     return entries;
   }
 };
@@ -11393,7 +11435,7 @@ Row name: ${row}` : `Row name: ${row}`;
   cellMenuEntries(widget, info, cells) {
     const [cell] = cells;
     if (cells.length !== 1 || !cell) return void 0;
-    if (cell.row === 0) return { order: 0, entries: this.columnMenuTopEntries(widget, info, cell.column) };
+    if (cell.row === 0) return { order: 8, entries: this.columnMenuTopEntries(widget, info, cell.column) };
     const { row, column } = cell;
     const name = cellNameOf(parseTable(info.source).rows[row]?.cells[column] ?? "");
     const allowed = this.host.metadataEnabled || name !== void 0;
@@ -11407,7 +11449,7 @@ Row name: ${row}` : `Row name: ${row}`;
       } : { disabled: "Needs the Store table metadata setting" },
       run: () => void this.nameCell(widget, info, row, column)
     };
-    return { order: 0, entries: [entry, ...this.rowMenuEntries(widget, info, row)] };
+    return { order: 8, entries: [entry, ...this.rowMenuEntries(widget, info, row)] };
   }
   async nameRow(shownWidget, shownInfo, row) {
     const table = parseTable(shownInfo.source);
@@ -12011,52 +12053,22 @@ var Paste = class {
     if (this.clipFor(info)) this.markCut(info);
     else this.endCut();
   }
-  /** Copy, Cut, Paste and Paste as new rows in the cell menu (from `at`: the first cell) */
-  cellMenuEntries(widget, info, cells, at = cells[0]) {
-    if (!at) return { order: 0.9, entries: [] };
-    const many = cells.length > 1 ? ` ${cells.length} cells` : "";
-    const cut = this.cutFor(info);
-    const clipboard = this.host.doc.defaultView.navigator.clipboard;
-    const disabled = this.host.rearranged(info) ? PASTE_BLOCKED : cut ? void 0 : !clipboard?.readText ? NO_CLIPBOARD : this.clipboard === "empty" ? "The clipboard holds no text to paste" : void 0;
+  /** Copy, Cut, Paste and Paste as new rows in the cell menu, a bar of icons first (pasted from the first cell) */
+  cellMenuEntries(widget, info, cells) {
+    const at = cells[0];
+    if (!at) return void 0;
+    const name = cells.length > 1 ? `${cells.length} cells` : "";
     const header = cells.some((ref) => ref.row === 0);
-    const rowsCut = cut && this.cutRows(info, cut);
-    return {
-      // Before clearing: copy, cut and paste first
-      order: 0.9,
-      entries: [
-        {
-          kind: "item",
-          label: `Copy${many}`,
-          icon: ICONS.duplicate,
-          hint: "Copy as Ctrl+C does: a spreadsheet pastes it into cells",
-          run: () => void this.copy(info, cells, false)
-        },
-        {
-          kind: "item",
-          label: `Cut${many}`,
-          icon: ICONS.cut,
-          hint: "Copy and mark the cells, as Ctrl+X does: pasted into this table they move there",
-          run: () => void this.copy(info, cells, true),
-          ...header ? { disabled: "A header keeps its name: cut the cells under it" } : {}
-        },
-        {
-          kind: "item",
-          label: cut ? `Paste (move ${plural3(cut.cells.length * (cut.cells[0]?.length ?? 0), "cell")})` : "Paste",
-          icon: ICONS.paste,
-          hint: cut ? "Move the cells cut here, as Ctrl+V does" : "Paste what the clipboard holds from this cell, over the cells there, as Ctrl+V does",
-          run: () => void this.pasteFromMenu(widget, info, at, false),
-          ...disabled ? { disabled } : {}
-        },
-        {
-          kind: "item",
-          label: "Paste as new rows",
-          icon: ICONS.paste,
-          hint: "Paste the clipboard's rows as new rows at this row, as Ctrl+Shift+V does",
-          run: () => void this.pasteFromMenu(widget, info, at, true),
-          ...rowsCut ? this.host.rearranged(info) ? { disabled: PASTE_BLOCKED } : {} : !clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}
-        }
-      ]
-    };
+    const bar = this.clipboardBar(widget, info, {
+      copied: cells,
+      cut: header ? void 0 : cells,
+      cutBlocked: "A header keeps its name: cut the cells under it",
+      at,
+      name,
+      asRows: true,
+      fromHeader: false
+    });
+    return { order: -1, entries: [bar] };
   }
   /**
    * Copy, Cut and Paste in the menu of rows (columns): their cells; a column's
@@ -12073,14 +12085,55 @@ var Paste = class {
     const body = cells.filter((ref) => ref.row > 0);
     const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis === "row" ? "row" : "column"}${lines.length > 1 ? "s" : ""}`;
     const at = axis === "row" ? { row: first, column: 0 } : { row: 0, column: first };
-    const group = this.cellMenuEntries(widget, info, cells, at);
-    const [copy, cut, paste, asRows] = group.entries.filter((e) => e.kind === "item");
     return [
-      { ...copy, label: `Copy ${name}`, run: () => void this.copy(info, cells, false) },
-      { ...cut, label: `Cut ${name}`, run: () => void this.copy(info, body, true), ...body.length ? { disabled: void 0 } : { disabled: "No cells under the header to cut" } },
-      { ...paste, run: () => void this.pasteFromMenu(widget, info, at, false, axis === "column") },
-      ...axis === "row" ? [asRows] : []
+      this.clipboardBar(widget, info, {
+        copied: cells,
+        cut: body.length ? body : void 0,
+        cutBlocked: "No cells under the header to cut",
+        at,
+        name,
+        asRows: axis === "row",
+        fromHeader: axis === "column"
+      })
     ];
+  }
+  /**
+   * The clipboard's bar: Copy, Cut, Paste (Paste as new rows) as icons with a
+   * caption, their full names (Copy 3 rows) as tooltips; Paste from `at`
+   */
+  clipboardBar(widget, info, o) {
+    const cut = this.cutFor(info);
+    const clipboard = this.host.doc.defaultView.navigator.clipboard;
+    const disabled = this.host.rearranged(info) ? PASTE_BLOCKED : cut ? void 0 : !clipboard?.readText ? NO_CLIPBOARD : this.clipboard === "empty" ? "The clipboard holds no text to paste" : void 0;
+    const rowsCut = cut && this.cutRows(info, cut);
+    const named2 = (action) => o.name ? `${action} ${o.name}` : action;
+    const options = [
+      { icon: ICONS.copy, caption: "Copy", title: named2("Copy"), run: () => void this.copy(info, o.copied, false) },
+      {
+        icon: ICONS.cut,
+        caption: "Cut",
+        title: named2("Cut"),
+        run: () => void this.copy(info, o.cut ?? [], true),
+        ...o.cut ? {} : { disabled: o.cutBlocked }
+      },
+      {
+        icon: ICONS.paste,
+        caption: "Paste",
+        title: cut ? `Paste (move ${plural3(cut.cells.length * (cut.cells[0]?.length ?? 0), "cell")})` : "Paste",
+        run: () => void this.pasteFromMenu(widget, info, o.at, false, o.fromHeader),
+        ...disabled ? { disabled } : {}
+      }
+    ];
+    if (o.asRows) {
+      options.push({
+        icon: ICONS.pasteRows,
+        caption: "+ Rows",
+        title: rowsCut ? "Paste as new rows (move the rows cut)" : "Paste as new rows",
+        run: () => void this.pasteFromMenu(widget, info, o.at, true),
+        ...rowsCut ? this.host.rearranged(info) ? { disabled: PASTE_BLOCKED } : {} : !clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}
+      });
+    }
+    return { kind: "actions", options };
   }
   /** The cells selected, in rows as shown, of the table they are in */
   selection() {
@@ -12707,7 +12760,7 @@ var Selection = class {
       entries.push({
         kind: "item",
         label: cells.length > 1 ? `Copy ${cells.length} cells` : "Copy",
-        icon: ICONS.duplicate,
+        icon: ICONS.copy,
         hint: "Copy as Ctrl+C does: a spreadsheet pastes it into cells",
         run: () => void this.copy(info, cells)
       });
@@ -15829,9 +15882,7 @@ var Controller = class {
       this.closeTableMenu(false);
       run();
     };
-    const closing = entries.map(
-      (entry) => entry.kind === "item" ? { ...entry, run: close(entry.run) } : entry.kind === "segmented" ? { ...entry, options: entry.options.map((option) => ({ ...option, run: close(option.run) })) } : entry
-    );
+    const closing = wrapRuns(entries, close);
     const element = renderMenu(this.doc, title, closing, back);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());

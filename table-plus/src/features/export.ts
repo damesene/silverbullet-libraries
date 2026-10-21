@@ -21,7 +21,7 @@ export class Export implements Feature {
       {
         label: "Copy as CSV",
         title: "Copy the table as CSV: its rows as shown (sorted, filtered), cells as Ctrl+C copies them",
-        icon: ICONS.duplicate,
+        icon: ICONS.copy,
         run: () => void this.copyCsv(widget, info),
       },
     ];

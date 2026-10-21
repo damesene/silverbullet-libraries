@@ -475,7 +475,7 @@ export class Selection implements Feature {
       entries.push({
         kind: "item",
         label: cells.length > 1 ? `Copy ${cells.length} cells` : "Copy",
-        icon: ICONS.duplicate,
+        icon: ICONS.copy,
         hint: "Copy as Ctrl+C does: a spreadsheet pastes it into cells",
         run: () => void this.copy(info, cells),
       });

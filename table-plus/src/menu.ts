@@ -1,5 +1,7 @@
-// A small popup menu: icon items, separators and a segmented button row,
-// operable with the mouse or the keyboard (arrows, Home/End, Enter).
+// A small popup menu: icon items, separators, a row of icon buttons after a
+// label (Align, Move: a choice or a pair of actions) and a bar of actions with
+// a caption under each icon (the clipboard's), operable with the mouse or the
+// keyboard (arrows, Home/End, Enter).
 
 /** What an item is about, shown in a bubble beside the menu while it is hovered or focused */
 export type MenuDetail = {
@@ -38,10 +40,36 @@ export type MenuEntry =
       readonly options: readonly {
         readonly icon: string;
         readonly title: string;
-        readonly active: boolean;
+        // A choice: whether it is the one set (Align); none: an action (Move up)
+        readonly active?: boolean;
         readonly run: () => void;
+        // Why it cannot be used now; shown as its tooltip
+        readonly disabled?: string;
+      }[];
+    }
+  | {
+      // Actions side by side, a caption under each icon (Copy, Cut, Paste)
+      readonly kind: "actions";
+      readonly options: readonly {
+        readonly icon: string;
+        readonly caption: string;
+        // Its full name (Copy 3 rows), the tooltip and what assistive technology reads
+        readonly title: string;
+        readonly run: () => void;
+        readonly disabled?: string;
       }[];
     };
+
+/** The entries with every run wrapped (a menu closing before its entry runs): items', and the buttons' of rows and bars */
+export function wrapRuns(entries: readonly MenuEntry[], wrap: (run: () => void) => () => void): MenuEntry[] {
+  return entries.map((entry): MenuEntry =>
+    entry.kind === "item"
+      ? { ...entry, run: wrap(entry.run) }
+      : entry.kind === "segmented" || entry.kind === "actions"
+        ? ({ ...entry, options: entry.options.map((option) => ({ ...option, run: wrap(option.run) })) } as MenuEntry)
+        : entry,
+  );
+}
 
 /** A submenu's way back to the menu it replaced: an arrow before its title (and the Left key) */
 export type MenuBack = { readonly icon: string; readonly run: () => void };
@@ -172,6 +200,23 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
       }
       item.append(label);
       menu.append(item);
+    } else if (entry.kind === "actions") {
+      const bar = doc.createElement("div");
+      bar.className = "tp-menu-actions";
+      bar.setAttribute("role", "group");
+      for (const option of entry.options) {
+        const b = button("tp-action", option.run, option.disabled);
+        b.setAttribute("role", "menuitem");
+        b.setAttribute("aria-label", option.title);
+        if (!option.disabled) b.title = option.title;
+        b.innerHTML = `<span class="tp-icon">${option.icon}</span>`;
+        const caption = doc.createElement("span");
+        caption.className = "tp-action-caption";
+        caption.textContent = option.caption;
+        b.append(caption);
+        bar.append(b);
+      }
+      menu.append(bar);
     } else {
       const row = doc.createElement("div");
       row.className = "tp-menu-segmented";
@@ -183,10 +228,13 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
       group.setAttribute("role", "group");
       group.setAttribute("aria-label", entry.label);
       for (const option of entry.options) {
-        const b = button("tp-segment", option.run);
-        b.setAttribute("role", "menuitemradio");
-        b.setAttribute("aria-checked", String(option.active));
-        b.title = option.title;
+        const b = button("tp-segment", option.run, option.disabled);
+        if (option.active === undefined) b.setAttribute("role", "menuitem");
+        else {
+          b.setAttribute("role", "menuitemradio");
+          b.setAttribute("aria-checked", String(option.active));
+        }
+        b.title = option.disabled ? `${option.title}: ${option.disabled}` : option.title;
         b.setAttribute("aria-label", option.title);
         b.innerHTML = option.icon;
         group.append(b);
@@ -205,10 +253,12 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
     const index = buttons.indexOf(doc.activeElement as HTMLButtonElement);
     const focus = (i: number) =>
       buttons[(i + buttons.length) % buttons.length]?.focus({ preventScroll: true });
-    if (e.key === "ArrowDown" || (e.key === "ArrowRight" && index >= 0 && buttons[index]!.classList.contains("tp-segment"))) {
+    // Left and right go along a row of buttons too
+    const inRow = index >= 0 && (buttons[index]!.classList.contains("tp-segment") || buttons[index]!.classList.contains("tp-action"));
+    if (e.key === "ArrowDown" || (e.key === "ArrowRight" && inRow)) {
       e.preventDefault();
       focus(index + 1);
-    } else if (e.key === "ArrowUp" || (e.key === "ArrowLeft" && index >= 0 && buttons[index]!.classList.contains("tp-segment"))) {
+    } else if (e.key === "ArrowUp" || (e.key === "ArrowLeft" && inRow)) {
       e.preventDefault();
       focus(index < 0 ? -1 : index - 1);
     } else if (e.key === "ArrowLeft" && back) {

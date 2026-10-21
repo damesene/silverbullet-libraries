@@ -21,7 +21,7 @@ import {
 import { cellText } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import { type Align, parseTable, type Table } from "../markdown.ts";
-import { focusMenu, type MenuEntry, renderMenu } from "../menu.ts";
+import { focusMenu, type MenuEntry, renderMenu, wrapRuns } from "../menu.ts";
 import { setAlign } from "../ops.ts";
 import { columnZone, insertColumnAt, insertRowAt, rowZone } from "../pins.ts";
 import { type ViewState, withoutSort, withSort } from "../view.ts";
@@ -806,58 +806,69 @@ export class Grips implements Feature {
         : zone === "top"
           ? "Rows pinned to the top stay at the top"
           : "Rows pinned to the bottom stay at the bottom";
+    // In the order every menu keeps (cell, row, column): the clipboard and clearing, inserting, moving and pinning, naming, deleting
     return [
-      // Naming first, then the clipboard, as in the cell menu
-      ...this.topEntries(this.host.rowMenuEntries(widget, info, row, column)),
-      ...this.topEntries(this.host.lineMenuEntries(widget, info, "row", this.selectedLines(info, "row", row))),
+      ...this.lineSections(widget, info, "row", row),
       {
-        kind: "item",
-        label: "Insert row above",
-        icon: ICONS.rowAbove,
-        run: act(() => insertRowWith(host, widget, info, row, column, undefined, { before: row })),
-        disabled: insertBlocked(row),
-      },
-      {
-        kind: "item",
-        label: "Insert row below",
-        icon: ICONS.rowBelow,
-        run: act(() => insertRowWith(host, widget, info, row + 1, column, undefined, { after: row })),
-        disabled: insertBlocked(row + 1),
+        kind: "segmented",
+        label: "Insert",
+        options: [
+          {
+            icon: ICONS.rowAbove,
+            title: "Insert row above",
+            run: act(() => insertRowWith(host, widget, info, row, column, undefined, { before: row })),
+            disabled: insertBlocked(row),
+          },
+          {
+            icon: ICONS.rowBelow,
+            title: "Insert row below",
+            run: act(() => insertRowWith(host, widget, info, row + 1, column, undefined, { after: row })),
+            disabled: insertBlocked(row + 1),
+          },
+        ],
       },
       { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: act(() => duplicateRowAt(host, widget, info, row)) },
       { kind: "separator" },
       {
-        kind: "item",
-        label: rows > 1 ? `Move ${rows} rows up` : "Move up",
-        icon: ICONS.arrowUp,
-        run: act(() => this.moveBlock(widget, info, "row", block, block.first - 1)),
-        disabled: moveBlocked(block.first - 1),
+        kind: "segmented",
+        label: rows > 1 ? `Move ${rows} rows` : "Move",
+        options: [
+          {
+            icon: ICONS.arrowUp,
+            title: rows > 1 ? `Move ${rows} rows up` : "Move up",
+            run: act(() => this.moveBlock(widget, info, "row", block, block.first - 1)),
+            disabled: moveBlocked(block.first - 1),
+          },
+          {
+            icon: ICONS.arrowDown,
+            title: rows > 1 ? `Move ${rows} rows down` : "Move down",
+            run: act(() => this.moveBlock(widget, info, "row", block, block.first + 1)),
+            disabled: moveBlocked(block.first + 1),
+          },
+        ],
       },
       {
-        kind: "item",
-        label: rows > 1 ? `Move ${rows} rows down` : "Move down",
-        icon: ICONS.arrowDown,
-        run: act(() => this.moveBlock(widget, info, "row", block, block.first + 1)),
-        disabled: moveBlocked(block.first + 1),
+        kind: "segmented",
+        label: "Pin",
+        options: [
+          {
+            icon: ICONS.pinTop,
+            title: zone === "top" ? "Unpin from the top" : "Pin to top",
+            active: zone === "top",
+            run: act(() => pinRowAt(host, widget, info, row, zone === "top" ? undefined : "top")),
+            disabled: pinBlocked("top"),
+          },
+          {
+            icon: ICONS.pinBottom,
+            title: zone === "bottom" ? "Unpin from the bottom" : "Pin to bottom",
+            active: zone === "bottom",
+            run: act(() => pinRowAt(host, widget, info, row, zone === "bottom" ? undefined : "bottom")),
+            disabled: pinBlocked("bottom"),
+          },
+        ],
       },
       { kind: "separator" },
-      {
-        kind: "item",
-        label: "Pin to top",
-        icon: ICONS.pinTop,
-        checked: zone === "top",
-        run: act(() => pinRowAt(host, widget, info, row, zone === "top" ? undefined : "top")),
-        disabled: pinBlocked("top"),
-      },
-      {
-        kind: "item",
-        label: "Pin to bottom",
-        icon: ICONS.pinBottom,
-        checked: zone === "bottom",
-        run: act(() => pinRowAt(host, widget, info, row, zone === "bottom" ? undefined : "bottom")),
-        disabled: pinBlocked("bottom"),
-      },
-      { kind: "separator" },
+      ...this.section(this.host.rowMenuEntries(widget, info, row, column)),
       this.selectEntry(info, "row", row),
       this.deleteEntry(widget, info, "row", row),
     ];
@@ -881,12 +892,16 @@ export class Grips implements Feature {
   }
 
   /** Entries features add at the top of a menu (naming), before a separator, closing the menu when run */
-  private topEntries(entries: readonly MenuEntry[]): MenuEntry[] {
+  /** The features' entries for the lines a grip acts on: the clipboard's bar, then the others (Clear), each a section as in the cell menu */
+  private lineSections(widget: HTMLElement, info: WidgetInfo, axis: Axis, line: number): MenuEntry[] {
+    const entries = this.host.lineMenuEntries(widget, info, axis, this.selectedLines(info, axis, line));
+    return [...this.section(entries.filter((e) => e.kind === "actions")), ...this.section(entries.filter((e) => e.kind !== "actions"))];
+  }
+
+  /** The features' entries as a section of the menu: run, they close it; a separator after them */
+  private section(entries: readonly MenuEntry[]): MenuEntry[] {
     if (entries.length === 0) return [];
-    return [
-      ...entries.map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry)),
-      { kind: "separator" },
-    ];
+    return [...wrapRuns(entries, (run) => this.runAndClose(run)), { kind: "separator" }];
   }
 
   /**
@@ -936,30 +951,74 @@ export class Grips implements Feature {
         : zone === "left"
           ? "Columns pinned to the left stay at the left"
           : "Columns pinned to the right stay at the right";
+    // In the order every menu keeps (cell, row, column): the clipboard and clearing, inserting, moving and pinning, viewing, naming, deleting
     const entries: MenuEntry[] = [
-      ...this.topEntries(host.columnMenuTopEntries(widget, info, column)),
-      ...this.topEntries(host.lineMenuEntries(widget, info, "column", this.selectedLines(info, "column", column))),
+      ...this.lineSections(widget, info, "column", column),
       {
-        kind: "item",
-        label: "Sort ascending",
-        icon: ICONS.sortAsc,
-        checked: sorted === "asc",
-        run: sortBy(withSort(view, column, "asc")),
+        kind: "segmented",
+        label: "Insert",
+        options: [
+          { icon: ICONS.columnLeft, title: "Insert column left", run: act(() => insertColumnWith(host, widget, info, column)), disabled: insertBlocked(column) },
+          { icon: ICONS.columnRight, title: "Insert column right", run: act(() => insertColumnWith(host, widget, info, column + 1)), disabled: insertBlocked(column + 1) },
+        ],
       },
-      {
-        kind: "item",
-        label: "Sort descending",
-        icon: ICONS.sortDesc,
-        checked: sorted === "desc",
-        run: sortBy(withSort(view, column, "desc")),
-      },
-    ];
-    if (view.sort) {
-      entries.push({ kind: "item", label: "Clear sorting", icon: ICONS.clear, run: sortBy(withoutSort(view)) });
-    }
-    entries.push(
-      ...this.featureColumnEntries(widget, info, column),
+      // The features' (a numbered column), closing the menu when run
+      ...wrapRuns(host.columnMenuInsertEntries(widget, info, column), (run) => this.runAndClose(run)),
       { kind: "separator" },
+      {
+        kind: "segmented",
+        label: columns > 1 ? `Move ${columns} columns` : "Move",
+        options: [
+          {
+            icon: ICONS.arrowLeft,
+            title: columns > 1 ? `Move ${columns} columns left` : "Move left",
+            run: act(() => this.moveBlock(widget, info, "column", block, block.first - 1)),
+            disabled: columnMoveBlocked(block.first - 1),
+          },
+          {
+            icon: ICONS.arrowRight,
+            title: columns > 1 ? `Move ${columns} columns right` : "Move right",
+            run: act(() => this.moveBlock(widget, info, "column", block, block.first + 1)),
+            disabled: columnMoveBlocked(block.first + 1),
+          },
+        ],
+      },
+      {
+        kind: "segmented",
+        label: "Pin",
+        options: [
+          {
+            icon: ICONS.pinLeft,
+            title: zone === "left" ? "Unpin from the left" : "Pin left",
+            active: zone === "left",
+            run: act(() => pinColumnAt(host, widget, info, column, zone === "left" ? undefined : "left")),
+            disabled: pinBlocked("left"),
+          },
+          {
+            icon: ICONS.pinRight,
+            title: zone === "right" ? "Unpin from the right" : "Pin right",
+            active: zone === "right",
+            run: act(() => pinColumnAt(host, widget, info, column, zone === "right" ? undefined : "right")),
+            disabled: pinBlocked("right"),
+          },
+        ],
+      },
+      { kind: "separator" },
+      {
+        kind: "segmented",
+        label: "Sort",
+        options: [
+          { icon: ICONS.sortAsc, title: "Sort ascending", active: sorted === "asc", run: sortBy(withSort(view, column, "asc")) },
+          { icon: ICONS.sortDesc, title: "Sort descending", active: sorted === "desc", run: sortBy(withSort(view, column, "desc")) },
+          {
+            icon: ICONS.clear,
+            title: "Clear sorting",
+            run: sortBy(withoutSort(view)),
+            ...(view.sort ? {} : { disabled: "Not sorted" }),
+          },
+        ],
+      },
+      ...this.featureColumnEntries(widget, info, column),
       {
         kind: "segmented",
         label: "Align",
@@ -970,57 +1029,10 @@ export class Grips implements Feature {
         ],
       },
       { kind: "separator" },
-      {
-        kind: "item",
-        label: "Insert column left",
-        icon: ICONS.columnLeft,
-        run: act(() => insertColumnWith(host, widget, info, column)),
-        disabled: insertBlocked(column),
-      },
-      {
-        kind: "item",
-        label: "Insert column right",
-        icon: ICONS.columnRight,
-        run: act(() => insertColumnWith(host, widget, info, column + 1)),
-        disabled: insertBlocked(column + 1),
-      },
-      {
-        kind: "item",
-        label: columns > 1 ? `Move ${columns} columns left` : "Move left",
-        icon: ICONS.arrowLeft,
-        run: act(() => this.moveBlock(widget, info, "column", block, block.first - 1)),
-        disabled: columnMoveBlocked(block.first - 1),
-      },
-      {
-        kind: "item",
-        label: columns > 1 ? `Move ${columns} columns right` : "Move right",
-        icon: ICONS.arrowRight,
-        run: act(() => this.moveBlock(widget, info, "column", block, block.first + 1)),
-        disabled: columnMoveBlocked(block.first + 1),
-      },
-      // The features' (a numbered column), closing the menu when run
-      ...host.columnMenuInsertEntries(widget, info, column).map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry)),
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: "Pin left",
-        icon: ICONS.pinLeft,
-        checked: zone === "left",
-        run: act(() => pinColumnAt(host, widget, info, column, zone === "left" ? undefined : "left")),
-        disabled: pinBlocked("left"),
-      },
-      {
-        kind: "item",
-        label: "Pin right",
-        icon: ICONS.pinRight,
-        checked: zone === "right",
-        run: act(() => pinColumnAt(host, widget, info, column, zone === "right" ? undefined : "right")),
-        disabled: pinBlocked("right"),
-      },
-      { kind: "separator" },
+      ...this.section(host.columnMenuTopEntries(widget, info, column)),
       this.selectEntry(info, "column", column),
       this.deleteEntry(widget, info, "column", column),
-    );
+    ];
     return entries;
   }
 }

@@ -74,7 +74,7 @@ import {
   type Table,
   type TableRange,
 } from "./markdown.ts";
-import { focusMenu, type MenuBack, type MenuEntry, renderMenu } from "./menu.ts";
+import { focusMenu, type MenuBack, type MenuEntry, renderMenu, wrapRuns } from "./menu.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { appendColumnAt, appendRowAt } from "./pins.ts";
 import { keepTags } from "./tags.ts";
@@ -2514,13 +2514,7 @@ export class Controller implements TableHost {
       this.closeTableMenu(false);
       run();
     };
-    const closing = entries.map((entry): MenuEntry =>
-      entry.kind === "item"
-        ? { ...entry, run: close(entry.run) }
-        : entry.kind === "segmented"
-          ? { ...entry, options: entry.options.map((option) => ({ ...option, run: close(option.run) })) }
-          : entry,
-    );
+    const closing = wrapRuns(entries, close);
     const element = renderMenu(this.doc, title, closing, back);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());

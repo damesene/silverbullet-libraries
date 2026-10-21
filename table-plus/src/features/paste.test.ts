@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cell, clickOn, controller, editor, flashes, flush, key, setup, text, useTablePage } from "../testing/page.ts";
+import { buttonLabel, cell, clickOn, controller, editor, flashes, flush, key, menuButtons, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Pasting from a spreadsheet", () => {
   useTablePage();
@@ -86,7 +86,7 @@ describe("Pasting from a spreadsheet", () => {
   });
 
   describe("from the cell menu", () => {
-    const menuItem = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label);
+    const menuItem = (label: string) => menuButtons().find((b) => buttonLabel(b) === label);
     const openMenu = (at: Element) => {
       at.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
       at.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
@@ -270,7 +270,7 @@ describe("Pasting from a spreadsheet", () => {
     it("cuts and moves from the cell menu, also where the page cannot read the clipboard (over http)", async () => {
       await setup(PAGE3, { "tablePlus.metadata": true });
       Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => {} } });
-      const menuItem = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label);
+      const menuItem = (label: string) => menuButtons().find((b) => buttonLabel(b) === label);
       const openMenu = (at: Element) => {
         at.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
         at.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
@@ -316,7 +316,7 @@ describe("Pasting from a spreadsheet", () => {
         grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
         window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
       };
-      const item = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label)!;
+      const item = (label: string) => menuButtons().find((b) => buttonLabel(b) === label)!;
       gripMenu(1, "row");
       item("Copy row").click();
       await flush();
@@ -355,7 +355,7 @@ describe("Pasting from a spreadsheet", () => {
         grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
         window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
       };
-      const item = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label)!;
+      const item = (label: string) => menuButtons().find((b) => buttonLabel(b) === label)!;
       const settle = async () => {
         await flush();
         await flush();
@@ -366,7 +366,7 @@ describe("Pasting from a spreadsheet", () => {
       item("Cut row").click();
       await settle();
       gripMenu(3, "row");
-      item("Paste as new rows").click();
+      item("Paste as new rows (move the rows cut)").click();
       await settle();
       expect(text).toBe("| N | Q |\n|---|---|\n| b | 2 |\n| a | 1 |\n| c | 3 |\n");
       // Cells from a spreadsheet (no header) pasted from a column's menu: under its header, its name kept

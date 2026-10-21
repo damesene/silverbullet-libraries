@@ -155,62 +155,23 @@ export class Paste implements Feature {
     else this.endCut();
   }
 
-  /** Copy, Cut, Paste and Paste as new rows in the cell menu (from `at`: the first cell) */
-  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[], at: CellRef | undefined = cells[0]): CellMenuGroup {
-    if (!at) return { order: 0.9, entries: [] };
-    const many = cells.length > 1 ? ` ${cells.length} cells` : "";
-    const cut = this.cutFor(info);
-    const clipboard = this.host.doc.defaultView!.navigator.clipboard;
-    // Cells cut move without reading the clipboard: possible over http too
-    const disabled = this.host.rearranged(info)
-      ? PASTE_BLOCKED
-      : cut
-        ? undefined
-        : !clipboard?.readText
-          ? NO_CLIPBOARD
-          : this.clipboard === "empty"
-            ? "The clipboard holds no text to paste"
-            : undefined;
+  /** Copy, Cut, Paste and Paste as new rows in the cell menu, a bar of icons first (pasted from the first cell) */
+  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
+    const at = cells[0];
+    if (!at) return undefined;
+    const name = cells.length > 1 ? `${cells.length} cells` : "";
     const header = cells.some((ref) => ref.row === 0);
-    // Rows cut whole move as new rows (where the clipboard cannot be read too); other cells cut paste as a copy
-    const rowsCut = cut && this.cutRows(info, cut);
-    return {
-      // Before clearing: copy, cut and paste first
-      order: 0.9,
-      entries: [
-        {
-          kind: "item",
-          label: `Copy${many}`,
-          icon: ICONS.duplicate,
-          hint: "Copy as Ctrl+C does: a spreadsheet pastes it into cells",
-          run: () => void this.copy(info, cells, false),
-        },
-        {
-          kind: "item",
-          label: `Cut${many}`,
-          icon: ICONS.cut,
-          hint: "Copy and mark the cells, as Ctrl+X does: pasted into this table they move there",
-          run: () => void this.copy(info, cells, true),
-          ...(header ? { disabled: "A header keeps its name: cut the cells under it" } : {}),
-        },
-        {
-          kind: "item",
-          label: cut ? `Paste (move ${plural(cut.cells.length * (cut.cells[0]?.length ?? 0), "cell")})` : "Paste",
-          icon: ICONS.paste,
-          hint: cut ? "Move the cells cut here, as Ctrl+V does" : "Paste what the clipboard holds from this cell, over the cells there, as Ctrl+V does",
-          run: () => void this.pasteFromMenu(widget, info, at, false),
-          ...(disabled ? { disabled } : {}),
-        },
-        {
-          kind: "item",
-          label: "Paste as new rows",
-          icon: ICONS.paste,
-          hint: "Paste the clipboard's rows as new rows at this row, as Ctrl+Shift+V does",
-          run: () => void this.pasteFromMenu(widget, info, at, true),
-          ...(rowsCut ? (this.host.rearranged(info) ? { disabled: PASTE_BLOCKED } : {}) : !clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}),
-        },
-      ],
-    };
+    const bar = this.clipboardBar(widget, info, {
+      copied: cells,
+      cut: header ? undefined : cells,
+      cutBlocked: "A header keeps its name: cut the cells under it",
+      at,
+      name,
+      asRows: true,
+      fromHeader: false,
+    });
+    // First: the clipboard's bar heads the menu
+    return { order: -1, entries: [bar] };
   }
 
   /**
@@ -229,15 +190,79 @@ export class Paste implements Feature {
     const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis === "row" ? "row" : "column"}${lines.length > 1 ? "s" : ""}`;
     // A column's from its header: a column copied with it names it, anything else goes under it (pasteFromMenu)
     const at = axis === "row" ? { row: first, column: 0 } : { row: 0, column: first };
-    const group = this.cellMenuEntries(widget, info, cells, at);
-    type Item = Extract<MenuEntry, { kind: "item" }>;
-    const [copy, cut, paste, asRows] = group.entries.filter((e): e is Item => e.kind === "item") as [Item, Item, Item, Item];
     return [
-      { ...copy, label: `Copy ${name}`, run: () => void this.copy(info, cells, false) },
-      { ...cut, label: `Cut ${name}`, run: () => void this.copy(info, body, true), ...(body.length ? { disabled: undefined } : { disabled: "No cells under the header to cut" }) },
-      { ...paste, run: () => void this.pasteFromMenu(widget, info, at, false, axis === "column") },
-      ...(axis === "row" ? [asRows] : []),
+      this.clipboardBar(widget, info, {
+        copied: cells,
+        cut: body.length ? body : undefined,
+        cutBlocked: "No cells under the header to cut",
+        at,
+        name,
+        asRows: axis === "row",
+        fromHeader: axis === "column",
+      }),
     ];
+  }
+
+  /**
+   * The clipboard's bar: Copy, Cut, Paste (Paste as new rows) as icons with a
+   * caption, their full names (Copy 3 rows) as tooltips; Paste from `at`
+   */
+  private clipboardBar(
+    widget: HTMLElement,
+    info: WidgetInfo,
+    o: {
+      readonly copied: readonly CellRef[];
+      readonly cut: readonly CellRef[] | undefined;
+      readonly cutBlocked: string;
+      readonly at: CellRef;
+      // What is copied, after the action's name ("3 rows"; "" for a cell)
+      readonly name: string;
+      readonly asRows: boolean;
+      readonly fromHeader: boolean;
+    },
+  ): MenuEntry {
+    const cut = this.cutFor(info);
+    const clipboard = this.host.doc.defaultView!.navigator.clipboard;
+    // Cells cut move without reading the clipboard: possible over http too
+    const disabled = this.host.rearranged(info)
+      ? PASTE_BLOCKED
+      : cut
+        ? undefined
+        : !clipboard?.readText
+          ? NO_CLIPBOARD
+          : this.clipboard === "empty"
+            ? "The clipboard holds no text to paste"
+            : undefined;
+    // Rows cut whole move as new rows (where the clipboard cannot be read too); other cells cut paste as a copy
+    const rowsCut = cut && this.cutRows(info, cut);
+    const named = (action: string) => (o.name ? `${action} ${o.name}` : action);
+    const options: Extract<MenuEntry, { kind: "actions" }>["options"][number][] = [
+      { icon: ICONS.copy, caption: "Copy", title: named("Copy"), run: () => void this.copy(info, o.copied, false) },
+      {
+        icon: ICONS.cut,
+        caption: "Cut",
+        title: named("Cut"),
+        run: () => void this.copy(info, o.cut ?? [], true),
+        ...(o.cut ? {} : { disabled: o.cutBlocked }),
+      },
+      {
+        icon: ICONS.paste,
+        caption: "Paste",
+        title: cut ? `Paste (move ${plural(cut.cells.length * (cut.cells[0]?.length ?? 0), "cell")})` : "Paste",
+        run: () => void this.pasteFromMenu(widget, info, o.at, false, o.fromHeader),
+        ...(disabled ? { disabled } : {}),
+      },
+    ];
+    if (o.asRows) {
+      options.push({
+        icon: ICONS.pasteRows,
+        caption: "+ Rows",
+        title: rowsCut ? "Paste as new rows (move the rows cut)" : "Paste as new rows",
+        run: () => void this.pasteFromMenu(widget, info, o.at, true),
+        ...(rowsCut ? (this.host.rearranged(info) ? { disabled: PASTE_BLOCKED } : {}) : !clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}),
+      });
+    }
+    return { kind: "actions", options };
   }
 
   /** The cells selected, in rows as shown, of the table they are in */

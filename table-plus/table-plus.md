@@ -182,6 +182,8 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 | *Filter: ≠ value* | Hides the rows with this value in this column. |
 | *Delete N rows*, *Delete N columns* | On a selection: deletes the rows (columns) its cells are in. A table keeps at least one column. |
 
+The menus of a cell, of a row and of a column keep one order, so the same actions are in the same place: first a bar of icons for the clipboard (*Copy*, *Cut*, *Paste* and, for rows, *+ Rows*: paste as new rows; their full names show on hover), then *Clear*, then inserting, moving and pinning, sorting and filtering, naming, and deleting last. Pairs of actions sit in one row of icon buttons after their name (*Insert* above / below, *Move* up / down, *Pin* top / bottom, *Sort*, *Align*); a button that cannot be used now is greyed out, and hovering it says why.
+
 Each comes from a module (`formulas`, `names`, `selection`, `paste`, `autofill`, `filters`, see [[#Settings]]): a module turned off leaves its items out, and with none left the right click gives the browser's menu.
 
 ## Pasting from a spreadsheet
@@ -3165,6 +3167,51 @@ body.tp-picking-columns .sb-table-widget.tp-table :is(td, th) {
   color: var(--ui-accent-color);
   background: var(--root-background-color);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+.tp-segment[aria-disabled="true"],
+.tp-action[aria-disabled="true"] {
+  opacity: 0.35;
+  cursor: default;
+}
+/* A bar of actions, a caption under each icon (Copy, Cut, Paste): first in a menu */
+.tp-menu-actions {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+}
+.tp-action {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 44px;
+  padding: 6px 2px 4px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.2;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tp-action .tp-icon {
+  display: inline-flex;
+}
+.tp-action:not([aria-disabled="true"]):hover,
+.tp-action:focus-visible {
+  background: color-mix(in srgb, var(--ui-accent-color) 15%, transparent);
+}
+.tp-action-caption {
+  white-space: nowrap;
+  opacity: 0.85;
+}
+/* A finger's targets: bigger buttons in a row */
+@media (pointer: coarse) {
+  .tp-segment {
+    padding: 8px 10px;
+  }
 }
 
 /* Middle-button autoscroll over a wide table: the start point */

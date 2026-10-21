@@ -171,7 +171,8 @@ export class Names implements Feature {
   cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): { order: number; entries: MenuEntry[] } | undefined {
     const [cell] = cells;
     if (cells.length !== 1 || !cell) return undefined;
-    if (cell.row === 0) return { order: 0, entries: this.columnMenuTopEntries(widget, info, cell.column) };
+    // Naming near the end, as in the menus of rows and columns
+    if (cell.row === 0) return { order: 8, entries: this.columnMenuTopEntries(widget, info, cell.column) };
     const { row, column } = cell;
     const name = cellNameOf(parseTable(info.source).rows[row]?.cells[column] ?? "");
     const allowed = this.host.metadataEnabled || name !== undefined;
@@ -189,7 +190,7 @@ export class Names implements Feature {
         : { disabled: "Needs the Store table metadata setting" }),
       run: () => void this.nameCell(widget, info, row, column),
     };
-    return { order: 0, entries: [entry, ...this.rowMenuEntries(widget, info, row)] };
+    return { order: 8, entries: [entry, ...this.rowMenuEntries(widget, info, row)] };
   }
 
   private async nameRow(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number): Promise<void> {

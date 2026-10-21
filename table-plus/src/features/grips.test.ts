@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { PAGE, bodyTexts, cell, clickOn, controller, editor, flush, key, setup, text, useTablePage } from "../testing/page.ts";
+import { bodyTexts, buttonLabel, cell, clickOn, controller, editor, flush, key, menuButtons, PAGE, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Row and column grips", () => {
   useTablePage();
@@ -15,7 +15,7 @@ describe("Row and column grips", () => {
     return document.querySelector(".tp-menu")!;
   };
   const item = (menu: Element, label: string) =>
-    Array.from(menu.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label)!;
+    menuButtons(menu).find((b) => buttonLabel(b) === label)!;
 
   it("keeps the grips with the edited cell, also while the pointer is over other cells", async () => {
     await setup(PAGE);
@@ -86,7 +86,7 @@ describe("Row and column grips", () => {
     controller.selectCells(info, { row: 1, column: 0 }, { row: 2, column: 1 });
     rightClick(cell(2, 0));
     expect(title()).toBe("Row 2");
-    expect(Array.from(document.querySelectorAll(".tp-menu-item")).map((b) => b.textContent)).toContain("Delete 2 rows");
+    expect(menuButtons().map((b) => buttonLabel(b))).toContain("Delete 2 rows");
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     // A cell outside them: the cell's menu, as before
     rightClick(cell(3, 0));
@@ -131,7 +131,7 @@ describe("Row and column grips", () => {
       cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
       tap();
       tap();
-      const first = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => b.textContent === "Copy column")!;
+      const first = menuButtons().find((b) => buttonLabel(b) === "Copy column")!;
       // The click the browser fires after the second tap, where the finger was: an item of the menu now
       const click = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
       first.dispatchEvent(click);
@@ -273,7 +273,7 @@ describe("Row and column grips", () => {
     await setup('| A |\n|---|\n| 1 |\n| 2 |\n| <meta pin-top="1"> |\n');
     await flush();
     expect(item(openMenu(2, "row"), "Pin to bottom").getAttribute("aria-disabled")).toBe("true");
-    const unpin = item(openMenu(1, "row"), "Pin to top"); // checked: unpins
+    const unpin = item(openMenu(1, "row"), "Unpin from the top");
     expect(unpin.getAttribute("aria-disabled")).toBeNull();
     unpin.click();
     await flush();
@@ -339,8 +339,8 @@ describe("Row and column grips", () => {
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
     const menu = document.querySelector(".tp-menu")!;
     expect(menu.querySelector(".tp-menu-title")?.textContent).toBe("Row 2");
-    const item = Array.from(menu.querySelectorAll<HTMLElement>(".tp-menu-item")).find(
-      (b) => b.textContent === "Duplicate row",
+    const item = menuButtons(menu).find(
+      (b) => buttonLabel(b) === "Duplicate row",
     )!;
     item.click();
     await flush();
@@ -357,8 +357,8 @@ describe("Row and column grips", () => {
     const grip = document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
     grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-    const moveUp = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find(
-      (b) => b.textContent === "Move up",
+    const moveUp = menuButtons().find(
+      (b) => buttonLabel(b) === "Move up",
     )!;
     expect(moveUp.getAttribute("aria-disabled")).toBe("true");
     moveUp.click();
@@ -378,7 +378,7 @@ describe("Row and column grips", () => {
       cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
       rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
       window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-      const item = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Move 2 rows down")!;
+      const item = menuButtons().find((b) => buttonLabel(b) === "Move 2 rows down")!;
       expect(item.getAttribute("aria-disabled")).toBeNull();
       item.click();
       await flush();
@@ -397,7 +397,7 @@ describe("Row and column grips", () => {
       columnGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
       window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
       // Both columns: none to move them past
-      const right = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Move 2 columns right")!;
+      const right = menuButtons().find((b) => buttonLabel(b) === "Move 2 columns right")!;
       expect(right.getAttribute("aria-disabled")).toBe("true");
       key(document.querySelector(".tp-menu")!, "Escape");
       // Rows c and d (d pinned to the bottom): the grip's row alone
@@ -405,7 +405,7 @@ describe("Row and column grips", () => {
       cell(3, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
       rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
       window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-      const labels = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).map((b) => b.textContent);
+      const labels = menuButtons().map((b) => buttonLabel(b));
       expect(labels).toContain("Move up");
       expect(labels).not.toContain("Move 2 rows up");
     });

@@ -158,5 +158,14 @@ export function tableMenuItem(label: RegExp, table = 0): HTMLElement | undefined
 export function cellMenuItem(target: Element, label: RegExp): HTMLElement | undefined {
   if (document.querySelector(".tp-menu")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
   target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 }));
-  return Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => label.test(b.textContent!));
+  return Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item, .tp-menu .tp-action, .tp-menu .tp-segment")).find((b) =>
+    label.test(b.getAttribute("aria-label") ?? b.textContent!),
+  );
 }
+
+/** A menu's buttons: its items, and the buttons of its rows and bars of icons (Move up, Copy 3 rows) */
+export const menuButtons = (within: ParentNode = document) =>
+  Array.from(within.querySelectorAll<HTMLElement>(".tp-menu-item, .tp-segment, .tp-action"));
+
+/** What a menu's button is called: an item's text, an icon button's full name (its aria-label) */
+export const buttonLabel = (button: Element) => button.getAttribute("aria-label") ?? button.textContent ?? "";

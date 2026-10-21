@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { buttonLabel, cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, menuButtons, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
 import { clearCustomFunctions, defineCustomFunctions, functionNamed } from "../formulas/registry.ts";
 import { toNumber, type Value } from "../formulas/values.ts";
@@ -39,12 +39,12 @@ describe("Formulas", () => {
       document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
       window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
     };
-    const item = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label);
+    const item = (label: string) => menuButtons().find((b) => buttonLabel(b) === label);
     await setup("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Apple | 10 |\n");
     openColumnMenu(0);
-    // With inserting and moving the column, after Move right
-    const labels = Array.from(document.querySelectorAll(".tp-menu-item")).map((b) => b.textContent);
-    expect(labels[labels.indexOf("Move right") + 1]).toBe("Insert numbered column left");
+    // With inserting the column, after Insert column right
+    const labels = menuButtons().map((b) => buttonLabel(b));
+    expect(labels[labels.indexOf("Insert column right") + 1]).toBe("Insert numbered column left");
     item("Insert numbered column left")!.click();
     await flush();
     await controller.scan();
@@ -73,7 +73,7 @@ describe("Formulas", () => {
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-    const entry = Array.from(document.querySelectorAll<HTMLButtonElement>(".tp-menu-item")).find((b) => b.textContent === "Insert numbered column left")!;
+    const entry = menuButtons().find((b) => buttonLabel(b) === "Insert numbered column left")!;
     expect(entry.getAttribute("aria-disabled")).toBe("true");
     expect(entry.title).toBe(FORMULAS_NEED_METADATA);
     entry.click();
@@ -331,8 +331,8 @@ describe("Formulas", () => {
       .querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!
       .dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-    Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item"))
-      .find((b) => b.textContent === "Delete row")!
+    menuButtons()
+      .find((b) => buttonLabel(b) === "Delete row")!
       .click();
     await flush();
     expect(text).toBe('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 |\n| Total | 5 <meta f="=SUM(B1:B2)"> |\n');
@@ -472,7 +472,7 @@ describe("Formulas", () => {
       cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
       document.querySelector(".tp-grip:not(.tp-grip-column)")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
       window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-      Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Insert row above")!.click();
+      menuButtons().find((b) => buttonLabel(b) === "Insert row above")!.click();
       await flush();
       await controller.scan();
       expect(text).toContain('| Fig | 3 <meta f="=prices!B3"> |');
@@ -618,14 +618,15 @@ describe("Formulas", () => {
       document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
       window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
     };
-    const item = (label: RegExp) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => label.test(b.textContent!))!;
+    const item = (label: RegExp) => menuButtons().find((b) => label.test(buttonLabel(b)))!;
 
     it("gives a column a fixed name from its menu, and its references then use it", async () => {
       await setup(PRICES, { "tablePlus.editor.enterKey": "save" });
       vi.spyOn(window, "prompt").mockReturnValue("price");
       openColumnMenu(0);
-      // Naming comes first in the menu
-      expect(document.querySelector(".tp-menu-item")!.textContent).toMatch(/^Name column/);
+      // Naming near the end of the menu, before selecting and deleting
+      const labels = menuButtons().map((b) => buttonLabel(b));
+      expect(labels.findIndex((l) => /^Name column/.test(l))).toBe(labels.indexOf("Select columns") - 1);
       item(/^Name column/).click();
       await flush();
       await controller.scan();
@@ -677,7 +678,7 @@ describe("Formulas", () => {
       document.querySelector(".tp-grip:not(.tp-grip-column)")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
       window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
     };
-    const item = (label: RegExp) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => label.test(b.textContent!))!;
+    const item = (label: RegExp) => menuButtons().find((b) => label.test(buttonLabel(b)))!;
 
     it("names a cell from its menu; the tables using the name get its value in the same edit", async () => {
       await setup(PAGE4.replace('121 <meta f="=[@price]*(1+vat)">', '0 <meta f="=[@price]*(1+vat)">'), { "tablePlus.editor.enterKey": "save" });
