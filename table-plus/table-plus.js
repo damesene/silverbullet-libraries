@@ -11834,7 +11834,10 @@ var Paste = class {
       const own = this.cut?.cells.some((row) => row.some((ref) => ref.row === active.row && ref.column === active.column));
       const cut = insert || !whole || own ? void 0 : this.cutFor(info, text);
       const data = parseClipboardCells(text);
-      if (!cut && !data) return;
+      if (!cut && !data) {
+        this.endCut();
+        return;
+      }
       e.preventDefault();
       void this.paste(active.widget, info, active, data ?? [[text]], insert, true, cut);
     });
@@ -12128,7 +12131,7 @@ var Paste = class {
     }
     const size = cut ? cut.held : data;
     const width = Math.max(...size.map((r) => r.length));
-    if (cut) this.endCut();
+    this.endCut();
     const added = [
       ...newRows.count && !insert ? [`added ${plural3(newRows.count, "row")}`] : [],
       ...newColumns.count ? [`added ${plural3(newColumns.count, "column")}`] : [],

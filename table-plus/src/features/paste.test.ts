@@ -178,7 +178,7 @@ describe("Pasting from a spreadsheet", () => {
       expect(edges()).toBe(0);
     });
 
-    it("outlines cells copied with Ctrl+C too, pasted as a copy as often as wanted, until Esc", async () => {
+    it("outlines cells copied with Ctrl+C too, until they are pasted (as a copy) or Esc", async () => {
       await setup(PAGE3, { "tablePlus.metadata": true });
       controller.selectCells(info(), { row: 1, column: 0 }, { row: 1, column: 1 });
       const event = new Event("copy", { bubbles: true, cancelable: true });
@@ -189,8 +189,14 @@ describe("Pasting from a spreadsheet", () => {
       pasteText("Pear\t3\n");
       await flush();
       await controller.scan();
-      // Copied, not moved: the cells stay, and so does their outline
+      // Copied, not moved: the cells stay, their outline goes
       expect(text).toBe('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f="=1+1"> |\n| Pear | 3 |\n| | |\n');
+      expect(edges()).toBe(0);
+      // Copied again, Esc ends the outline
+      controller.selectCells(info(), { row: 1, column: 0 }, { row: 1, column: 1 });
+      const again = new Event("copy", { bubbles: true, cancelable: true });
+      Object.defineProperty(again, "clipboardData", { value: { setData: () => {} } });
+      document.dispatchEvent(again);
       expect(edges()).toBe(2);
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       expect(edges()).toBe(0);

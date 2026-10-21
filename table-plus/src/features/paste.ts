@@ -3,9 +3,9 @@
 // Ctrl+X, Ctrl+V); Ctrl+X; and cells copied from a spreadsheet pasted from
 // the cell being edited (or selected: its editor opens for the paste): over
 // the cells there (Ctrl+V) or as new rows (Ctrl+Shift+V). Cells copied or
-// cut are outlined, as a spreadsheet marks them (a change of them, Esc or
-// another copy ends it); cut cells move when pasted into their table, and
-// once the cut has ended what is pasted is a copy. Ctrl+C is the selection
+// cut are outlined, as a spreadsheet marks them, until a paste (a change of
+// them, Esc or another copy ends it too); cut cells move when pasted into
+// their table, and once the cut has ended what is pasted is a copy. Ctrl+C is the selection
 // module's (its copy event outlines the cells here). Reading the
 // clipboard's text and planning the paste is paste.ts; this is the editor's
 // and the menu's side.
@@ -137,7 +137,11 @@ export class Paste implements Feature {
       const own = this.cut?.cells.some((row) => row.some((ref) => ref.row === active.row && ref.column === active.column));
       const cut = insert || !whole || own ? undefined : this.cutFor(info, text);
       const data = parseClipboardCells(text);
-      if (!cut && !data) return;
+      // A single value into the field: pasted, the outline goes
+      if (!cut && !data) {
+        this.endCut();
+        return;
+      }
       e.preventDefault();
       void this.paste(active.widget, info, active, data ?? [[text]], insert, true, cut);
     });
@@ -473,7 +477,8 @@ export class Paste implements Feature {
     }
     const size = cut ? cut.held : data;
     const width = Math.max(...size.map((r) => r.length));
-    if (cut) this.endCut();
+    // Pasted: the outline goes (a copy's too), and a cut is done
+    this.endCut();
     const added = [
       ...(newRows.count && !insert ? [`added ${plural(newRows.count, "row")}`] : []),
       ...(newColumns.count ? [`added ${plural(newColumns.count, "column")}`] : []),

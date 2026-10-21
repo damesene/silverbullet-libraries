@@ -71,7 +71,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Shift+click** a cell: the cells from the one being edited (it is saved) to this one are selected; with cells selected already, from the first of them; else just this cell.
 * **Shift+arrows** (Ctrl+Shift+arrows too) move the selection's far corner by a cell; in a cell editor, Ctrl+Shift+arrows start a selection there.
 * With cells selected, **arrows** (and Ctrl+arrows) go to the cell beside, **Home / End** to the row's first / last cell, **Ctrl+Home / End** to the table's first / last cell, **PageUp / PageDown** 10 rows up / down (PageUp stops at the first row under the header). The selection is then that cell; with Shift it extends to it.
-* **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows). The cells copied are outlined with a dashed line, as in a spreadsheet, until Esc, another copy or a change of them; they can be pasted again and again meanwhile. **Ctrl+X** cuts them: see [[#Moving cells (cut and paste)]].
+* **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows). The cells copied are outlined with a dashed line, as in a spreadsheet, until they are pasted, or Esc, another copy or a change of them; they can be pasted again after that too (the clipboard keeps them). **Ctrl+X** cuts them: see [[#Moving cells (cut and paste)]].
 * Cells copy what they show: a formula's result, a link's text.
 * The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
 * **Delete** empties the selected cells, formulas included, as one edit (Ctrl+Z brings them back). Header cells keep their names: a column needs one. Names of rows and cells stay with their cells.
@@ -3235,9 +3235,8 @@ body.tp-autoscrolling * {
     -3px 0 4px -2px rgba(0, 0, 0, 0.3);
 }
 /* Cells copied or cut (Ctrl+C, Ctrl+X, Copy, Cut): outlined dashed, as a
-   spreadsheet marks them, until the outline ends (cut cells: until they are
-   pasted); a piece in each cell on the edge, out of the layout, as AutoFill's
-   outline */
+   spreadsheet marks them, until they are pasted (or the outline ends); a piece
+   in each cell on the edge, out of the layout, as AutoFill's outline */
 .sb-table-widget td:has(> .tp-cut-edge) {
   position: relative;
 }
