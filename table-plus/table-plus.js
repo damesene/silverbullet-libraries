@@ -1272,7 +1272,7 @@ var MODULE_LABELS = {
   themes: "Themes",
   export: "Export",
   excel: "Excel",
-  paste: "Paste from spreadsheets",
+  paste: "Copy, cut and paste",
   handles: "Row and column handles",
   widths: "Column widths",
   longText: "Long text in cells",
@@ -1293,7 +1293,7 @@ var MODULE_DESCRIPTIONS = {
   themes: "How tables look (header, lines, stripes, spacing): a theme for every table, another one for a table from its \u22EF menu",
   export: "Copy as CSV in a table's \u22EF menu",
   excel: "Export to Excel\u2026 in a table's \u22EF menu: copy for Excel (numbers and dates as Excel's), or download an .xlsx file with the formulas",
-  paste: "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
+  paste: "Copy, Cut and Paste in the cell menu; Ctrl+X cuts cells (they move where they are pasted); Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
   handles: "Handles beside rows and above columns: drag to move them, click for their menu",
   widths: "Drag the right edge of a header to set its column's width",
   longText: "Text wider than a maximum column width wraps or is cut, the expand button shows it whole",
@@ -1570,6 +1570,8 @@ var ICONS = {
   sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
   sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
   clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Scissors
+  cut: svg('<circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.2 16 18 4M15.8 16 6 4"/>'),
   // A clipboard
   paste: svg('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 11h6M9 15h4"/>'),
   // Sorted lines with a check: make the sorting the real order
@@ -3443,6 +3445,11 @@ var ColumnTypes = class {
     if (error) void this.host.bridge.flash(`Table Plus: ${error} (#${column.tag}); saved as typed`, "info");
     return void 0;
   }
+  // A header renamed by a paste keeps its type's hashtag, as one renamed in its editor
+  headerRenamed(name, original) {
+    const kept = columnTypeOf(unescapeCell(original));
+    return kept && name.trim() !== "" ? withColumnType(name, kept.tag) : void 0;
+  }
   decorate(_widget, info) {
     const model = parseTable(info.source);
     const header = info.table.rows[0];
@@ -3503,6 +3510,15 @@ ${shown}` : shown;
 };
 
 // table-plus/src/clipboard.ts
+function clipboardText(values) {
+  const quote = (v) => /[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+  return values.map((row) => row.map(quote).join("	")).join("\n");
+}
+function clipboardHtml(values) {
+  const escape = (v) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
+  return `<table>${rows}</table>`;
+}
 async function writeClipboard(doc, text, html) {
   const win = doc.defaultView;
   const clipboard = win?.navigator.clipboard;
@@ -11700,10 +11716,26 @@ function pasteCells(table, plan, data, rules) {
         return;
       }
       if (row === 0 && cell === "") return;
-      result = setCell(result, row, column, rules.keepTags(cell, current));
+      const named2 = row === 0 && rules.headerRenamed ? rules.headerRenamed(cell, current) : cell;
+      result = setCell(result, row, column, rules.keepTags(named2, current));
     });
   });
   return { table: result, skipped };
+}
+function moveCells(table, sources, plan) {
+  const moved2 = sources.map((row) => row.map((ref) => table.rows[ref.row]?.cells[ref.column] ?? ""));
+  let result = table;
+  for (const row of sources) for (const ref of row) if (ref.row > 0) result = setCell(result, ref.row, ref.column, "");
+  for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
+  for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
+  moved2.forEach((cells, i) => {
+    cells.forEach((cell, j) => {
+      const row = plan.rows[i];
+      if (row === 0 && cell === "") return;
+      result = setCell(result, row, plan.columns[j], cell);
+    });
+  });
+  return result;
 }
 
 // table-plus/src/features/paste.ts
@@ -11711,6 +11743,9 @@ var PASTE_BLOCKED = "Clear sorting and filters to paste cells: the rows shown ar
 var NO_CLIPBOARD = "The browser lets a page read the clipboard only over https: paste with Ctrl+V, or into a cell's editor";
 function plural3(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+function sameText(text) {
+  return text.replace(/\r\n?/g, "\n").replace(/\n$/, "");
 }
 var Paste = class {
   constructor(host) {
@@ -11722,6 +11757,13 @@ var Paste = class {
   // What the clipboard holds, where the page may read it without asking (Chrome, the permission granted); else unknown
   clipboard = "unknown";
   readable = false;
+  // The clipboard's reads in order: a later one's result wins; the permission watched, until stop
+  reads = 0;
+  permission;
+  stopped = false;
+  // Cells cut, waiting to be moved by a paste; their outline
+  cut;
+  edges = [];
   /**
    * Where the browser says the page may read the clipboard without asking,
    * what it holds is read again when the page comes back to the front (copied
@@ -11730,38 +11772,53 @@ var Paste = class {
    */
   start() {
     const win = this.host.doc.defaultView;
+    win.addEventListener("cut", this.onCut, true);
+    win.addEventListener("copy", this.onCopy, true);
     if (!win.navigator.clipboard?.readText) return;
     win.addEventListener("focus", this.refresh);
     win.addEventListener("pointerdown", this.refresh, true);
     this.host.doc.addEventListener("visibilitychange", this.refresh);
     void win.navigator.permissions?.query({ name: "clipboard-read" }).then((status) => {
+      if (this.stopped) return;
       const update = () => {
         this.readable = status.state === "granted";
         if (!this.readable) this.clipboard = "unknown";
         this.refresh();
       };
       status.addEventListener("change", update);
+      this.permission = { status, update };
       update();
     }).catch(() => {
     });
   }
   stop() {
     const win = this.host.doc.defaultView;
+    win.removeEventListener("cut", this.onCut, true);
+    win.removeEventListener("copy", this.onCopy, true);
     win.removeEventListener("focus", this.refresh);
     win.removeEventListener("pointerdown", this.refresh, true);
     this.host.doc.removeEventListener("visibilitychange", this.refresh);
+    this.permission?.status.removeEventListener("change", this.permission.update);
+    this.stopped = true;
+    this.readable = false;
+    this.endCut();
   }
   refresh = () => {
     const clipboard = this.host.doc.defaultView.navigator.clipboard;
     if (!this.readable || !clipboard?.readText || !this.host.doc.hasFocus()) return;
+    const read = ++this.reads;
+    const set = (state) => {
+      if (read === this.reads) this.clipboard = state;
+    };
     clipboard.readText().then(
-      (text) => this.clipboard = text ? "text" : "empty",
-      () => this.clipboard = "unknown"
+      (text) => set(text ? "text" : "empty"),
+      () => set("unknown")
     );
   };
-  // The paste event does not tell Shift; the key may come before the editor opens (Ctrl+V on a selected cell)
+  // The paste event does not tell Shift; the key may come before the editor opens (Ctrl+V on a selected cell). Esc ends a cut.
   keyDown(e) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.inserts = e.shiftKey;
+    if (e.key === "Escape") this.endCut();
     return false;
   }
   editorOpened(editor) {
@@ -11769,73 +11826,224 @@ var Paste = class {
     field.addEventListener("paste", (e) => {
       const insert = this.inserts;
       this.inserts = false;
-      const data = parseClipboardCells(e.clipboardData?.getData("text/plain") ?? "");
-      if (!data || this.host.editing?.field !== field) return;
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      const active = this.host.editing;
+      const info = active && this.host.infoOf(active.widget);
+      if (!active || !info || active.field !== field) return;
+      const cut = insert ? void 0 : this.cutFor(info, text);
+      const data = parseClipboardCells(text);
+      if (!cut && !data) return;
       e.preventDefault();
-      void this.pasteFromEditor(data, insert);
+      void this.paste(active.widget, info, active, data ?? [[text]], insert, true, cut);
     });
   }
-  /** Paste and Paste as new rows in the cell menu: from the first cell selected */
+  // A table rendered anew: the cells cut marked again, or the cut ended where they changed
+  enhanced(_widget, info) {
+    if (this.cut?.key !== info.key) return;
+    if (this.cutFor(info)) this.markCut(info);
+    else this.endCut();
+  }
+  /** Copy, Cut, Paste and Paste as new rows in the cell menu */
   cellMenuEntries(widget, info, cells) {
     const at = cells[0];
     if (!at) return void 0;
+    const many = cells.length > 1 ? ` ${cells.length} cells` : "";
+    const cut = this.cutFor(info);
     const clipboard = this.host.doc.defaultView.navigator.clipboard;
-    const disabled = !clipboard?.readText ? NO_CLIPBOARD : this.host.rearranged(info) ? PASTE_BLOCKED : this.clipboard === "empty" ? "The clipboard holds no text to paste" : void 0;
-    const item = (label, hint, insert) => ({
-      kind: "item",
-      label,
-      icon: ICONS.paste,
-      hint,
-      run: () => void this.pasteFromMenu(widget, info, at, insert),
-      ...disabled ? { disabled } : {}
-    });
+    const disabled = this.host.rearranged(info) ? PASTE_BLOCKED : cut ? void 0 : !clipboard?.readText ? NO_CLIPBOARD : this.clipboard === "empty" ? "The clipboard holds no text to paste" : void 0;
+    const header = cells.some((ref) => ref.row === 0);
     return {
-      // After copying and clearing
-      order: 1.2,
+      // Before clearing: copy, cut and paste first
+      order: 0.9,
       entries: [
-        item("Paste", "Paste what the clipboard holds from this cell, over the cells there, as Ctrl+V does", false),
-        item("Paste as new rows", "Paste the clipboard's rows as new rows at this row, as Ctrl+Shift+V does", true)
+        {
+          kind: "item",
+          label: `Copy${many}`,
+          icon: ICONS.duplicate,
+          hint: "Copy as Ctrl+C does: a spreadsheet pastes it into cells",
+          run: () => void this.copy(info, cells, false)
+        },
+        {
+          kind: "item",
+          label: `Cut${many}`,
+          icon: ICONS.cut,
+          hint: "Copy and mark the cells, as Ctrl+X does: pasted into this table they move there",
+          run: () => void this.copy(info, cells, true),
+          ...header ? { disabled: "A header keeps its name: cut the cells under it" } : {}
+        },
+        {
+          kind: "item",
+          label: cut ? `Paste (move ${plural3(cut.cells.length * (cut.cells[0]?.length ?? 0), "cell")})` : "Paste",
+          icon: ICONS.paste,
+          hint: cut ? "Move the cells cut here, as Ctrl+V does" : "Paste what the clipboard holds from this cell, over the cells there, as Ctrl+V does",
+          run: () => void this.pasteFromMenu(widget, info, at, false),
+          ...disabled ? { disabled } : {}
+        },
+        {
+          kind: "item",
+          label: "Paste as new rows",
+          icon: ICONS.paste,
+          hint: "Paste the clipboard's rows as new rows at this row, as Ctrl+Shift+V does",
+          run: () => void this.pasteFromMenu(widget, info, at, true),
+          ...!clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}
+        }
       ]
     };
   }
-  /** The clipboard read (the browser may ask, or show its own Paste button), pasted from the cell */
-  async pasteFromMenu(shownWidget, shownInfo, at, insert) {
-    let text;
+  /** The cells selected, in rows as shown, of the table they are in */
+  selection() {
+    for (const widget of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.host.infoOf(widget);
+      const cells = info ? this.host.selectedCells(info) : [];
+      if (info && cells.length) return { widget, info, cells: [...cells] };
+    }
+    return void 0;
+  }
+  /** Cells as rows (as shown), and their values as Ctrl+C copies them */
+  valuesOf(info, cells) {
+    const byRow = /* @__PURE__ */ new Map();
+    for (const ref of cells) byRow.set(ref.row, [...byRow.get(ref.row) ?? [], ref]);
+    const rows = Array.from(byRow.values());
+    const values = rows.map(
+      (row) => row.map((ref) => {
+        const cell = this.host.cellAt(info, ref, true);
+        return cell ? cellValue2(cell) : "";
+      })
+    );
+    return { rows, values };
+  }
+  /** Copy (Cut) in the menu: the cells onto the clipboard, as Ctrl+C puts them; cut, they are marked to move */
+  async copy(info, cells, cutting) {
+    const { rows, values } = this.valuesOf(info, cells);
+    const text = clipboardText(values);
+    this.endCut();
     try {
-      text = await this.host.doc.defaultView.navigator.clipboard.readText();
+      await writeClipboard(this.host.doc, text, clipboardHtml(values));
     } catch (e) {
-      void this.host.bridge.flash(`Table Plus: could not read the clipboard (${String(e)})`, "error");
+      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
+      return;
+    }
+    if (cutting) this.startCut(info, rows, text);
+    const size = `${values.length} \xD7 ${values[0]?.length ?? 0} cells`;
+    void this.host.bridge.flash(cutting ? `Table Plus: cut ${size}: paste them where they go` : `Table Plus: copied ${size}`, "info");
+  }
+  /**
+   * Ctrl+X with cells selected (not in a field: there it cuts text): the cells
+   * onto the clipboard as Ctrl+C puts them, marked to move when pasted; with
+   * the header in them, only copied (a column keeps its name)
+   */
+  onCut = (e) => {
+    const active = this.host.doc.activeElement;
+    if (copyingFromMenu() || !e.clipboardData || active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+    const selected = this.selection();
+    if (!selected) return;
+    const { rows, values } = this.valuesOf(selected.info, selected.cells);
+    const text = clipboardText(values);
+    e.clipboardData.setData("text/plain", text);
+    e.clipboardData.setData("text/html", clipboardHtml(values));
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    this.endCut();
+    const size = `${values.length} \xD7 ${values[0]?.length ?? 0} cells`;
+    if (selected.cells.some((ref) => ref.row === 0)) {
+      void this.host.bridge.flash(`Table Plus: copied ${size} (a header keeps its name: cut the cells under it)`, "info");
+      return;
+    }
+    this.startCut(selected.info, rows, text);
+    void this.host.bridge.flash(`Table Plus: cut ${size}: paste them where they go`, "info");
+  };
+  // Another copy ends the cut (what the clipboard holds is no longer the cells cut)
+  onCopy = () => {
+    if (!copyingFromMenu()) this.endCut();
+  };
+  startCut(info, cells, text) {
+    const table = this.host.tableOf(info);
+    const held = cells.map((row) => row.map((ref) => table.rows[ref.row]?.cells[ref.column] ?? ""));
+    this.cut = { key: info.key, cells, held, text: sameText(text) };
+    this.markCut(info);
+  }
+  /**
+   * The cut, if it is this table's and its cells hold what they held when cut
+   * (and, given the text pasted, that text is what was cut); else nothing to move
+   */
+  cutFor(info, text) {
+    const cut = this.cut;
+    if (!cut || cut.key !== info.key) return void 0;
+    if (text !== void 0 && sameText(text) !== cut.text) return void 0;
+    const table = this.host.tableOf(info);
+    const same = cut.cells.every((row, i) => row.every((ref, j) => (table.rows[ref.row]?.cells[ref.column] ?? "") === cut.held[i][j]));
+    return same ? cut : void 0;
+  }
+  /** The cells cut outlined, dashed, as a spreadsheet marks them: a piece in each cell on the area's edge */
+  markCut(info) {
+    this.unmarkCut();
+    const cut = this.cut;
+    if (!cut) return;
+    const last = cut.cells.length - 1;
+    cut.cells.forEach(
+      (row, i) => row.forEach((ref, j) => {
+        const sides = [i === 0 && "top", i === last && "bottom", j === 0 && "left", j === row.length - 1 && "right"].filter(Boolean);
+        const cell = sides.length ? this.host.cellAt(info, ref, true) : void 0;
+        if (!cell) return;
+        const edge = this.host.doc.createElement("span");
+        edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-cut-edge ${sides.map((s) => `tp-cut-${s}`).join(" ")}`;
+        cell.append(edge);
+        this.edges.push(edge);
+      })
+    );
+  }
+  unmarkCut() {
+    for (const edge of this.edges) edge.remove();
+    this.edges = [];
+  }
+  endCut() {
+    this.cut = void 0;
+    this.unmarkCut();
+  }
+  /** The clipboard read (the browser may ask, or show its own Paste button), pasted from the cell; cells cut move there */
+  async pasteFromMenu(shownWidget, shownInfo, at, insert) {
+    const clipboard = this.host.doc.defaultView.navigator.clipboard;
+    const cutBefore = insert ? void 0 : this.cutFor(shownInfo);
+    let text;
+    if (clipboard?.readText) {
+      try {
+        text = await clipboard.readText();
+      } catch (e) {
+        if (!cutBefore) {
+          void this.host.bridge.flash(`Table Plus: could not read the clipboard (${String(e)})`, "error");
+          return;
+        }
+      }
+    }
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    const info = this.host.infoOf(widget) ?? shownInfo;
+    const cut = insert ? void 0 : this.cutFor(info, text);
+    if (cut) {
+      await this.paste(widget, info, at, cut.held.map((row) => row.map(() => "")), false, false, cut);
       return;
     }
     if (!text) {
-      this.clipboard = "empty";
+      if (text === "" && this.readable) this.clipboard = "empty";
       void this.host.bridge.flash("Table Plus: the clipboard holds no text to paste", "info");
       return;
     }
     const data = parseClipboardCells(text) ?? [[text.replace(/\r?\n$/, "")]];
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    const info = this.host.infoOf(widget) ?? shownInfo;
     await this.paste(widget, info, at, data, insert);
-  }
-  async pasteFromEditor(data, insert) {
-    const active = this.host.editing;
-    const info = active && this.host.infoOf(active.widget);
-    if (!active || !info) return;
-    await this.paste(active.widget, info, active, data, insert, true);
   }
   /**
    * Pastes the cells from a cell, as one edit: over the cells there (insert
    * false), or as new rows at the cell's row. Cells with formulas keep them.
-   * From the cell editor, what it holds is saved in the same edit. Not while
-   * the table is sorted or filtered: the rows shown are not where the cells
-   * would go.
+   * Cells cut move instead: written as they are over what is there, emptied
+   * where they were. From the cell editor, what it holds is saved in the same
+   * edit. Not while the table is sorted or filtered: the rows shown are not
+   * where the cells would go.
    */
-  async paste(widget, info, at, data, insert, fromEditor = false) {
+  async paste(widget, info, at, data, insert, fromEditor = false, cut) {
     if (this.host.rearranged(info)) {
       void this.host.bridge.flash(`Table Plus: ${PASTE_BLOCKED.toLowerCase()}`, "info");
       return;
     }
-    const plan = planPaste(parseTable(info.source), info.pins, at, data, insert);
+    const plan = planPaste(parseTable(info.source), info.pins, at, cut ? cut.held : data, insert);
     if ("error" in plan) {
       void this.host.bridge.flash(`Table Plus: cannot paste here: ${plan.error}`, "error");
       return;
@@ -11848,9 +12056,11 @@ var Paste = class {
       (t) => {
         const edited = closed ? closed.save(t) : t;
         if (!edited) return void 0;
+        if (cut) return moveCells(edited, cut.cells, plan);
         const pasted = pasteCells(edited, plan, data, {
           keptBy: (cell) => this.host.cellKeptBy(cell),
-          keepTags: (value, from) => this.host.keepTags(value, from)
+          keepTags: (value, from) => this.host.keepTags(value, from),
+          headerRenamed: (name, from) => this.host.headerRenamed(name, from)
         });
         skipped = pasted.skipped;
         return pasted.table;
@@ -11861,30 +12071,26 @@ var Paste = class {
         rowMap: newRows.count ? (r) => r >= newRows.at ? r + newRows.count : r : void 0
       }
     );
-    if (result !== "written") return;
-    const width = Math.max(...data.map((r) => r.length));
+    if (result !== "written") {
+      if (skipped.size) void this.host.bridge.flash(`Table Plus: nothing pasted: ${Array.from(skipped, ([what2, count]) => `kept ${plural3(count, what2)}`).join(", ")}`, "info");
+      return;
+    }
+    const size = cut ? cut.held : data;
+    const width = Math.max(...size.map((r) => r.length));
+    if (cut) this.endCut();
     const added = [
       ...newRows.count && !insert ? [`added ${plural3(newRows.count, "row")}`] : [],
       ...newColumns.count ? [`added ${plural3(newColumns.count, "column")}`] : [],
       ...Array.from(skipped, ([what2, count]) => `kept ${plural3(count, what2)}`)
     ];
-    const what = insert ? `${plural3(data.length, "new row")}` : `${data.length} \xD7 ${width} cells`;
-    void this.host.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
+    const what = cut ? `moved ${size.length} \xD7 ${width} cells` : insert ? `pasted ${plural3(data.length, "new row")}` : `pasted ${data.length} \xD7 ${width} cells`;
+    void this.host.bridge.flash(`Table Plus: ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
     if (closed) this.host.focusEditor(closed.widget);
   }
 };
 
 // table-plus/src/features/selection.ts
 var MOVE_KEYS2 = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
-function clipboardText(values) {
-  const quote = (v) => /[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
-  return values.map((row) => row.map(quote).join("	")).join("\n");
-}
-function clipboardHtml(values) {
-  const escape = (v) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
-  return `<table>${rows}</table>`;
-}
 var EDIT_MODE_KEY = "tablePlus.editMode";
 var AUTOSCROLL_EDGE2 = 40;
 var AUTOSCROLL_STEP2 = 12;
@@ -12040,9 +12246,9 @@ var Selection = class {
     }
     const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     if (!inField && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v") {
-      const at = this.selection.anchor;
       const widget = this.host.widgetForKey(this.selection.key);
       const info = widget && this.host.infoOf(widget);
+      const at = (info && this.refs(info)[0]) ?? this.selection.anchor;
       this.clear();
       if (info) this.host.editCell(info, at, "select");
       return false;
@@ -12193,18 +12399,10 @@ var Selection = class {
   selected(info) {
     return this.selection?.key === info.key ? this.refs(info) : void 0;
   }
-  /** Copy and Clear in the menu of a cell or of the cells selected */
+  /** Clear in the menu of a cell or of the cells selected (Copy, Cut and Paste are the paste module's) */
   cellMenuEntries(widget, info, cells) {
     const body = cells.filter((ref) => ref.row > 0).length;
-    const entries = [
-      {
-        kind: "item",
-        label: cells.length > 1 ? `Copy ${cells.length} cells` : "Copy",
-        icon: ICONS.duplicate,
-        hint: "Copy as Ctrl+C does: a spreadsheet pastes it into cells",
-        run: () => void this.copy(info, cells)
-      }
-    ];
+    const entries = [];
     if (body > 0) {
       entries.push({
         kind: "item",
@@ -12242,23 +12440,6 @@ var Selection = class {
       { order: 1, entries },
       { order: 9, entries: deleting }
     ];
-  }
-  /** The cells, as values in rows as shown, onto the clipboard as Ctrl+C puts them */
-  async copy(info, cells) {
-    const rows = /* @__PURE__ */ new Map();
-    for (const ref of cells) {
-      const cell = this.host.cellAt(info, ref, true);
-      const row = rows.get(ref.row) ?? [];
-      row.push(cell ? cellValue2(cell) : "");
-      rows.set(ref.row, row);
-    }
-    const values = Array.from(rows.values());
-    try {
-      await writeClipboard(this.host.doc, clipboardText(values), clipboardHtml(values));
-      void this.host.bridge.flash(`Table Plus: copied ${values.length} \xD7 ${values[0]?.length ?? 0} cells`, "info");
-    } catch (e) {
-      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
-    }
   }
   // A cell's editor opened (also from a + or a menu, which leave the selection): the selection ends
   editorOpened() {
@@ -13708,6 +13889,13 @@ var Controller = class {
   }
   keepTags(value, from) {
     return keepTags(value, from, new Set(this.features.flatMap((f) => f.takesTags?.() ?? [])));
+  }
+  headerRenamed(name, original) {
+    for (const feature of this.features) {
+      const kept = feature.headerRenamed?.(name, original);
+      if (kept !== void 0) return kept;
+    }
+    return name;
   }
   fillCell(info, cell, from, to) {
     for (const feature of this.features) {

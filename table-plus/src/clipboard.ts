@@ -1,7 +1,21 @@
-// Writing to the clipboard from a menu or a button: the Clipboard API where
+// Cells as spreadsheets copy and paste them, and writing to the clipboard
+// from a menu or a button: the Clipboard API where
 // the page has it (a secure context: https, localhost), else the copy command,
 // which a page opened over http has too (SilverBullet on a phone in the local
 // network, where navigator.clipboard is undefined).
+
+/** Cells as spreadsheets copy them: tabs and line breaks between; a cell with either or a quote in quotes */
+export function clipboardText(values: readonly (readonly string[])[]): string {
+  const quote = (v: string) => (/[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
+  return values.map((row) => row.map(quote).join("\t")).join("\n");
+}
+
+/** Cells as an HTML table, which spreadsheets paste into cells */
+export function clipboardHtml(values: readonly (readonly string[])[]): string {
+  const escape = (v: string) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
+  return `<table>${rows}</table>`;
+}
 
 /**
  * Text, and an HTML version of it for spreadsheets, onto the clipboard. Called

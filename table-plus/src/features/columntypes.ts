@@ -287,6 +287,12 @@ export class ColumnTypes implements Feature {
     return undefined;
   }
 
+  // A header renamed by a paste keeps its type's hashtag, as one renamed in its editor
+  headerRenamed(name: string, original: string): string | undefined {
+    const kept = columnTypeOf(unescapeCell(original));
+    return kept && name.trim() !== "" ? withColumnType(name, kept.tag) : undefined;
+  }
+
   decorate(_widget: HTMLElement, info: WidgetInfo): void {
     const model = parseTable(info.source);
     const header = info.table.rows[0];

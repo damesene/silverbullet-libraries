@@ -71,7 +71,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Shift+click** a cell: the cells from the one being edited (it is saved) to this one are selected; with cells selected already, from the first of them; else just this cell.
 * **Shift+arrows** (Ctrl+Shift+arrows too) move the selection's far corner by a cell; in a cell editor, Ctrl+Shift+arrows start a selection there.
 * With cells selected, **arrows** (and Ctrl+arrows) go to the cell beside, **Home / End** to the row's first / last cell, **Ctrl+Home / End** to the table's first / last cell, **PageUp / PageDown** 10 rows up / down (PageUp stops at the first row under the header). The selection is then that cell; with Shift it extends to it.
-* **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows).
+* **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows). **Ctrl+X** cuts them: see [[#Moving cells (cut and paste)]].
 * Cells copy what they show: a formula's result, a link's text.
 * The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
 * **Delete** empties the selected cells, formulas included, as one edit (Ctrl+Z brings them back). Header cells keep their names: a column needs one. Names of rows and cells stay with their cells.
@@ -174,7 +174,8 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 | *Insert function…* | Edits the cell (its formula, or a new one) with the *Functions* dialog, see [[#Functions]]. Needs *Store table metadata* for a new formula. |
 | *Name cell*, *Name row* | Names the cell, see [[#Named cells]], or its row, see [[#Named rows]]; on a header *Name column*, see [[#Named columns]]. |
 | *Copy* | Copies the cell (the cells selected) as Ctrl+C does. |
-| *Paste*, *Paste as new rows* | Pastes the clipboard from the cell as Ctrl+V (Ctrl+Shift+V) does, see [[#Pasting from a spreadsheet]]; greyed out where the page cannot read the clipboard or it holds nothing. |
+| *Cut* | Cuts the cells as Ctrl+X does: copied and outlined, they move where they are pasted, see [[#Moving cells (cut and paste)]]. Not on a header. |
+| *Paste*, *Paste as new rows* | Pastes the clipboard from the cell (the top left one selected) as Ctrl+V (Ctrl+Shift+V) does, see [[#Pasting from a spreadsheet]]; with cells cut, *Paste (move N cells)* moves them. Greyed out where the page cannot read the clipboard or it holds nothing (cells cut move all the same). |
 | *Clear* | Empties the cell (the cells selected) as Delete does; a header keeps its name. |
 | *Filter: = value* | Shows only the rows with this value in this column (with the values of the cells selected in one column: any of them). A column filtered by values already gets this one added: `=open\|blocked`. |
 | *Filter: ≠ value* | Hides the rows with this value in this column. |
@@ -194,6 +195,18 @@ Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table (sele
 * A single value (no tab, no line break) is pasted into the cell's editor as usual.
 * **Paste** and **Paste as new rows** in the cell menu (right click, or a long press or a tap on cells selected on a touch screen) do the same as Ctrl+V and Ctrl+Shift+V from the first cell selected; a single value goes straight into that cell. They read the clipboard, whatever application filled it: the browser may ask first, or show its own *Paste* button. In Chrome, once reading is allowed, *Paste* is greyed out while the clipboard holds no text (checked when you come back to the page and on each click). A page opened over plain http (SilverBullet on a phone in your network, without https) may not read the clipboard at all: there *Paste* is greyed out, and Ctrl+V or the keyboard's paste in a cell's editor still work.
 * The paste is one edit: one Ctrl+Z undoes it. It is not possible while the table is sorted or filtered, as the rows shown are not where the cells would go.
+* Ctrl+V and *Paste* paste from the top left cell selected, as a spreadsheet does.
+
+## Moving cells (cut and paste)
+
+Select cells and press **Ctrl+X** (or *Cut* in their menu): they are copied, as Ctrl+C copies them, and outlined with a dashed line; nothing changes yet. Paste into the same table, with Ctrl+V on a cell or *Paste (move N cells)* in its menu: the cells move there, as in a spreadsheet, as one edit (one Ctrl+Z).
+
+* They move as they are: formulas, cell names and hidden tags go with them, written over what the cells there held (formulas there too); where they were, the cells are left empty. Where the table ends, rows and columns are added, as for any paste.
+* A formula that moves keeps its references as written (`=A1*2` still refers to A1); formulas elsewhere that refer to the cells moved are not changed.
+* The cut ends with Esc, another copy, or a change of the cells cut (an edit, a write elsewhere that changes them): what is pasted then is a copy. If the clipboard holds something else when you paste (copied in another application), that is pasted, and the cells cut stay.
+* Within one table: pasted into another table, the cells are copied, not moved.
+* Header cells are not cut (a column keeps its name): with the header in the selection, Ctrl+X only copies.
+* On a touch screen, *Cut* and *Paste (move N cells)* work also where the page cannot read the clipboard (SilverBullet over plain http): moving needs no reading.
 
 ## Showing the markdown
 
@@ -600,7 +613,7 @@ On a phone or a tablet:
 * Swiping scrolls a wide table sideways and the page up and down, as usual.
 * **Selecting more cells**: tap a cell, then drag one of the dots at the selection's corners (top left, bottom right) across other cells; near the edge of the screen the page scrolls along. Tap a row's or column's handle to select the whole row (column), then drag a dot to select more rows (columns): they stay whole.
 * **Tap a cell of a selection** of several cells for their menu (copy, clear, delete the rows or columns), as in a spreadsheet's app.
-* Press and hold a cell for its menu (copy, paste, clear, filter by its value, name it).
+* Press and hold a cell for its menu (copy, cut, paste, clear, filter by its value, name it).
 * **AutoFill**: select the cells to go on from, tap them for their menu, *AutoFill to…*, then tap the last cell to fill, see [[#AutoFill]]. The fill handle does not show after a touch: the corner's dot selects.
 * Not on touch screens: the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
 
@@ -761,7 +774,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `autofill` | The fill handle at the corner of the cells selected: drag it to fill the cells after them, double-click it to fill down. See [[#AutoFill]]. Needs `selection`. Off: no handle. |
 | `excel` | *Export to Excel…* in the table's ⋯ menu: copy for Excel, or download an .xlsx file with the formulas. Setting `functions`: templates for your custom functions in the file. See [[#Excel]]. |
-| `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
+| `paste` | Copy, Cut and Paste in the cell menu; Ctrl+X cuts cells (they move where they are pasted); Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text, no Copy, Cut or Paste in the cell menu (Ctrl+C still copies). |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
 | `longText` | Long text wraps (up to a maximum cell height) or is cut with an ellipsis at a maximum column width; a cut cell shows an expand button for its popup. Settings: see [[#Long text in cells (`tablePlus.modules.longText`)]]. Off: cells on one line, as wide as their text (F2 still opens a cell's popup while editing). |
 | `widths` | A column's width set by dragging the right edge of its header, *Auto width* in the column's menu, *Reset column widths* in the table's ⋯ menu; with *Store table metadata* stored in the table. Off: columns are as wide as their text; widths stored in tables are kept but not used. |
@@ -1072,8 +1085,8 @@ config.define("tablePlus", {
             enabled = {
               type = "boolean",
               default = true,
-              description = "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text.",
-              ui = { category = "Table Plus: Modules", label = "Paste from spreadsheets", priority = 6 },
+              description = "Copy, Cut and Paste in the cell menu; Ctrl+X cuts cells (they move where they are pasted); Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text, no Copy, Cut or Paste in the cell menu (Ctrl+C still copies).",
+              ui = { category = "Table Plus: Modules", label = "Copy, cut and paste", priority = 6 },
             },
           },
         },
@@ -3212,6 +3225,35 @@ body.tp-autoscrolling * {
     inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 18%, transparent),
     -3px 0 4px -2px rgba(0, 0, 0, 0.3);
 }
+/* Cells cut (Ctrl+X, Cut): outlined dashed, as a spreadsheet marks them, until
+   they are pasted (moved) or the cut ends; a piece in each cell on the edge,
+   out of the layout, as AutoFill's outline */
+.sb-table-widget td:has(> .tp-cut-edge) {
+  position: relative;
+}
+.sb-table-widget td:is(.tp-pin-left, .tp-pin-right):has(> .tp-cut-edge) {
+  position: sticky;
+}
+.tp-cut-edge {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 0 dashed var(--ui-accent-color, #4a7cc7);
+  pointer-events: none;
+}
+.tp-cut-edge.tp-cut-top {
+  border-top-width: 2px;
+}
+.tp-cut-edge.tp-cut-bottom {
+  border-bottom-width: 2px;
+}
+.tp-cut-edge.tp-cut-left {
+  border-left-width: 2px;
+}
+.tp-cut-edge.tp-cut-right {
+  border-right-width: 2px;
+}
+
 /* The selection's handles, after a touch (data-tp-pointer on the page's root):
    a dot on the first cell's top left and the last cell's bottom right corner,
    in a bigger area for a finger, dragged to select more. In the cells, out of

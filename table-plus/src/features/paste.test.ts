@@ -131,7 +131,8 @@ describe("Pasting from a spreadsheet", () => {
       key(document.querySelector(".tp-menu")!, "Escape");
       // Another application emptied it: read when the page comes back to the front
       clipboard("");
-      Object.defineProperty(navigator, "permissions", { configurable: true, value: { query: async () => ({ state: "granted", addEventListener: () => {} }) } });
+      Object.defineProperty(navigator, "permissions", { configurable: true, value: { query: async () => ({ state: "granted", addEventListener: () => {}, removeEventListener: () => {} }) } });
+      controller.stop();
       // The page in front (jsdom's has no focus)
       Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
       await setup(TOTAL);
@@ -143,5 +144,98 @@ describe("Pasting from a spreadsheet", () => {
         expect(menuItem("Paste")!.title).toBe("The clipboard holds no text to paste");
       });
     });
+  });
+
+  describe("cutting", () => {
+    const PAGE3 = "| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f=\"=1+1\"> |\n| | |\n| | |\n";
+    const info = () => controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!;
+    const cutKey = () => {
+      const data: Record<string, string> = {};
+      const event = new Event("cut", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", { value: { setData: (type: string, value: string) => (data[type] = value) } });
+      document.dispatchEvent(event);
+      return { event, data };
+    };
+    const edges = () => editor.querySelectorAll(".tp-cut-edge").length;
+    afterEach(() => {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    });
+
+    it("cuts with Ctrl+X (copied, outlined, nothing changed) and moves the cells, formulas and all, where Ctrl+V pastes them", async () => {
+      await setup(PAGE3, { "tablePlus.metadata": true });
+      controller.selectCells(info(), { row: 1, column: 0 }, { row: 2, column: 1 });
+      const { event, data } = cutKey();
+      expect(event.defaultPrevented).toBe(true);
+      expect(data["text/plain"]).toBe("Pear\t3\nFig\t2");
+      expect(edges()).toBe(4);
+      expect(text).toBe(PAGE3);
+      // Pasted lower: moved, where they were emptied
+      clickOn(cell(3, 0));
+      pasteText("Pear\t3\nFig\t2\n");
+      await flush();
+      expect(text).toBe('| Name | Qty |\n|---|---|\n| | |\n| | |\n| Pear | 3 |\n| Fig | 2 <meta f="=1+1"> |\n');
+      await controller.scan();
+      expect(edges()).toBe(0);
+    });
+
+    it("pastes a copy once the cells cut changed, the clipboard holds something else, or Esc ended the cut", async () => {
+      await setup(PAGE3, { "tablePlus.metadata": true });
+      controller.selectCells(info(), { row: 1, column: 0 }, { row: 1, column: 0 });
+      cutKey();
+      // Esc ends it
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      expect(edges()).toBe(0);
+      clickOn(cell(3, 0));
+      pasteText("Pear\tx\n");
+      await flush();
+      expect(text).toContain("| Pear | 3 |");
+      expect(text).toContain("| Pear | x |");
+      await controller.scan();
+      // Another text on the clipboard: pasted as it is, the cut cells stay
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      controller.selectCells(info(), { row: 2, column: 0 }, { row: 2, column: 0 });
+      cutKey();
+      clickOn(cell(4, 0));
+      pasteText("Kiwi\t1\n");
+      await flush();
+      expect(text).toContain("| Fig | 2 ");
+      expect(text).toContain("| Kiwi | 1 |");
+    });
+
+    it("cuts and moves from the cell menu, also where the page cannot read the clipboard (over http)", async () => {
+      await setup(PAGE3, { "tablePlus.metadata": true });
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => {} } });
+      const menuItem = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label);
+      const openMenu = (at: Element) => {
+        at.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
+        at.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+      };
+      openMenu(cell(1, 0));
+      menuItem("Cut")!.click();
+      await flush();
+      expect(edges()).toBe(1);
+      openMenu(cell(4, 1));
+      const paste = menuItem("Paste (move 1 cell)")!;
+      expect(paste.getAttribute("aria-disabled")).toBeNull();
+      paste.click();
+      await flush();
+      await flush();
+      expect(text).toBe('| Name | Qty |\n|---|---|\n| | 3 |\n| Fig | 2 <meta f="=1+1"> |\n| | |\n| | Pear |\n');
+      // A header is not cut: its name stays
+      await controller.scan();
+      openMenu(cell(0, 0));
+      expect(menuItem("Cut")!.getAttribute("aria-disabled")).toBe("true");
+    });
+  });
+
+  it("keeps a column's type when a paste renames its header", async () => {
+    await setup("| Name | Price #currency-usd |\n|---|---|\n| Pear | 3 |\n");
+    clickOn(cell(1, 0));
+    // Two cells from the header: the first row names the columns
+    key(field(), "Escape");
+    clickOn(cell(0, 0));
+    pasteText("Item\tCost\nFig\t2\n");
+    await flush();
+    expect(text).toBe("| Item | Cost #currency-usd |\n|---|---|\n| Fig | 2 |\n");
   });
 });

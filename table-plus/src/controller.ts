@@ -895,6 +895,14 @@ export class Controller implements TableHost {
     return keepTags(value, from, new Set(this.features.flatMap((f) => f.takesTags?.() ?? [])));
   }
 
+  headerRenamed(name: string, original: string): string {
+    for (const feature of this.features) {
+      const kept = feature.headerRenamed?.(name, original);
+      if (kept !== undefined) return kept;
+    }
+    return name;
+  }
+
   fillCell(info: WidgetInfo, cell: string, from: CellRef, to: CellRef): string | undefined {
     for (const feature of this.features) {
       const copy = feature.fillCell?.(info, cell, from, to);

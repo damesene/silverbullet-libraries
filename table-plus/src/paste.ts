@@ -149,6 +149,8 @@ export type PasteRules = {
   readonly keptBy: (cell: string) => string | undefined;
   // The pasted value with the hidden tags the cell had (names, formulas …), as when it is edited
   readonly keepTags: (value: string, from: string) => string;
+  // A header's new name with what features keep in it (a column type's hashtag)
+  readonly headerRenamed?: (name: string, from: string) => string;
 };
 
 /**
@@ -173,8 +175,32 @@ export function pasteCells(table: Table, plan: PastePlan, data: readonly (readon
         return;
       }
       if (row === 0 && cell === "") return;
-      result = setCell(result, row, column, rules.keepTags(cell, current));
+      const named = row === 0 && rules.headerRenamed ? rules.headerRenamed(cell, current) : cell;
+      result = setCell(result, row, column, rules.keepTags(named, current));
     });
   });
   return { table: result, skipped };
+}
+
+/**
+ * The table with cells moved (cut, then pasted): the cells cut (rows of the
+ * markdown and columns, as they were cut: rows as shown, columns left to
+ * right) emptied, then written as they are, hidden tags and formulas
+ * included, where the plan puts them (over what is there, as a spreadsheet
+ * moves cells). Header cells cut keep their names.
+ */
+export function moveCells(table: Table, sources: readonly (readonly { row: number; column: number }[])[], plan: PastePlan): Table {
+  const moved = sources.map((row) => row.map((ref) => table.rows[ref.row]?.cells[ref.column] ?? ""));
+  let result = table;
+  for (const row of sources) for (const ref of row) if (ref.row > 0) result = setCell(result, ref.row, ref.column, "");
+  for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
+  for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
+  moved.forEach((cells, i) => {
+    cells.forEach((cell, j) => {
+      const row = plan.rows[i]!;
+      if (row === 0 && cell === "") return;
+      result = setCell(result, row, plan.columns[j]!, cell);
+    });
+  });
+  return result;
 }

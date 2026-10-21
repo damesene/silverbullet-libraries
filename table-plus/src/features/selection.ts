@@ -10,7 +10,7 @@
 // dragged to select more (whole rows and columns stay whole), and a tap on a
 // selection of several cells opens their menu.
 import type { CellMenuGroup, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { copyingFromMenu, writeClipboard } from "../clipboard.ts";
+import { clipboardHtml, clipboardText, copyingFromMenu } from "../clipboard.ts";
 import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
 import { PAGE_ROWS } from "../core/editor.ts";
 import { columnBlockTo, deleteColumnsAt, deleteRowsAt, MOVE_BLOCKED, moveColumnsTo, moveRowsTo, rowBlockTo } from "../core/structure.ts";
@@ -24,18 +24,6 @@ import { setCell } from "../ops.ts";
 
 // Ctrl+Alt + these keys move the rows (up, down, 10 rows) or columns (left, right, to the first or last) selected, as in the cell editor
 const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
-
-/** Cells as spreadsheets copy them: tabs and line breaks between; a cell with either or a quote in quotes */
-export function clipboardText(values: readonly (readonly string[])[]): string {
-  const quote = (v: string) => (/[\t\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v);
-  return values.map((row) => row.map(quote).join("\t")).join("\n");
-}
-
-export function clipboardHtml(values: readonly (readonly string[])[]): string {
-  const escape = (v: string) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-  const rows = values.map((row) => `<tr>${row.map((v) => `<td>${escape(v)}</td>`).join("")}</tr>`).join("");
-  return `<table>${rows}</table>`;
-}
 
 const EDIT_MODE_KEY = "tablePlus.editMode";
 
@@ -218,9 +206,10 @@ export class Selection implements Feature {
     const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     // Ctrl+V (Ctrl+Shift+V): pasted from the first cell selected, by its editor opened for it (the paste goes there)
     if (!inField && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v") {
-      const at = this.selection.anchor;
+      // From the top left cell, as a spreadsheet pastes (and Paste in the cell menu)
       const widget = this.host.widgetForKey(this.selection.key);
       const info = widget && this.host.infoOf(widget);
+      const at = (info && this.refs(info)[0]) ?? this.selection.anchor;
       this.clear();
       if (info) this.host.editCell(info, at, "select");
       return false;
@@ -397,18 +386,10 @@ export class Selection implements Feature {
     return this.selection?.key === info.key ? this.refs(info) : undefined;
   }
 
-  /** Copy and Clear in the menu of a cell or of the cells selected */
+  /** Clear in the menu of a cell or of the cells selected (Copy, Cut and Paste are the paste module's) */
   cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup[] {
     const body = cells.filter((ref) => ref.row > 0).length;
-    const entries: MenuEntry[] = [
-      {
-        kind: "item",
-        label: cells.length > 1 ? `Copy ${cells.length} cells` : "Copy",
-        icon: ICONS.duplicate,
-        hint: "Copy as Ctrl+C does: a spreadsheet pastes it into cells",
-        run: () => void this.copy(info, cells),
-      },
-    ];
+    const entries: MenuEntry[] = [];
     // A header keeps its name: a column needs one
     if (body > 0) {
       entries.push({
@@ -448,25 +429,6 @@ export class Selection implements Feature {
       { order: 1, entries },
       { order: 9, entries: deleting },
     ];
-  }
-
-  /** The cells, as values in rows as shown, onto the clipboard as Ctrl+C puts them */
-  private async copy(info: WidgetInfo, cells: readonly CellRef[]): Promise<void> {
-    const rows = new Map<number, string[]>();
-    for (const ref of cells) {
-      const cell = this.host.cellAt(info, ref, true);
-      const row = rows.get(ref.row) ?? [];
-      row.push(cell ? cellValue(cell) : "");
-      rows.set(ref.row, row);
-    }
-    const values = Array.from(rows.values());
-    try {
-      await writeClipboard(this.host.doc, clipboardText(values), clipboardHtml(values));
-      // Said, as Ctrl+C says it: a menu's copy shows nothing else (on a phone, nothing at all)
-      void this.host.bridge.flash(`Table Plus: copied ${values.length} × ${values[0]?.length ?? 0} cells`, "info");
-    } catch (e) {
-      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
-    }
   }
 
   // A cell's editor opened (also from a + or a menu, which leave the selection): the selection ends

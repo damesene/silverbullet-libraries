@@ -181,6 +181,8 @@ export interface TableHost {
   takePress(): void;
   /** Whether the press going on was taken (another feature does nothing more with it) */
   pressTaken(): boolean;
+  /** A header given a new name (escaped markdown) other than by its editor: with what features keep in it (Feature.headerRenamed) */
+  headerRenamed(name: string, original: string): string;
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
   openCellMenu(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean;
   /** A floating element (position: fixed) in the page, kept out of the editor's way */
@@ -482,6 +484,8 @@ export interface Feature {
   editorKeyDown?(e: KeyboardEvent, editor: CellEditor): boolean;
   /** The markdown to save for what was typed; undefined: the text */
   editorValue?(editor: CellEditor, typed: string): string | undefined;
+  /** A header given a new name other than by its editor (a paste): what it becomes (the column type's hashtag kept); undefined: as given */
+  headerRenamed?(name: string, original: string): string | undefined;
   /**
    * Attributes of the hidden tags in cells (tags.ts) the feature manages: when
    * a cell's text is edited, pasted over or cleared, its tags with them are not
