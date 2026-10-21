@@ -67,7 +67,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 
 ## Copying cells
 
-* Press on a cell and drag across others, the header included if you like: the cells in between are selected. A click selects one cell (in *Edit mode* it edits it, see [[#Editing cells]]).
+* Press on a cell and drag across others, the header included if you like: the cells in between are selected. A click selects one cell (in *Edit mode* it edits it, see [[#Editing cells]]). On a touch screen, drag the dots at the selection's corners, see [[#Touch screens]].
 * **Shift+click** a cell: the cells from the one being edited (it is saved) to this one are selected; with cells selected already, from the first of them; else just this cell.
 * **Shift+arrows** (Ctrl+Shift+arrows too) move the selection's far corner by a cell; in a cell editor, Ctrl+Shift+arrows start a selection there.
 * With cells selected, **arrows** (and Ctrl+arrows) go to the cell beside, **Home / End** to the row's first / last cell, **Ctrl+Home / End** to the table's first / last cell, **PageUp / PageDown** 10 rows up / down (PageUp stops at the first row under the header). The selection is then that cell; with Shift it extends to it.
@@ -594,8 +594,11 @@ On a phone or a tablet:
 * Tap a cell to select it, tap it again to edit it (with *Edit mode* on, the first tap edits). The handles of its row and column show next to it: tap one for the row's or column's menu (insert rows and columns there), or drag it to move the row or column. A pen that hovers (such as the S Pen) also gets the **+** on the borders, as a mouse does.
 * The sort buttons in the header are always shown (there is no hover to show them on). The toolbar (the filter icon, the ⋯ menu) shows while a cell of the table is edited.
 * Swiping scrolls a wide table sideways and the page up and down, as usual.
+* **Selecting more cells**: tap a cell, then drag one of the dots at the selection's corners (top left, bottom right) across other cells; near the edge of the screen the page scrolls along. Tap a row's or column's handle to select the whole row (column), then drag a dot to select more rows (columns): they stay whole.
+* **Tap a cell of a selection** of several cells for their menu (copy, clear, delete the rows or columns), as in a spreadsheet's app.
 * Press and hold a cell for its menu (copy, clear, filter by its value, name it).
-* Not on touch screens: selecting cells by dragging, the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
+* The fill handle of [[#AutoFill]] does not show after a touch: the corner's dot selects.
+* Not on touch screens: the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
 
 ## Lazy saving
 
@@ -3205,6 +3208,62 @@ body.tp-autoscrolling * {
     inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 18%, transparent),
     -3px 0 4px -2px rgba(0, 0, 0, 0.3);
 }
+/* The selection's handles, after a touch (data-tp-pointer on the page's root):
+   a dot on the first cell's top left and the last cell's bottom right corner,
+   in a bigger area for a finger, dragged to select more. In the cells, out of
+   the layout, as the pin mark is; inside them on the table's edges, where its
+   box would cut them */
+.tp-select-handle {
+  display: none;
+}
+html[data-tp-pointer="touch"] .sb-table-widget td:has(> .tp-select-handle) {
+  position: relative;
+}
+html[data-tp-pointer="touch"] .sb-table-widget td:is(.tp-pin-left, .tp-pin-right):has(> .tp-select-handle) {
+  position: sticky;
+}
+html[data-tp-pointer="touch"] .tp-select-handle {
+  position: absolute;
+  z-index: 2;
+  display: block;
+  width: 28px;
+  height: 28px;
+  touch-action: none;
+}
+html[data-tp-pointer="touch"] .tp-select-handle::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  box-sizing: border-box;
+  background: var(--ui-accent-color, #4a7cc7);
+  border: 2px solid var(--root-background-color, #fff);
+  border-radius: 50%;
+}
+.tp-select-start {
+  top: -14px;
+  left: -14px;
+}
+.tp-select-end {
+  right: -14px;
+  bottom: -14px;
+}
+.tp-select-start.tp-select-edge-row {
+  top: -7px;
+}
+.tp-select-start.tp-select-edge-column {
+  left: -7px;
+}
+.tp-select-end.tp-select-edge-row {
+  bottom: -7px;
+}
+.tp-select-end.tp-select-edge-column {
+  right: -7px;
+}
+/* A handle dragged: the cell under the finger is found past the handles */
+body.tp-select-dragging .tp-select-handle {
+  pointer-events: none;
+}
+
 /* While a formula waits for a reference, cells can be pointed at */
 .sb-table-widget.tp-table.tp-pointing td:not(.tp-editing) {
   cursor: move;
@@ -3356,6 +3415,10 @@ body.tp-autoscrolling * {
 }
 .tp-fill-handle.tp-fill-last-row {
   bottom: 0;
+}
+/* After a touch the corner is the selection's handle, to select more */
+html[data-tp-pointer="touch"] .tp-fill-handle {
+  display: none;
 }
 .tp-fill-edge {
   position: absolute;

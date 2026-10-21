@@ -6,9 +6,11 @@
 // for a spreadsheet (Ctrl+C) or
 // empty them (Delete); whole rows or columns already empty, Delete deletes
 // them. Copy, Clear and Delete rows / columns in the menu of a cell or of the
-// cells selected.
+// cells selected. On a touch screen, handles at the selection's corners are
+// dragged to select more (whole rows and columns stay whole), and a tap on a
+// selection of several cells opens their menu.
 import type { CellMenuGroup, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { cellValue } from "../dom.ts";
+import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
 import { PAGE_ROWS } from "../core/editor.ts";
 import { columnBlockTo, deleteColumnsAt, deleteRowsAt, MOVE_BLOCKED, moveColumnsTo, moveRowsTo, rowBlockTo } from "../core/structure.ts";
 import { lineAfterBlockMove } from "../ops.ts";
@@ -35,6 +37,14 @@ export function clipboardHtml(values: readonly (readonly string[])[]): string {
 }
 
 const EDIT_MODE_KEY = "tablePlus.editMode";
+
+// A handle dragged near an edge of the view (of a table's box that scrolls sideways) scrolls it by this much a move
+const AUTOSCROLL_EDGE = 40;
+const AUTOSCROLL_STEP = 12;
+
+// A touch shorter than this (a long press opens the menu anyway), moved no further, is a tap
+const TAP_MS = 500;
+const TAP_MOVE = 10;
 
 /** Edit mode as this browser keeps it (off: select mode, the default) */
 function readEditMode(): boolean {
@@ -67,18 +77,47 @@ export class Selection implements Feature {
   private stopSelecting: (() => void) | undefined;
   // The selection when a press came: the press itself ends it first
   private pressed: { readonly key: string; readonly anchor: CellRef; readonly focus: CellRef } | undefined;
+  // A touch on cells selected, until it is a tap (their menu) or not
+  private stopTap: (() => void) | undefined;
   // Edit mode: a click edits a cell; off (select mode, the default) a click selects it. Kept in this browser.
   private editMode = readEditMode();
 
-  constructor(private readonly host: TableHost) {}
+  // The handles at the selection's first and last cell, shown by CSS after a touch (html[data-tp-pointer="touch"])
+  private readonly handles: readonly [HTMLElement, HTMLElement];
+
+  constructor(private readonly host: TableHost) {
+    const handle = (corner: "start" | "end") => {
+      const element = host.doc.createElement("div");
+      element.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-select-handle tp-select-${corner}`;
+      element.addEventListener("pointerdown", (e) => this.dragHandle(e, corner));
+      return element;
+    };
+    this.handles = [handle("start"), handle("end")];
+  }
 
   start(): void {
     this.host.doc.defaultView!.addEventListener("copy", this.onCopy, true);
+    this.host.doc.defaultView!.addEventListener("pointerdown", this.onTouch, true);
   }
 
   stop(): void {
     this.host.doc.defaultView!.removeEventListener("copy", this.onCopy, true);
+    this.host.doc.defaultView!.removeEventListener("pointerdown", this.onTouch, true);
+    this.stopTap?.();
     this.stopSelecting?.();
+    for (const handle of this.handles) handle.remove();
+  }
+
+  owns(node: Node): boolean {
+    return this.handles.some((handle) => handle.contains(node));
+  }
+
+  // A press on a handle is the handle's (a mouse's, after a touch has shown them): not the cell's
+  mouseDown(e: MouseEvent): boolean {
+    if (!(e.target instanceof Node) || !this.owns(e.target)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
   }
 
   // Any click ends a selection (one on Table Plus' own controls aside)
@@ -465,8 +504,137 @@ export class Selection implements Feature {
 
   private show(): void {
     this.unmark();
-    for (const row of this.cells() ?? []) for (const cell of row) cell.classList.add("tp-selected");
+    const cells = this.cells() ?? [];
+    for (const row of cells) for (const cell of row) cell.classList.add("tp-selected");
+    this.placeHandles(cells);
     this.host.selectionChanged();
+  }
+
+  /**
+   * The handles in the selection's first and last cell, on their corners;
+   * inside them on the table's edges, where its box would cut what is past
+   * them and leave them half to grab
+   */
+  private placeHandles(cells: readonly (readonly HTMLTableCellElement[])[]): void {
+    const first = cells[0]?.[0];
+    const lastRow = cells[cells.length - 1];
+    const last = lastRow?.[lastRow.length - 1];
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!first || !last || !info) return;
+    const shown = this.host.shownRows(info);
+    const [start, end] = this.handles;
+    start.classList.toggle("tp-select-edge-row", first.parentElement === shown[0]);
+    start.classList.toggle("tp-select-edge-column", first.cellIndex === 0);
+    end.classList.toggle("tp-select-edge-row", last.parentElement === shown[shown.length - 1]);
+    end.classList.toggle("tp-select-edge-column", last.cellIndex === info.columns - 1);
+    first.append(start);
+    last.append(end);
+  }
+
+  /**
+   * A handle dragged (a touch): the selection goes from its other corner to
+   * the cell under the finger; whole rows (columns) stay whole, so more of
+   * them are selected. Near the view's edge the page scrolls, near the edge
+   * of a table's box that scrolls sideways the table does.
+   */
+  private dragHandle(e: PointerEvent, corner: "start" | "end"): void {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    const cells = this.cells();
+    if (e.button !== 0 || !selection || !widget || !info || !cells?.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const lastRow = cells[cells.length - 1]!;
+    const startRef = this.host.cellRef(info, cells[0]![0]!);
+    const endRef = this.host.cellRef(info, lastRow[lastRow.length - 1]!);
+    if (!startRef || !endRef) return;
+    const [anchor, dragged] = corner === "start" ? [endRef, startRef] : [startRef, endRef];
+    const wholeRows = cells[0]!.length === info.columns;
+    const wholeColumns = startRef.row === 0 && cells.length === this.host.shownRows(info).length;
+    const { key } = selection;
+    const doc = this.host.doc;
+    const win = doc.defaultView!;
+    doc.body.classList.add("tp-select-dragging");
+    const move = (ev: PointerEvent) => {
+      this.autoscroll(widget, ev);
+      const under = doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null;
+      const hit = this.host.enhancedWidgetOf(under);
+      const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], under) : undefined;
+      const ref = hit && cell ? this.host.cellRef(hit[1], cell) : undefined;
+      if (!hit || !ref) return;
+      const focus = { row: wholeColumns ? dragged.row : ref.row, column: wholeRows ? dragged.column : ref.column };
+      const now = this.selection;
+      if (now?.key === key && now.anchor === anchor && now.focus.row === focus.row && now.focus.column === focus.column) return;
+      this.selectCells(hit[1], anchor, focus);
+    };
+    const end = () => {
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", end, true);
+      win.removeEventListener("pointercancel", end, true);
+      doc.body.classList.remove("tp-select-dragging");
+      this.stopSelecting = undefined;
+    };
+    this.stopSelecting?.();
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", end, true);
+    win.addEventListener("pointercancel", end, true);
+    this.stopSelecting = end;
+  }
+
+  /**
+   * A tap on a cell of a selection of several opens their menu, as in a
+   * spreadsheet's app. Told by the touch's pointer events, which always come
+   * (the mouse events a browser fires after a tap may not); the core then
+   * swallows those, as after a long press.
+   */
+  private onTouch = (e: PointerEvent): void => {
+    this.stopTap?.();
+    const selection = this.selection;
+    if (e.pointerType !== "touch" || e.button !== 0 || !selection || (e.target instanceof Node && this.owns(e.target))) return;
+    const hit = this.host.enhancedWidgetOf(e.target);
+    if (!hit || hit[1].key !== selection.key) return;
+    const [widget, info] = hit;
+    const cell = this.host.tableCellOf(info, e.target);
+    const ref = cell && this.host.cellRef(info, cell);
+    const refs = this.refs(info);
+    if (!ref || refs.length < 2 || !refs.some((r) => r.row === ref.row && r.column === ref.column)) return;
+    const { clientX: x, clientY: y } = e;
+    const at = Date.now();
+    const win = this.host.doc.defaultView!;
+    const move = (ev: PointerEvent) => {
+      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE) stop();
+    };
+    const up = () => {
+      stop();
+      if (Date.now() - at < TAP_MS) this.host.openCellMenu(widget, info, ref, { x, y });
+    };
+    const stop = () => {
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", up, true);
+      win.removeEventListener("pointercancel", stop, true);
+      this.stopTap = undefined;
+    };
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", up, true);
+    win.addEventListener("pointercancel", stop, true);
+    this.stopTap = stop;
+  };
+
+  private autoscroll(widget: HTMLElement, ev: PointerEvent): void {
+    const scroller = this.host.scrollParentOf(widget);
+    if (scroller) {
+      const view = scroller.getBoundingClientRect();
+      if (ev.clientY < view.top + AUTOSCROLL_EDGE) scroller.scrollTop -= AUTOSCROLL_STEP;
+      else if (ev.clientY > view.bottom - AUTOSCROLL_EDGE) scroller.scrollTop += AUTOSCROLL_STEP;
+    }
+    if (widget.scrollWidth > widget.clientWidth) {
+      const box = widget.getBoundingClientRect();
+      if (ev.clientX < box.left + AUTOSCROLL_EDGE) widget.scrollLeft -= AUTOSCROLL_STEP;
+      else if (ev.clientX > box.right - AUTOSCROLL_EDGE) widget.scrollLeft += AUTOSCROLL_STEP;
+    }
   }
 
   private clear(): void {
@@ -477,6 +645,7 @@ export class Selection implements Feature {
 
   private unmark(): void {
     for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
+    for (const handle of this.handles) handle.remove();
   }
 
   /** The selected cells as references, rows as shown (the header first), columns left to right */

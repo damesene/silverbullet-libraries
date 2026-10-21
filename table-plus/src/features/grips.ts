@@ -69,6 +69,8 @@ export class Grips implements Feature {
   private dragging = false;
   // Select rows (columns): from the row (column) `from` to the one under the pointer, in the table `key`
   private picking: { readonly key: string; readonly axis: Axis; readonly from: number } | undefined;
+  // The grips select lines themselves (their menu stays for them)
+  private selectingLines = false;
 
   constructor(private readonly host: TableHost) {
     this.rowGrip = this.gripButton("tp-handle tp-grip", "Row: click for actions, drag to move");
@@ -303,13 +305,23 @@ export class Grips implements Feature {
 
   /** Selects the rows (columns) from `from` to `to`, as shown; a column with its header and every row shown */
   private selectLines(info: WidgetInfo, axis: Axis, from: number, to: number): void {
-    if (axis === "row") {
-      this.host.selectCells(info, { row: from, column: 0 }, { row: to, column: info.columns - 1 });
-      return;
+    this.selectingLines = true;
+    try {
+      if (axis === "row") {
+        this.host.selectCells(info, { row: from, column: 0 }, { row: to, column: info.columns - 1 });
+        return;
+      }
+      const shown = this.host.shownRows(info);
+      const last = Number(shown[shown.length - 1]?.dataset.tpRow ?? 0);
+      this.host.selectCells(info, { row: 0, column: from }, { row: last, column: to });
+    } finally {
+      this.selectingLines = false;
     }
-    const shown = this.host.shownRows(info);
-    const last = Number(shown[shown.length - 1]?.dataset.tpRow ?? 0);
-    this.host.selectCells(info, { row: 0, column: from }, { row: last, column: to });
+  }
+
+  // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
+  selectionChanged(): void {
+    if (!this.selectingLines && this.menu) this.closeMenu(false, false);
   }
 
   // ---- Select rows (columns): the pointer picks the other end, a click ends it ----------

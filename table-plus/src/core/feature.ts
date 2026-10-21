@@ -166,6 +166,14 @@ export interface TableHost {
   cancelEditing(): void;
   /** The open cell editor, if any */
   readonly editing: CellEditor | undefined;
+  /**
+   * What the last press was made with: "mouse", "touch" or "pen" ("" before
+   * any). Also on the page's root as data-tp-pointer, so CSS shows the
+   * controls for it (handles to drag with a finger, a fill handle for a mouse).
+   */
+  readonly pressedWith: string;
+  /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
+  openCellMenu(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean;
   /** A floating element (position: fixed) in the page, kept out of the editor's way */
   floating<K extends keyof HTMLElementTagNameMap>(tag: K, className: string): HTMLElementTagNameMap[K];
   /** Places a floating element at a point of the viewport, kept inside it sideways, and shows it */

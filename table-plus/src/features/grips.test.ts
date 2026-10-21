@@ -33,6 +33,15 @@ describe("Row and column grips", () => {
     expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 2");
   });
 
+  it("closes a grip's menu when the cells selected change otherwise (a touch's handles, keys)", async () => {
+    await setup(PAGE);
+    const menu = openMenu(1, "row");
+    expect(menu.isConnected).toBe(true);
+    expect(editor.querySelectorAll(".tp-selected").length).toBe(2);
+    controller.selectCells(controller.infoOf(editor.querySelector(".sb-table-widget")!)!, { row: 1, column: 0 }, { row: 2, column: 1 });
+    expect(document.querySelector(".tp-menu")).toBeNull();
+  });
+
   it("tints what a hovered grip acts on, and selects it when clicked", async () => {
     await setup(PAGE);
     const tinted = () => Array.from(editor.querySelectorAll(".tp-handle-hover"));

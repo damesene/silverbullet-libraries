@@ -253,4 +253,53 @@ describe("Selecting cells", () => {
     expect(editor.querySelector(".tp-cell-editor")).not.toBeNull();
     expect(editor.querySelectorAll(".tp-selected").length).toBe(0);
   });
+
+  it("on a touch screen selects more with the handles at the selection's corners, whole rows staying whole, and opens the menu of several cells on a tap", async () => {
+    localStorage.removeItem("tablePlus.editMode");
+    await setup(PAGE);
+    const touch = (target: EventTarget, type: string) =>
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerType: "touch" }));
+    const tap = (target: Element) => {
+      touch(target, "pointerdown");
+      touch(window, "pointerup");
+      clickOn(target);
+    };
+    const under = (target: Element) => Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => target });
+    const start = () => document.querySelector<HTMLElement>(".tp-select-start")!;
+    const end = () => document.querySelector<HTMLElement>(".tp-select-end")!;
+    const dragEnd = (to: Element) => {
+      under(to);
+      touch(end(), "pointerdown");
+      touch(window, "pointermove");
+      touch(window, "pointerup");
+    };
+    try {
+      tap(cell(1, 0));
+      expect(document.documentElement.dataset.tpPointer).toBe("touch");
+      expect([start().parentElement, end().parentElement]).toEqual([cell(1, 0), cell(1, 0)]);
+      // Dragged to Qty of apple: two rows, two columns
+      dragEnd(cell(2, 1));
+      expect(editor.querySelectorAll(".tp-selected").length).toBe(4);
+      expect(end().parentElement).toBe(cell(2, 1));
+      // In the last column (inside its cell there), not the last row
+      expect([end().classList.contains("tp-select-edge-column"), end().classList.contains("tp-select-edge-row")]).toEqual([true, false]);
+      // A tap in the selection: its menu, the cells staying selected
+      tap(cell(1, 1));
+      expect(document.querySelector(".tp-menu .tp-menu-title")!.textContent).toBe("4 cells");
+      expect(editor.querySelectorAll(".tp-selected").length).toBe(4);
+      key(document.querySelector(".tp-menu")!, "Escape");
+      // A whole row dragged down: whole rows
+      controller.selectCells(controller.infoOf(editor.querySelector(".sb-table-widget")!)!, { row: 1, column: 0 }, { row: 1, column: 1 });
+      dragEnd(cell(3, 0));
+      expect(editor.querySelectorAll(".tp-selected").length).toBe(6);
+      // A tap on a cell selected alone still edits it
+      key(document.body, "Escape");
+      tap(cell(3, 0));
+      tap(cell(3, 0));
+      expect(editor.querySelector(".tp-cell-editor")).not.toBeNull();
+      expect(start()).toBeNull();
+    } finally {
+      delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+    }
+  });
 });

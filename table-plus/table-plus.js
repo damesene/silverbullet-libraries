@@ -9279,6 +9279,8 @@ var Grips = class {
   dragging = false;
   // Select rows (columns): from the row (column) `from` to the one under the pointer, in the table `key`
   picking;
+  // The grips select lines themselves (their menu stays for them)
+  selectingLines = false;
   start() {
     this.rowGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "row"));
     this.columnGrip.addEventListener("pointerdown", (e) => this.onGripPointerDown(e, "column"));
@@ -9476,13 +9478,22 @@ var Grips = class {
   }
   /** Selects the rows (columns) from `from` to `to`, as shown; a column with its header and every row shown */
   selectLines(info, axis, from, to) {
-    if (axis === "row") {
-      this.host.selectCells(info, { row: from, column: 0 }, { row: to, column: info.columns - 1 });
-      return;
+    this.selectingLines = true;
+    try {
+      if (axis === "row") {
+        this.host.selectCells(info, { row: from, column: 0 }, { row: to, column: info.columns - 1 });
+        return;
+      }
+      const shown = this.host.shownRows(info);
+      const last = Number(shown[shown.length - 1]?.dataset.tpRow ?? 0);
+      this.host.selectCells(info, { row: 0, column: from }, { row: last, column: to });
+    } finally {
+      this.selectingLines = false;
     }
-    const shown = this.host.shownRows(info);
-    const last = Number(shown[shown.length - 1]?.dataset.tpRow ?? 0);
-    this.host.selectCells(info, { row: 0, column: from }, { row: last, column: to });
+  }
+  // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
+  selectionChanged() {
+    if (!this.selectingLines && this.menu) this.closeMenu(false, false);
   }
   // ---- Select rows (columns): the pointer picks the other end, a click ends it ----------
   startPicking(info, axis, line) {
@@ -11734,6 +11745,10 @@ function clipboardHtml(values) {
   return `<table>${rows}</table>`;
 }
 var EDIT_MODE_KEY = "tablePlus.editMode";
+var AUTOSCROLL_EDGE2 = 40;
+var AUTOSCROLL_STEP2 = 12;
+var TAP_MS = 500;
+var TAP_MOVE = 10;
 function readEditMode() {
   try {
     return globalThis.localStorage?.getItem(EDIT_MODE_KEY) === "on";
@@ -11756,6 +11771,13 @@ var STEPS = {
 var Selection = class {
   constructor(host) {
     this.host = host;
+    const handle = (corner) => {
+      const element = host.doc.createElement("div");
+      element.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-select-handle tp-select-${corner}`;
+      element.addEventListener("pointerdown", (e) => this.dragHandle(e, corner));
+      return element;
+    };
+    this.handles = [handle("start"), handle("end")];
   }
   host;
   // The cells selected (rows of the markdown, header 0), in the table with this key
@@ -11763,14 +11785,32 @@ var Selection = class {
   stopSelecting;
   // The selection when a press came: the press itself ends it first
   pressed;
+  // A touch on cells selected, until it is a tap (their menu) or not
+  stopTap;
   // Edit mode: a click edits a cell; off (select mode, the default) a click selects it. Kept in this browser.
   editMode = readEditMode();
+  // The handles at the selection's first and last cell, shown by CSS after a touch (html[data-tp-pointer="touch"])
+  handles;
   start() {
     this.host.doc.defaultView.addEventListener("copy", this.onCopy, true);
+    this.host.doc.defaultView.addEventListener("pointerdown", this.onTouch, true);
   }
   stop() {
     this.host.doc.defaultView.removeEventListener("copy", this.onCopy, true);
+    this.host.doc.defaultView.removeEventListener("pointerdown", this.onTouch, true);
+    this.stopTap?.();
     this.stopSelecting?.();
+    for (const handle of this.handles) handle.remove();
+  }
+  owns(node) {
+    return this.handles.some((handle) => handle.contains(node));
+  }
+  // A press on a handle is the handle's (a mouse's, after a touch has shown them): not the cell's
+  mouseDown(e) {
+    if (!(e.target instanceof Node) || !this.owns(e.target)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
   }
   // Any click ends a selection (one on Table Plus' own controls aside)
   beforeMouseDown(e) {
@@ -12112,8 +12152,133 @@ var Selection = class {
   }
   show() {
     this.unmark();
-    for (const row of this.cells() ?? []) for (const cell of row) cell.classList.add("tp-selected");
+    const cells = this.cells() ?? [];
+    for (const row of cells) for (const cell of row) cell.classList.add("tp-selected");
+    this.placeHandles(cells);
     this.host.selectionChanged();
+  }
+  /**
+   * The handles in the selection's first and last cell, on their corners;
+   * inside them on the table's edges, where its box would cut what is past
+   * them and leave them half to grab
+   */
+  placeHandles(cells) {
+    const first = cells[0]?.[0];
+    const lastRow = cells[cells.length - 1];
+    const last = lastRow?.[lastRow.length - 1];
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!first || !last || !info) return;
+    const shown = this.host.shownRows(info);
+    const [start, end] = this.handles;
+    start.classList.toggle("tp-select-edge-row", first.parentElement === shown[0]);
+    start.classList.toggle("tp-select-edge-column", first.cellIndex === 0);
+    end.classList.toggle("tp-select-edge-row", last.parentElement === shown[shown.length - 1]);
+    end.classList.toggle("tp-select-edge-column", last.cellIndex === info.columns - 1);
+    first.append(start);
+    last.append(end);
+  }
+  /**
+   * A handle dragged (a touch): the selection goes from its other corner to
+   * the cell under the finger; whole rows (columns) stay whole, so more of
+   * them are selected. Near the view's edge the page scrolls, near the edge
+   * of a table's box that scrolls sideways the table does.
+   */
+  dragHandle(e, corner) {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    const cells = this.cells();
+    if (e.button !== 0 || !selection || !widget || !info || !cells?.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const lastRow = cells[cells.length - 1];
+    const startRef = this.host.cellRef(info, cells[0][0]);
+    const endRef = this.host.cellRef(info, lastRow[lastRow.length - 1]);
+    if (!startRef || !endRef) return;
+    const [anchor, dragged] = corner === "start" ? [endRef, startRef] : [startRef, endRef];
+    const wholeRows = cells[0].length === info.columns;
+    const wholeColumns = startRef.row === 0 && cells.length === this.host.shownRows(info).length;
+    const { key: key2 } = selection;
+    const doc = this.host.doc;
+    const win = doc.defaultView;
+    doc.body.classList.add("tp-select-dragging");
+    const move = (ev) => {
+      this.autoscroll(widget, ev);
+      const under = doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null;
+      const hit = this.host.enhancedWidgetOf(under);
+      const cell = hit && hit[1].key === key2 ? this.host.tableCellOf(hit[1], under) : void 0;
+      const ref = hit && cell ? this.host.cellRef(hit[1], cell) : void 0;
+      if (!hit || !ref) return;
+      const focus = { row: wholeColumns ? dragged.row : ref.row, column: wholeRows ? dragged.column : ref.column };
+      const now2 = this.selection;
+      if (now2?.key === key2 && now2.anchor === anchor && now2.focus.row === focus.row && now2.focus.column === focus.column) return;
+      this.selectCells(hit[1], anchor, focus);
+    };
+    const end = () => {
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", end, true);
+      win.removeEventListener("pointercancel", end, true);
+      doc.body.classList.remove("tp-select-dragging");
+      this.stopSelecting = void 0;
+    };
+    this.stopSelecting?.();
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", end, true);
+    win.addEventListener("pointercancel", end, true);
+    this.stopSelecting = end;
+  }
+  /**
+   * A tap on a cell of a selection of several opens their menu, as in a
+   * spreadsheet's app. Told by the touch's pointer events, which always come
+   * (the mouse events a browser fires after a tap may not); the core then
+   * swallows those, as after a long press.
+   */
+  onTouch = (e) => {
+    this.stopTap?.();
+    const selection = this.selection;
+    if (e.pointerType !== "touch" || e.button !== 0 || !selection || e.target instanceof Node && this.owns(e.target)) return;
+    const hit = this.host.enhancedWidgetOf(e.target);
+    if (!hit || hit[1].key !== selection.key) return;
+    const [widget, info] = hit;
+    const cell = this.host.tableCellOf(info, e.target);
+    const ref = cell && this.host.cellRef(info, cell);
+    const refs = this.refs(info);
+    if (!ref || refs.length < 2 || !refs.some((r) => r.row === ref.row && r.column === ref.column)) return;
+    const { clientX: x, clientY: y } = e;
+    const at = Date.now();
+    const win = this.host.doc.defaultView;
+    const move = (ev) => {
+      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE) stop();
+    };
+    const up = () => {
+      stop();
+      if (Date.now() - at < TAP_MS) this.host.openCellMenu(widget, info, ref, { x, y });
+    };
+    const stop = () => {
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", up, true);
+      win.removeEventListener("pointercancel", stop, true);
+      this.stopTap = void 0;
+    };
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", up, true);
+    win.addEventListener("pointercancel", stop, true);
+    this.stopTap = stop;
+  };
+  autoscroll(widget, ev) {
+    const scroller = this.host.scrollParentOf(widget);
+    if (scroller) {
+      const view = scroller.getBoundingClientRect();
+      if (ev.clientY < view.top + AUTOSCROLL_EDGE2) scroller.scrollTop -= AUTOSCROLL_STEP2;
+      else if (ev.clientY > view.bottom - AUTOSCROLL_EDGE2) scroller.scrollTop += AUTOSCROLL_STEP2;
+    }
+    if (widget.scrollWidth > widget.clientWidth) {
+      const box = widget.getBoundingClientRect();
+      if (ev.clientX < box.left + AUTOSCROLL_EDGE2) widget.scrollLeft -= AUTOSCROLL_STEP2;
+      else if (ev.clientX > box.right - AUTOSCROLL_EDGE2) widget.scrollLeft += AUTOSCROLL_STEP2;
+    }
   }
   clear() {
     this.selection = void 0;
@@ -12122,6 +12287,7 @@ var Selection = class {
   }
   unmark() {
     for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
+    for (const handle of this.handles) handle.remove();
   }
   /** The selected cells as references, rows as shown (the header first), columns left to right */
   refs(info) {
@@ -12706,8 +12872,8 @@ var Controller = class {
   // The toolbar's open ⋯ menu
   // The open menu of a table's toolbar (⋯, at its button) or of cells (at the pointer)
   tableMenu;
-  // When a long press on a touch screen last opened a cell menu: the press is no click on the cell
-  longPressAt = 0;
+  // When a touch last opened a cell menu (a long press, a tap on cells selected): the mouse events after it are no click on the cell
+  touchMenuAt = 0;
   stopLongPress;
   metadata;
   // Each table's rows as SilverBullet rendered them (the header first), whether
@@ -12830,6 +12996,7 @@ var Controller = class {
     win.removeEventListener("contextmenu", this.onContextMenu, true);
     win.removeEventListener("pointerdown", this.onPointerDown, true);
     this.stopLongPress?.();
+    delete this.doc.documentElement.dataset.tpPointer;
     win.removeEventListener("dblclick", this.onDoubleClick, true);
     win.removeEventListener("scroll", this.onScroll, true);
     win.removeEventListener("keydown", this.onKeyDown, true);
@@ -13315,6 +13482,9 @@ var Controller = class {
   get editing() {
     return this.cellEditor.active;
   }
+  get pressedWith() {
+    return this.doc.documentElement.dataset.tpPointer ?? "";
+  }
   columnMenuEntries(widget, info, column, open) {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
   }
@@ -13622,7 +13792,7 @@ var Controller = class {
   onMouseDown = (e) => {
     this.dropAnchor();
     this.insertPressAt = 0;
-    if (Date.now() - this.longPressAt < 1e3) {
+    if (Date.now() - this.touchMenuAt < 1e3) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -14613,6 +14783,7 @@ var Controller = class {
     const groups = this.features.flatMap((f) => [f.cellMenuEntries?.(widget, info, cells) ?? []].flat()).filter((group) => group.entries.length > 0).sort((a, b) => a.order - b.order);
     if (groups.length === 0) return false;
     const entries = groups.flatMap((group, i) => [...i ? [{ kind: "separator" }] : [], ...group.entries]);
+    if (this.pressedWith === "touch") this.touchMenuAt = Date.now();
     const header = cellText(info.table.rows[0].cells[at.column]) || `column ${at.column + 1}`;
     const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? `Header: ${header}` : `Cell: ${header}, row ${at.row}`;
     this.showMenu(widget, title, entries, { kind: "cell", point });
@@ -14629,7 +14800,7 @@ var Controller = class {
   /** Right click (Shift+right click: the browser's menu) */
   onContextMenu = (e) => {
     if (e.shiftKey) return;
-    if (Date.now() - this.longPressAt < 1e3) {
+    if (Date.now() - this.touchMenuAt < 1e3) {
       e.preventDefault();
       return;
     }
@@ -14639,9 +14810,12 @@ var Controller = class {
       e.stopPropagation();
     }
   };
-  /** A long press on a touch screen: the cell menu, where no right click is (iOS fires no contextmenu) */
+  /** What pressed (pressedWith); a long press on a touch screen: the cell menu, where no right click is (iOS fires no contextmenu) */
   onPointerDown = (e) => {
     this.stopLongPress?.();
+    const root = this.doc.documentElement;
+    if (e.pointerType && root.dataset.tpPointer !== e.pointerType) root.dataset.tpPointer = e.pointerType;
+    this.touchMenuAt = 0;
     if (e.pointerType !== "touch" || e.target instanceof Node && this.isFloating(e.target)) return;
     const hit = this.cellOfEvent(e);
     if (!hit) return;
@@ -14650,7 +14824,7 @@ var Controller = class {
     const timer = setTimeout(() => {
       stop();
       if (this.tableMenu?.kind === "cell") return;
-      if (this.openCellMenu(hit[0], hit[1], hit[2], { x, y })) this.longPressAt = Date.now();
+      this.openCellMenu(hit[0], hit[1], hit[2], { x, y });
     }, LONG_PRESS_MS);
     const move = (ev) => {
       if (Math.hypot(ev.clientX - x, ev.clientY - y) > 10) stop();
