@@ -2,10 +2,11 @@
 // and Paste as new rows in the cell menu (a touch screen has no Ctrl+C,
 // Ctrl+X, Ctrl+V); Ctrl+X; and cells copied from a spreadsheet pasted from
 // the cell being edited (or selected: its editor opens for the paste): over
-// the cells there (Ctrl+V) or as new rows (Ctrl+Shift+V). Cut cells are
-// copied and marked; they move when pasted into their table, as in a
-// spreadsheet (a change of them, Esc or another copy ends the cut, and what is
-// pasted then is a copy). Ctrl+C is the selection module's. Reading the
+// the cells there (Ctrl+V) or as new rows (Ctrl+Shift+V). Cells copied or
+// cut are outlined, as a spreadsheet marks them (a change of them, Esc or
+// another copy ends it); cut cells move when pasted into their table, and
+// once the cut has ended what is pasted is a copy. Ctrl+C is the selection
+// module's (its copy event outlines the cells here). Reading the
 // clipboard's text and planning the paste is paste.ts; this is the editor's
 // and the menu's side.
 import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from "../clipboard.ts";
@@ -29,8 +30,9 @@ function sameText(text: string): string {
   return text.replace(/\r\n?/g, "\n").replace(/\n$/, "");
 }
 
-/** Cells cut: their table, the cells (rows as shown, columns left to right), what they held then, the text copied */
+/** Cells copied or cut (`moves`): their table, the cells (rows as shown, columns left to right), what they held then, the text copied */
 type Cut = {
+  readonly moves: boolean;
   readonly key: string;
   readonly cells: readonly (readonly CellRef[])[];
   readonly held: readonly (readonly string[])[];
@@ -47,7 +49,7 @@ export class Paste implements Feature {
   private reads = 0;
   private permission: { status: PermissionStatus; update: () => void } | undefined;
   private stopped = false;
-  // Cells cut, waiting to be moved by a paste; their outline
+  // Cells copied or cut (waiting to be moved by a paste); their outline
   private cut: Cut | undefined;
   private edges: HTMLElement[] = [];
 
@@ -111,7 +113,7 @@ export class Paste implements Feature {
     );
   };
 
-  // The paste event does not tell Shift; the key may come before the editor opens (Ctrl+V on a selected cell). Esc ends a cut.
+  // The paste event does not tell Shift; the key may come before the editor opens (Ctrl+V on a selected cell). Esc ends a copy's or cut's outline.
   keyDown(e: KeyboardEvent): boolean {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.inserts = e.shiftKey;
     if (e.key === "Escape") this.endCut();
@@ -136,10 +138,10 @@ export class Paste implements Feature {
     });
   }
 
-  // A table rendered anew: the cells cut marked again, or the cut ended where they changed
+  // A table rendered anew: the cells copied or cut outlined again, or the outline (and a cut) ended where they changed
   enhanced(_widget: HTMLElement, info: WidgetInfo): void {
     if (this.cut?.key !== info.key) return;
-    if (this.cutFor(info)) this.markCut(info);
+    if (this.clipFor(info)) this.markCut(info);
     else this.endCut();
   }
 
@@ -235,7 +237,7 @@ export class Paste implements Feature {
       void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
       return;
     }
-    if (cutting) this.startCut(info, rows, text);
+    this.startCut(info, rows, text, cutting);
     const size = `${values.length} × ${values[0]?.length ?? 0} cells`;
     void this.host.bridge.flash(cutting ? `Table Plus: cut ${size}: paste them where they go` : `Table Plus: copied ${size}`, "info");
   }
@@ -262,27 +264,45 @@ export class Paste implements Feature {
       void this.host.bridge.flash(`Table Plus: copied ${size} (a header keeps its name: cut the cells under it)`, "info");
       return;
     }
-    this.startCut(selected.info, rows, text);
+    this.startCut(selected.info, rows, text, true);
     void this.host.bridge.flash(`Table Plus: cut ${size}: paste them where they go`, "info");
   };
 
-  // Another copy ends the cut (what the clipboard holds is no longer the cells cut)
+  /**
+   * Another copy: Ctrl+C on cells selected (the selection module puts them on
+   * the clipboard) outlines them, as a spreadsheet does; a copy of text ends
+   * the outline and a cut (what the clipboard holds is no longer those cells).
+   * A menu's copy outlines its cells itself.
+   */
   private onCopy = (): void => {
-    if (!copyingFromMenu()) this.endCut();
+    if (copyingFromMenu()) return;
+    this.endCut();
+    const active = this.host.doc.activeElement;
+    const inField = (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd;
+    const selected = inField ? undefined : this.selection();
+    if (!selected) return;
+    const { rows, values } = this.valuesOf(selected.info, selected.cells);
+    this.startCut(selected.info, rows, clipboardText(values), false);
   };
 
-  private startCut(info: WidgetInfo, cells: CellRef[][], text: string): void {
+  private startCut(info: WidgetInfo, cells: CellRef[][], text: string, moves: boolean): void {
     const table = this.host.tableOf(info);
     const held = cells.map((row) => row.map((ref) => table.rows[ref.row]?.cells[ref.column] ?? ""));
-    this.cut = { key: info.key, cells, held, text: sameText(text) };
+    this.cut = { moves, key: info.key, cells, held, text: sameText(text) };
     this.markCut(info);
   }
 
-  /**
-   * The cut, if it is this table's and its cells hold what they held when cut
-   * (and, given the text pasted, that text is what was cut); else nothing to move
-   */
+  /** Cells cut to move, if they are this table's and still hold what they held (and the text pasted, given, is theirs) */
   private cutFor(info: WidgetInfo, text?: string): Cut | undefined {
+    const cut = this.clipFor(info, text);
+    return cut?.moves ? cut : undefined;
+  }
+
+  /**
+   * The cells copied or cut, if they are this table's and hold what they held
+   * then (and, given the text pasted, that text is what was copied)
+   */
+  private clipFor(info: WidgetInfo, text?: string): Cut | undefined {
     const cut = this.cut;
     if (!cut || cut.key !== info.key) return undefined;
     if (text !== undefined && sameText(text) !== cut.text) return undefined;
@@ -291,7 +311,7 @@ export class Paste implements Feature {
     return same ? cut : undefined;
   }
 
-  /** The cells cut outlined, dashed, as a spreadsheet marks them: a piece in each cell on the area's edge */
+  /** The cells copied or cut outlined, dashed, as a spreadsheet marks them: a piece in each cell on the area's edge */
   private markCut(info: WidgetInfo): void {
     this.unmarkCut();
     const cut = this.cut;
