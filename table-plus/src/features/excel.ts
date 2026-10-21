@@ -13,6 +13,7 @@
 // the dialog lists them, with why, before the file is made. Functions of the
 // user's are written by the templates of tablePlus.modules.excel.functions
 // ({1}, {2}… their arguments; false: as their values).
+import { writeClipboard } from "../clipboard.ts";
 import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { excelHtml, excelText } from "../excel/clipboard.ts";
 import { excelCell, excelFormula } from "../excel/formulas.ts";
@@ -257,17 +258,8 @@ export class Excel implements Feature {
   /** The rows as shown onto the clipboard, for Excel */
   private async copy(table: ExportedTable): Promise<{ text: string; ok: boolean }> {
     const rows = table.rows.map((r) => r.values);
-    const win = this.host.doc.defaultView as (Window & { ClipboardItem?: typeof ClipboardItem }) | null;
     try {
-      const clipboard = win!.navigator.clipboard;
-      if (win?.ClipboardItem && clipboard.write) {
-        const blob = (type: string, text: string) => new Blob([text], { type });
-        await clipboard.write([
-          new win.ClipboardItem({ "text/plain": blob("text/plain", excelText(table.header, rows)), "text/html": blob("text/html", excelHtml(table.header, rows)) }),
-        ]);
-      } else {
-        await clipboard.writeText(excelText(table.header, rows));
-      }
+      await writeClipboard(this.host.doc, excelText(table.header, rows), excelHtml(table.header, rows));
       return { text: `Copied ${plural(rows.length, "row", "rows")}: paste them into Excel.`, ok: true };
     } catch (e) {
       return { text: `Could not copy: ${String(e)}`, ok: false };

@@ -10,6 +10,7 @@
 // dragged to select more (whole rows and columns stay whole), and a tap on a
 // selection of several cells opens their menu.
 import type { CellMenuGroup, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import { writeClipboard } from "../clipboard.ts";
 import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
 import { PAGE_ROWS } from "../core/editor.ts";
 import { columnBlockTo, deleteColumnsAt, deleteRowsAt, MOVE_BLOCKED, moveColumnsTo, moveRowsTo, rowBlockTo } from "../core/structure.ts";
@@ -459,17 +460,10 @@ export class Selection implements Feature {
       rows.set(ref.row, row);
     }
     const values = Array.from(rows.values());
-    const clipboard = this.host.doc.defaultView!.navigator.clipboard;
     try {
-      const win = this.host.doc.defaultView as (Window & { ClipboardItem?: typeof ClipboardItem }) | null;
-      if (win?.ClipboardItem && clipboard.write) {
-        const blob = (type: string, text: string) => new Blob([text], { type });
-        await clipboard.write([
-          new win.ClipboardItem({ "text/plain": blob("text/plain", clipboardText(values)), "text/html": blob("text/html", clipboardHtml(values)) }),
-        ]);
-      } else {
-        await clipboard.writeText(clipboardText(values));
-      }
+      await writeClipboard(this.host.doc, clipboardText(values), clipboardHtml(values));
+      // Said, as Ctrl+C says it: a menu's copy shows nothing else (on a phone, nothing at all)
+      void this.host.bridge.flash(`Table Plus: copied ${values.length} × ${values[0]?.length ?? 0} cells`, "info");
     } catch (e) {
       void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
     }

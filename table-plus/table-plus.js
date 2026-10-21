@@ -3500,6 +3500,48 @@ ${shown}` : shown;
   }
 };
 
+// table-plus/src/clipboard.ts
+async function writeClipboard(doc, text, html) {
+  const win = doc.defaultView;
+  const clipboard = win?.navigator.clipboard;
+  if (clipboard && html !== void 0 && win?.ClipboardItem && clipboard.write) {
+    const blob = (type, value) => new Blob([value], { type });
+    await clipboard.write([new win.ClipboardItem({ "text/plain": blob("text/plain", text), "text/html": blob("text/html", html) })]);
+    return;
+  }
+  if (clipboard?.writeText) {
+    await clipboard.writeText(text);
+    return;
+  }
+  copyCommand(doc, text, html);
+}
+function copyCommand(doc, text, html) {
+  const field = doc.createElement("textarea");
+  field.value = text;
+  field.readOnly = true;
+  field.setAttribute("aria-hidden", "true");
+  Object.assign(field.style, { position: "fixed", top: "0", left: "0", width: "1px", height: "1px", opacity: "0" });
+  field.addEventListener("copy", (e) => {
+    if (!e.clipboardData) return;
+    e.clipboardData.setData("text/plain", text);
+    if (html !== void 0) e.clipboardData.setData("text/html", html);
+    e.preventDefault();
+  });
+  const before = doc.activeElement;
+  doc.body.append(field);
+  field.focus({ preventScroll: true });
+  field.select();
+  field.setSelectionRange(0, text.length);
+  let copied = false;
+  try {
+    copied = typeof doc.execCommand === "function" && doc.execCommand("copy");
+  } finally {
+    field.remove();
+    if (before instanceof HTMLElement) before.focus({ preventScroll: true });
+  }
+  if (!copied) throw new Error("the browser did not copy");
+}
+
 // table-plus/src/names.ts
 var NAMES_TAG_RE = /\s*<meta((?:\s+c?n\s*=\s*(?:"[^"]*"|'[^']*'))+)\s*\/?>/gi;
 var NAMES_ATTRIBUTE_RE = /(c?n)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
@@ -7145,17 +7187,8 @@ var Excel = class {
   /** The rows as shown onto the clipboard, for Excel */
   async copy(table) {
     const rows = table.rows.map((r) => r.values);
-    const win = this.host.doc.defaultView;
     try {
-      const clipboard = win.navigator.clipboard;
-      if (win?.ClipboardItem && clipboard.write) {
-        const blob = (type, text) => new Blob([text], { type });
-        await clipboard.write([
-          new win.ClipboardItem({ "text/plain": blob("text/plain", excelText(table.header, rows)), "text/html": blob("text/html", excelHtml(table.header, rows)) })
-        ]);
-      } else {
-        await clipboard.writeText(excelText(table.header, rows));
-      }
+      await writeClipboard(this.host.doc, excelText(table.header, rows), excelHtml(table.header, rows));
       return { text: `Copied ${plural(rows.length, "row", "rows")}: paste them into Excel.`, ok: true };
     } catch (e) {
       return { text: `Could not copy: ${String(e)}`, ok: false };
@@ -7239,7 +7272,7 @@ var Export = class {
     const { info } = currentTable(this.host, shownWidget, shownInfo);
     const table = exportedTable(this.host, info, "shown");
     try {
-      await this.host.doc.defaultView.navigator.clipboard.writeText(csvText([table.header, ...table.rows.map((r) => r.values)]));
+      await writeClipboard(this.host.doc, csvText([table.header, ...table.rows.map((r) => r.values)]));
       const body = table.rows.length;
       void this.host.bridge.flash(`Table Plus: copied ${body} row${body === 1 ? "" : "s"} as CSV`, "info");
     } catch (e) {
@@ -12117,17 +12150,9 @@ var Selection = class {
       rows.set(ref.row, row);
     }
     const values = Array.from(rows.values());
-    const clipboard = this.host.doc.defaultView.navigator.clipboard;
     try {
-      const win = this.host.doc.defaultView;
-      if (win?.ClipboardItem && clipboard.write) {
-        const blob = (type, text) => new Blob([text], { type });
-        await clipboard.write([
-          new win.ClipboardItem({ "text/plain": blob("text/plain", clipboardText(values)), "text/html": blob("text/html", clipboardHtml(values)) })
-        ]);
-      } else {
-        await clipboard.writeText(clipboardText(values));
-      }
+      await writeClipboard(this.host.doc, clipboardText(values), clipboardHtml(values));
+      void this.host.bridge.flash(`Table Plus: copied ${values.length} \xD7 ${values[0]?.length ?? 0} cells`, "info");
     } catch (e) {
       void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
     }

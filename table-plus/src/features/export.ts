@@ -1,6 +1,7 @@
 // The export module: a table copied whole for elsewhere, from the toolbar's
 // menu. Copy as CSV: its header and its rows as shown (sorted, filtered),
 // cells as Ctrl+C copies them (host.cellValue).
+import { writeClipboard } from "../clipboard.ts";
 import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { currentTable, exportedTable } from "../export/table.ts";
 import { ICONS } from "../icons.ts";
@@ -30,7 +31,7 @@ export class Export implements Feature {
     const { info } = currentTable(this.host, shownWidget, shownInfo);
     const table = exportedTable(this.host, info, "shown");
     try {
-      await this.host.doc.defaultView!.navigator.clipboard.writeText(csvText([table.header, ...table.rows.map((r) => r.values)]));
+      await writeClipboard(this.host.doc, csvText([table.header, ...table.rows.map((r) => r.values)]));
       const body = table.rows.length;
       void this.host.bridge.flash(`Table Plus: copied ${body} row${body === 1 ? "" : "s"} as CSV`, "info");
     } catch (e) {
