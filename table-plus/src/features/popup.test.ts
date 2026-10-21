@@ -135,6 +135,38 @@ describe("Long text in cells and the cell's popup", () => {
     expect(expand().classList.contains("tp-visible")).toBe(true);
   });
 
+  it("leaves Ctrl+arrows and Ctrl+Alt+arrows in the popup to the text; in the cell they still move", async () => {
+    await setup(PAGE, { "tablePlus.editor.enterKey": "save", "tablePlus.editor.ctrlEnterAddsRow": true });
+    clickOn(cell(1, 1));
+    key(inlineField()!, "F2");
+    const field = popupField()!;
+    // Not taken (the browser moves the text cursor by words, to the start…): the popup stays on its cell
+    for (const [k, init] of [
+      ["ArrowRight", { ctrlKey: true }],
+      ["ArrowDown", { ctrlKey: true, shiftKey: true }],
+      ["Home", { ctrlKey: true }],
+      ["ArrowDown", { ctrlKey: true, altKey: true }],
+      ["ArrowRight", { ctrlKey: true, altKey: true }],
+    ] as const) {
+      expect(key(field, k, init)).toBe(true);
+    }
+    await flush();
+    expect(popupField()).toBe(field);
+    expect(text).toBe(PAGE);
+    // Ctrl+Enter saves as Enter does, no row added
+    field.value = "Edited";
+    key(field, "Enter", { ctrlKey: true });
+    await flush();
+    expect(popup()).toBeNull();
+    expect(text).toBe("| Name | Notes |\n|---|---|\n| Pear | Edited |\n| Fig | short |\n");
+    // In the cell itself, Ctrl+arrows still move the editor
+    await controller.scan();
+    clickOn(cell(1, 1));
+    expect(key(inlineField()!, "ArrowDown", { ctrlKey: true })).toBe(false);
+    await flush();
+    expect(inlineField()!.value).toBe("short");
+  });
+
   it("goes on in the popup with F2, what is typed kept; Esc closes it unsaved", async () => {
     await setup(PAGE, { "tablePlus.editor.enterKey": "save" });
     clickOn(cell(1, 1));

@@ -43,7 +43,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Ctrl+Enter | Save, add a row below, edit it |
 | Esc | Cancel; the cell stays selected (marked) for the keys of [[#Copying cells]], a second Esc ends that |
 | Shift+F3 | In a formula: the *Functions* dialog, to find a function and insert it, see [[#Functions]] |
-| F2 | Go on in the cell's popup: the whole text wrapped (a long text or formula), see [[#Long text in cells (`tablePlus.modules.longText`)]] |
+| F2 | Go on in the cell's popup: the whole text wrapped (a long text or formula), see [[#Long text in cells (`tablePlus.modules.longText`)]]. In the popup Ctrl+arrows, Ctrl+Home / End and Ctrl+Alt+arrows work in the text only (by words, to its start or end), not on the table; Ctrl+Enter saves as Enter does. |
 | Tab | Save, edit the next cell |
 | Shift+Tab | Save, edit the previous cell |
 | Ctrl+arrows | Save, edit the cell beside |
@@ -644,7 +644,7 @@ The `longText` module (see [[#Modules]]); off, cells show as SilverBullet render
 * **Text that does not fit** (`overflow`), default `wrap`
   * `wrap`: text longer than the column's maximum width wraps onto more lines, up to the maximum cell height; the rest is cut and fades out.
   * `ellipsis`: it stays on one line, cut with `…`.
-  * A cell whose text is cut shows an expand button at its top right when hovered: it opens the cell in a popup, its whole text wrapped, to read and edit (Enter saves, Esc closes). While a cell is edited, F2 (or the same button, shown when the text does not fit the field, e.g. a long formula) goes on in the popup.
+  * A cell whose text is cut shows an expand button at its top right when hovered: it opens the cell in a popup, its whole text wrapped, to read and edit (Enter saves, Esc closes; Ctrl+arrows and Ctrl+Alt+arrows move in the text only, not to other cells or rows). While a cell is edited, F2 (or the same button, shown when the text does not fit the field, e.g. a long formula) goes on in the popup.
 * **Maximum column width (px)** (`maxWidth`), default `500`: wider text wraps or is cut. `0`: no limit, a cell is as wide as its text.
 * **Maximum cell height (px)** (`maxHeight`), default `200`: a wrapped cell no taller than this. `0`: no limit.
 

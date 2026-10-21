@@ -39,7 +39,7 @@ table-plus/
     controller.ts      the core: finds and enhances rendered tables, routes events, view (sort, rows features hide, pins layout), toolbar, write pipeline
     core/
       feature.ts       TableHost (what the controller offers) and Feature (hooks); shared types (WidgetInfo, CellRef, WriteOptions…)
-      editor.ts        the cell editor (CellEditing): open/close/save, Enter, Tab, Ctrl+arrows, Ctrl+Alt moves, pending focus after writes; in the cell (an input) or in the cell's popup (a textarea in a floating panel over the cell, the cell's font; F2 / `toPopup` goes on there with what was typed, `close(true)` so the table is not left meanwhile)
+      editor.ts        the cell editor (CellEditing): open/close/save, Enter, Tab, Ctrl+arrows, Ctrl+Alt moves, pending focus after writes; in the cell (an input) or in the cell's popup (a textarea in a floating panel over the cell, the cell's font; F2 / `toPopup` goes on there with what was typed, `close(true)` so the table is not left meanwhile; there the keys are the text's, as in a spreadsheet's edit mode: Ctrl+arrows, Ctrl+Alt+arrows and Ctrl+Enter do not move the editor, the cell, its row or column, nor add a row)
       structure.ts     structural edits as functions over TableHost (insert/duplicate/delete/move/pin rows and columns)
       layout.ts        STICKY_GAP (kept in step with the CSS)
       dialog.ts        a feature's modal dialog (TableHost.openDialog): over the page, its keys and presses its own (the controller leaves them, Esc / a press beside it closes it), the cell editor held open meanwhile (its field's blur is not leaving it: `dialogOpen`), the focus back where it was

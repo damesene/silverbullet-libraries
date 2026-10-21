@@ -188,18 +188,23 @@ export class CellEditing {
         e.preventDefault();
         return;
       }
-      if (e.key === "Control") this.setNavigating(true);
+      // In the popup the keys are the text's (Ctrl+arrows go by words, Ctrl+Home to its start), as in a
+      // spreadsheet's edit mode: they do not move the editor, the cell or its row and column, nor add a row
+      const inText = editing?.popup === true;
+      if (e.key === "Control" && !inText) this.setNavigating(true);
       const ctrl = e.ctrlKey && !e.metaKey;
       if (ctrl && e.altKey && !e.shiftKey && MOVE_KEYS.has(e.key)) {
+        if (inText) return;
         e.preventDefault();
         void this.moveWithKeyboard(e.key);
       } else if (ctrl && !e.altKey && NAVIGATION_KEYS.has(e.key)) {
+        if (inText) return;
         e.preventDefault();
         void this.navigate(e.key, e.shiftKey);
       } else if (e.key === "Escape") {
         e.preventDefault();
         void this.cancel();
-      } else if (e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+      } else if (e.key === "Enter" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && !inText) {
         e.preventDefault();
         void this.ctrlEnter();
       } else if (e.key === "Enter") {
