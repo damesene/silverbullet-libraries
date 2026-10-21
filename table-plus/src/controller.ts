@@ -1024,6 +1024,10 @@ export class Controller implements TableHost {
     return this.features.flatMap((f) => f.rowMenuEntries?.(widget, info, row, column) ?? []);
   }
 
+  lineMenuEntries(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+    return this.features.flatMap((f) => f.lineMenuEntries?.(widget, info, axis, lines) ?? []);
+  }
+
   get metadataEnabled(): boolean {
     return this.metadataOn;
   }

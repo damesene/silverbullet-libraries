@@ -11,6 +11,7 @@
 // and the menu's side.
 import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from "../clipboard.ts";
 import type { CellEditor, CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import type { MenuEntry } from "../menu.ts";
 import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
 import { cellMoveRules } from "../core/structure.ts";
 import { ICONS } from "../icons.ts";
@@ -154,10 +155,9 @@ export class Paste implements Feature {
     else this.endCut();
   }
 
-  /** Copy, Cut, Paste and Paste as new rows in the cell menu */
-  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
-    const at = cells[0];
-    if (!at) return undefined;
+  /** Copy, Cut, Paste and Paste as new rows in the cell menu (from `at`: the first cell) */
+  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[], at: CellRef | undefined = cells[0]): CellMenuGroup {
+    if (!at) return { order: 0.9, entries: [] };
     const many = cells.length > 1 ? ` ${cells.length} cells` : "";
     const cut = this.cutFor(info);
     const clipboard = this.host.doc.defaultView!.navigator.clipboard;
@@ -209,6 +209,33 @@ export class Paste implements Feature {
         },
       ],
     };
+  }
+
+  /**
+   * Copy, Cut and Paste in the menu of rows (columns): their cells; a column's
+   * with its header, but cut without it (a column keeps its name). Pasted from
+   * their first cell (a column's header: a column copied names it), rows also
+   * as new rows.
+   */
+  lineMenuEntries(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+    const first = Math.min(...lines);
+    if (!Number.isFinite(first)) return [];
+    const rows = axis === "row" ? lines : this.host.shownRows(info).map((tr) => (tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow)));
+    const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : [...lines].sort((a, b) => a - b);
+    const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
+    const body = cells.filter((ref) => ref.row > 0);
+    const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis === "row" ? "row" : "column"}${lines.length > 1 ? "s" : ""}`;
+    // A column's from its header (a column copied names it), cells cut under it (they move under the header)
+    const at = axis === "row" ? { row: first, column: 0 } : { row: this.cutFor(info) ? 1 : 0, column: first };
+    const group = this.cellMenuEntries(widget, info, cells, at);
+    type Item = Extract<MenuEntry, { kind: "item" }>;
+    const [copy, cut, paste, asRows] = group.entries.filter((e): e is Item => e.kind === "item") as [Item, Item, Item, Item];
+    return [
+      { ...copy, label: `Copy ${name}`, run: () => void this.copy(info, cells, false) },
+      { ...cut, label: `Cut ${name}`, run: () => void this.copy(info, body, true), ...(body.length ? { disabled: undefined } : { disabled: "No cells under the header to cut" }) },
+      paste,
+      ...(axis === "row" ? [asRows] : []),
+    ];
   }
 
   /** The cells selected, in rows as shown, of the table they are in */

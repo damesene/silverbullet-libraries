@@ -10076,7 +10076,9 @@ var Grips = class {
     const pinBlocked = (to) => host.metadataEnabled || zone === to ? void 0 : PIN_NEEDS_METADATA;
     const insertBlocked = (at) => insertRowAt(info.pins, info.rows, at).at === at ? void 0 : zone === "top" ? "Rows pinned to the top stay at the top" : "Rows pinned to the bottom stay at the bottom";
     return [
+      // Naming first, then the clipboard, as in the cell menu
       ...this.topEntries(this.host.rowMenuEntries(widget, info, row, column)),
+      ...this.topEntries(this.host.lineMenuEntries(widget, info, "row", this.selectedLines(info, "row", row))),
       {
         kind: "item",
         label: "Insert row above",
@@ -10187,6 +10189,7 @@ var Grips = class {
     const insertBlocked = (at) => insertColumnAt(info.pins, info.columns, at).at === at ? void 0 : zone === "left" ? "Columns pinned to the left stay at the left" : "Columns pinned to the right stay at the right";
     const entries = [
       ...this.topEntries(host.columnMenuTopEntries(widget, info, column)),
+      ...this.topEntries(host.lineMenuEntries(widget, info, "column", this.selectedLines(info, "column", column))),
       {
         kind: "item",
         label: "Sort ascending",
@@ -11965,10 +11968,9 @@ var Paste = class {
     if (this.clipFor(info)) this.markCut(info);
     else this.endCut();
   }
-  /** Copy, Cut, Paste and Paste as new rows in the cell menu */
-  cellMenuEntries(widget, info, cells) {
-    const at = cells[0];
-    if (!at) return void 0;
+  /** Copy, Cut, Paste and Paste as new rows in the cell menu (from `at`: the first cell) */
+  cellMenuEntries(widget, info, cells, at = cells[0]) {
+    if (!at) return { order: 0.9, entries: [] };
     const many = cells.length > 1 ? ` ${cells.length} cells` : "";
     const cut = this.cutFor(info);
     const clipboard = this.host.doc.defaultView.navigator.clipboard;
@@ -12011,6 +12013,30 @@ var Paste = class {
         }
       ]
     };
+  }
+  /**
+   * Copy, Cut and Paste in the menu of rows (columns): their cells; a column's
+   * with its header, but cut without it (a column keeps its name). Pasted from
+   * their first cell (a column's header: a column copied names it), rows also
+   * as new rows.
+   */
+  lineMenuEntries(widget, info, axis, lines) {
+    const first = Math.min(...lines);
+    if (!Number.isFinite(first)) return [];
+    const rows = axis === "row" ? lines : this.host.shownRows(info).map((tr) => tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow));
+    const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : [...lines].sort((a, b) => a - b);
+    const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
+    const body = cells.filter((ref) => ref.row > 0);
+    const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis === "row" ? "row" : "column"}${lines.length > 1 ? "s" : ""}`;
+    const at = axis === "row" ? { row: first, column: 0 } : { row: this.cutFor(info) ? 1 : 0, column: first };
+    const group = this.cellMenuEntries(widget, info, cells, at);
+    const [copy, cut, paste, asRows] = group.entries.filter((e) => e.kind === "item");
+    return [
+      { ...copy, label: `Copy ${name}`, run: () => void this.copy(info, cells, false) },
+      { ...cut, label: `Cut ${name}`, run: () => void this.copy(info, body, true), ...body.length ? { disabled: void 0 } : { disabled: "No cells under the header to cut" } },
+      paste,
+      ...axis === "row" ? [asRows] : []
+    ];
   }
   /** The cells selected, in rows as shown, of the table they are in */
   selection() {
@@ -14423,6 +14449,9 @@ var Controller = class {
   }
   rowMenuEntries(widget, info, row, column) {
     return this.features.flatMap((f) => f.rowMenuEntries?.(widget, info, row, column) ?? []);
+  }
+  lineMenuEntries(widget, info, axis, lines) {
+    return this.features.flatMap((f) => f.lineMenuEntries?.(widget, info, axis, lines) ?? []);
   }
   get metadataEnabled() {
     return this.metadataOn;

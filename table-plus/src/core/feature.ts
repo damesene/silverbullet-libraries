@@ -323,6 +323,8 @@ export interface TableHost {
   columnMenuInsertEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
   /** The entries features add to a row's menu, for the cell in `column` (see Feature.rowMenuEntries) */
   rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[];
+  /** The entries features add first to the menu of rows (columns) `lines` (see Feature.lineMenuEntries) */
+  lineMenuEntries(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
   /** A setting's value, its default when unset or not valid */
   setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>>;
   /** The metadata setting as last read */
@@ -399,6 +401,12 @@ export interface Feature {
   columnMenuInsertEntries?(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
   /** Entries at the top of a row's menu, about its cell in `column` (the one under the pointer or edited); they close the menu when run */
   rowMenuEntries?(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[];
+  /**
+   * Entries first in the menu of rows (columns): `lines`, those its grip acts
+   * on (the lines selected whole that hold its own, else it), markdown rows or
+   * columns; they close the menu when run (the clipboard's: copy, cut, paste)
+   */
+  lineMenuEntries?(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
   /** Buttons for the table's toolbar, shown while the pointer is over the table */
   toolbarButtons?(widget: HTMLElement, info: WidgetInfo): ToolbarButton[];
   /** Before a write reads the page's text: what it needs read first (other pages the tables written refer to) */

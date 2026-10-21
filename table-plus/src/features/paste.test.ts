@@ -303,4 +303,40 @@ describe("Pasting from a spreadsheet", () => {
     await flush();
     expect(text).toBe("| Item | Cost #currency-usd |\n|---|---|\n| Fig | 2 |\n");
   });
+
+  it("copies, cuts and pastes rows and columns from their grips' menus", async () => {
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (t: string) => void (copied = t) } });
+    try {
+      await setup("| N | Q |\n|---|---|\n| a | 1 |\n| b | 2 |\n| | |\n");
+      const gripMenu = (row: number, axis: "row" | "column", column = 0) => {
+        if (document.querySelector(".tp-menu")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+        cell(row, column).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        const grip = document.querySelector<HTMLElement>(axis === "row" ? ".tp-grip:not(.tp-grip-column)" : ".tp-grip-column")!;
+        grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+      };
+      const item = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label)!;
+      gripMenu(1, "row");
+      item("Copy row").click();
+      await flush();
+      expect(copied).toBe("a\t1");
+      // A column with its header
+      gripMenu(1, "column", 1);
+      item("Copy column").click();
+      await flush();
+      expect(copied).toBe("Q\n1\n2\n");
+      // A row cut, pasted on another row: moved
+      gripMenu(1, "row");
+      item("Cut row").click();
+      await flush();
+      gripMenu(3, "row");
+      item("Paste (move 2 cells)").click();
+      await flush();
+      await flush();
+      expect(text).toBe("| N | Q |\n|---|---|\n| | |\n| b | 2 |\n| a | 1 |\n");
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
 });

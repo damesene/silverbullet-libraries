@@ -755,7 +755,9 @@ export class Grips implements Feature {
           ? "Rows pinned to the top stay at the top"
           : "Rows pinned to the bottom stay at the bottom";
     return [
+      // Naming first, then the clipboard, as in the cell menu
       ...this.topEntries(this.host.rowMenuEntries(widget, info, row, column)),
+      ...this.topEntries(this.host.lineMenuEntries(widget, info, "row", this.selectedLines(info, "row", row))),
       {
         kind: "item",
         label: "Insert row above",
@@ -884,6 +886,7 @@ export class Grips implements Feature {
           : "Columns pinned to the right stay at the right";
     const entries: MenuEntry[] = [
       ...this.topEntries(host.columnMenuTopEntries(widget, info, column)),
+      ...this.topEntries(host.lineMenuEntries(widget, info, "column", this.selectedLines(info, "column", column))),
       {
         kind: "item",
         label: "Sort ascending",
