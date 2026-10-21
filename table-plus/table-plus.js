@@ -10024,6 +10024,7 @@ var Grips = class {
       return;
     }
     this.closeMenu(false, false);
+    if (this.host.pressedWith === "touch") this.host.takePress();
     const { doc } = this.host;
     const { widget, info } = target;
     const element = axis === "row" ? renderMenu(doc, `Row ${target.row}`, this.rowMenu(widget, info, target.row, target.column)) : renderMenu(

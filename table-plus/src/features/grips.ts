@@ -682,6 +682,9 @@ export class Grips implements Feature {
       return;
     }
     this.closeMenu(false, false);
+    // Opened by a tap (a long press): that press is the grip's. The click a touch screen fires after the finger lifts
+    // would land on the item that opened under it (Copy, under a column's grip); a mouse's click stays on the grip
+    if (this.host.pressedWith === "touch") this.host.takePress();
     const { doc } = this.host;
     const { widget, info } = target;
     const element =

@@ -117,6 +117,32 @@ describe("Row and column grips", () => {
     vi.useRealTimers();
   });
 
+  it("runs no item of the menu a tap opened, under the finger, with the tap's click", async () => {
+    localStorage.removeItem("tablePlus.editMode");
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (t: string) => void (copied = t) } });
+    try {
+      await setup(PAGE);
+      const grip = () => document.querySelector<HTMLElement>(".tp-grip-column")!;
+      const tap = () => {
+        grip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "touch" }));
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, pointerType: "touch" }));
+      };
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      tap();
+      tap();
+      const first = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => b.textContent === "Copy column")!;
+      // The click the browser fires after the second tap, where the finger was: an item of the menu now
+      const click = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+      first.dispatchEvent(click);
+      await flush();
+      expect(copied).toBe("");
+      expect(document.querySelector(".tp-menu")).not.toBeNull();
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
+
   it("tints what a hovered grip acts on, and selects it when clicked", async () => {
     await setup(PAGE);
     const tinted = () => Array.from(editor.querySelectorAll(".tp-handle-hover"));
