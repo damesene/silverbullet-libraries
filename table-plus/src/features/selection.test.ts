@@ -397,4 +397,30 @@ describe("Selecting cells", () => {
       expect(text).toBe('| A | B |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| | 4 |\n| <meta n="five"> | 3 |\n| | 5 |\n');
     });
   });
+
+  it("puts the handles of whole rows in the middle of what is in view, after a touch", async () => {
+    localStorage.removeItem("tablePlus.editMode");
+    await setup(PAGE);
+    // Cells 100 px wide, rows 20 px high; the table 0..200, in view
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const rect = (left: number, top: number, width: number, height: number) =>
+        ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top }) as DOMRect;
+      if (this instanceof HTMLTableCellElement) return rect(this.cellIndex * 100, (this.parentElement as HTMLTableRowElement).rowIndex * 20, 100, 20);
+      if (this instanceof HTMLTableRowElement) return rect(0, this.rowIndex * 20, 200, 20);
+      return rect(0, 0, 200, 80);
+    });
+    // A touch: the handles show
+    cell(1, 0).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "touch" }));
+    controller.selectCells(controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!, { row: 1, column: 0 }, { row: 2, column: 1 });
+    const [start, end] = [".tp-select-start", ".tp-select-end"].map((sel) => document.querySelector<HTMLElement>(sel)!);
+    // The middle (x 100) is the second column's left edge: in its cell, at 0, the handle centred on it
+    expect([start!.parentElement, end!.parentElement]).toEqual([cell(1, 1), cell(2, 1)]);
+    expect(start!.classList.contains("tp-select-mid")).toBe(true);
+    expect(start!.style.left).toBe("-14px");
+    // Cells selected but not whole rows: in the corners
+    controller.selectCells(controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!, { row: 1, column: 0 }, { row: 2, column: 0 });
+    expect([start!.parentElement, end!.parentElement]).toEqual([cell(1, 0), cell(2, 0)]);
+    expect(start!.style.left).toBe("");
+  });
 });

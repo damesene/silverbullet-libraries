@@ -598,15 +598,78 @@ export class Selection implements Feature {
     const selection = this.selection;
     const widget = selection && this.host.widgetForKey(selection.key);
     const info = widget && this.host.infoOf(widget);
-    if (!first || !last || !info) return;
+    if (!first || !last || !widget || !info) return;
     const shown = this.host.shownRows(info);
     const [start, end] = this.handles;
+    for (const handle of this.handles) {
+      handle.classList.remove("tp-select-mid");
+      handle.style.left = handle.style.top = handle.style.right = handle.style.bottom = "";
+    }
+    // Whole rows (columns), after a touch (the handles show only then: nothing is measured for a mouse)
+    const wholeRows = cells[0]!.length === info.columns && first.parentElement !== shown[0];
+    const wholeColumns = first.parentElement === shown[0] && cells.length === shown.length;
+    if (this.host.pressedWith === "touch" && (wholeRows || wholeColumns) && this.placeMidHandles(widget, info, cells, wholeRows ? "row" : "column")) return;
     start.classList.toggle("tp-select-edge-row", first.parentElement === shown[0]);
     start.classList.toggle("tp-select-edge-column", first.cellIndex === 0);
     end.classList.toggle("tp-select-edge-row", last.parentElement === shown[shown.length - 1]);
     end.classList.toggle("tp-select-edge-column", last.cellIndex === info.columns - 1);
     first.append(start);
     last.append(end);
+  }
+
+  /**
+   * The handles of whole rows (columns) in the middle of what is in view, on
+   * the first row's top and the last row's bottom (the first column's left,
+   * the last column's right), as a spreadsheet's app puts them: in reach
+   * however far the page or the table scrolled (placed again as it scrolls).
+   * False when no cell of the lines is in view there.
+   */
+  private placeMidHandles(widget: HTMLElement, info: WidgetInfo, cells: readonly (readonly HTMLTableCellElement[])[], axis: "row" | "column"): boolean {
+    const box = this.host.shownRect(widget, info);
+    const view = this.host.viewBounds(widget);
+    const left = Math.max(box.left, view.left);
+    const right = Math.min(box.right, view.right);
+    const top = Math.max(box.top, view.top);
+    const bottom = Math.min(box.bottom, view.bottom);
+    if (left >= right || top >= bottom) return false;
+    const middle = axis === "row" ? (left + right) / 2 : (top + bottom) / 2;
+    // The cell of a line that the middle is in, and where in it
+    const at = (line: readonly HTMLTableCellElement[]) => {
+      for (const cell of line) {
+        if (!cell.isConnected) continue;
+        const r = cell.getBoundingClientRect();
+        const [from, to] = axis === "row" ? [r.left, r.right] : [r.top, r.bottom];
+        if (middle >= from && middle < to) return { cell, offset: middle - from };
+      }
+      return undefined;
+    };
+    const firstLine = axis === "row" ? cells[0]! : cells.map((row) => row[0]!);
+    const lastLine = axis === "row" ? cells[cells.length - 1]! : cells.map((row) => row[row.length - 1]!);
+    const a = at(firstLine);
+    const b = at(lastLine);
+    if (!a || !b) return false;
+    const [start, end] = this.handles;
+    const half = start.offsetWidth / 2 || 14;
+    for (const [handle, place] of [[start, a], [end, b]] as const) {
+      handle.classList.remove("tp-select-edge-row", "tp-select-edge-column");
+      handle.classList.add("tp-select-mid");
+      if (axis === "row") {
+        handle.style.left = `${place.offset - half}px`;
+        handle.style.right = "auto";
+      } else {
+        handle.style.top = `${place.offset - half}px`;
+        handle.style.bottom = "auto";
+      }
+      place.cell.append(handle);
+    }
+    return true;
+  }
+
+  // The page or a table scrolled: the handles of whole rows (columns) go on in the middle of what is in view
+  layoutChanged(): void {
+    if (!this.selection || this.host.pressedWith !== "touch") return;
+    const cells = this.cells();
+    if (cells?.length) this.placeHandles(cells);
   }
 
   /**
