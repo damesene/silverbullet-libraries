@@ -118,6 +118,13 @@ describe("parseTable / serializeTable", () => {
     expect(serializeTable(changed)).toBe("|A|B|\n|-|-|\n| 1 | x |\n|3|4|");
   });
 
+  it("lines up a formatted table as it shows: hidden tags take no room", () => {
+    const table = { ...parseTable('|A|B|\n|-|-|\n|1 <meta f="=2-1">|x|\n|10|y|'), padded: true };
+    expect(serializeTable(table)).toBe(['| A   | B   |', '| --- | --- |', '| 1 <meta f="=2-1">  | x   |', '| 10  | y   |'].join("\n"));
+    // Read again, it is a formatted table
+    expect(parseTable(serializeTable(table)).padded).toBe(true);
+  });
+
   it("keeps an aligned table aligned", () => {
     const text = ["| Name  | Age |", "| ----- | --: |", "| Alice |  30 |", "| Bob   |   4 |"].join("\n");
     const table = parseTable(text);

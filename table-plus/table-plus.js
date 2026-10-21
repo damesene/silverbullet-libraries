@@ -141,7 +141,7 @@ function parseTableText(text) {
     while (cells.length < align.length) cells.push("");
     return { cells, source: line, sourceCells: cells };
   });
-  const widths = lines.map((l) => charLength(l));
+  const widths = lines.map((l) => shownLength(l));
   const padded3 = lines.length > 2 && widths.every((w) => w === widths[0]) && lines.some((l) => /\S {2,}\|/.test(l));
   return {
     indent: /^\s*/.exec(header)[0],
@@ -182,6 +182,10 @@ function metaRow(indent, meta) {
 function charLength(s) {
   return Array.from(s).length;
 }
+var HIDDEN_TAG_RE = /<meta\b[^>]*>/gi;
+function shownLength(cell) {
+  return charLength(cell.replace(HIDDEN_TAG_RE, ""));
+}
 var DELIMITER_CELL = {
   "": "---",
   left: ":---",
@@ -196,11 +200,11 @@ function serializeTable(table) {
   const widths = [];
   for (const row of table.rows) {
     row.cells.forEach((cell, c) => {
-      widths[c] = Math.max(widths[c] ?? 3, charLength(cell));
+      widths[c] = Math.max(widths[c] ?? 3, shownLength(cell));
     });
   }
   const pad2 = (cell, c) => {
-    const gap = (widths[c] ?? 3) - charLength(cell);
+    const gap = (widths[c] ?? 3) - shownLength(cell);
     const align = table.align[c] ?? "";
     const left = align === "right" ? gap : align === "center" ? Math.floor(gap / 2) : 0;
     return " ".repeat(left) + cell + " ".repeat(gap - left);

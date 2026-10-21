@@ -209,7 +209,8 @@ function parseTableText(text: string): Table {
     while (cells.length < align.length) cells.push("");
     return { cells, source: line, sourceCells: cells };
   });
-  const widths = lines.map((l) => charLength(l));
+  // As shown: hidden tags take no room (serializeTable pads so)
+  const widths = lines.map((l) => shownLength(l));
   const padded =
     lines.length > 2 &&
     widths.every((w) => w === widths[0]) &&
@@ -293,6 +294,14 @@ function charLength(s: string): number {
   return Array.from(s).length;
 }
 
+// A hidden tag in a cell (tags.ts): SilverBullet's editor does not show it in the markdown either
+const HIDDEN_TAG_RE = /<meta\b[^>]*>/gi;
+
+/** How wide a cell shows in the markdown: its hidden tags take no room, so a padded table's | line up as seen */
+function shownLength(cell: string): number {
+  return charLength(cell.replace(HIDDEN_TAG_RE, ""));
+}
+
 const DELIMITER_CELL: Record<Align, string> = {
   "": "---",
   left: ":---",
@@ -309,12 +318,12 @@ export function serializeTable(table: Table): string {
   const widths: number[] = [];
   for (const row of table.rows) {
     row.cells.forEach((cell, c) => {
-      widths[c] = Math.max(widths[c] ?? 3, charLength(cell));
+      widths[c] = Math.max(widths[c] ?? 3, shownLength(cell));
     });
   }
 
   const pad = (cell: string, c: number) => {
-    const gap = (widths[c] ?? 3) - charLength(cell);
+    const gap = (widths[c] ?? 3) - shownLength(cell);
     const align = table.align[c] ?? "";
     const left = align === "right" ? gap : align === "center" ? Math.floor(gap / 2) : 0;
     return " ".repeat(left) + cell + " ".repeat(gap - left);
