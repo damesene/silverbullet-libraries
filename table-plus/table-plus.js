@@ -5849,7 +5849,7 @@ function referenceSlot(formula, start, end, pointed) {
   if (tokenize(formula.slice(0, start)).error) return void 0;
   const before = formula.slice(0, start).trimEnd();
   const after = formula.slice(end).trimStart();
-  if (/^[A-Za-z0-9_.["#(]/.test(after)) return void 0;
+  if (/^[A-Za-z0-9_.["#($]/.test(after)) return void 0;
   return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : void 0;
 }
 function needsOperator(formula, at) {
@@ -5929,6 +5929,7 @@ function findFunctions(query, category) {
   }).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
 function cycleFixed(formula, caret) {
+  if (!formula.trimStart().startsWith("=")) return void 0;
   const ref = references(formula).find((r) => r.kind === "area" && r.from <= caret && caret <= r.to);
   if (!ref || ref.kind !== "area") return void 0;
   const now2 = ref.fixed;
@@ -8014,7 +8015,7 @@ var Formulas = class {
       });
     }
     field.addEventListener("keydown", (e) => {
-      if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) this.pointed = void 0;
+      if (!["Shift", "Control", "Alt", "Meta", "F4"].includes(e.key)) this.pointed = void 0;
     });
     this.updateFormulaUi();
   }
@@ -8029,7 +8030,7 @@ var Formulas = class {
       this.openFunctions(editor);
       return true;
     }
-    if (e.key === "F4" && !e.shiftKey && editor.row > 0 && this.allowed(editor)) return this.cycleFixed(editor);
+    if (e.key === "F4" && !e.shiftKey && editor.row > 0 && this.allowed(editor) && isFormulaInput(editor.field.value)) return this.cycleFixed(editor);
     const choices = this.choicesNow(editor);
     if (!choices || !this.choosing) return false;
     const { index } = this.choosing;
@@ -8336,6 +8337,10 @@ ${error}` : stored.formula;
     const cycled = cycleFixed(field.value, caret);
     if (!cycled) return false;
     this.replaceInField(field, cycled.from, cycled.to, cycled.text);
+    const pointed = this.pointed;
+    if (pointed?.field === field && pointed.from === cycled.from && pointed.to === cycled.to) {
+      this.pointed = { ...pointed, to: cycled.from + cycled.text.length, text: cycled.text };
+    }
     field.setSelectionRange(cycled.from + cycled.text.length, cycled.from + cycled.text.length);
     this.updateFormulaUi();
     return true;
@@ -8644,18 +8649,21 @@ ${error}` : stored.formula;
         return columnRefText(columnIdOf(headers, column), ref.thisRow);
       }
       if (mode === "resize") {
-        return areaText({
-          top: Math.min(startArea.top, cell.row),
-          left: Math.min(startArea.left, cell.column),
-          bottom: Math.max(startArea.top, cell.row),
-          right: Math.max(startArea.left, cell.column)
-        });
+        return areaText(
+          {
+            top: Math.min(startArea.top, cell.row),
+            left: Math.min(startArea.left, cell.column),
+            bottom: Math.max(startArea.top, cell.row),
+            right: Math.max(startArea.left, cell.column)
+          },
+          ref.fixed
+        );
       }
       const height = startArea.bottom - startArea.top;
       const width = startArea.right - startArea.left;
       const top = clamp(startArea.top + dRow, lastRow - height);
       const left = clamp(startArea.left + dColumn, lastColumn - width);
-      return areaText({ top, left, bottom: top + height, right: left + width });
+      return areaText({ top, left, bottom: top + height, right: left + width }, ref.fixed);
     };
     const win = this.host.doc.defaultView;
     const move = (ev) => {

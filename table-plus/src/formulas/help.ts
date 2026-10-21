@@ -50,7 +50,7 @@ export function referenceSlot(
   const before = formula.slice(0, start).trimEnd();
   // Right before another operand ("=SUM(|A1"), a reference would run into it
   const after = formula.slice(end).trimStart();
-  if (/^[A-Za-z0-9_.["#(]/.test(after)) return undefined;
+  if (/^[A-Za-z0-9_.["#($]/.test(after)) return undefined;
   return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : undefined;
 }
 
@@ -188,6 +188,7 @@ export function findFunctions(query: string, category?: FunctionCategory | "cust
  * undefined where there is no such reference.
  */
 export function cycleFixed(formula: string, caret: number): { from: number; to: number; text: string } | undefined {
+  if (!formula.trimStart().startsWith("=")) return undefined;
   const ref = references(formula).find((r) => r.kind === "area" && r.from <= caret && caret <= r.to);
   if (!ref || ref.kind !== "area") return undefined;
   const now = ref.fixed;

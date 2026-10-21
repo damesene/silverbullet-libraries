@@ -206,6 +206,13 @@ describe("Formulas", () => {
     field().setSelectionRange(1, 1);
     expect(key(field(), "F4")).toBe(true);
     expect(field().value).toBe("=SUM(B$1:B$2)*2");
+    // Nor in a text that is no formula
+    const typed = field().value;
+    field().value = "Room B2";
+    field().setSelectionRange(7, 7);
+    expect(key(field(), "F4")).toBe(true);
+    expect(field().value).toBe("Room B2");
+    field().value = typed;
     key(field(), "Enter");
     await flush();
     expect(text).toContain('| Total | 26 <meta f="=SUM(B$1:B$2)*2"> |');
@@ -922,6 +929,21 @@ describe("Formulas", () => {
       expect(text).toContain('| Total | 13 <meta f="=SUM(B1:B2)"> |');
     });
 
+    it("keeps a reference's $ as its outline is dragged or resized", async () => {
+      await setup(TOTAL);
+      clickOn(cell(3, 1));
+      field().value = "=SUM($B$1)";
+      field().dispatchEvent(new Event("input"));
+      pointer(marks()[0]!.querySelector(".tp-ref-top")!, "pointerdown", 150, 30);
+      pointer(window, "pointermove", 150, 50);
+      expect(field().value).toBe("=SUM($B$2)");
+      pointer(window, "pointerup", 150, 50);
+      pointer(marks()[0]!.querySelector(".tp-ref-corner")!, "pointerdown", 150, 50);
+      pointer(window, "pointermove", 150, 30);
+      expect(field().value).toBe("=SUM($B$1:$B$2)");
+      pointer(window, "pointerup", 150, 30);
+    });
+
     it("inserts a cell, a dragged range or a clicked column where the formula expects a reference", async () => {
       await setup(TOTAL);
       clickOn(cell(3, 1));
@@ -934,7 +956,9 @@ describe("Formulas", () => {
       window.dispatchEvent(new MouseEvent("mouseup", { clientX: 150, clientY: 50 }));
       expect(field().value).toBe("=SUM(B1:B2");
       expect(document.querySelector(".tp-cell-editor")).not.toBeNull();
-      // Pointing again replaces the reference just inserted
+      // F4 cycles it, and pointing again still replaces it
+      key(field(), "F4");
+      expect(field().value).toBe("=SUM($B$1:$B$2");
       press(cell(2, 0), "mousedown", { clientX: 50, clientY: 50 });
       window.dispatchEvent(new MouseEvent("mouseup"));
       expect(field().value).toBe("=SUM(A2");

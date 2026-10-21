@@ -229,7 +229,8 @@ export class Formulas implements Feature {
     }
     // Typing makes the reference just pointed at part of the formula: pointing no longer replaces it
     (field as HTMLElement).addEventListener("keydown", (e) => {
-      if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) this.pointed = undefined;
+      // (F4 cycles the reference just pointed at: pointing again still replaces it)
+      if (!["Shift", "Control", "Alt", "Meta", "F4"].includes(e.key)) this.pointed = undefined;
     });
     this.updateFormulaUi();
   }
@@ -246,8 +247,8 @@ export class Formulas implements Feature {
       this.openFunctions(editor);
       return true;
     }
-    // F4: the reference the caret is in cycles its $ (A1, $A$1, A$1, $A1)
-    if (e.key === "F4" && !e.shiftKey && editor.row > 0 && this.allowed(editor)) return this.cycleFixed(editor);
+    // F4: in a formula, the reference the caret is in cycles its $ (A1, $A$1, A$1, $A1)
+    if (e.key === "F4" && !e.shiftKey && editor.row > 0 && this.allowed(editor) && isFormulaInput(editor.field.value)) return this.cycleFixed(editor);
     const choices = this.choicesNow(editor);
     if (!choices || !this.choosing) return false;
     const { index } = this.choosing;
@@ -588,6 +589,11 @@ export class Formulas implements Feature {
     if (!cycled) return false;
     // Replaced as typing would (Ctrl+Z in the field undoes it)
     this.replaceInField(field, cycled.from, cycled.to, cycled.text);
+    // The reference just pointed at, cycled: still the one pointing again replaces
+    const pointed = this.pointed;
+    if (pointed?.field === field && pointed.from === cycled.from && pointed.to === cycled.to) {
+      this.pointed = { ...pointed, to: cycled.from + cycled.text.length, text: cycled.text };
+    }
     field.setSelectionRange(cycled.from + cycled.text.length, cycled.from + cycled.text.length);
     this.updateFormulaUi();
     return true;
@@ -931,19 +937,23 @@ export class Formulas implements Feature {
         const column = clamp(startArea.left + dColumn, lastColumn);
         return columnRefText(columnIdOf(headers, column), ref.thisRow);
       }
+      // Its $ kept, moved or resized (on the edges as written)
       if (mode === "resize") {
-        return areaText({
-          top: Math.min(startArea.top, cell.row),
-          left: Math.min(startArea.left, cell.column),
-          bottom: Math.max(startArea.top, cell.row),
-          right: Math.max(startArea.left, cell.column),
-        });
+        return areaText(
+          {
+            top: Math.min(startArea.top, cell.row),
+            left: Math.min(startArea.left, cell.column),
+            bottom: Math.max(startArea.top, cell.row),
+            right: Math.max(startArea.left, cell.column),
+          },
+          ref.fixed,
+        );
       }
       const height = startArea.bottom - startArea.top;
       const width = startArea.right - startArea.left;
       const top = clamp(startArea.top + dRow, lastRow - height);
       const left = clamp(startArea.left + dColumn, lastColumn - width);
-      return areaText({ top, left, bottom: top + height, right: left + width });
+      return areaText({ top, left, bottom: top + height, right: left + width }, ref.fixed);
     };
 
     const win = this.host.doc.defaultView!;

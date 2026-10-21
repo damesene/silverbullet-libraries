@@ -502,6 +502,9 @@ describe("referenceSlot", () => {
     expect(referenceSlot("=SUM(", 5, 5)).toEqual({ from: 5, to: 5 });
     expect(referenceSlot("=SUM(A1, ", 9, 9)).toEqual({ from: 9, to: 9 });
     expect(referenceSlot("=A1*", 4, 4)).toEqual({ from: 4, to: 4 });
+    // Not right before another operand, a cell with $ too
+    expect(referenceSlot("=SUM(A1)", 5, 5)).toBeUndefined();
+    expect(referenceSlot("=SUM($A$1)", 5, 5)).toBeUndefined();
   });
 
   it("replaces the reference just pointed at while the caret is after it", () => {
@@ -608,6 +611,8 @@ describe("cells with $", () => {
     // Not on a reference: nothing
     expect(f4("=SUM(1)")).toBeUndefined();
     expect(f4("=[qty]")).toBeUndefined();
+    // Not in a text that is no formula
+    expect(f4("Room B2")).toBeUndefined();
   });
 
   it("are not taken for a function's name while typed", () => {
