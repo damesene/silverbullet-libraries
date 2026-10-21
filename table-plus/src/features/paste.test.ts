@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cell, clickOn, controller, editor, flashes, flush, key, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Pasting from a spreadsheet", () => {
@@ -135,11 +135,13 @@ describe("Pasting from a spreadsheet", () => {
       // The page in front (jsdom's has no focus)
       Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
       await setup(TOTAL);
-      await flush();
-      window.dispatchEvent(new Event("focus"));
-      await flush();
-      openMenu(cell(1, 0));
-      expect(menuItem("Paste")!.title).toBe("The clipboard holds no text to paste");
+      // The module starts, asks for the permission and reads the clipboard: each a promise, awaited as long as they take
+      await vi.waitFor(() => {
+        document.querySelector(".tp-menu") && key(document.querySelector(".tp-menu")!, "Escape");
+        window.dispatchEvent(new Event("focus"));
+        openMenu(cell(1, 0));
+        expect(menuItem("Paste")!.title).toBe("The clipboard holds no text to paste");
+      });
     });
   });
 });
