@@ -174,12 +174,13 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 | *Insert function…* | Edits the cell (its formula, or a new one) with the *Functions* dialog, see [[#Functions]]. Needs *Store table metadata* for a new formula. |
 | *Name cell*, *Name row* | Names the cell, see [[#Named cells]], or its row, see [[#Named rows]]; on a header *Name column*, see [[#Named columns]]. |
 | *Copy* | Copies the cell (the cells selected) as Ctrl+C does. |
+| *Paste*, *Paste as new rows* | Pastes the clipboard from the cell as Ctrl+V (Ctrl+Shift+V) does, see [[#Pasting from a spreadsheet]]; greyed out where the page cannot read the clipboard or it holds nothing. |
 | *Clear* | Empties the cell (the cells selected) as Delete does; a header keeps its name. |
 | *Filter: = value* | Shows only the rows with this value in this column (with the values of the cells selected in one column: any of them). A column filtered by values already gets this one added: `=open\|blocked`. |
 | *Filter: ≠ value* | Hides the rows with this value in this column. |
 | *Delete N rows*, *Delete N columns* | On a selection: deletes the rows (columns) its cells are in. A table keeps at least one column. |
 
-Each comes from a module (`formulas`, `names`, `selection`, `filters`, see [[#Settings]]): a module turned off leaves its items out, and with none left the right click gives the browser's menu.
+Each comes from a module (`formulas`, `names`, `selection`, `paste`, `autofill`, `filters`, see [[#Settings]]): a module turned off leaves its items out, and with none left the right click gives the browser's menu.
 
 ## Pasting from a spreadsheet
 
@@ -191,6 +192,7 @@ Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table (sele
 * Pasted onto the header, the first row names the columns; an empty value keeps the old name.
 * Spreadsheets copy values as they show them (`1 234,50 Kč`), not their formulas. A line break inside a cell becomes a space, as a markdown table cell has one line.
 * A single value (no tab, no line break) is pasted into the cell's editor as usual.
+* **Paste** and **Paste as new rows** in the cell menu (right click, or a long press or a tap on cells selected on a touch screen) do the same as Ctrl+V and Ctrl+Shift+V from the first cell selected; a single value goes straight into that cell. They read the clipboard, whatever application filled it: the browser may ask first, or show its own *Paste* button. In Chrome, once reading is allowed, *Paste* is greyed out while the clipboard holds no text (checked when you come back to the page and on each click). A page opened over plain http (SilverBullet on a phone in your network, without https) may not read the clipboard at all: there *Paste* is greyed out, and Ctrl+V or the keyboard's paste in a cell's editor still work.
 * The paste is one edit: one Ctrl+Z undoes it. It is not possible while the table is sorted or filtered, as the rows shown are not where the cells would go.
 
 ## Showing the markdown
@@ -598,7 +600,7 @@ On a phone or a tablet:
 * Swiping scrolls a wide table sideways and the page up and down, as usual.
 * **Selecting more cells**: tap a cell, then drag one of the dots at the selection's corners (top left, bottom right) across other cells; near the edge of the screen the page scrolls along. Tap a row's or column's handle to select the whole row (column), then drag a dot to select more rows (columns): they stay whole.
 * **Tap a cell of a selection** of several cells for their menu (copy, clear, delete the rows or columns), as in a spreadsheet's app.
-* Press and hold a cell for its menu (copy, clear, filter by its value, name it).
+* Press and hold a cell for its menu (copy, paste, clear, filter by its value, name it).
 * **AutoFill**: select the cells to go on from, tap them for their menu, *AutoFill to…*, then tap the last cell to fill, see [[#AutoFill]]. The fill handle does not show after a touch: the corner's dot selects.
 * Not on touch screens: the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
 

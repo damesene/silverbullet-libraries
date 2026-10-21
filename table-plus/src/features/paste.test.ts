@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
-import { cell, clickOn, editor, flashes, flush, key, setup, text, useTablePage } from "../testing/page.ts";
+import { afterEach, describe, expect, it } from "vitest";
+import { cell, clickOn, controller, editor, flashes, flush, key, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Pasting from a spreadsheet", () => {
   useTablePage();
@@ -83,5 +83,63 @@ describe("Pasting from a spreadsheet", () => {
     await flush();
     // Nothing recalculated: the value pasted stays, the formula kept for when formulas are on
     expect(text).toBe('| Name | Qty |\n|---|---|\n| Fig <meta n="pear"> | 2 |\n| All | 9 <meta f="=SUM([qty])"> |\n');
+  });
+
+  describe("from the cell menu", () => {
+    const menuItem = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label);
+    const openMenu = (at: Element) => {
+      at.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
+      at.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    };
+    const clipboard = (text: string) =>
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => text, writeText: async () => {} } });
+    afterEach(() => {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+      delete (navigator as { permissions?: unknown }).permissions;
+      delete (document as { hasFocus?: unknown }).hasFocus;
+    });
+
+    it("pastes the clipboard's cells from the cell, a single value into it, and new rows", async () => {
+      clipboard("Fig\t2\nPlum\t5\n");
+      await setup(TOTAL);
+      openMenu(cell(1, 0));
+      menuItem("Paste")!.click();
+      await flush();
+      await flush();
+      await controller.scan();
+      expect(text).toBe("| Name | Qty |\n|---|---|\n| Fig | 2 |\n| Plum | 5 |\n| Total | |\n");
+      // A single value, as a spreadsheet copies one cell (a line break after it), with a | escaped
+      clipboard("a|b\n");
+      openMenu(cell(3, 1));
+      menuItem("Paste")!.click();
+      await flush();
+      await flush();
+      await controller.scan();
+      expect(text).toContain("| Total | a\\|b |");
+      clipboard("Kiwi\t1\n");
+      openMenu(cell(1, 0));
+      menuItem("Paste as new rows")!.click();
+      await flush();
+      await flush();
+      expect(text).toContain("| Kiwi | 1 |\n| Fig | 2 |");
+    });
+
+    it("is disabled where the page cannot read the clipboard, or it holds nothing (known where reading needs no asking)", async () => {
+      await setup(TOTAL);
+      openMenu(cell(1, 0));
+      expect(menuItem("Paste")!.getAttribute("aria-disabled")).toBe("true");
+      key(document.querySelector(".tp-menu")!, "Escape");
+      // Another application emptied it: read when the page comes back to the front
+      clipboard("");
+      Object.defineProperty(navigator, "permissions", { configurable: true, value: { query: async () => ({ state: "granted", addEventListener: () => {} }) } });
+      // The page in front (jsdom's has no focus)
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+      await setup(TOTAL);
+      await flush();
+      window.dispatchEvent(new Event("focus"));
+      await flush();
+      openMenu(cell(1, 0));
+      expect(menuItem("Paste")!.title).toBe("The clipboard holds no text to paste");
+    });
   });
 });

@@ -1570,6 +1570,8 @@ var ICONS = {
   sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
   sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
   clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // A clipboard
+  paste: svg('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 11h6M9 15h4"/>'),
   // Sorted lines with a check: make the sorting the real order
   applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
   // Two arrows round: calculate again
@@ -11706,6 +11708,7 @@ function pasteCells(table, plan, data, rules) {
 
 // table-plus/src/features/paste.ts
 var PASTE_BLOCKED = "Clear sorting and filters to paste cells: the rows shown are not where they would go";
+var NO_CLIPBOARD = "The browser lets a page read the clipboard only over https: paste with Ctrl+V, or into a cell's editor";
 function plural3(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
@@ -11716,6 +11719,46 @@ var Paste = class {
   host;
   // The paste on its way was asked for with Ctrl+Shift+V: as new rows
   inserts = false;
+  // What the clipboard holds, where the page may read it without asking (Chrome, the permission granted); else unknown
+  clipboard = "unknown";
+  readable = false;
+  /**
+   * Where the browser says the page may read the clipboard without asking,
+   * what it holds is read again when the page comes back to the front (copied
+   * in another application: Excel) and on every press (copied in this page),
+   * so Paste in the cell menu shows disabled when there is nothing to paste
+   */
+  start() {
+    const win = this.host.doc.defaultView;
+    if (!win.navigator.clipboard?.readText) return;
+    win.addEventListener("focus", this.refresh);
+    win.addEventListener("pointerdown", this.refresh, true);
+    this.host.doc.addEventListener("visibilitychange", this.refresh);
+    void win.navigator.permissions?.query({ name: "clipboard-read" }).then((status) => {
+      const update = () => {
+        this.readable = status.state === "granted";
+        if (!this.readable) this.clipboard = "unknown";
+        this.refresh();
+      };
+      status.addEventListener("change", update);
+      update();
+    }).catch(() => {
+    });
+  }
+  stop() {
+    const win = this.host.doc.defaultView;
+    win.removeEventListener("focus", this.refresh);
+    win.removeEventListener("pointerdown", this.refresh, true);
+    this.host.doc.removeEventListener("visibilitychange", this.refresh);
+  }
+  refresh = () => {
+    const clipboard = this.host.doc.defaultView.navigator.clipboard;
+    if (!this.readable || !clipboard?.readText || !this.host.doc.hasFocus()) return;
+    clipboard.readText().then(
+      (text) => this.clipboard = text ? "text" : "empty",
+      () => this.clipboard = "unknown"
+    );
+  };
   // The paste event does not tell Shift; the key may come before the editor opens (Ctrl+V on a selected cell)
   keyDown(e) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") this.inserts = e.shiftKey;
@@ -11729,35 +11772,81 @@ var Paste = class {
       const data = parseClipboardCells(e.clipboardData?.getData("text/plain") ?? "");
       if (!data || this.host.editing?.field !== field) return;
       e.preventDefault();
-      void this.paste(data, insert);
+      void this.pasteFromEditor(data, insert);
     });
   }
-  /**
-   * Pastes the cells from the edited cell, as one edit: over the cells there
-   * (insert false), or as new rows at the cell's row. Cells with formulas keep
-   * them. Not while the table is sorted or filtered: the rows shown are not
-   * where the cells would go.
-   */
-  async paste(data, insert) {
+  /** Paste and Paste as new rows in the cell menu: from the first cell selected */
+  cellMenuEntries(widget, info, cells) {
+    const at = cells[0];
+    if (!at) return void 0;
+    const clipboard = this.host.doc.defaultView.navigator.clipboard;
+    const disabled = !clipboard?.readText ? NO_CLIPBOARD : this.host.rearranged(info) ? PASTE_BLOCKED : this.clipboard === "empty" ? "The clipboard holds no text to paste" : void 0;
+    const item = (label, hint, insert) => ({
+      kind: "item",
+      label,
+      icon: ICONS.paste,
+      hint,
+      run: () => void this.pasteFromMenu(widget, info, at, insert),
+      ...disabled ? { disabled } : {}
+    });
+    return {
+      // After copying and clearing
+      order: 1.2,
+      entries: [
+        item("Paste", "Paste what the clipboard holds from this cell, over the cells there, as Ctrl+V does", false),
+        item("Paste as new rows", "Paste the clipboard's rows as new rows at this row, as Ctrl+Shift+V does", true)
+      ]
+    };
+  }
+  /** The clipboard read (the browser may ask, or show its own Paste button), pasted from the cell */
+  async pasteFromMenu(shownWidget, shownInfo, at, insert) {
+    let text;
+    try {
+      text = await this.host.doc.defaultView.navigator.clipboard.readText();
+    } catch (e) {
+      void this.host.bridge.flash(`Table Plus: could not read the clipboard (${String(e)})`, "error");
+      return;
+    }
+    if (!text) {
+      this.clipboard = "empty";
+      void this.host.bridge.flash("Table Plus: the clipboard holds no text to paste", "info");
+      return;
+    }
+    const data = parseClipboardCells(text) ?? [[text.replace(/\r?\n$/, "")]];
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    const info = this.host.infoOf(widget) ?? shownInfo;
+    await this.paste(widget, info, at, data, insert);
+  }
+  async pasteFromEditor(data, insert) {
     const active = this.host.editing;
     const info = active && this.host.infoOf(active.widget);
     if (!active || !info) return;
+    await this.paste(active.widget, info, active, data, insert, true);
+  }
+  /**
+   * Pastes the cells from a cell, as one edit: over the cells there (insert
+   * false), or as new rows at the cell's row. Cells with formulas keep them.
+   * From the cell editor, what it holds is saved in the same edit. Not while
+   * the table is sorted or filtered: the rows shown are not where the cells
+   * would go.
+   */
+  async paste(widget, info, at, data, insert, fromEditor = false) {
     if (this.host.rearranged(info)) {
       void this.host.bridge.flash(`Table Plus: ${PASTE_BLOCKED.toLowerCase()}`, "info");
       return;
     }
-    const plan = planPaste(parseTable(info.source), info.pins, active, data, insert);
+    const plan = planPaste(parseTable(info.source), info.pins, at, data, insert);
     if ("error" in plan) {
       void this.host.bridge.flash(`Table Plus: cannot paste here: ${plan.error}`, "error");
       return;
     }
-    const closed = this.host.takeEditor();
+    const closed = fromEditor ? this.host.takeEditor() : void 0;
     let skipped = /* @__PURE__ */ new Map();
     const { newRows, newColumns } = plan;
     const result = await this.host.write(
-      closed.widget,
+      closed?.widget ?? widget,
       (t) => {
-        const edited = closed.save(t);
+        const edited = closed ? closed.save(t) : t;
         if (!edited) return void 0;
         const pasted = pasteCells(edited, plan, data, {
           keptBy: (cell) => this.host.cellKeptBy(cell),
@@ -11781,7 +11870,7 @@ var Paste = class {
     ];
     const what = insert ? `${plural3(data.length, "new row")}` : `${data.length} \xD7 ${width} cells`;
     void this.host.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
-    this.host.focusEditor(closed.widget);
+    if (closed) this.host.focusEditor(closed.widget);
   }
 };
 

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PAGE, cell, clickOn, controller, editor, flashes, flush, key, press, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Selecting cells", () => {
@@ -306,6 +306,9 @@ describe("Selecting cells", () => {
   it("on a tap in a row its grip selected, shows the cell menu alone, and its click runs no item under the finger", async () => {
     localStorage.removeItem("tablePlus.editMode");
     await setup(PAGE);
+    // The tap and its mouse events at once, as a phone fires them (a slow run would leave the second its swallowing lasts)
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now);
     const touch = (target: EventTarget, type: string) =>
       target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerType: "touch" }));
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
@@ -319,9 +322,13 @@ describe("Selecting cells", () => {
     // The tap's mouse events after it, the click on an item that opened under the finger
     clickOn(cell(1, 1));
     const item = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Clear 2 cells")!;
-    item.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+    item.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    // Checked now: later jsdom, which lays nothing out, takes the table for scrolled out of view (its menu closes)
+    expect(document.querySelector(".tp-menu")).not.toBeNull();
     await flush();
     expect(text).toBe(PAGE);
-    expect(document.querySelector(".tp-menu")).not.toBeNull();
+    vi.restoreAllMocks();
   });
 });
