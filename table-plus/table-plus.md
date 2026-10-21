@@ -56,6 +56,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Ctrl+Alt+PageUp / PageDown | Move the row 10 places up / down |
 
 * Tab on the last cell adds a row.
+* While a function's name is typed in a formula, its list takes ↑ / ↓, Tab, Enter and Esc. See [[#References]].
 * Shift+Enter opens the cell below the other way round: with its whole text selected, or with the cursor at the end when the *Click selects the cell's text* setting is on. See [[#Settings]].
 * Ctrl+Alt+arrows save the cell and move it with its row or column, and keep editing it. Rows cannot move while sorted or filtered, nor the header row.
 * Enter (and Shift+Enter) also moves to the cell below; with the `save` setting it only saves. See [[#Settings]].
@@ -186,8 +187,8 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * Not supported: absolute references (`$A$1`) and references to other tables.
 * **Point instead of typing**: where the formula expects a reference (after `=`, `(`, `,` or an operator, not inside a text in quotes), the pointer over the table becomes a move cursor: click a cell to insert it, drag across cells for a range, or click a column's header for `[Name]`. Pointing again right away replaces that reference, Shift+click extends its range. After a typed reference or another complete operand, a click ends editing as usual.
 * While you edit a formula, each reference is outlined in the table in its own color. Drag an outline's edge to move the reference, a range's corner to resize it; Esc while dragging puts it back.
-* Under the cell, the formula shows with its references in the same colors, with help for the function being typed.
-* **Tab completes a function name**: `=AVE` and Tab gives `=AVERAGE(`. It works when the name can only be one function (or is one's whole name, as `IF` next to `IFERROR`); the help shows *Tab: AVERAGE(* then. Elsewhere Tab moves to the next cell as usual.
+* Under the cell, the formula shows with its references in the same colors, and help for the function the cursor is in: its syntax, with the argument being typed underlined (`ROUND(number, `**`[digits]`**`)` after `=ROUND(A1, `), and what it does.
+* **Functions as you type their names**: `=A` lists the functions whose names start so (`ABS`, `AND`, `AVERAGE`; your custom functions too), with the picked one's syntax and description under the list. ↑ / ↓ pick another, Tab or Enter insert it with its `(` (`=AVERAGE(`), a click inserts one, Esc closes the list and leaves what is typed (to save a name that is also a function's, e.g. a named cell). Elsewhere Tab moves to the next cell and Enter saves, as usual.
 
 ### Named columns
 
@@ -2719,6 +2720,50 @@ body.tp-autoscrolling * {
 .tp-formula-help code {
   margin-right: 6px;
   font-weight: 600;
+}
+/* The current argument in a function's syntax */
+.tp-formula-argument {
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* The functions a name typed may be: picked with the arrows, inserted with
+   Tab, Enter or a click (the hint lets clicks through to the table, the list
+   takes them) */
+.tp-formula-choices {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-height: 11.5em;
+  margin: 0 -8px;
+  overflow-y: auto;
+  pointer-events: auto;
+}
+.tp-formula-choice {
+  display: flex;
+  gap: 8px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tp-formula-choice code {
+  min-width: 6em;
+  font-weight: 600;
+}
+.tp-formula-choice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.75;
+}
+.tp-formula-choice:hover {
+  background: color-mix(in srgb, var(--ui-accent-color, #4a7cc7) 10%, transparent);
+}
+.tp-formula-choice[aria-selected="true"] {
+  background: color-mix(in srgb, var(--ui-accent-color, #4a7cc7) 22%, transparent);
+}
+.tp-formula-choices + .tp-formula-help {
+  padding-top: 4px;
+  border-top: 1px solid var(--button-border-color);
 }
 .tp-floating.tp-ref-mark {
   z-index: 49;

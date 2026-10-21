@@ -114,24 +114,80 @@ describe("Formulas", () => {
     expect(text.split("\n").slice(-2)).toEqual(['| b | 5 | 2 | 10 <meta f="=[@Qty]*[@Price]"> |', ""]);
   });
 
-  it("completes a function name with Tab, and moves on with Tab otherwise", async () => {
-    await setup(TOTAL);
-    clickOn(cell(3, 1));
-    field().value = "=su";
-    field().setSelectionRange(3, 3);
-    field().dispatchEvent(new Event("input"));
-    expect(document.querySelector(".tp-formula-tab")!.textContent).toBe("Tab: SUM(");
-    key(field(), "Tab");
-    expect(field().value).toBe("=SUM(");
-    expect(field().selectionStart).toBe(5);
-    // Saved with the column's key, as SilverBullet's queries name it
-    field().value = "=SUM([Qty])";
-    field().setSelectionRange(11, 11);
-    key(field(), "Tab");
-    await flush();
-    expect(text).toContain('| Total | 13 <meta f="=SUM([qty])"> |');
-  });
+  describe("functions as their names are typed", () => {
+    const typeIn = (value: string, caret = value.length) => {
+      field().value = value;
+      field().setSelectionRange(caret, caret);
+      field().dispatchEvent(new Event("input"));
+    };
+    const options = () => Array.from(document.querySelectorAll<HTMLElement>(".tp-formula-choice"));
+    const picked = () => options().find((o) => o.getAttribute("aria-selected") === "true")?.querySelector("code")?.textContent;
+    const help = () => document.querySelector(".tp-formula-help code")?.textContent;
 
+    it("lists the functions a name may be, picks one with the arrows and inserts it with Tab or Enter", async () => {
+      await setup(TOTAL);
+      clickOn(cell(3, 1));
+      typeIn("=a");
+      expect(options().map((o) => o.querySelector("code")!.textContent)).toEqual(["ABS", "AND", "AVERAGE"]);
+      expect(picked()).toBe("ABS");
+      expect(help()).toBe("ABS(number)");
+      key(field(), "ArrowDown");
+      key(field(), "ArrowDown");
+      key(field(), "ArrowDown"); // stays on the last
+      expect(picked()).toBe("AVERAGE");
+      key(field(), "ArrowUp");
+      expect(picked()).toBe("AND");
+      key(field(), "Enter");
+      // Inserted, the editor still open, the help now for its arguments
+      expect(field().value).toBe("=AND(");
+      expect(field().selectionStart).toBe(5);
+      expect(options()).toEqual([]);
+      expect(document.querySelector(".tp-formula-argument")!.textContent).toBe("logical1");
+      typeIn("=AND(1, ");
+      expect(document.querySelector(".tp-formula-argument")!.textContent).toBe("[logical2]");
+      // Tab inserts too; the one of the whole name typed comes first
+      typeIn("=AND(1, if");
+      expect(picked()).toBe("IF");
+      key(field(), "Tab");
+      expect(field().value).toBe("=AND(1, IF(");
+      // Saved with the column's key, as SilverBullet's queries name it: Enter saves where no list shows
+      typeIn("=SUM([Qty])");
+      key(field(), "Enter");
+      await flush();
+      expect(text).toContain('| Total | 13 <meta f="=SUM([qty])"> |');
+    });
+
+    it("inserts the function clicked; Esc closes the list and leaves the editor open", async () => {
+      await setup(TOTAL);
+      clickOn(cell(3, 1));
+      typeIn("=ro");
+      // A press on the list is the formula's, not a press outside the table that ends editing
+      const option = options().find((o) => o.querySelector("code")!.textContent === "ROUND")!;
+      const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+      option.dispatchEvent(down);
+      expect(down.defaultPrevented).toBe(true);
+      expect(controller.isFloating(option)).toBe(true);
+      option.click();
+      expect(field().value).toBe("=ROUND(");
+      typeIn("=ro");
+      key(field(), "Escape");
+      expect(options()).toEqual([]);
+      expect(editor.querySelector(".tp-cell-editor")).not.toBeNull();
+      // Open again once the name changes
+      typeIn("=row");
+      expect(picked()).toBe("ROW");
+    });
+
+    it("lists no function for a name a cell on the page has: Enter saves it", async () => {
+      await setup('| Item | Price |\n|---|---|\n| Rate | 2 <meta cn="day"> |\n| Total | |\n');
+      clickOn(cell(2, 1));
+      typeIn("=day");
+      expect(options()).toEqual([]);
+      key(field(), "Enter");
+      await flush();
+      expect(text).toContain('| Total | 2 <meta f="=day"> |');
+    });
+  });
 
   it("fixes a missing ) when the formula is saved, and says so", async () => {
     await setup(TOTAL);

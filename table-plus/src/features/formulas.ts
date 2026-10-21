@@ -19,7 +19,6 @@ import {
   autofixFormula,
   callsCustomFunctions,
   columnRefText,
-  completeFunction,
   formulaCell,
   formulaCount,
   formulaErrors,
@@ -27,7 +26,9 @@ import {
   formulaOf,
   formulasAfterEdit,
   followTable,
-  type FunctionCompletion,
+  functionChoices,
+  type FormulaHelp,
+  type FunctionChoices,
   isErrorText,
   isFormulaInput,
   type PointedSpan,
@@ -43,6 +44,7 @@ import {
   withColumnKeys,
 } from "../formulas/index.ts";
 import { addAffected, affectedBy, isAffected, pageTables, referredBy } from "../formulas/page.ts";
+import { functionNamed } from "../formulas/registry.ts";
 import { ICONS } from "../icons.ts";
 import { escapeCell, type PageTable, pageTablesOf, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
@@ -66,6 +68,10 @@ export class Formulas implements Feature {
   // The reference last inserted by pointing at the table, and the cell its range started at
   private pointed: (PointedSpan & { readonly field: CellField; readonly anchor?: CellRef }) | undefined;
   private stopPointing: (() => void) | undefined;
+  // The functions offered for the name typed (a list under the cell): which one is picked, for which name
+  // typed where (`key`), and the name Esc closed the list for (it opens again once the name changes)
+  private choosing: { readonly key: string; index: number } | undefined;
+  private dismissed: string | undefined;
   // Tables whose formula cells show results from before a change made outside Table Plus
   private readonly stale = new WeakSet<HTMLTableElement>();
   // Tables (as rendered) with formulas: their toolbar can recalculate them
@@ -221,10 +227,39 @@ export class Formulas implements Feature {
     this.updateFormulaUi();
   }
 
-  /** Tab while a function name is typed completes it (the editor stays) */
+  /**
+   * While a function name is typed, the list of the functions it may be takes
+   * the keys: ↑ / ↓ pick one, Tab or Enter insert it, Esc closes the list
+   * (the editor stays)
+   */
   editorKeyDown(e: KeyboardEvent, editor: CellEditor): boolean {
-    if (!this.allowed(editor)) return false;
-    return e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && this.completeFunctionName();
+    if (e.ctrlKey || e.altKey || e.metaKey) return false;
+    const choices = this.choicesNow(editor);
+    if (!choices || !this.choosing) return false;
+    const { index } = this.choosing;
+    switch (e.key) {
+      case "ArrowDown":
+      case "ArrowUp":
+        this.choosing.index = Math.max(0, Math.min(choices.names.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)));
+        this.updateFormulaUi();
+        return true;
+      case "Tab":
+      case "Enter":
+        if (e.shiftKey) return false;
+        this.insertFunction(editor, choices, index);
+        return true;
+      case "Escape":
+        this.dismissed = this.choosing.key;
+        this.choosing = undefined;
+        this.updateFormulaUi();
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  owns(node: Node): boolean {
+    return this.formulaHint.contains(node);
   }
 
   /**
@@ -261,6 +296,8 @@ export class Formulas implements Feature {
   editorClosed(): void {
     this.stopPointing?.();
     this.pointed = undefined;
+    this.choosing = undefined;
+    this.dismissed = undefined;
     this.hideFormulaUi();
   }
 
@@ -497,26 +534,33 @@ export class Formulas implements Feature {
     return true;
   }
 
-  /** Tab while a function name is typed in a formula: completes it with its "(" */
-  private completeFunctionName(): boolean {
-    const active = this.host.editing;
-    const completion = active && active.row > 0 ? this.functionCompletion(active) : undefined;
-    if (!active || !completion) return false;
-    const field = active.field;
-    this.replaceInField(field, completion.from, completion.to, completion.text);
-    const caret = completion.from + completion.text.length;
-    field.setSelectionRange(caret, caret);
-    this.updateFormulaUi();
-    return true;
-  }
-
-  private functionCompletion(active: CellEditor): FunctionCompletion | undefined {
+  /**
+   * The functions the name typed right before the caret may be, while the
+   * list of them is not closed for that name; keeps which one is picked
+   */
+  private choicesNow(active: CellEditor): FunctionChoices | undefined {
+    if (active.row === 0 || !this.allowed(active)) return undefined;
     const field = active.field;
     const length = field.value.length;
-    const completion = completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+    const choices = functionChoices(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+    if (!choices) return undefined;
     // A name typed in full that a cell on the page has is that cell, not the start of a function
-    const typed = completion && field.value.slice(completion.from, completion.to);
-    return typed && this.tableSource().cell?.(typed) ? undefined : completion;
+    const typed = field.value.slice(choices.from, choices.to);
+    if (this.tableSource().cell?.(typed)) return undefined;
+    const key = `${choices.from}:${typed}`;
+    if (this.dismissed === key) return undefined;
+    if (this.choosing?.key !== key) this.choosing = { key, index: 0 };
+    return choices;
+  }
+
+  /** Puts a function offered in place of the name typed, with its "(": the help for its arguments follows */
+  private insertFunction(active: CellEditor, choices: FunctionChoices, index: number): void {
+    const text = `${choices.names[index]}(`;
+    this.replaceInField(active.field, choices.from, choices.to, text);
+    const caret = choices.from + text.length;
+    active.field.setSelectionRange(caret, caret);
+    this.choosing = undefined;
+    this.updateFormulaUi();
   }
 
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
@@ -562,29 +606,77 @@ export class Formulas implements Feature {
       line.append(formula.slice(at));
       hint.append(line);
     }
-    for (const help of formulaHelp(formula, active.field.selectionStart ?? formula.length).slice(0, 6)) {
-      const item = this.host.doc.createElement("div");
-      item.className = "tp-formula-help";
-      const syntax = this.host.doc.createElement("code");
-      syntax.textContent = help.syntax;
-      const description = this.host.doc.createElement("span");
-      description.textContent = help.description;
-      item.append(syntax, description);
-      hint.append(item);
-    }
-    const completion = this.functionCompletion(active);
-    if (completion) {
-      const tab = this.host.doc.createElement("div");
-      tab.className = "tp-formula-tab";
-      tab.textContent = `Tab: ${completion.text}`;
-      hint.append(tab);
+    const choices = this.choicesNow(active);
+    if (choices && this.choosing) {
+      hint.append(this.choiceList(active, choices, this.choosing.index));
+      const picked = functionNamed(choices.names[this.choosing.index]!)!;
+      hint.append(this.helpLine({ syntax: picked.syntax, description: picked.description }));
+      const keys = this.host.doc.createElement("div");
+      keys.className = "tp-formula-tab";
+      keys.textContent = "Tab or Enter: insert · ↑ ↓: pick · Esc: close";
+      hint.append(keys);
+    } else {
+      const help = formulaHelp(formula, active.field.selectionStart ?? formula.length);
+      if (help) hint.append(this.helpLine(help));
     }
     const rect = editorRect(active);
     this.host.place(hint, rect.left, rect.bottom + 4);
+    // The list made anew: the one picked scrolled into its view (the list's own scroll, not the page's)
+    const list = hint.querySelector<HTMLElement>(".tp-formula-choices");
+    const picked = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (list && picked) list.scrollTop = Math.max(0, picked.offsetTop + picked.offsetHeight - list.clientHeight);
     const viewHeight = this.host.doc.defaultView!.innerHeight;
     if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {
       this.host.place(hint, rect.left, rect.top - 4 - hint.offsetHeight);
     }
+  }
+
+  /** The functions a name typed may be, the one picked marked; a click inserts one */
+  private choiceList(active: CellEditor, choices: FunctionChoices, index: number): HTMLElement {
+    const { doc } = this.host;
+    const list = doc.createElement("div");
+    list.className = "tp-formula-choices";
+    list.setAttribute("role", "listbox");
+    choices.names.forEach((name, i) => {
+      const option = doc.createElement("div");
+      option.className = "tp-formula-choice";
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", String(i === index));
+      const code = doc.createElement("code");
+      code.textContent = name;
+      const description = doc.createElement("span");
+      // Its first sentence: the rest shows under the list for the one picked
+      description.textContent = (functionNamed(name)?.description ?? "").split(/(?<=\.)\s/)[0]!;
+      option.append(code, description);
+      // The field keeps the focus (the editor stays open)
+      option.addEventListener("mousedown", (e) => e.preventDefault());
+      option.addEventListener("click", () => {
+        if (this.host.editing === active) this.insertFunction(active, choices, i);
+      });
+      list.append(option);
+    });
+    return list;
+  }
+
+  /** A function's syntax, the argument the caret is in marked, and what it does */
+  private helpLine(help: FormulaHelp): HTMLElement {
+    const { doc } = this.host;
+    const item = doc.createElement("div");
+    item.className = "tp-formula-help";
+    const syntax = doc.createElement("code");
+    const { argument } = help;
+    if (argument) {
+      const current = doc.createElement("b");
+      current.className = "tp-formula-argument";
+      current.textContent = help.syntax.slice(argument.from, argument.to);
+      syntax.append(help.syntax.slice(0, argument.from), current, help.syntax.slice(argument.to));
+    } else {
+      syntax.textContent = help.syntax;
+    }
+    const description = doc.createElement("span");
+    description.textContent = help.description;
+    item.append(syntax, description);
+    return item;
   }
 
   private hideFormulaUi(): void {

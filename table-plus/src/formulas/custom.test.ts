@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { clearCustomFunctions, defineCustomFunctions, functionNamed, functionNames, customFunctionsAnew } from "./registry.ts";
 import { BUILT_IN_FUNCTIONS } from "./builtin/index.ts";
 import { HELPERS, customFunctions } from "./custom.ts";
-import { completeFunction, formulaHelp, recalculate } from "./index.ts";
+import { formulaHelp, functionChoices, recalculate } from "./index.ts";
 import { parseTable } from "../markdown.ts";
 import { FormulaError, TimeValue, toNumber, type Value } from "./values.ts";
 
@@ -95,13 +95,13 @@ describe("custom functions", () => {
     const table = parseTable('| A | B | C |\n|---|---|---|\n| 5 | <meta f="=VAT(A1)"> | <meta f="=ABS(-1)"> |\n');
     expect(recalculate(table).rows[1]!.cells.slice(1)).toEqual(['10 <meta f="=VAT(A1)">', 'own <meta f="=ABS(-1)">']);
     expect(functionNames()).toContain("VAT");
-    expect(formulaHelp("=VA", 3)).toEqual([{ syntax: "VAT(amount)", description: "With VAT." }]);
-    expect(completeFunction("=VA", 3, 3)).toEqual({ from: 1, to: 3, text: "VAT(" });
+    expect(functionChoices("=VA", 3, 3)).toEqual({ from: 1, to: 3, names: ["VAT"] });
+    expect(formulaHelp("=VAT(", 5)).toEqual({ syntax: "VAT(amount)", description: "With VAT.", argument: { from: 4, to: 10 } });
     // Arguments counted as for built-in functions
     const wrong = recalculate(parseTable('| A |\n|---|\n| <meta f="=VAT()"> |\n'));
     expect(wrong.rows[1]!.cells[0]).toBe('#VALUE! <meta f="=VAT()">');
     // The built-in one's help gives way too
-    expect(formulaHelp("=ABS(", 5)).toEqual([{ syntax: "ABS(…)", description: "" }]);
+    expect(formulaHelp("=ABS(", 5)).toEqual({ syntax: "ABS(…)", description: "", argument: { from: 4, to: 5 } });
     clearCustomFunctions();
     expect(functionNamed("VAT")).toBeUndefined();
     expect(functionNamed("ABS")).toBe(BUILT_IN_FUNCTIONS.ABS);
@@ -120,9 +120,9 @@ describe("custom functions", () => {
 
   it("helps with a name that has digits but is no cell", () => {
     defineCustomFunctions([only([{ name: "ROUND2", syntax: "ROUND2(x)", description: "Two places.", call: () => 1 }])]);
-    expect(formulaHelp("=ROUND2", 7)).toEqual([{ syntax: "ROUND2(x)", description: "Two places." }]);
-    expect(completeFunction("=ROUND2", 7, 7)).toEqual({ from: 1, to: 7, text: "ROUND2(" });
+    expect(functionChoices("=ROUND2", 7, 7)!.names).toEqual(["ROUND2"]);
+    expect(functionChoices("=ROUND", 6, 6)!.names).toEqual(["ROUND", "ROUND2"]);
     // A cell is no function's start
-    expect(completeFunction("=A1", 3, 3)).toBeUndefined();
+    expect(functionChoices("=A1", 3, 3)).toBeUndefined();
   });
 });

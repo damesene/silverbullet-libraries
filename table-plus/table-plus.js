@@ -4873,40 +4873,59 @@ function referenceSlot(formula, start, end, pointed) {
   if (/^[A-Za-z0-9_.["#(]/.test(after)) return void 0;
   return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : void 0;
 }
-function completeFunction(text, start, end) {
+function functionChoices(text, start, end) {
   if (start !== end || !text.trimStart().startsWith("=")) return void 0;
   const before = text.slice(0, start);
   const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
   if (!typing || CELL_RE.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return void 0;
   if (tokenize(before).error) return void 0;
   const prefix = typing.toUpperCase();
-  const names = functionNames().filter((name2) => name2.startsWith(prefix));
-  const name = names.length === 1 ? names[0] : names.find((n) => n === prefix);
-  return name ? { from: start - typing.length, to: start, text: `${name}(` } : void 0;
+  const names = functionNames().filter((name) => name.startsWith(prefix)).sort((a, b) => Number(b === prefix) - Number(a === prefix) || a.localeCompare(b));
+  return names.length ? { from: start - typing.length, to: start, names } : void 0;
 }
 function formulaHelp(text, caret) {
-  if (!text.trimStart().startsWith("=")) return [];
-  const before = text.slice(0, caret);
-  const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
-  if (typing && !CELL_RE.test(typing) && text[caret] !== "(") {
-    const prefix = typing.toUpperCase();
-    const matches = functionNames().filter((name) => name.startsWith(prefix)).map((name) => functionNamed(name));
-    if (matches.length) return matches.map((f) => ({ syntax: f.syntax, description: f.description }));
-  }
-  const { tokens } = tokenize(before);
+  if (!text.trimStart().startsWith("=")) return void 0;
+  const { tokens } = tokenize(text.slice(0, caret));
   const open = [];
   tokens.forEach((token, i) => {
     if (token.kind !== "op") return;
     if (token.text === "(") {
       const previous = tokens[i - 1];
-      open.push(previous?.kind === "name" ? previous.text.toUpperCase() : void 0);
+      open.push({ name: previous?.kind === "name" ? previous.text.toUpperCase() : void 0, argument: 0 });
     } else if (token.text === ")") open.pop();
+    else if ((token.text === "," || token.text === ";") && open.length) open[open.length - 1].argument++;
   });
   for (let i = open.length - 1; i >= 0; i--) {
-    const f = open[i] && functionNamed(open[i]);
-    if (f) return [{ syntax: f.syntax, description: f.description }];
+    const call = open[i];
+    const f = call.name ? functionNamed(call.name) : void 0;
+    if (!f) continue;
+    const argument = i === open.length - 1 ? argumentSpan(f.syntax, call.argument) : void 0;
+    return { syntax: f.syntax, description: f.description, ...argument ? { argument } : {} };
   }
-  return [REFERENCE_HELP];
+  return REFERENCE_HELP;
+}
+function argumentSpan(syntax, index) {
+  const open = syntax.indexOf("(");
+  const close = syntax.lastIndexOf(")");
+  if (open < 0 || close < open) return void 0;
+  const args = [];
+  let from = open + 1;
+  let depth = 0;
+  for (let i = open + 1; i <= close; i++) {
+    const ch = syntax[i];
+    if (ch === "[" || ch === "(") depth++;
+    else if ((ch === "]" || ch === ")") && i < close) depth--;
+    if (ch === "," && depth === 0 || i === close) {
+      const part = syntax.slice(from, i);
+      const lead = part.length - part.trimStart().length;
+      const span = { from: from + lead, to: from + part.trimEnd().length };
+      if (span.to > span.from) args.push(span);
+      from = i + 1;
+    }
+  }
+  const repeats = args.length > 0 && syntax.slice(args[args.length - 1].from, args[args.length - 1].to) === "\u2026";
+  if (index < args.length && !(repeats && index === args.length - 1)) return args[index];
+  return repeats ? args[Math.max(0, args.length - 2)] : void 0;
 }
 
 // table-plus/src/meta.ts
@@ -5814,6 +5833,10 @@ var Formulas = class {
   // The reference last inserted by pointing at the table, and the cell its range started at
   pointed;
   stopPointing;
+  // The functions offered for the name typed (a list under the cell): which one is picked, for which name
+  // typed where (`key`), and the name Esc closed the list for (it opens again once the name changes)
+  choosing;
+  dismissed;
   // Tables whose formula cells show results from before a change made outside Table Plus
   stale = /* @__PURE__ */ new WeakSet();
   // Tables (as rendered) with formulas: their toolbar can recalculate them
@@ -5939,10 +5962,38 @@ var Formulas = class {
     });
     this.updateFormulaUi();
   }
-  /** Tab while a function name is typed completes it (the editor stays) */
+  /**
+   * While a function name is typed, the list of the functions it may be takes
+   * the keys: ↑ / ↓ pick one, Tab or Enter insert it, Esc closes the list
+   * (the editor stays)
+   */
   editorKeyDown(e, editor) {
-    if (!this.allowed(editor)) return false;
-    return e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && this.completeFunctionName();
+    if (e.ctrlKey || e.altKey || e.metaKey) return false;
+    const choices = this.choicesNow(editor);
+    if (!choices || !this.choosing) return false;
+    const { index } = this.choosing;
+    switch (e.key) {
+      case "ArrowDown":
+      case "ArrowUp":
+        this.choosing.index = Math.max(0, Math.min(choices.names.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)));
+        this.updateFormulaUi();
+        return true;
+      case "Tab":
+      case "Enter":
+        if (e.shiftKey) return false;
+        this.insertFunction(editor, choices, index);
+        return true;
+      case "Escape":
+        this.dismissed = this.choosing.key;
+        this.choosing = void 0;
+        this.updateFormulaUi();
+        return true;
+      default:
+        return false;
+    }
+  }
+  owns(node) {
+    return this.formulaHint.contains(node);
   }
   /**
    * Whether the edited cell may hold a formula: with the metadata setting on,
@@ -5976,6 +6027,8 @@ var Formulas = class {
   editorClosed() {
     this.stopPointing?.();
     this.pointed = void 0;
+    this.choosing = void 0;
+    this.dismissed = void 0;
     this.hideFormulaUi();
   }
   // While a formula waits for a reference, a press in its table inserts one
@@ -6186,24 +6239,31 @@ ${error}` : stored.formula;
     this.stopPointing = end;
     return true;
   }
-  /** Tab while a function name is typed in a formula: completes it with its "(" */
-  completeFunctionName() {
-    const active = this.host.editing;
-    const completion = active && active.row > 0 ? this.functionCompletion(active) : void 0;
-    if (!active || !completion) return false;
-    const field = active.field;
-    this.replaceInField(field, completion.from, completion.to, completion.text);
-    const caret = completion.from + completion.text.length;
-    field.setSelectionRange(caret, caret);
-    this.updateFormulaUi();
-    return true;
-  }
-  functionCompletion(active) {
+  /**
+   * The functions the name typed right before the caret may be, while the
+   * list of them is not closed for that name; keeps which one is picked
+   */
+  choicesNow(active) {
+    if (active.row === 0 || !this.allowed(active)) return void 0;
     const field = active.field;
     const length = field.value.length;
-    const completion = completeFunction(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
-    const typed = completion && field.value.slice(completion.from, completion.to);
-    return typed && this.tableSource().cell?.(typed) ? void 0 : completion;
+    const choices = functionChoices(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+    if (!choices) return void 0;
+    const typed = field.value.slice(choices.from, choices.to);
+    if (this.tableSource().cell?.(typed)) return void 0;
+    const key = `${choices.from}:${typed}`;
+    if (this.dismissed === key) return void 0;
+    if (this.choosing?.key !== key) this.choosing = { key, index: 0 };
+    return choices;
+  }
+  /** Puts a function offered in place of the name typed, with its "(": the help for its arguments follows */
+  insertFunction(active, choices, index) {
+    const text = `${choices.names[index]}(`;
+    this.replaceInField(active.field, choices.from, choices.to, text);
+    const caret = choices.from + text.length;
+    active.field.setSelectionRange(caret, caret);
+    this.choosing = void 0;
+    this.updateFormulaUi();
   }
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
   pointingSlot(active) {
@@ -6245,29 +6305,72 @@ ${error}` : stored.formula;
       line.append(formula.slice(at));
       hint.append(line);
     }
-    for (const help of formulaHelp(formula, active.field.selectionStart ?? formula.length).slice(0, 6)) {
-      const item = this.host.doc.createElement("div");
-      item.className = "tp-formula-help";
-      const syntax = this.host.doc.createElement("code");
-      syntax.textContent = help.syntax;
-      const description = this.host.doc.createElement("span");
-      description.textContent = help.description;
-      item.append(syntax, description);
-      hint.append(item);
-    }
-    const completion = this.functionCompletion(active);
-    if (completion) {
-      const tab = this.host.doc.createElement("div");
-      tab.className = "tp-formula-tab";
-      tab.textContent = `Tab: ${completion.text}`;
-      hint.append(tab);
+    const choices = this.choicesNow(active);
+    if (choices && this.choosing) {
+      hint.append(this.choiceList(active, choices, this.choosing.index));
+      const picked2 = functionNamed(choices.names[this.choosing.index]);
+      hint.append(this.helpLine({ syntax: picked2.syntax, description: picked2.description }));
+      const keys = this.host.doc.createElement("div");
+      keys.className = "tp-formula-tab";
+      keys.textContent = "Tab or Enter: insert \xB7 \u2191 \u2193: pick \xB7 Esc: close";
+      hint.append(keys);
+    } else {
+      const help = formulaHelp(formula, active.field.selectionStart ?? formula.length);
+      if (help) hint.append(this.helpLine(help));
     }
     const rect = editorRect(active);
     this.host.place(hint, rect.left, rect.bottom + 4);
+    const list = hint.querySelector(".tp-formula-choices");
+    const picked = list?.querySelector('[aria-selected="true"]');
+    if (list && picked) list.scrollTop = Math.max(0, picked.offsetTop + picked.offsetHeight - list.clientHeight);
     const viewHeight = this.host.doc.defaultView.innerHeight;
     if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {
       this.host.place(hint, rect.left, rect.top - 4 - hint.offsetHeight);
     }
+  }
+  /** The functions a name typed may be, the one picked marked; a click inserts one */
+  choiceList(active, choices, index) {
+    const { doc } = this.host;
+    const list = doc.createElement("div");
+    list.className = "tp-formula-choices";
+    list.setAttribute("role", "listbox");
+    choices.names.forEach((name, i) => {
+      const option = doc.createElement("div");
+      option.className = "tp-formula-choice";
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", String(i === index));
+      const code = doc.createElement("code");
+      code.textContent = name;
+      const description = doc.createElement("span");
+      description.textContent = (functionNamed(name)?.description ?? "").split(/(?<=\.)\s/)[0];
+      option.append(code, description);
+      option.addEventListener("mousedown", (e) => e.preventDefault());
+      option.addEventListener("click", () => {
+        if (this.host.editing === active) this.insertFunction(active, choices, i);
+      });
+      list.append(option);
+    });
+    return list;
+  }
+  /** A function's syntax, the argument the caret is in marked, and what it does */
+  helpLine(help) {
+    const { doc } = this.host;
+    const item = doc.createElement("div");
+    item.className = "tp-formula-help";
+    const syntax = doc.createElement("code");
+    const { argument } = help;
+    if (argument) {
+      const current = doc.createElement("b");
+      current.className = "tp-formula-argument";
+      current.textContent = help.syntax.slice(argument.from, argument.to);
+      syntax.append(help.syntax.slice(0, argument.from), current, help.syntax.slice(argument.to));
+    } else {
+      syntax.textContent = help.syntax;
+    }
+    const description = doc.createElement("span");
+    description.textContent = help.description;
+    item.append(syntax, description);
+    return item;
   }
   hideFormulaUi() {
     this.stopReferenceDrag?.();

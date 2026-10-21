@@ -5,11 +5,12 @@ import {
   calculatedFormula,
   cellNamesOf,
   columnLetters,
-  completeFunction,
+  argumentSpan,
   followTable,
   formulaCell,
   formulaErrors,
   formulaHelp,
+  functionChoices,
   formulaOf,
   isFormulaInput,
   type IndexMap,
@@ -384,22 +385,23 @@ describe("calculated columns", () => {
   });
 });
 
-describe("completeFunction", () => {
-  it("completes a name that can only be one function, with its (", () => {
-    expect(completeFunction("=AVE", 4, 4)).toEqual({ from: 1, to: 4, text: "AVERAGE(" });
-    expect(completeFunction("=sum(A1)+rou", 12, 12)).toEqual({ from: 9, to: 12, text: "ROUND(" });
-    expect(completeFunction("=IF", 3, 3)).toEqual({ from: 1, to: 3, text: "IF(" });
+describe("functionChoices", () => {
+  it("offers the functions a name typed may be, the one of that whole name first", () => {
+    expect(functionChoices("=AVE", 4, 4)).toEqual({ from: 1, to: 4, names: ["AVERAGE"] });
+    expect(functionChoices("=sum(A1)+rou", 12, 12)).toEqual({ from: 9, to: 12, names: ["ROUND"] });
+    expect(functionChoices("=A", 2, 2)!.names).toEqual(["ABS", "AND", "AVERAGE"]);
+    expect(functionChoices("=IF", 3, 3)!.names).toEqual(["IF", "IFERROR"]);
   });
 
-  it("leaves names that are not clear, cells, texts and existing parentheses", () => {
-    expect(completeFunction("=A", 2, 2)).toBeUndefined(); // ABS, AND, AVERAGE
-    expect(completeFunction("=A1", 3, 3)).toBeUndefined();
-    expect(completeFunction("=SUM(", 4, 4)).toBeUndefined();
-    expect(completeFunction('="AVE', 5, 5)).toBeUndefined();
-    expect(completeFunction("=[AVE", 5, 5)).toBeUndefined();
-    expect(completeFunction("=XYZ", 4, 4)).toBeUndefined();
-    expect(completeFunction("=AVERAGE", 4, 4)).toBeUndefined(); // in the middle of a name
-    expect(completeFunction("AVE", 3, 3)).toBeUndefined();
+  it("offers none for cells, texts, existing parentheses, the middle of a name, or no function", () => {
+    expect(functionChoices("=A1", 3, 3)).toBeUndefined();
+    expect(functionChoices("=SUM(", 4, 4)).toBeUndefined();
+    expect(functionChoices('="AVE', 5, 5)).toBeUndefined();
+    expect(functionChoices("=[AVE", 5, 5)).toBeUndefined();
+    expect(functionChoices("=XYZ", 4, 4)).toBeUndefined();
+    expect(functionChoices("=AVERAGE", 4, 4)).toBeUndefined(); // in the middle of a name
+    expect(functionChoices("=AVE", 2, 4)).toBeUndefined(); // a selection
+    expect(functionChoices("AVE", 3, 3)).toBeUndefined();
   });
 });
 
@@ -478,18 +480,37 @@ describe("referenceSlot", () => {
 });
 
 describe("formulaHelp", () => {
-  it("offers the functions whose names start with what is typed", () => {
-    expect(formulaHelp("=SU", 3).map((h) => h.syntax)).toEqual(["SUM(number1, [number2], …)"]);
-  });
-
-  it("explains the function whose arguments the cursor is in", () => {
-    expect(formulaHelp("=ROUND(SUM(A1:A2), ", 19).map((h) => h.syntax)).toEqual(["ROUND(number, [digits])"]);
-    expect(formulaHelp("=ROUND(SUM(A1", 13).map((h) => h.syntax)).toEqual(["SUM(number1, [number2], …)"]);
+  it("explains the function whose arguments the cursor is in, marking the one it is in", () => {
+    const marked = (formula: string, caret = formula.length) => {
+      const help = formulaHelp(formula, caret)!;
+      return help.argument ? `${help.syntax.slice(0, help.argument.from)}<${help.syntax.slice(help.argument.from, help.argument.to)}>${help.syntax.slice(help.argument.to)}` : help.syntax;
+    };
+    expect(marked("=ROUND(")).toBe("ROUND(<number>, [digits])");
+    expect(marked("=ROUND(SUM(A1:A2), ")).toBe("ROUND(number, <[digits]>)");
+    expect(marked("=ROUND(SUM(A1")).toBe("SUM(<number1>, [number2], …)");
+    // Past the arguments written: the one before "…" again (it repeats)
+    expect(marked("=SUM(1; 2; 3; ")).toBe("SUM(number1, <[number2]>, …)");
+    expect(marked('=IF(A1>1, "a", "b", ')).toBe("IF(condition, value_if_true, [value_if_false])"); // too many: none
+    // Commas in a text or a call inside are not this call's
+    expect(marked('=CONCAT("a,b", ROUND(1, 2), ')).toBe("CONCAT(text1, <[text2]>, …)");
   });
 
   it("explains references otherwise, and nothing outside formulas", () => {
-    expect(formulaHelp("=", 1)).toEqual([REFERENCE_HELP]);
-    expect(formulaHelp("text", 2)).toEqual([]);
+    expect(formulaHelp("=", 1)).toEqual(REFERENCE_HELP);
+    expect(formulaHelp("=SU", 3)).toEqual(REFERENCE_HELP); // a name typed: the list of functions shows instead
+    expect(formulaHelp("text", 2)).toBeUndefined();
+  });
+});
+
+describe("argumentSpan", () => {
+  it("finds an argument in a syntax, brackets and all", () => {
+    const at = (syntax: string, index: number) => {
+      const span = argumentSpan(syntax, index);
+      return span && syntax.slice(span.from, span.to);
+    };
+    expect(at("XLOOKUP(value, lookup_range, result_range, [if_not_found])", 3)).toBe("[if_not_found]");
+    expect(at("TODAY()", 0)).toBeUndefined();
+    expect(at("VAT(…)", 4)).toBe("…");
   });
 });
 
