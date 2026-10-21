@@ -319,6 +319,10 @@ export class Grips implements Feature {
     }
   }
 
+  cellMenuOpened(): void {
+    this.closeMenu(false, false);
+  }
+
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged(): void {
     if (!this.selectingLines && this.menu) this.closeMenu(false, false);

@@ -302,4 +302,26 @@ describe("Selecting cells", () => {
       delete (document as { elementFromPoint?: unknown }).elementFromPoint;
     }
   });
+
+  it("on a tap in a row its grip selected, shows the cell menu alone, and its click runs no item under the finger", async () => {
+    localStorage.removeItem("tablePlus.editMode");
+    await setup(PAGE);
+    const touch = (target: EventTarget, type: string) =>
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerType: "touch" }));
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const grip = document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+    grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 1");
+    touch(cell(1, 1), "pointerdown");
+    touch(window, "pointerup");
+    expect(Array.from(document.querySelectorAll(".tp-menu-title")).map((t) => t.textContent)).toEqual(["2 cells"]);
+    // The tap's mouse events after it, the click on an item that opened under the finger
+    clickOn(cell(1, 1));
+    const item = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Clear 2 cells")!;
+    item.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+    await flush();
+    expect(text).toBe(PAGE);
+    expect(document.querySelector(".tp-menu")).not.toBeNull();
+  });
 });

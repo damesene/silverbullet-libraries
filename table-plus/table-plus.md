@@ -3226,7 +3226,8 @@ html[data-tp-pointer="touch"] .sb-table-widget td:is(.tp-pin-left, .tp-pin-right
 }
 html[data-tp-pointer="touch"] .tp-select-handle {
   position: absolute;
-  z-index: 2;
+  /* Over the cells beside, under pinned columns (sticky, z-index 1) a cell scrolls under */
+  z-index: 0;
   display: block;
   width: 28px;
   height: 28px;

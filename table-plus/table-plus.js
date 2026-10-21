@@ -9493,6 +9493,9 @@ var Grips = class {
       this.selectingLines = false;
     }
   }
+  cellMenuOpened() {
+    this.closeMenu(false, false);
+  }
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged() {
     if (!this.selectingLines && this.menu) this.closeMenu(false, false);
@@ -12206,7 +12209,10 @@ var Selection = class {
     const doc = this.host.doc;
     const win = doc.defaultView;
     doc.body.classList.add("tp-select-dragging");
+    let last;
+    const timer = win.setInterval(() => last && move(last), 50);
     const move = (ev) => {
+      last = ev;
       this.autoscroll(widget, ev);
       const under = doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null;
       const hit = this.host.enhancedWidgetOf(under);
@@ -12219,6 +12225,7 @@ var Selection = class {
       this.selectCells(hit[1], anchor, focus);
     };
     const end = () => {
+      win.clearInterval(timer);
       win.removeEventListener("pointermove", move, true);
       win.removeEventListener("pointerup", end, true);
       win.removeEventListener("pointercancel", end, true);
@@ -12269,8 +12276,9 @@ var Selection = class {
     win.addEventListener("pointercancel", stop, true);
     this.stopTap = stop;
   };
+  /** Near an edge the box scrolls: the table's own (Maximum table height, full screen) up and down, else the page's; the table's sideways */
   autoscroll(widget, ev) {
-    const scroller = this.host.scrollParentOf(widget);
+    const scroller = widget.scrollHeight > widget.clientHeight ? widget : this.host.scrollParentOf(widget);
     if (scroller) {
       const view = scroller.getBoundingClientRect();
       if (ev.clientY < view.top + AUTOSCROLL_EDGE2) scroller.scrollTop -= AUTOSCROLL_STEP2;
@@ -13629,6 +13637,10 @@ var Controller = class {
   takeTouch() {
     this.touchTakenAt = Date.now();
   }
+  /** The mouse events now are those of a touch taken (until the next press, at most a second) */
+  touchTaken() {
+    return Date.now() - this.touchTakenAt < 1e3;
+  }
   get pressedWith() {
     return this.doc.documentElement.dataset.tpPointer ?? "";
   }
@@ -13939,7 +13951,7 @@ var Controller = class {
   onMouseDown = (e) => {
     this.dropAnchor();
     this.insertPressAt = 0;
-    if (Date.now() - this.touchTakenAt < 1e3) {
+    if (this.touchTaken()) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -14017,13 +14029,23 @@ var Controller = class {
     const within = cellText(cell) === source ? caretTextOffset(cell, e.clientX, e.clientY) : void 0;
     void this.showMarkdown(info, { ...ref, within: within ?? 0 });
   }
-  // The end of a press that inserted with the +: it reaches nothing
+  // The end of a press that inserted with the +, or of a touch taken: it reaches nothing
   onMouseUp = (e) => {
+    if (this.touchTaken()) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.button !== 0 || !this.insertPressAt || Date.now() - this.insertPressAt > INSERT_CLICK_MS) return;
     e.preventDefault();
     e.stopPropagation();
   };
   onClick = (e) => {
+    if (e.detail !== 0 && this.touchTaken()) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.button === 0 && e.detail !== 0 && this.insertPressAt && Date.now() - this.insertPressAt <= INSERT_CLICK_MS) {
       this.insertPressAt = 0;
       e.preventDefault();
@@ -14933,6 +14955,7 @@ var Controller = class {
     if (this.pressedWith === "touch") this.takeTouch();
     const header = cellText(info.table.rows[0].cells[at.column]) || `column ${at.column + 1}`;
     const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? `Header: ${header}` : `Cell: ${header}, row ${at.row}`;
+    for (const feature of this.features) feature.cellMenuOpened?.();
     this.showMenu(widget, title, entries, { kind: "cell", point });
     return true;
   }
@@ -14947,7 +14970,7 @@ var Controller = class {
   /** Right click (Shift+right click: the browser's menu) */
   onContextMenu = (e) => {
     if (e.shiftKey) return;
-    if (Date.now() - this.touchTakenAt < 1e3) {
+    if (this.touchTaken()) {
       e.preventDefault();
       return;
     }

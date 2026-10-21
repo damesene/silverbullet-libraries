@@ -558,7 +558,11 @@ export class Selection implements Feature {
     const doc = this.host.doc;
     const win = doc.defaultView!;
     doc.body.classList.add("tp-select-dragging");
+    // A finger held still near an edge: it goes on scrolling, the selection with it
+    let last: PointerEvent | undefined;
+    const timer = win.setInterval(() => last && move(last), 50);
     const move = (ev: PointerEvent) => {
+      last = ev;
       this.autoscroll(widget, ev);
       const under = doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null;
       const hit = this.host.enhancedWidgetOf(under);
@@ -571,6 +575,7 @@ export class Selection implements Feature {
       this.selectCells(hit[1], anchor, focus);
     };
     const end = () => {
+      win.clearInterval(timer);
       win.removeEventListener("pointermove", move, true);
       win.removeEventListener("pointerup", end, true);
       win.removeEventListener("pointercancel", end, true);
@@ -623,8 +628,9 @@ export class Selection implements Feature {
     this.stopTap = stop;
   };
 
+  /** Near an edge the box scrolls: the table's own (Maximum table height, full screen) up and down, else the page's; the table's sideways */
   private autoscroll(widget: HTMLElement, ev: PointerEvent): void {
-    const scroller = this.host.scrollParentOf(widget);
+    const scroller = widget.scrollHeight > widget.clientHeight ? widget : this.host.scrollParentOf(widget);
     if (scroller) {
       const view = scroller.getBoundingClientRect();
       if (ev.clientY < view.top + AUTOSCROLL_EDGE) scroller.scrollTop -= AUTOSCROLL_STEP;

@@ -340,6 +340,8 @@ export interface Feature {
   pointerBusy?(): "drag" | "menu" | undefined;
   /** The pointer is over a cell, or the page moved under it */
   cellHovered?(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void;
+  /** The cell menu opened (a tap or a press that sends no mouse event a feature sees): the feature's own menu closes */
+  cellMenuOpened?(): void;
   /** No cell is hovered any more; with `closeMenus`, menus close too */
   hoverEnded?(closeMenus: boolean): void;
   /** Any press (any button), before anything else; true: taken, nothing else happens */

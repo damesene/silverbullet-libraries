@@ -981,6 +981,11 @@ export class Controller implements TableHost {
     this.touchTakenAt = Date.now();
   }
 
+  /** The mouse events now are those of a touch taken (until the next press, at most a second) */
+  private touchTaken(): boolean {
+    return Date.now() - this.touchTakenAt < 1000;
+  }
+
   get pressedWith(): string {
     return this.doc.documentElement.dataset.tpPointer ?? "";
   }
@@ -1356,7 +1361,7 @@ export class Controller implements TableHost {
     // Only the press that inserted has its end swallowed
     this.insertPressAt = 0;
     // The mouse events a touch screen fires after a touch taken (they would close the menu it opened, or select or edit the cell)
-    if (Date.now() - this.touchTakenAt < 1000) {
+    if (this.touchTaken()) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -1444,14 +1449,25 @@ export class Controller implements TableHost {
     void this.showMarkdown(info, { ...ref, within: within ?? 0 });
   }
 
-  // The end of a press that inserted with the +: it reaches nothing
+  // The end of a press that inserted with the +, or of a touch taken: it reaches nothing
   private onMouseUp = (e: MouseEvent): void => {
+    if (this.touchTaken()) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.button !== 0 || !this.insertPressAt || Date.now() - this.insertPressAt > INSERT_CLICK_MS) return;
     e.preventDefault();
     e.stopPropagation();
   };
 
   private onClick = (e: MouseEvent): void => {
+    // The click of a touch taken: it would run the menu item that opened under the finger, follow a link, tick a task
+    if (e.detail !== 0 && this.touchTaken()) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     // detail 0: a click from the keyboard, no press
     if (e.button === 0 && e.detail !== 0 && this.insertPressAt && Date.now() - this.insertPressAt <= INSERT_CLICK_MS) {
       this.insertPressAt = 0;
@@ -2556,6 +2572,7 @@ export class Controller implements TableHost {
     if (this.pressedWith === "touch") this.takeTouch();
     const header = cellText(info.table.rows[0]!.cells[at.column]!) || `column ${at.column + 1}`;
     const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? `Header: ${header}` : `Cell: ${header}, row ${at.row}`;
+    for (const feature of this.features) feature.cellMenuOpened?.();
     this.showMenu(widget, title, entries, { kind: "cell", point });
     return true;
   }
@@ -2573,7 +2590,7 @@ export class Controller implements TableHost {
   private onContextMenu = (e: MouseEvent): void => {
     if (e.shiftKey) return;
     // A long press opened it already (Android fires this too)
-    if (Date.now() - this.touchTakenAt < 1000) {
+    if (this.touchTaken()) {
       e.preventDefault();
       return;
     }
