@@ -6,6 +6,8 @@ export default {
   name: "WEEKDAY",
   syntax: "WEEKDAY(date, [type])",
   description: "The day of the week as a number: Sunday 1 to Saturday 7 (type 1, the default), or Monday 1 to Sunday 7 (type 2).",
+  category: "date",
+  example: "=WEEKDAY([@date], 2)",
   minArgs: 1,
   maxArgs: 2,
   call: ([date, type = 1]) => {

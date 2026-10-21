@@ -6,6 +6,8 @@ export default {
   name: "DAY",
   syntax: "DAY(date)",
   description: "The day of a date's month, 1 to 31.",
+  category: "date",
+  example: "=DAY([@date])",
   minArgs: 1,
   maxArgs: 1,
   call: ([date]) => {

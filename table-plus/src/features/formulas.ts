@@ -11,7 +11,7 @@
 
 import { columnIdOf } from "../columns.ts";
 import { editorRect } from "../core/feature.ts";
-import type { CellEditor, CellField, CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo, WriteEdit } from "../core/feature.ts";
+import type { CellEditor, CellField, CellMenuGroup, CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo, WriteEdit } from "../core/feature.ts";
 import { WIDGET_SELECTOR } from "../dom.ts";
 import {
   type Area,
@@ -27,6 +27,8 @@ import {
   formulasAfterEdit,
   followTable,
   functionChoices,
+  nameTyped,
+  needsOperator,
   type FormulaHelp,
   type FunctionChoices,
   isErrorText,
@@ -45,6 +47,7 @@ import {
 } from "../formulas/index.ts";
 import { addAffected, affectedBy, isAffected, pageTables, referredBy } from "../formulas/page.ts";
 import { functionNamed } from "../formulas/registry.ts";
+import { FunctionDialog } from "./functiondialog.ts";
 import { ICONS } from "../icons.ts";
 import { escapeCell, type PageTable, pageTablesOf, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
@@ -72,6 +75,8 @@ export class Formulas implements Feature {
   // typed where (`key`), and the name Esc closed the list for (it opens again once the name changes)
   private choosing: { readonly key: string; index: number } | undefined;
   private dismissed: string | undefined;
+  // Every function, to find one by what it does and insert it (fx, Shift+F3, Insert function…)
+  private readonly functions: FunctionDialog;
   // Tables whose formula cells show results from before a change made outside Table Plus
   private readonly stale = new WeakSet<HTMLTableElement>();
   // Tables (as rendered) with formulas: their toolbar can recalculate them
@@ -81,6 +86,7 @@ export class Formulas implements Feature {
 
   constructor(private readonly host: TableHost) {
     this.formulaHint = host.floating("div", "tp-formula-hint");
+    this.functions = new FunctionDialog(host);
   }
 
   /** The page's tables (as last read) formulas can refer to by name, and those of the other pages read */
@@ -234,6 +240,11 @@ export class Formulas implements Feature {
    */
   editorKeyDown(e: KeyboardEvent, editor: CellEditor): boolean {
     if (e.ctrlKey || e.altKey || e.metaKey) return false;
+    // Shift+F3, as in a spreadsheet: every function, to find one and insert it
+    if (e.key === "F3" && e.shiftKey && editor.row > 0 && this.allowed(editor)) {
+      this.openFunctions(editor);
+      return true;
+    }
     const choices = this.choicesNow(editor);
     if (!choices || !this.choosing) return false;
     const { index } = this.choosing;
@@ -294,6 +305,7 @@ export class Formulas implements Feature {
   }
 
   editorClosed(): void {
+    this.functions.close();
     this.stopPointing?.();
     this.pointed = undefined;
     this.choosing = undefined;
@@ -321,6 +333,37 @@ export class Formulas implements Feature {
     const tables = this.tableSource();
     if (recalculate(model, tables) !== model) this.stale.add(info.table);
     this.markCells(info, model, tables);
+  }
+
+  /** Insert function… in a body cell's menu: the cell edited (its formula, or a new one) and the Functions dialog for it */
+  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
+    const [cell] = cells;
+    if (cells.length !== 1 || !cell || cell.row === 0) return undefined;
+    const hasFormula = formulaOf(parseTable(info.source).rows[cell.row]?.cells[cell.column] ?? "") !== undefined;
+    const allowed = this.host.metadataEnabled || hasFormula;
+    return {
+      order: 0,
+      entries: [
+        {
+          kind: "item",
+          label: "Insert function…",
+          icon: ICONS.function,
+          ...(allowed
+            ? { hint: hasFormula ? "Edit the cell's formula with a function found by its name or what it does" : "Start a formula in the cell with a function found by its name or what it does" }
+            : { disabled: FORMULAS_NEED_METADATA }),
+          run: () => {
+            this.host.editCell(info, cell, hasFormula ? undefined : "replace");
+            const active = this.host.editing;
+            if (!active || active.row !== cell.row || active.column !== cell.column) return;
+            const field = active.field;
+            if (!hasFormula) field.value = "=";
+            field.setSelectionRange(field.value.length, field.value.length);
+            this.updateFormulaUi();
+            this.openFunctions(active);
+          },
+        },
+      ],
+    };
   }
 
   /** Formula cells marked, with their formulas and the reasons of their errors as their titles */
@@ -563,6 +606,36 @@ export class Formulas implements Feature {
     this.updateFormulaUi();
   }
 
+  /**
+   * The Functions dialog for the cell edited: the function picked goes where
+   * the caret was, in place of the name typed there, after a "+" where it
+   * would follow an operand (as a spreadsheet does); into a text that is no
+   * formula yet, as the formula's start (=NAME()
+   */
+  private openFunctions(active: CellEditor): void {
+    const field = active.field;
+    const length = field.value.length;
+    const start = field.selectionStart ?? length;
+    const end = field.selectionEnd ?? length;
+    const value = field.value;
+    const shown = value.trimStart().startsWith("=") ? `${value.slice(0, start)}▌${value.slice(end)}` : "=▌";
+    this.functions.open(shown, (name) => {
+      if (this.host.editing !== active) return;
+      const text = `${name}(`;
+      if (!field.value.trimStart().startsWith("=")) {
+        this.replaceInField(field, 0, field.value.length, `=${text}`);
+        field.setSelectionRange(field.value.length, field.value.length);
+      } else {
+        const typed = nameTyped(field.value, start, end) ?? { from: start, to: end };
+        const inserted = needsOperator(field.value, typed.from) ? `+${text}` : text;
+        this.replaceInField(field, typed.from, typed.to, inserted);
+        field.setSelectionRange(typed.from + inserted.length, typed.from + inserted.length);
+      }
+      this.choosing = undefined;
+      this.updateFormulaUi();
+    });
+  }
+
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
   private pointingSlot(active: CellEditor): { from: number; to: number } | undefined {
     if (active.row === 0 || !this.allowed(active)) return undefined;
@@ -611,14 +684,11 @@ export class Formulas implements Feature {
       hint.append(this.choiceList(active, choices, this.choosing.index));
       const picked = functionNamed(choices.names[this.choosing.index]!)!;
       hint.append(this.helpLine({ syntax: picked.syntax, description: picked.description }));
-      const keys = this.host.doc.createElement("div");
-      keys.className = "tp-formula-tab";
-      keys.textContent = "Tab or Enter: insert · ↑ ↓: pick · Esc: close";
-      hint.append(keys);
     } else {
       const help = formulaHelp(formula, active.field.selectionStart ?? formula.length);
       if (help) hint.append(this.helpLine(help));
     }
+    hint.append(this.hintFoot(active, !!(choices && this.choosing)));
     const rect = editorRect(active);
     this.host.place(hint, rect.left, rect.bottom + 4);
     // The list made anew: the one picked scrolled into its view (the list's own scroll, not the page's)
@@ -656,6 +726,27 @@ export class Formulas implements Feature {
       list.append(option);
     });
     return list;
+  }
+
+  /** The hint's last line: the list's keys while it shows, and fx for every function */
+  private hintFoot(active: CellEditor, listing: boolean): HTMLElement {
+    const { doc } = this.host;
+    const foot = doc.createElement("div");
+    foot.className = "tp-formula-foot";
+    foot.append(Object.assign(doc.createElement("span"), { className: "tp-formula-tab", textContent: listing ? "Tab or Enter: insert · ↑ ↓: pick · Esc: close" : "" }));
+    const more = doc.createElement("button");
+    more.type = "button";
+    more.className = "tp-formula-functions";
+    more.title = "Every function, to find one by what it does (Shift+F3)";
+    more.innerHTML = ICONS.function;
+    more.append(" Functions…");
+    // The field keeps the focus until the dialog takes it (the editor stays open)
+    more.addEventListener("mousedown", (e) => e.preventDefault());
+    more.addEventListener("click", () => {
+      if (this.host.editing === active) this.openFunctions(active);
+    });
+    foot.append(more);
+    return foot;
   }
 
   /** A function's syntax, the argument the caret is in marked, and what it does */

@@ -5,6 +5,8 @@ export default {
   name: "INT",
   syntax: "INT(number)",
   description: "The number rounded down to a whole number; for a time, its whole days (INT(SUM(A1:A2)) of 14:00 and 20:00 is 1).",
+  category: "math",
+  example: "=INT([@hours])",
   minArgs: 1,
   maxArgs: 1,
   call: ([number]) => {

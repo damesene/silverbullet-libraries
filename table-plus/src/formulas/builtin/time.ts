@@ -6,6 +6,8 @@ export default {
   syntax: "TIME(hour, [minute], [second])",
   description:
     "A time of day, e.g. 14:30; past midnight it starts again (TIME(25, 0) is 01:00). Added to a date it gives the date with that time: DATE(2025, 11, 6) + TIME(14, 30) is 2025-11-06 14:30.",
+  category: "date",
+  example: "=TIME(14, 30)",
   minArgs: 1,
   maxArgs: 3,
   call: ([hour, minute = 0, second = 0]) => {

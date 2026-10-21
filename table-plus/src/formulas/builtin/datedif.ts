@@ -7,6 +7,8 @@ export default {
   syntax: "DATEDIF(start, end, unit)",
   description:
     'How many whole units lie from one date to another, in "s", "min", "h", "d", "w", "m" (months) or "y"; negative when the end is earlier. For days with a fraction, subtract the dates: end - start.',
+  category: "date",
+  example: '=DATEDIF([@born], TODAY(), "y")',
   minArgs: 3,
   maxArgs: 3,
   call: ([start, end, unit]) => {

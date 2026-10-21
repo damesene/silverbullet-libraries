@@ -256,6 +256,241 @@ function missingBridgeFunctions(bridge) {
   return REQUIRED.filter((name) => typeof bridge?.[name] !== "function");
 }
 
+// table-plus/src/dom.ts
+var WIDGET_SELECTOR = ".sb-table-widget";
+var EDITOR_SELECTOR = ".cm-content";
+var SCROLLER_SELECTOR = ".cm-scroller";
+var NATIVE_ACTION_SELECTOR = "a[data-ref], [data-mention-name], button[data-onclick], span.sb-task-state";
+var INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
+var UI_CLASS = "tp-ui";
+var OUT_OF_LINE_CLASS = "tp-out-of-line";
+function renderedTable(widget) {
+  return widget.querySelector("table");
+}
+function positionHint(table) {
+  const element = table.dataset.pos !== void 0 ? table : table.querySelector("[data-pos]");
+  const pos = element instanceof HTMLElement ? Number(element.dataset.pos) : NaN;
+  return Number.isFinite(pos) ? pos : void 0;
+}
+var TYPE_TAG_CLASS = "tp-type-tag";
+function cellText(cell) {
+  let text = "";
+  const walk = (parent) => {
+    for (let node = parent.firstChild; node; node = node.nextSibling) {
+      if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
+      if (node.nodeType === 3) text += node.textContent ?? "";
+      else walk(node);
+    }
+  };
+  walk(cell);
+  return text.replace(/\s+/g, " ").trim();
+}
+var HEAD_CLASS = "tp-head";
+var HEAD_NAME_CLASS = "tp-head-name";
+function layOutHeaderCell(cell) {
+  if (cell.querySelector(`:scope > .${HEAD_CLASS}`)) return;
+  const doc = cell.ownerDocument;
+  const head = doc.createElement("span");
+  head.className = HEAD_CLASS;
+  const name = doc.createElement("span");
+  name.className = HEAD_NAME_CLASS;
+  head.append(name);
+  for (const node of Array.from(cell.childNodes)) {
+    const ui = node instanceof Element && node.classList.contains(UI_CLASS);
+    if (ui && node.classList.contains(OUT_OF_LINE_CLASS)) continue;
+    (ui ? head : name).append(node);
+  }
+  cell.prepend(head);
+}
+function cellValue(cell) {
+  return cell.dataset.tpValue ?? cellText(cell);
+}
+function caretTextOffset(cell, x, y) {
+  const doc = cell.ownerDocument;
+  let node;
+  let offset = 0;
+  if (typeof doc.caretPositionFromPoint === "function") {
+    const position = doc.caretPositionFromPoint(x, y);
+    node = position?.offsetNode;
+    offset = position?.offset ?? 0;
+  } else if (typeof doc.caretRangeFromPoint === "function") {
+    const range = doc.caretRangeFromPoint(x, y);
+    node = range?.startContainer;
+    offset = range?.startOffset ?? 0;
+  }
+  if (!node || node.nodeType !== Node.TEXT_NODE || !cell.contains(node)) return void 0;
+  let before = "";
+  const walker = doc.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    if (text.parentElement?.closest(`.${UI_CLASS}`)) continue;
+    if (text === node) {
+      before += (text.textContent ?? "").slice(0, offset);
+      break;
+    }
+    before += text.textContent ?? "";
+  }
+  return before.replace(/\s+/g, " ").trimStart().length;
+}
+
+// table-plus/src/icons.ts
+var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
+var lineIcon = (body) => svg(body);
+var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
+var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
+var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
+var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
+var ICONS = {
+  grip: svg(
+    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
+    true
+  ),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  columnWidth: svg('<path d="M4 4v16M20 4v16M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3"/>'),
+  expand: svg('<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'),
+  fullScreen: svg('<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>'),
+  exitFullScreen: svg('<path d="M9 4v5H4M15 4v5h5M15 20v-5h5M9 20v-5H4"/>'),
+  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
+  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
+  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
+  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
+  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
+  // No stripes: an empty table, struck through (rows and columns: its tinted lines)
+  stripesNone: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M5 18L19 6"/>'),
+  stripesRows: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18"/><path d="M4 10h16v4H4z" fill="currentColor" stroke="none" opacity="0.4"/>'),
+  stripesColumns: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><path d="M9.5 5h5v14h-5z" fill="currentColor" stroke="none" opacity="0.4"/>'),
+  theme: svg('<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.9 1.4-1.8l-.3-.8a1.7 1.7 0 0 1 1.6-2.4H17a4 4 0 0 0 4-4c0-4.9-4-9-9-9z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>'),
+  lazy: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
+  editMode: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
+  selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),
+  selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
+  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
+  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
+  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Sorted lines with a check: make the sorting the real order
+  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
+  // Two arrows round: calculate again
+  // fx: a formula's function (the Functions dialog)
+  function: svg('<path d="M8 20c2 0 2.6-1.4 3-3.5l2-10C13.4 4.4 14 3 16 3M8 9h7M14 13l6 7M20 13l-6 7"/>'),
+  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
+  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
+  settings: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'),
+  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
+  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
+  // A padlock: a name that stays
+  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
+  format: svg('<path d="M4 6h16M4 12h16M4 18h16M9 4v16M15 4v16"/>'),
+  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
+  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
+  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
+  // A pushpin with its needle pointing to the edge it pins to
+  pinTop: PIN_POINT_UP,
+  unpin: svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/><path d="M4 4l16 16"/>'),
+  pinBottom: PIN_POINT_DOWN,
+  pinLeft: PIN_POINT_LEFT,
+  pinRight: PIN_POINT_RIGHT
+};
+
+// table-plus/src/core/dialog.ts
+var Dialogs = class {
+  constructor(doc) {
+    this.doc = doc;
+  }
+  doc;
+  shown;
+  get isOpen() {
+    return !!this.shown?.backdrop.isConnected;
+  }
+  /** Whether a node is the open dialog's */
+  contains(node) {
+    return !!this.shown?.backdrop.contains(node);
+  }
+  open(options) {
+    this.close();
+    const { doc } = this;
+    const el = (tag, className, text) => {
+      const e = doc.createElement(tag);
+      e.className = className;
+      if (text !== void 0) e.textContent = text;
+      return e;
+    };
+    const backdrop = el("div", `${UI_CLASS} tp-dialog-backdrop`);
+    const dialog = el("div", `tp-dialog${options.className ? ` ${options.className}` : ""}`);
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", options.title);
+    dialog.tabIndex = -1;
+    const head = el("div", "tp-dialog-head");
+    const titles = el("div", "tp-dialog-titles");
+    titles.append(el("h2", "tp-dialog-title", options.title));
+    if (options.subtitle) titles.append(el("p", "tp-dialog-subtitle", options.subtitle));
+    const close = el("button", "tp-dialog-close");
+    close.type = "button";
+    close.title = "Close (Esc)";
+    close.setAttribute("aria-label", close.title);
+    close.innerHTML = ICONS.clear;
+    close.addEventListener("click", () => this.close());
+    head.append(titles, close);
+    const body = el("div", "tp-dialog-body");
+    body.append(options.content);
+    dialog.append(head, body);
+    if (options.footer) {
+      const foot = el("div", "tp-dialog-foot");
+      foot.append(options.footer);
+      dialog.append(foot);
+    }
+    backdrop.append(dialog);
+    backdrop.addEventListener("keydown", (e) => this.onKeyDown(e, dialog));
+    backdrop.addEventListener("mousedown", (e) => {
+      if (e.target === backdrop) {
+        e.preventDefault();
+        this.close();
+      }
+    });
+    this.shown = { backdrop, returnFocus: doc.activeElement, ...options.closed ? { closed: options.closed } : {} };
+    doc.body.append(backdrop);
+    (options.focus ?? dialog).focus({ preventScroll: true });
+    return { element: dialog, close: () => this.close() };
+  }
+  close() {
+    const shown = this.shown;
+    if (!shown) return;
+    this.shown = void 0;
+    shown.backdrop.remove();
+    if (shown.returnFocus instanceof HTMLElement && shown.returnFocus.isConnected) shown.returnFocus.focus({ preventScroll: true });
+    shown.closed?.();
+  }
+  // Esc closes; Tab stays in the dialog; no key goes on to the page
+  onKeyDown(e, dialog) {
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      e.preventDefault();
+      this.close();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const focusable = Array.from(dialog.querySelectorAll("button, input, select, [tabindex='0']")).filter(
+      (f) => !f.disabled && f.offsetParent !== null
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = this.doc.activeElement;
+    if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+};
+
 // table-plus/src/markdown.ts
 var DELIMITER_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 var FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
@@ -800,82 +1035,6 @@ function pinColumn(pins, columns, column, pin) {
   return { to, pins: p };
 }
 
-// table-plus/src/dom.ts
-var WIDGET_SELECTOR = ".sb-table-widget";
-var EDITOR_SELECTOR = ".cm-content";
-var SCROLLER_SELECTOR = ".cm-scroller";
-var NATIVE_ACTION_SELECTOR = "a[data-ref], [data-mention-name], button[data-onclick], span.sb-task-state";
-var INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
-var UI_CLASS = "tp-ui";
-var OUT_OF_LINE_CLASS = "tp-out-of-line";
-function renderedTable(widget) {
-  return widget.querySelector("table");
-}
-function positionHint(table) {
-  const element = table.dataset.pos !== void 0 ? table : table.querySelector("[data-pos]");
-  const pos = element instanceof HTMLElement ? Number(element.dataset.pos) : NaN;
-  return Number.isFinite(pos) ? pos : void 0;
-}
-var TYPE_TAG_CLASS = "tp-type-tag";
-function cellText(cell) {
-  let text = "";
-  const walk = (parent) => {
-    for (let node = parent.firstChild; node; node = node.nextSibling) {
-      if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
-      if (node.nodeType === 3) text += node.textContent ?? "";
-      else walk(node);
-    }
-  };
-  walk(cell);
-  return text.replace(/\s+/g, " ").trim();
-}
-var HEAD_CLASS = "tp-head";
-var HEAD_NAME_CLASS = "tp-head-name";
-function layOutHeaderCell(cell) {
-  if (cell.querySelector(`:scope > .${HEAD_CLASS}`)) return;
-  const doc = cell.ownerDocument;
-  const head = doc.createElement("span");
-  head.className = HEAD_CLASS;
-  const name = doc.createElement("span");
-  name.className = HEAD_NAME_CLASS;
-  head.append(name);
-  for (const node of Array.from(cell.childNodes)) {
-    const ui = node instanceof Element && node.classList.contains(UI_CLASS);
-    if (ui && node.classList.contains(OUT_OF_LINE_CLASS)) continue;
-    (ui ? head : name).append(node);
-  }
-  cell.prepend(head);
-}
-function cellValue(cell) {
-  return cell.dataset.tpValue ?? cellText(cell);
-}
-function caretTextOffset(cell, x, y) {
-  const doc = cell.ownerDocument;
-  let node;
-  let offset = 0;
-  if (typeof doc.caretPositionFromPoint === "function") {
-    const position = doc.caretPositionFromPoint(x, y);
-    node = position?.offsetNode;
-    offset = position?.offset ?? 0;
-  } else if (typeof doc.caretRangeFromPoint === "function") {
-    const range = doc.caretRangeFromPoint(x, y);
-    node = range?.startContainer;
-    offset = range?.startOffset ?? 0;
-  }
-  if (!node || node.nodeType !== Node.TEXT_NODE || !cell.contains(node)) return void 0;
-  let before = "";
-  const walker = doc.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
-  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
-    if (text.parentElement?.closest(`.${UI_CLASS}`)) continue;
-    if (text === node) {
-      before += (text.textContent ?? "").slice(0, offset);
-      break;
-    }
-    before += text.textContent ?? "";
-  }
-  return before.replace(/\s+/g, " ").trimStart().length;
-}
-
 // table-plus/src/core/layout.ts
 var STICKY_GAP = 42;
 
@@ -1109,7 +1268,7 @@ var CellEditing = class {
     this.context.endHover();
     this.context.isolate(field);
     field.addEventListener("blur", () => {
-      if (this.editor?.field === field && !this.context.movingRows()) void this.finish(true, void 0, false);
+      if (this.editor?.field === field && !this.context.movingRows() && !this.context.dialogOpen()) void this.finish(true, void 0, false);
     });
     field.addEventListener("keydown", (e) => {
       if (e.isComposing) return;
@@ -1564,68 +1723,6 @@ function withConfigSettings(text, values) {
   }
   return `${text.slice(0, block.start)}\`\`\`space-lua${eol}${kept.join(eol)}${eol}\`\`\`${text.slice(block.end)}`;
 }
-
-// table-plus/src/icons.ts
-var svg = (body, fill = false) => `<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'}>${body}</svg>`;
-var lineIcon = (body) => svg(body);
-var PIN_POINT_RIGHT = svg('<path d="M21 12h-6M15 8.5v7l-4-1.5H7v-4h4z"/>');
-var PIN_POINT_LEFT = svg('<path d="M3 12h6M9 8.5v7l4-1.5h4v-4h-4z"/>');
-var PIN_POINT_DOWN = svg('<path d="M12 21v-6M8.5 15h7l-1.5-4V7h-4v4z"/>');
-var PIN_POINT_UP = svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/>');
-var ICONS = {
-  grip: svg(
-    '<circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/>',
-    true
-  ),
-  plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  columnWidth: svg('<path d="M4 4v16M20 4v16M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3"/>'),
-  expand: svg('<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'),
-  fullScreen: svg('<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>'),
-  exitFullScreen: svg('<path d="M9 4v5H4M15 4v5h5M15 20v-5h5M9 20v-5H4"/>'),
-  rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
-  rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
-  columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
-  columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
-  duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
-  // No stripes: an empty table, struck through (rows and columns: its tinted lines)
-  stripesNone: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M5 18L19 6"/>'),
-  stripesRows: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 14.5h18"/><path d="M4 10h16v4H4z" fill="currentColor" stroke="none" opacity="0.4"/>'),
-  stripesColumns: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/><path d="M9.5 5h5v14h-5z" fill="currentColor" stroke="none" opacity="0.4"/>'),
-  theme: svg('<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.9 1.4-1.8l-.3-.8a1.7 1.7 0 0 1 1.6-2.4H17a4 4 0 0 0 4-4c0-4.9-4-9-9-9z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>'),
-  lazy: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
-  editMode: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
-  selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),
-  selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
-  arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
-  arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
-  arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
-  arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
-  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
-  sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
-  sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
-  clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
-  // Sorted lines with a check: make the sorting the real order
-  applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
-  // Two arrows round: calculate again
-  recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
-  filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
-  settings: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'),
-  more: svg('<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>'),
-  markdown: svg('<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>'),
-  // A padlock: a name that stays
-  fixedName: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
-  columnType: svg('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
-  format: svg('<path d="M4 6h16M4 12h16M4 18h16M9 4v16M15 4v16"/>'),
-  alignLeft: svg('<path d="M4 6h16M4 12h10M4 18h13"/>'),
-  alignCenter: svg('<path d="M4 6h16M7 12h10M5.5 18h13"/>'),
-  alignRight: svg('<path d="M4 6h16M10 12h10M7 18h13"/>'),
-  // A pushpin with its needle pointing to the edge it pins to
-  pinTop: PIN_POINT_UP,
-  unpin: svg('<path d="M12 3v6M8.5 9h7l-1.5 4v4h-4v-4z"/><path d="M4 4l16 16"/>'),
-  pinBottom: PIN_POINT_DOWN,
-  pinLeft: PIN_POINT_LEFT,
-  pinRight: PIN_POINT_RIGHT
-};
 
 // table-plus/src/settings.ts
 var TABS = [
@@ -3320,6 +3417,8 @@ var sum_default = {
   name: "SUM",
   syntax: "SUM(number1, [number2], \u2026)",
   description: "Adds numbers, cells and ranges; times add up to a time (14:00 and 20:00 are 34:00).",
+  category: "math",
+  example: "=SUM([qty])",
   minArgs: 1,
   call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a + b, 0), true)
 };
@@ -3329,6 +3428,8 @@ var average_default = {
   name: "AVERAGE",
   syntax: "AVERAGE(number1, [number2], \u2026)",
   description: "The arithmetic mean of the numbers, or of the times.",
+  category: "math",
+  example: "=AVERAGE(B1:B3)",
   minArgs: 1,
   call: (args) => withNumbers(
     args,
@@ -3342,6 +3443,8 @@ var min_default = {
   name: "MIN",
   syntax: "MIN(number1, [number2], \u2026)",
   description: "The smallest of the numbers (0 if there are none), the shortest of the times, or the earliest of the dates.",
+  category: "math",
+  example: "=MIN([price])",
   minArgs: 1,
   call: (args) => extremeDate(args, false) ?? withNumbers(args, (ns) => ns.length ? Math.min(...ns) : 0, true)
 };
@@ -3351,6 +3454,8 @@ var max_default = {
   name: "MAX",
   syntax: "MAX(number1, [number2], \u2026)",
   description: "The largest of the numbers (0 if there are none), the longest of the times, or the latest of the dates.",
+  category: "math",
+  example: "=MAX([price])",
   minArgs: 1,
   call: (args) => extremeDate(args, true) ?? withNumbers(args, (ns) => ns.length ? Math.max(...ns) : 0, true)
 };
@@ -3360,6 +3465,8 @@ var product_default = {
   name: "PRODUCT",
   syntax: "PRODUCT(number1, [number2], \u2026)",
   description: "Multiplies the numbers.",
+  category: "math",
+  example: "=PRODUCT([@qty], [@price])",
   minArgs: 1,
   call: (args) => withNumbers(args, (ns) => ns.reduce((a, b) => a * b, 1))
 };
@@ -3369,6 +3476,8 @@ var count_default = {
   name: "COUNT",
   syntax: "COUNT(value1, [value2], \u2026)",
   description: "How many of the values are numbers.",
+  category: "math",
+  example: "=COUNT([qty])",
   minArgs: 1,
   call: (args) => {
     let count = 0;
@@ -3387,6 +3496,8 @@ var counta_default = {
   name: "COUNTA",
   syntax: "COUNTA(value1, [value2], \u2026)",
   description: "How many of the values are not empty.",
+  category: "math",
+  example: "=COUNTA([name])",
   minArgs: 1,
   call: (args) => flatten(args).filter((v) => v !== null && v !== "").length
 };
@@ -3396,6 +3507,8 @@ var round_default = {
   name: "ROUND",
   syntax: "ROUND(number, [digits])",
   description: "Rounds to the given number of decimal places (default 0), halves away from zero.",
+  category: "math",
+  example: "=ROUND([@price] * 1.21, 2)",
   minArgs: 1,
   maxArgs: 2,
   call: ([number, digits = 0]) => {
@@ -3413,6 +3526,8 @@ var abs_default = {
   name: "ABS",
   syntax: "ABS(number)",
   description: "The number without its sign.",
+  category: "math",
+  example: "=ABS([@change])",
   minArgs: 1,
   maxArgs: 1,
   call: ([number]) => {
@@ -3426,6 +3541,8 @@ var if_default = {
   name: "IF",
   syntax: "IF(condition, value_if_true, [value_if_false])",
   description: "One value if the condition is true, another if it is false (default FALSE).",
+  category: "logic",
+  example: '=IF([@qty] > 10, "bulk", "single")',
   minArgs: 2,
   maxArgs: 3,
   call: ([condition, ifTrue, ifFalse = false]) => {
@@ -3440,6 +3557,8 @@ var iferror_default = {
   name: "IFERROR",
   syntax: "IFERROR(value, value_if_error)",
   description: "The value, or the second value if the first is an error.",
+  category: "logic",
+  example: "=IFERROR([@price] / [@qty], 0)",
   minArgs: 2,
   maxArgs: 2,
   call: ([value, ifError]) => {
@@ -3453,6 +3572,8 @@ var and_default = {
   name: "AND",
   syntax: "AND(logical1, [logical2], \u2026)",
   description: "TRUE if all of the values are true.",
+  category: "logic",
+  example: "=AND([@paid], [@sent])",
   minArgs: 1,
   call: (args) => {
     const bs = booleans(args);
@@ -3465,6 +3586,8 @@ var or_default = {
   name: "OR",
   syntax: "OR(logical1, [logical2], \u2026)",
   description: "TRUE if any of the values is true.",
+  category: "logic",
+  example: "=OR([@qty] = 0, [@price] = 0)",
   minArgs: 1,
   call: (args) => {
     const bs = booleans(args);
@@ -3477,6 +3600,8 @@ var not_default = {
   name: "NOT",
   syntax: "NOT(logical)",
   description: "TRUE if the value is false, FALSE if it is true.",
+  category: "logic",
+  example: "=NOT([@done])",
   minArgs: 1,
   maxArgs: 1,
   call: ([value]) => {
@@ -3490,6 +3615,8 @@ var concat_default = {
   name: "CONCAT",
   syntax: "CONCAT(text1, [text2], \u2026)",
   description: "Joins the values into one text.",
+  category: "text",
+  example: '=CONCAT([@first], " ", [@last])',
   minArgs: 1,
   call: (args) => {
     const error = firstError(args);
@@ -3503,6 +3630,8 @@ var today_default = {
   name: "TODAY",
   syntax: "TODAY()",
   description: "Today's date, e.g. 2025-11-06. The result is written when the table is calculated: the next day, Recalculate updates it.",
+  category: "date",
+  example: "=TODAY()",
   minArgs: 0,
   maxArgs: 0,
   call: () => formatDate(now(false))
@@ -3513,6 +3642,8 @@ var now_default = {
   name: "NOW",
   syntax: "NOW()",
   description: "The date and time now, e.g. 2025-11-06 14:30:15. The result is written when the table is calculated: Recalculate updates it.",
+  category: "date",
+  example: "=NOW()",
   minArgs: 0,
   maxArgs: 0,
   call: () => formatDate(now(true))
@@ -3523,6 +3654,8 @@ var date_default2 = {
   name: "DATE",
   syntax: "DATE(year, month, day)",
   description: "The date of a year, month and day; a month or day past its end carries over (DATE(2025, 13, 1) is 2026-01-01).",
+  category: "date",
+  example: "=DATE(2025, 11, 6)",
   minArgs: 3,
   maxArgs: 3,
   call: ([year, month, day]) => {
@@ -3541,6 +3674,8 @@ var time_default2 = {
   name: "TIME",
   syntax: "TIME(hour, [minute], [second])",
   description: "A time of day, e.g. 14:30; past midnight it starts again (TIME(25, 0) is 01:00). Added to a date it gives the date with that time: DATE(2025, 11, 6) + TIME(14, 30) is 2025-11-06 14:30.",
+  category: "date",
+  example: "=TIME(14, 30)",
   minArgs: 1,
   maxArgs: 3,
   call: ([hour, minute = 0, second = 0]) => {
@@ -3558,6 +3693,8 @@ var int_default = {
   name: "INT",
   syntax: "INT(number)",
   description: "The number rounded down to a whole number; for a time, its whole days (INT(SUM(A1:A2)) of 14:00 and 20:00 is 1).",
+  category: "math",
+  example: "=INT([@hours])",
   minArgs: 1,
   maxArgs: 1,
   call: ([number]) => {
@@ -3613,6 +3750,8 @@ var text_default = {
   name: "TEXT",
   syntax: "TEXT(value, format)",
   description: 'A date or a time as text in a format: TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is.',
+  category: "text",
+  example: '=TEXT([@due], "dd.mm.yyyy")',
   minArgs: 2,
   maxArgs: 2,
   call: ([value, format]) => {
@@ -3684,6 +3823,8 @@ var xlookup_default = {
   name: "XLOOKUP",
   syntax: "XLOOKUP(value, lookup_range, result_range, [if_not_found])",
   description: 'Finds the value in one range or column and gives the value in the same place of another, e.g. XLOOKUP("Pear", prices![Name], prices![Price]); text is found ignoring case. Not found: if_not_found, else #N/A.',
+  category: "lookup",
+  example: "=XLOOKUP([@fruit], prices![name], prices![price])",
   minArgs: 3,
   maxArgs: 4,
   call: ([value, lookIn, results, notFound]) => {
@@ -3707,6 +3848,8 @@ var dateadd_default = {
   name: "DATEADD",
   syntax: "DATEADD(date, amount, unit)",
   description: `The date plus an amount of a unit: "s", "min", "h", "d", "w", "m" (months) or "y" (or their names, "hours"). A negative amount goes back. Months and years keep the day or take the month's last.`,
+  category: "date",
+  example: '=DATEADD([@start], 7, "d")',
   minArgs: 3,
   maxArgs: 3,
   call: ([date, amount, unit]) => {
@@ -3725,6 +3868,8 @@ var datedif_default = {
   name: "DATEDIF",
   syntax: "DATEDIF(start, end, unit)",
   description: 'How many whole units lie from one date to another, in "s", "min", "h", "d", "w", "m" (months) or "y"; negative when the end is earlier. For days with a fraction, subtract the dates: end - start.',
+  category: "date",
+  example: '=DATEDIF([@born], TODAY(), "y")',
   minArgs: 3,
   maxArgs: 3,
   call: ([start, end, unit]) => {
@@ -3743,6 +3888,8 @@ var year_default = {
   name: "YEAR",
   syntax: "YEAR(date)",
   description: "The year of a date.",
+  category: "date",
+  example: "=YEAR([@date])",
   minArgs: 1,
   maxArgs: 1,
   call: ([date]) => {
@@ -3756,6 +3903,8 @@ var month_default = {
   name: "MONTH",
   syntax: "MONTH(date)",
   description: "The month of a date, 1 to 12.",
+  category: "date",
+  example: "=MONTH([@date])",
   minArgs: 1,
   maxArgs: 1,
   call: ([date]) => {
@@ -3769,6 +3918,8 @@ var day_default = {
   name: "DAY",
   syntax: "DAY(date)",
   description: "The day of a date's month, 1 to 31.",
+  category: "date",
+  example: "=DAY([@date])",
   minArgs: 1,
   maxArgs: 1,
   call: ([date]) => {
@@ -3782,6 +3933,8 @@ var hour_default = {
   name: "HOUR",
   syntax: "HOUR(time)",
   description: "The hour of a time, or of a date's time, 0 to 23 (0 for a date without a time).",
+  category: "date",
+  example: "=HOUR([@at])",
   minArgs: 1,
   maxArgs: 1,
   call: ([date]) => {
@@ -3795,6 +3948,8 @@ var minute_default = {
   name: "MINUTE",
   syntax: "MINUTE(time)",
   description: "The minute of a time, or of a date's time, 0 to 59.",
+  category: "date",
+  example: "=MINUTE([@at])",
   minArgs: 1,
   maxArgs: 1,
   call: ([date]) => {
@@ -3808,6 +3963,8 @@ var second_default = {
   name: "SECOND",
   syntax: "SECOND(time)",
   description: "The second of a time, or of a date's time, 0 to 59.",
+  category: "date",
+  example: "=SECOND([@at])",
   minArgs: 1,
   maxArgs: 1,
   call: ([date]) => {
@@ -3821,6 +3978,8 @@ var weekday_default = {
   name: "WEEKDAY",
   syntax: "WEEKDAY(date, [type])",
   description: "The day of the week as a number: Sunday 1 to Saturday 7 (type 1, the default), or Monday 1 to Sunday 7 (type 2).",
+  category: "date",
+  example: "=WEEKDAY([@date], 2)",
   minArgs: 1,
   maxArgs: 2,
   call: ([date, type = 1]) => {
@@ -3840,6 +3999,8 @@ var row_default = {
   name: "ROW",
   syntax: "ROW()",
   description: "The row of the cell the formula is in, counted in the table as written: 1 is the first row under the header. =ROW() in every row of a column numbers the rows.",
+  category: "lookup",
+  example: "=ROW()",
   minArgs: 0,
   maxArgs: 0,
   call: (_args, { row }) => row
@@ -4873,15 +5034,24 @@ function referenceSlot(formula, start, end, pointed) {
   if (/^[A-Za-z0-9_.["#(]/.test(after)) return void 0;
   return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : void 0;
 }
+function needsOperator(formula, at) {
+  const before = formula.slice(0, at).trimEnd();
+  return before !== "" && !BEFORE_OPERAND.has(before[before.length - 1]);
+}
 function functionChoices(text, start, end) {
+  const typed = nameTyped(text, start, end);
+  if (!typed) return void 0;
+  const prefix = text.slice(typed.from, typed.to).toUpperCase();
+  const names = functionNames().filter((name) => name.startsWith(prefix)).sort((a, b) => Number(b === prefix) - Number(a === prefix) || a.localeCompare(b));
+  return names.length ? { ...typed, names } : void 0;
+}
+function nameTyped(text, start, end) {
   if (start !== end || !text.trimStart().startsWith("=")) return void 0;
   const before = text.slice(0, start);
   const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
   if (!typing || CELL_RE.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return void 0;
   if (tokenize(before).error) return void 0;
-  const prefix = typing.toUpperCase();
-  const names = functionNames().filter((name) => name.startsWith(prefix)).sort((a, b) => Number(b === prefix) - Number(a === prefix) || a.localeCompare(b));
-  return names.length ? { from: start - typing.length, to: start, names } : void 0;
+  return { from: start - typing.length, to: start };
 }
 function formulaHelp(text, caret) {
   if (!text.trimStart().startsWith("=")) return void 0;
@@ -4927,6 +5097,27 @@ function argumentSpan(syntax, index) {
   if (index < args.length && !(repeats && index === args.length - 1)) return args[index];
   return repeats ? args[Math.max(0, args.length - 2)] : void 0;
 }
+function findFunctions(query, category) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const name = words.join("");
+  const rank = (f) => {
+    const lower = f.name.toLowerCase();
+    return lower.startsWith(name) ? 0 : lower.includes(name) ? 1 : 2;
+  };
+  return functionNames().map((n) => functionNamed(n)).filter((f) => category === void 0 || (f.category ?? "custom") === category).filter((f) => {
+    const text = `${f.name} ${f.description}`.toLowerCase();
+    return words.every((word) => text.includes(word));
+  }).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+
+// table-plus/src/formulas/function.ts
+var FUNCTION_CATEGORIES = {
+  math: "Math",
+  logic: "Logic",
+  text: "Text",
+  date: "Date & time",
+  lookup: "Lookup & table"
+};
 
 // table-plus/src/meta.ts
 function withMeta(table, name, value) {
@@ -5818,6 +6009,146 @@ var Filters = class {
   }
 };
 
+// table-plus/src/features/functiondialog.ts
+var FunctionDialog = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  dialog;
+  /** Opens the dialog; `formula`: the formula being edited (the caret marked), `insert` gets the name picked */
+  open(formula, insert) {
+    const { doc } = this.host;
+    const el = (tag, className, text) => {
+      const e = doc.createElement(tag);
+      e.className = className;
+      if (text !== void 0) e.textContent = text;
+      return e;
+    };
+    let group;
+    let found = [];
+    let picked = 0;
+    const search = el("input", "tp-functions-search");
+    search.type = "search";
+    search.placeholder = "Search by name or what it does";
+    search.setAttribute("aria-label", "Search functions");
+    const groups = el("div", "tp-functions-groups");
+    groups.setAttribute("role", "group");
+    const list = el("div", "tp-functions-list");
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", "Functions");
+    const detail = el("div", "tp-functions-detail");
+    const content = el("div", "tp-functions");
+    const main = el("div", "tp-functions-main");
+    main.append(list, detail);
+    content.append(search, groups, main);
+    const insertButton = el("button", "tp-dialog-primary", "Insert");
+    insertButton.type = "button";
+    const cancel = el("button", "tp-dialog-button", "Cancel");
+    cancel.type = "button";
+    const note = el("span", "tp-dialog-note");
+    const footer = el("div", "tp-functions-foot");
+    footer.append(note, cancel, insertButton);
+    const choose = (index) => {
+      const f = found[index];
+      if (!f) return;
+      this.close();
+      insert(f.name);
+    };
+    const all = findFunctions("");
+    const present = [
+      void 0,
+      ...Object.keys(FUNCTION_CATEGORIES).filter((c) => all.some((f) => f.category === c)),
+      ...all.some((f) => f.category === void 0) ? ["custom"] : []
+    ];
+    const groupButtons = present.map((g) => {
+      const button = el("button", "tp-functions-group", g === void 0 ? "All" : g === "custom" ? "Custom" : FUNCTION_CATEGORIES[g]);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        group = g;
+        picked = 0;
+        update();
+        search.focus();
+      });
+      groups.append(button);
+      return { group: g, button };
+    });
+    const showDetail = () => {
+      detail.replaceChildren();
+      const f = found[picked];
+      insertButton.disabled = !f;
+      if (!f) return;
+      detail.append(el("h3", "tp-functions-name", f.name));
+      detail.append(el("code", "tp-functions-syntax", f.syntax));
+      if (f.description) detail.append(el("p", "tp-functions-description", f.description));
+      if (f.example) {
+        const example = el("div", "tp-functions-example");
+        example.append(el("span", "tp-functions-label", "Example"), el("code", "", f.example));
+        detail.append(example);
+      }
+      detail.append(el("p", "tp-functions-group-name", f.category ? FUNCTION_CATEGORIES[f.category] : "Custom function"));
+    };
+    const showPicked = () => {
+      Array.from(list.children).forEach((option2, i) => option2.setAttribute("aria-selected", String(i === picked)));
+      const option = list.children[picked];
+      if (option) list.scrollTop = Math.max(Math.min(list.scrollTop, option.offsetTop), option.offsetTop + option.offsetHeight - list.clientHeight);
+      showDetail();
+    };
+    const update = () => {
+      found = findFunctions(search.value, group);
+      picked = Math.min(picked, Math.max(0, found.length - 1));
+      for (const { group: g, button } of groupButtons) button.setAttribute("aria-pressed", String(g === group));
+      list.replaceChildren(
+        ...found.map((f, i) => {
+          const option = el("div", "tp-functions-option");
+          option.setAttribute("role", "option");
+          option.append(el("code", "", f.name), el("span", "", f.description.split(/(?<=\.)\s/)[0]));
+          option.addEventListener("click", () => {
+            picked = i;
+            showPicked();
+          });
+          option.addEventListener("dblclick", () => choose(i));
+          return option;
+        })
+      );
+      if (found.length === 0) list.append(el("p", "tp-functions-none", "No function matches"));
+      note.textContent = `${found.length} ${found.length === 1 ? "function" : "functions"}`;
+      showPicked();
+    };
+    search.addEventListener("input", () => {
+      picked = 0;
+      update();
+    });
+    search.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        picked = Math.max(0, Math.min(found.length - 1, picked + (e.key === "ArrowDown" ? 1 : -1)));
+        showPicked();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        choose(picked);
+      }
+    });
+    insertButton.addEventListener("click", () => choose(picked));
+    cancel.addEventListener("click", () => this.close());
+    update();
+    this.dialog = this.host.openDialog({
+      title: "Functions",
+      subtitle: formula,
+      className: "tp-functions-dialog",
+      content,
+      footer,
+      focus: search,
+      closed: () => {
+        this.dialog = void 0;
+      }
+    });
+  }
+  close() {
+    this.dialog?.close();
+  }
+};
+
 // table-plus/src/features/formulas.ts
 var FORMULAS_NEED_METADATA = "Formulas are stored in the table: turn on the Store table metadata setting to add them (existing ones keep working)";
 var REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
@@ -5825,6 +6156,7 @@ var Formulas = class {
   constructor(host) {
     this.host = host;
     this.formulaHint = host.floating("div", "tp-formula-hint");
+    this.functions = new FunctionDialog(host);
   }
   host;
   formulaHint;
@@ -5837,6 +6169,8 @@ var Formulas = class {
   // typed where (`key`), and the name Esc closed the list for (it opens again once the name changes)
   choosing;
   dismissed;
+  // Every function, to find one by what it does and insert it (fx, Shift+F3, Insert function…)
+  functions;
   // Tables whose formula cells show results from before a change made outside Table Plus
   stale = /* @__PURE__ */ new WeakSet();
   // Tables (as rendered) with formulas: their toolbar can recalculate them
@@ -5969,6 +6303,10 @@ var Formulas = class {
    */
   editorKeyDown(e, editor) {
     if (e.ctrlKey || e.altKey || e.metaKey) return false;
+    if (e.key === "F3" && e.shiftKey && editor.row > 0 && this.allowed(editor)) {
+      this.openFunctions(editor);
+      return true;
+    }
     const choices = this.choicesNow(editor);
     if (!choices || !this.choosing) return false;
     const { index } = this.choosing;
@@ -6025,6 +6363,7 @@ var Formulas = class {
     return typed.startsWith("'=") ? escapeCell(typed.slice(1)) : void 0;
   }
   editorClosed() {
+    this.functions.close();
     this.stopPointing?.();
     this.pointed = void 0;
     this.choosing = void 0;
@@ -6048,6 +6387,34 @@ var Formulas = class {
     const tables = this.tableSource();
     if (recalculate(model, tables) !== model) this.stale.add(info.table);
     this.markCells(info, model, tables);
+  }
+  /** Insert function… in a body cell's menu: the cell edited (its formula, or a new one) and the Functions dialog for it */
+  cellMenuEntries(_widget, info, cells) {
+    const [cell] = cells;
+    if (cells.length !== 1 || !cell || cell.row === 0) return void 0;
+    const hasFormula = formulaOf(parseTable(info.source).rows[cell.row]?.cells[cell.column] ?? "") !== void 0;
+    const allowed = this.host.metadataEnabled || hasFormula;
+    return {
+      order: 0,
+      entries: [
+        {
+          kind: "item",
+          label: "Insert function\u2026",
+          icon: ICONS.function,
+          ...allowed ? { hint: hasFormula ? "Edit the cell's formula with a function found by its name or what it does" : "Start a formula in the cell with a function found by its name or what it does" } : { disabled: FORMULAS_NEED_METADATA },
+          run: () => {
+            this.host.editCell(info, cell, hasFormula ? void 0 : "replace");
+            const active = this.host.editing;
+            if (!active || active.row !== cell.row || active.column !== cell.column) return;
+            const field = active.field;
+            if (!hasFormula) field.value = "=";
+            field.setSelectionRange(field.value.length, field.value.length);
+            this.updateFormulaUi();
+            this.openFunctions(active);
+          }
+        }
+      ]
+    };
   }
   /** Formula cells marked, with their formulas and the reasons of their errors as their titles */
   markCells(info, model, tables) {
@@ -6265,6 +6632,35 @@ ${error}` : stored.formula;
     this.choosing = void 0;
     this.updateFormulaUi();
   }
+  /**
+   * The Functions dialog for the cell edited: the function picked goes where
+   * the caret was, in place of the name typed there, after a "+" where it
+   * would follow an operand (as a spreadsheet does); into a text that is no
+   * formula yet, as the formula's start (=NAME()
+   */
+  openFunctions(active) {
+    const field = active.field;
+    const length = field.value.length;
+    const start = field.selectionStart ?? length;
+    const end = field.selectionEnd ?? length;
+    const value = field.value;
+    const shown = value.trimStart().startsWith("=") ? `${value.slice(0, start)}\u258C${value.slice(end)}` : "=\u258C";
+    this.functions.open(shown, (name) => {
+      if (this.host.editing !== active) return;
+      const text = `${name}(`;
+      if (!field.value.trimStart().startsWith("=")) {
+        this.replaceInField(field, 0, field.value.length, `=${text}`);
+        field.setSelectionRange(field.value.length, field.value.length);
+      } else {
+        const typed = nameTyped(field.value, start, end) ?? { from: start, to: end };
+        const inserted = needsOperator(field.value, typed.from) ? `+${text}` : text;
+        this.replaceInField(field, typed.from, typed.to, inserted);
+        field.setSelectionRange(typed.from + inserted.length, typed.from + inserted.length);
+      }
+      this.choosing = void 0;
+      this.updateFormulaUi();
+    });
+  }
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
   pointingSlot(active) {
     if (active.row === 0 || !this.allowed(active)) return void 0;
@@ -6310,14 +6706,11 @@ ${error}` : stored.formula;
       hint.append(this.choiceList(active, choices, this.choosing.index));
       const picked2 = functionNamed(choices.names[this.choosing.index]);
       hint.append(this.helpLine({ syntax: picked2.syntax, description: picked2.description }));
-      const keys = this.host.doc.createElement("div");
-      keys.className = "tp-formula-tab";
-      keys.textContent = "Tab or Enter: insert \xB7 \u2191 \u2193: pick \xB7 Esc: close";
-      hint.append(keys);
     } else {
       const help = formulaHelp(formula, active.field.selectionStart ?? formula.length);
       if (help) hint.append(this.helpLine(help));
     }
+    hint.append(this.hintFoot(active, !!(choices && this.choosing)));
     const rect = editorRect(active);
     this.host.place(hint, rect.left, rect.bottom + 4);
     const list = hint.querySelector(".tp-formula-choices");
@@ -6351,6 +6744,25 @@ ${error}` : stored.formula;
       list.append(option);
     });
     return list;
+  }
+  /** The hint's last line: the list's keys while it shows, and fx for every function */
+  hintFoot(active, listing) {
+    const { doc } = this.host;
+    const foot = doc.createElement("div");
+    foot.className = "tp-formula-foot";
+    foot.append(Object.assign(doc.createElement("span"), { className: "tp-formula-tab", textContent: listing ? "Tab or Enter: insert \xB7 \u2191 \u2193: pick \xB7 Esc: close" : "" }));
+    const more = doc.createElement("button");
+    more.type = "button";
+    more.className = "tp-formula-functions";
+    more.title = "Every function, to find one by what it does (Shift+F3)";
+    more.innerHTML = ICONS.function;
+    more.append(" Functions\u2026");
+    more.addEventListener("mousedown", (e) => e.preventDefault());
+    more.addEventListener("click", () => {
+      if (this.host.editing === active) this.openFunctions(active);
+    });
+    foot.append(more);
+    return foot;
   }
   /** A function's syntax, the argument the caret is in marked, and what it does */
   helpLine(help) {
@@ -9758,12 +10170,14 @@ var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
     this.bridge = bridge;
+    this.dialogs = new Dialogs(doc);
     this.metadata = new Metadata(this);
     this.cellEditor = new CellEditing(this, {
       features: this.features,
       isolate: (element) => this.isolate(element),
       endHover: () => this.hoverEdited(),
       movingRows: () => this.movingRows,
+      dialogOpen: () => this.dialogs.isOpen,
       holdRow: (widget, info, row) => this.holdRow(widget, info, row),
       releaseRow: () => this.releaseRow(),
       editingEnded: (widget) => this.editingEnded(widget),
@@ -9816,6 +10230,8 @@ var Controller = class {
   cellEditor;
   // The settings dialog while open, and while it reads the settings to open
   settingsDialog;
+  // A feature's dialog (openDialog)
+  dialogs;
   settingsOpening = false;
   // Countermeasures to SilverBullet and the on-screen keyboard on touch screens (a workaround, see its file)
   touchKeyboard;
@@ -10004,6 +10420,7 @@ var Controller = class {
     this.closeTableMenu(false);
     for (const el of [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)]) el.remove();
     this.settingsDialog?.close();
+    this.dialogs.close();
   }
   onBlur = () => this.cellEditor.setNavigating(false);
   /**
@@ -11018,6 +11435,7 @@ var Controller = class {
     return { left: view.left, right: view.right, top: Math.max(view.top, visibleTop), bottom: Math.min(view.bottom, visibleBottom) };
   }
   onKeyDown = (e) => {
+    if (e.target instanceof Node && this.dialogs.contains(e.target)) return;
     if (this.settingsDialog?.isOpen && e.target instanceof Node && this.settingsDialog.contains(e.target)) return;
     this.dropAnchor();
     if (e.key === "Escape" && this.tableMenu) {
@@ -11474,8 +11892,11 @@ var Controller = class {
     button.innerHTML = icon;
     return button;
   }
+  openDialog(options) {
+    return this.dialogs.open(options);
+  }
   isFloating(node) {
-    return [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)].some((el) => el.contains(node)) || this.cellEditor.owns(node) || !!this.tableMenu?.element.contains(node) || this.features.some((f) => f.owns?.(node));
+    return [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)].some((el) => el.contains(node)) || this.cellEditor.owns(node) || this.dialogs.contains(node) || !!this.tableMenu?.element.contains(node) || this.features.some((f) => f.owns?.(node));
   }
   place(element, left, top) {
     const win = this.doc.defaultView;
@@ -12016,19 +12437,25 @@ function customFunctions(definitions) {
 }
 function customFunction(definition) {
   if (!isObject2(definition)) return "not an object";
-  const { name, syntax, description, minArgs = 0, maxArgs, call } = definition;
+  const { name, syntax, description, category, example, minArgs = 0, maxArgs, call } = definition;
   if (typeof name !== "string" || !NAME_RE3.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and . starting with a letter`;
   const upper = name.toUpperCase();
   if (CELL_RE.test(name) || upper === "TRUE" || upper === "FALSE") return `its name ${name} reads as ${upper === "TRUE" || upper === "FALSE" ? "a value" : "a cell"} in formulas`;
   if (typeof call !== "function") return `${upper} has no call function`;
   if (syntax !== void 0 && typeof syntax !== "string") return `${upper}: its syntax is not text`;
   if (description !== void 0 && typeof description !== "string") return `${upper}: its description is not text`;
+  if (category !== void 0 && !(typeof category === "string" && category in FUNCTION_CATEGORIES)) {
+    return `${upper}: its category is not one of ${Object.keys(FUNCTION_CATEGORIES).join(", ")} (none: Custom)`;
+  }
+  if (example !== void 0 && typeof example !== "string") return `${upper}: its example is not text`;
   if (!isCount(minArgs)) return `${upper}: minArgs is not a whole number of 0 or more`;
   if (maxArgs !== void 0 && (!isCount(maxArgs) || maxArgs < minArgs)) return `${upper}: maxArgs is not a whole number of minArgs or more`;
   return {
     name: upper,
     syntax: syntax ?? `${upper}(\u2026)`,
     description: description ?? "",
+    ...category === void 0 ? {} : { category },
+    ...example === void 0 ? {} : { example },
     minArgs,
     ...maxArgs === void 0 ? {} : { maxArgs },
     call: (args, context) => {

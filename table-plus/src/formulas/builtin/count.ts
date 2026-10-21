@@ -5,6 +5,8 @@ export default {
   name: "COUNT",
   syntax: "COUNT(value1, [value2], …)",
   description: "How many of the values are numbers.",
+  category: "math",
+  example: "=COUNT([qty])",
   minArgs: 1,
   call: (args) => {
     let count = 0;

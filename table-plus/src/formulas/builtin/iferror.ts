@@ -5,6 +5,8 @@ export default {
   name: "IFERROR",
   syntax: "IFERROR(value, value_if_error)",
   description: "The value, or the second value if the first is an error.",
+  category: "logic",
+  example: "=IFERROR([@price] / [@qty], 0)",
   minArgs: 2,
   maxArgs: 2,
   call: ([value, ifError]) => {

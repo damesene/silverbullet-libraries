@@ -189,6 +189,93 @@ describe("Formulas", () => {
     });
   });
 
+  describe("the Functions dialog", () => {
+    const dialog = () => document.querySelector<HTMLElement>(".tp-functions-dialog");
+    const search = () => dialog()!.querySelector<HTMLInputElement>(".tp-functions-search")!;
+    const listed = () => Array.from(dialog()!.querySelectorAll(".tp-functions-option code")).map((c) => c.textContent);
+    const picked = () => dialog()!.querySelector('.tp-functions-option[aria-selected="true"] code')?.textContent;
+    const find = (query: string) => {
+      search().value = query;
+      search().dispatchEvent(new Event("input"));
+    };
+    const edit = (value: string) => {
+      field().value = value;
+      field().setSelectionRange(value.length, value.length);
+      field().dispatchEvent(new Event("input"));
+    };
+
+    it("opens with Shift+F3, finds a function by what it does, and puts it in place of the name typed", async () => {
+      await setup(TOTAL);
+      clickOn(cell(3, 1));
+      edit("=SUM(B1)+ro");
+      key(field(), "F3", { shiftKey: true });
+      expect(dialog()).not.toBeNull();
+      expect(dialog()!.querySelector(".tp-dialog-subtitle")!.textContent).toBe("=SUM(B1)+ro▌");
+      expect(document.activeElement).toBe(search());
+      // The cell editor stays open behind it; keys typed in the dialog are the dialog's
+      expect(field().isConnected).toBe(true);
+      find("decimal places");
+      expect(listed()).toEqual(["ROUND"]);
+      expect(dialog()!.querySelector(".tp-functions-syntax")!.textContent).toBe("ROUND(number, [digits])");
+      expect(dialog()!.querySelector(".tp-functions-example code")!.textContent).toBe("=ROUND([@price] * 1.21, 2)");
+      key(search(), "Enter");
+      expect(dialog()).toBeNull();
+      expect(field().value).toBe("=SUM(B1)+ROUND(");
+      expect(document.activeElement).toBe(field());
+      expect(field().selectionStart).toBe(15);
+      expect(text).toBe(TOTAL);
+    });
+
+    it("opens from fx in the hint, shows a group, picks with the arrows; Esc leaves the formula as it was", async () => {
+      await setup(TOTAL);
+      clickOn(cell(3, 1));
+      edit("=");
+      const fx = document.querySelector<HTMLElement>(".tp-formula-functions")!;
+      const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+      fx.dispatchEvent(down);
+      expect(down.defaultPrevented).toBe(true);
+      fx.click();
+      Array.from(dialog()!.querySelectorAll<HTMLElement>(".tp-functions-group")).find((b) => b.textContent === "Logic")!.click();
+      expect(listed()).toEqual(["AND", "IF", "IFERROR", "NOT", "OR"]);
+      key(search(), "ArrowDown");
+      expect(picked()).toBe("IF");
+      key(search(), "Escape");
+      expect(dialog()).toBeNull();
+      expect(field().value).toBe("=");
+      expect(document.activeElement).toBe(field());
+      // Again: Insert puts the one picked in
+      fx.click();
+      find("if");
+      dialog()!.querySelector<HTMLElement>(".tp-dialog-primary")!.click();
+      expect(field().value).toBe("=IF(");
+    });
+
+    it("starts a formula from a cell's menu", async () => {
+      await setup(TOTAL);
+      cellMenuItem(cell(1, 1), /^Insert function/)!.click();
+      expect(field().value).toBe("=");
+      find("sum");
+      expect(picked()).toBe("SUM");
+      key(search(), "Enter");
+      expect(field().value).toBe("=SUM(");
+      key(field(), "Enter");
+      await flush();
+      await controller.scan();
+      // On a cell with a formula: its formula edited, the function after a "+" (it follows an operand)
+      cellMenuItem(cell(1, 1), /^Insert function/)!.click();
+      expect(field().value).toBe("=SUM()");
+      find("abs");
+      key(search(), "Enter");
+      expect(field().value).toBe("=SUM()+ABS(");
+      key(field(), "Escape");
+      // Without the metadata setting a new formula cannot be stored: offered, not available
+      controller.stop();
+      document.body.replaceChildren();
+      await setup(TOTAL, { "tablePlus.metadata": false });
+      expect(cellMenuItem(cell(1, 1), /^Insert function/)!.getAttribute("aria-disabled")).toBe("true");
+    });
+  });
+
   it("fixes a missing ) when the formula is saved, and says so", async () => {
     await setup(TOTAL);
     clickOn(cell(3, 1));

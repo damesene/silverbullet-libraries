@@ -6,6 +6,8 @@ export default {
   name: "DATE",
   syntax: "DATE(year, month, day)",
   description: "The date of a year, month and day; a month or day past its end carries over (DATE(2025, 13, 1) is 2026-01-01).",
+  category: "date",
+  example: "=DATE(2025, 11, 6)",
   minArgs: 3,
   maxArgs: 3,
   call: ([year, month, day]) => {

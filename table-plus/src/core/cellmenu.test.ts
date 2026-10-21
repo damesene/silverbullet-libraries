@@ -18,7 +18,7 @@ describe("Cell menu", () => {
     window.dispatchEvent(new MouseEvent("mouseup"));
   };
 
-  it("opens on a right click: naming first, then copying and clearing, then filtering", async () => {
+  it("opens on a right click: a function and naming first, then copying and clearing, then filtering", async () => {
     await setup(PAGE, { "tablePlus.metadata": true });
     clickOn(cell(2, 0));
     editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "apples";
@@ -31,7 +31,7 @@ describe("Cell menu", () => {
     await controller.scan();
     rightClick(cell(1, 1));
     expect(menu()!.querySelector(".tp-menu-title")!.textContent).toBe("Cell: Qty, row 1");
-    expect(entries()).toEqual(["Name cell", "Name row", "—", "Copy", "Clear", "—", "Filter: = 3", "Filter: ≠ 3"]);
+    expect(entries()).toEqual(["Insert function…", "—", "Name cell", "Name row", "—", "Copy", "Clear", "—", "Filter: = 3", "Filter: ≠ 3"]);
     // A header: its name, no clearing, no filter
     rightClick(cell(0, 1));
     expect(entries()).toEqual(["Name column", "—", "Copy"]);

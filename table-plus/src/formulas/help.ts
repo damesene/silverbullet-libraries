@@ -1,7 +1,9 @@
 // Help while a formula is typed: the functions a name typed may be, the
 // function's syntax (the argument typed marked) and description, where a
-// pointed reference goes.
+// pointed reference goes; and the functions found by what they are or do
+// (the Functions dialog).
 import { CELL_RE } from "../names.ts";
+import type { FormulaFunction, FunctionCategory } from "./function.ts";
 import { functionNamed, functionNames } from "./registry.ts";
 import { tokenize } from "./tokens.ts";
 
@@ -51,6 +53,15 @@ export function referenceSlot(
   return BEFORE_OPERAND.has(before[before.length - 1] ?? "") ? { from: start, to: end } : undefined;
 }
 
+/**
+ * Whether a function put at `at` in a formula needs an operator before it: it
+ * follows an operand (A1, 3, a ")"), not "=", "(", "," or an operator
+ */
+export function needsOperator(formula: string, at: number): boolean {
+  const before = formula.slice(0, at).trimEnd();
+  return before !== "" && !BEFORE_OPERAND.has(before[before.length - 1]!);
+}
+
 /** The functions a name typed right before the caret may be: their names, and where the name is (from..to) */
 export type FunctionChoices = { readonly from: number; readonly to: number; readonly names: readonly string[] };
 
@@ -62,16 +73,27 @@ export type FunctionChoices = { readonly from: number; readonly to: number; read
  * there, or when no function starts so.
  */
 export function functionChoices(text: string, start: number, end: number): FunctionChoices | undefined {
+  const typed = nameTyped(text, start, end);
+  if (!typed) return undefined;
+  const prefix = text.slice(typed.from, typed.to).toUpperCase();
+  const names = functionNames()
+    .filter((name) => name.startsWith(prefix))
+    .sort((a, b) => Number(b === prefix) - Number(a === prefix) || a.localeCompare(b));
+  return names.length ? { ...typed, names } : undefined;
+}
+
+/**
+ * The name typed right before the caret (the selection empty at
+ * `start`..`end`), where a function's name goes: undefined in a text in
+ * quotes, for a cell (A1), in the middle of a name or before a "(" already there
+ */
+export function nameTyped(text: string, start: number, end: number): { from: number; to: number } | undefined {
   if (start !== end || !text.trimStart().startsWith("=")) return undefined;
   const before = text.slice(0, start);
   const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
   if (!typing || CELL_RE.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return undefined;
   if (tokenize(before).error) return undefined;
-  const prefix = typing.toUpperCase();
-  const names = functionNames()
-    .filter((name) => name.startsWith(prefix))
-    .sort((a, b) => Number(b === prefix) - Number(a === prefix) || a.localeCompare(b));
-  return names.length ? { from: start - typing.length, to: start, names } : undefined;
+  return { from: start - typing.length, to: start };
 }
 
 /**
@@ -131,4 +153,27 @@ export function argumentSpan(syntax: string, index: number): { from: number; to:
   const repeats = args.length > 0 && syntax.slice(args[args.length - 1]!.from, args[args.length - 1]!.to) === "…";
   if (index < args.length && !(repeats && index === args.length - 1)) return args[index];
   return repeats ? args[Math.max(0, args.length - 2)] : undefined;
+}
+
+/**
+ * The functions of a group ("custom": those without one; undefined: all)
+ * whose name or description has every word of `query` (in any case): those
+ * whose name starts with it first, then those with it in their name, then
+ * the others, each in order of their names
+ */
+export function findFunctions(query: string, category?: FunctionCategory | "custom"): FormulaFunction[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const name = words.join("");
+  const rank = (f: FormulaFunction) => {
+    const lower = f.name.toLowerCase();
+    return lower.startsWith(name) ? 0 : lower.includes(name) ? 1 : 2;
+  };
+  return functionNames()
+    .map((n) => functionNamed(n)!)
+    .filter((f) => category === undefined || (f.category ?? "custom") === category)
+    .filter((f) => {
+      const text = `${f.name} ${f.description}`.toLowerCase();
+      return words.every((word) => text.includes(word));
+    })
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }

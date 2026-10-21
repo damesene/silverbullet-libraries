@@ -6,6 +6,8 @@ export default {
   name: "YEAR",
   syntax: "YEAR(date)",
   description: "The year of a date.",
+  category: "date",
+  example: "=YEAR([@date])",
   minArgs: 1,
   maxArgs: 1,
   call: ([date]) => {

@@ -42,6 +42,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Enter | Save, edit the cell below (with the `save` setting: only save) |
 | Ctrl+Enter | Save, add a row below, edit it |
 | Esc | Cancel; the cell stays selected (marked) for the keys of [[#Copying cells]], a second Esc ends that |
+| Shift+F3 | In a formula: the *Functions* dialog, to find a function and insert it, see [[#Functions]] |
 | F2 | Go on in the cell's popup: the whole text wrapped (a long text or formula), see [[#Long text in cells (`tablePlus.modules.longText`)]] |
 | Tab | Save, edit the next cell |
 | Shift+Tab | Save, edit the previous cell |
@@ -85,6 +86,7 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 
 | Item | What it does |
 |---|---|
+| *Insert function…* | Edits the cell (its formula, or a new one) with the *Functions* dialog, see [[#Functions]]. Needs *Store table metadata* for a new formula. |
 | *Name cell*, *Name row* | Names the cell, see [[#Named cells]], or its row, see [[#Named rows]]; on a header *Name column*, see [[#Named columns]]. |
 | *Copy* | Copies the cell (the cells selected) as Ctrl+C does. |
 | *Clear* | Empties the cell (the cells selected) as Delete does; a header keeps its name. |
@@ -92,7 +94,7 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 | *Filter: ≠ value* | Hides the rows with this value in this column. |
 | *Delete N rows*, *Delete N columns* | On a selection: deletes the rows (columns) its cells are in. A table keeps at least one column. |
 
-Each comes from a module (`names`, `selection`, `filters`, see [[#Settings]]): a module turned off leaves its items out, and with none left the right click gives the browser's menu.
+Each comes from a module (`formulas`, `names`, `selection`, `filters`, see [[#Settings]]): a module turned off leaves its items out, and with none left the right click gives the browser's menu.
 
 ## Pasting from a spreadsheet
 
@@ -269,6 +271,8 @@ The page's name in double brackets goes before the table's name: `[[Prices]]frui
 
 ### Functions
 
+The *Functions* dialog shows them all: **Functions…** (fx) under a formula being edited, Shift+F3 in it, or *Insert function…* in a cell's menu. Search by a name or by what a function does (`date`, `decimal places`), or pick a group (*Math*, *Logic*, *Text*, *Date & time*, *Lookup & table*, *Custom* for your own); each shows its syntax, what it does and an example. ↑ / ↓ pick one, Enter (or *Insert*, or a double click) puts it into the formula where the cursor was, in place of a name typed there (after a `+` where it would follow a value: `=A1` gives `=A1+SUM(`); Esc leaves the formula as it was. The cell's editor stays open behind the dialog.
+
 | Function | Description |
 |---|---|
 | `SUM(number1, [number2], …)` | Adds numbers, cells and ranges; times add up to a time (14:00 and 20:00 are 34:00). |
@@ -337,7 +341,7 @@ tablePlus.defineFunctions(js.importFromSpace("Library/me/functions.js"))
 
 Then `=VAT([@price])` works in every table, and typing it shows its syntax and description.
 
-* The file's default export is the list of functions, or a function that gets Table Plus' helpers (below) and returns the list. Each function has a `name` (letters, digits, `_` and `.`, starting with a letter, not one that reads as a cell such as `LOG2`; formulas may write it in any case), a `call`, and optionally `syntax` and `description` (shown while typing a formula), `minArgs` (default 0) and `maxArgs` (default: any number).
+* The file's default export is the list of functions, or a function that gets Table Plus' helpers (below) and returns the list. Each function has a `name` (letters, digits, `_` and `.`, starting with a letter, not one that reads as a cell such as `LOG2`; formulas may write it in any case), a `call`, and optionally `syntax` and `description` (shown while typing a formula), `category` (its group in the *Functions* dialog: `math`, `logic`, `text`, `date` or `lookup`; none: *Custom*), `example` (a formula using it, shown there), `minArgs` (default 0) and `maxArgs` (default: any number).
 * `call(args, place)` gets the arguments' values: a number, a text, `true` or `false`, `null` for an empty cell, a time (`TimeValue`) or an error (`FormulaError`); a reference (`A1`, `[@price]`, `A1:A5`, `[qty]`) is the list of its cells' values, one for one cell, as the built-in functions get them (so `SUM(A1)` skips a text there as in a range). `toNumber`, `toText` and `single` take a one-cell list as its value. `place` is where the formula is: `{ row, column }`, 1 the first row under the header and the first column. It returns one value: a number, a text, `true` or `false`, `null` (empty), a time or an error.
 * It must give its result at once, from its arguments only: it is called whenever the table is calculated, and its result is written into the cell. It cannot wait for anything (a query, another page): a function that returns a promise gives `#VALUE!`. For data from SilverBullet, a cell with a Lua expression (`${…}`) shows it.
 * A function that throws gives `#VALUE!` with its message (on the cell's hover), as does one that returns a list or an object; one that throws a `FormulaError` gives that error.
@@ -1903,6 +1907,262 @@ body.tp-resizing * {
   opacity: 0.45;
   cursor: default;
 }
+/* A feature's dialog (the Functions dialog): as the settings dialog looks */
+.tp-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--modal-backdrop-color, rgba(0, 0, 0, 0.35));
+  font-family: var(--ui-font, system-ui, sans-serif);
+}
+.tp-dialog {
+  --tp-dialog-line: var(--button-border-color, rgba(128, 128, 128, 0.3));
+  --tp-dialog-card: color-mix(in srgb, var(--root-color) 4%, var(--root-background-color));
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  color: var(--root-color);
+  background: var(--root-background-color);
+  border: 1px solid var(--tp-dialog-line);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  font-size: 14px;
+  overflow: hidden;
+}
+.tp-dialog:focus {
+  outline: none;
+}
+.tp-dialog button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.tp-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px 16px 8px;
+}
+.tp-dialog-titles {
+  flex: 1;
+  min-width: 0;
+}
+.tp-dialog-title {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+}
+.tp-dialog-subtitle {
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-family: var(--editor-font, monospace);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.65;
+}
+.tp-dialog-close {
+  display: inline-flex;
+  padding: 5px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  opacity: 0.65;
+}
+.tp-dialog-close:hover {
+  opacity: 1;
+  background: var(--tp-dialog-card);
+}
+.tp-dialog-close svg {
+  width: 16px;
+  height: 16px;
+}
+.tp-dialog-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 16px 12px;
+}
+.tp-dialog-foot {
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--tp-dialog-line);
+}
+.tp-dialog-button,
+.tp-dialog-primary {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--tp-dialog-line);
+  background: var(--root-background-color);
+}
+.tp-dialog-primary {
+  color: #fff !important;
+  background: var(--ui-accent-color);
+  border-color: var(--ui-accent-color);
+}
+.tp-dialog-primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.tp-dialog-note {
+  flex: 1;
+  font-size: 12px;
+  opacity: 0.75;
+}
+/* The Functions dialog: a search, the groups, the list beside the one picked */
+.tp-functions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.tp-functions-search {
+  padding: 7px 10px;
+  font: inherit;
+  color: inherit;
+  background: var(--root-background-color);
+  border: 1px solid var(--tp-dialog-line);
+  border-radius: 6px;
+}
+.tp-functions-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tp-functions-group {
+  padding: 3px 10px;
+  font-size: 13px !important;
+  background: none;
+  border: 1px solid var(--tp-dialog-line);
+  border-radius: 999px;
+}
+.tp-functions-group[aria-pressed="true"] {
+  color: #fff !important;
+  background: var(--ui-accent-color);
+  border-color: var(--ui-accent-color);
+}
+.tp-functions-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 12px;
+  height: min(340px, 50vh);
+  min-height: 0;
+}
+.tp-functions-list {
+  position: relative;
+  overflow-y: auto;
+  border: 1px solid var(--tp-dialog-line);
+  border-radius: 6px;
+}
+.tp-functions-option {
+  display: flex;
+  flex-direction: column;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.tp-functions-option code {
+  font-weight: 600;
+}
+.tp-functions-option span {
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.7;
+}
+.tp-functions-option:hover {
+  background: var(--tp-dialog-card);
+}
+.tp-functions-option[aria-selected="true"] {
+  background: color-mix(in srgb, var(--ui-accent-color, #4a7cc7) 18%, transparent);
+}
+.tp-functions-none {
+  margin: 10px;
+  opacity: 0.7;
+}
+.tp-functions-detail {
+  overflow-y: auto;
+}
+.tp-functions-name {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.tp-functions-syntax {
+  display: block;
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+.tp-functions-description {
+  margin: 8px 0;
+  line-height: 1.45;
+}
+.tp-functions-example {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--tp-dialog-card);
+  border-radius: 6px;
+}
+.tp-functions-example code {
+  white-space: pre-wrap;
+}
+.tp-functions-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+.tp-functions-group-name {
+  margin: 8px 0 0;
+  font-size: 12px;
+  opacity: 0.6;
+}
+.tp-functions-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* A phone: the dialog takes the screen, the list above the one picked, larger targets for a finger */
+@media (max-width: 480px), (pointer: coarse) and (max-height: 600px) {
+  .tp-dialog {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+  .tp-dialog-body {
+    flex: 1 1 auto;
+  }
+  .tp-functions {
+    flex: 1 1 auto;
+  }
+  .tp-functions-search {
+    font-size: 16px;
+  }
+  .tp-functions-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    flex: 1 1 auto;
+    height: auto;
+  }
+  .tp-functions-detail {
+    max-height: 40vh;
+  }
+  .tp-functions-option {
+    padding: 9px 12px;
+  }
+  .tp-dialog-button,
+  .tp-dialog-primary {
+    padding: 10px 18px;
+  }
+}
 /* A phone: the dialog takes the screen (the buttons always at its bottom), fields
    in 16px (no zoom on focus), larger targets for a finger */
 @media (max-width: 480px), (pointer: coarse) and (max-height: 600px) {
@@ -2764,6 +3024,35 @@ body.tp-autoscrolling * {
 .tp-formula-choices + .tp-formula-help {
   padding-top: 4px;
   border-top: 1px solid var(--button-border-color);
+}
+.tp-formula-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tp-formula-foot .tp-formula-tab {
+  flex: 1;
+}
+.tp-formula-functions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid var(--button-border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  pointer-events: auto;
+  opacity: 0.8;
+}
+.tp-formula-functions:hover {
+  opacity: 1;
+}
+.tp-formula-functions svg {
+  width: 13px;
+  height: 13px;
 }
 .tp-floating.tp-ref-mark {
   z-index: 49;

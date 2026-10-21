@@ -6,6 +6,8 @@ export default {
   name: "AVERAGE",
   syntax: "AVERAGE(number1, [number2], …)",
   description: "The arithmetic mean of the numbers, or of the times.",
+  category: "math",
+  example: "=AVERAGE(B1:B3)",
   minArgs: 1,
   call: (args) =>
     withNumbers(args, (ns) =>

@@ -5,6 +5,8 @@ export default {
   name: "CONCAT",
   syntax: "CONCAT(text1, [text2], …)",
   description: "Joins the values into one text.",
+  category: "text",
+  example: '=CONCAT([@first], " ", [@last])',
   minArgs: 1,
   call: (args) => {
     const error = firstError(args);

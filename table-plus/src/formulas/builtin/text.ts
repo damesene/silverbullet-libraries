@@ -60,6 +60,8 @@ export default {
   syntax: "TEXT(value, format)",
   description:
     'A date or a time as text in a format: TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is.',
+  category: "text",
+  example: '=TEXT([@due], "dd.mm.yyyy")',
   minArgs: 2,
   maxArgs: 2,
   call: ([value, format]) => {

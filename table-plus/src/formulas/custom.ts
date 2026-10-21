@@ -20,7 +20,7 @@ import {
   toText,
 } from "./values.ts";
 import { CELL_RE } from "../names.ts";
-import type { FormulaFunction } from "./function.ts";
+import { FUNCTION_CATEGORIES, type FormulaFunction, type FunctionCategory } from "./function.ts";
 
 /** The conversions the built-in functions use, for custom functions (a definitions function gets them) */
 export const HELPERS = {
@@ -72,7 +72,7 @@ export function customFunctions(definitions: unknown): { functions: FormulaFunct
 /** One definition as a function formulas can call, or what is wrong with it */
 function customFunction(definition: unknown): FormulaFunction | string {
   if (!isObject(definition)) return "not an object";
-  const { name, syntax, description, minArgs = 0, maxArgs, call } = definition;
+  const { name, syntax, description, category, example, minArgs = 0, maxArgs, call } = definition;
   if (typeof name !== "string" || !NAME_RE.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and . starting with a letter`;
   const upper = name.toUpperCase();
   // Formulas would read it as a cell (LOG2 is the cell in column LOG) or a value
@@ -80,12 +80,18 @@ function customFunction(definition: unknown): FormulaFunction | string {
   if (typeof call !== "function") return `${upper} has no call function`;
   if (syntax !== undefined && typeof syntax !== "string") return `${upper}: its syntax is not text`;
   if (description !== undefined && typeof description !== "string") return `${upper}: its description is not text`;
+  if (category !== undefined && !(typeof category === "string" && category in FUNCTION_CATEGORIES)) {
+    return `${upper}: its category is not one of ${Object.keys(FUNCTION_CATEGORIES).join(", ")} (none: Custom)`;
+  }
+  if (example !== undefined && typeof example !== "string") return `${upper}: its example is not text`;
   if (!isCount(minArgs)) return `${upper}: minArgs is not a whole number of 0 or more`;
   if (maxArgs !== undefined && (!isCount(maxArgs) || maxArgs < minArgs)) return `${upper}: maxArgs is not a whole number of minArgs or more`;
   return {
     name: upper,
     syntax: syntax ?? `${upper}(…)`,
     description: description ?? "",
+    ...(category === undefined ? {} : { category: category as FunctionCategory }),
+    ...(example === undefined ? {} : { example }),
     minArgs,
     ...(maxArgs === undefined ? {} : { maxArgs }),
     call: (args, context) => {

@@ -23,5 +23,6 @@ export { type Area, areaText, callsCustomFunctions, cellName, cellNamesOf, colum
 export { autofixFormula, type FormulaFix } from "./autofix.ts";
 export { formulaErrors, type NamedCell, recalculate, type TableSource } from "./evaluate.ts";
 export { calculatedFormula, followTable, formulasAfterEdit, shiftReferences, withCalculatedCells, withoutFormulas } from "./edits.ts";
-export { argumentSpan, type FormulaHelp, formulaHelp, functionChoices, type FunctionChoices, type PointedSpan, REFERENCE_HELP, referenceSlot } from "./help.ts";
+export { argumentSpan, findFunctions, type FormulaHelp, formulaHelp, functionChoices, type FunctionChoices, nameTyped, needsOperator, type PointedSpan, REFERENCE_HELP, referenceSlot } from "./help.ts";
+export { FUNCTION_CATEGORIES, type FormulaFunction, type FunctionCategory } from "./function.ts";
 export type { IndexMap } from "../ops.ts";

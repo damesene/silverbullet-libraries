@@ -6,6 +6,8 @@ export default {
   syntax: "XLOOKUP(value, lookup_range, result_range, [if_not_found])",
   description:
     'Finds the value in one range or column and gives the value in the same place of another, e.g. XLOOKUP("Pear", prices![Name], prices![Price]); text is found ignoring case. Not found: if_not_found, else #N/A.',
+  category: "lookup",
+  example: "=XLOOKUP([@fruit], prices![name], prices![price])",
   minArgs: 3,
   maxArgs: 4,
   call: ([value, lookIn, results, notFound]) => {

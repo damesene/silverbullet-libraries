@@ -53,6 +53,8 @@ export const ICONS = {
   // Sorted lines with a check: make the sorting the real order
   applySort: svg('<path d="M4 6h9M4 12h7M4 18h5M14 15l3 3 5-6"/>'),
   // Two arrows round: calculate again
+  // fx: a formula's function (the Functions dialog)
+  function: svg('<path d="M8 20c2 0 2.6-1.4 3-3.5l2-10C13.4 4.4 14 3 16 3M8 9h7M14 13l6 7M20 13l-6 7"/>'),
   recalculate: svg('<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'),
   filter: svg('<path d="M3 5h18l-7 8v6l-4-2v-4z"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'),

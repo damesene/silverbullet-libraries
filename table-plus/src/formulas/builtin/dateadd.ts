@@ -7,6 +7,8 @@ export default {
   syntax: 'DATEADD(date, amount, unit)',
   description:
     'The date plus an amount of a unit: "s", "min", "h", "d", "w", "m" (months) or "y" (or their names, "hours"). A negative amount goes back. Months and years keep the day or take the month\'s last.',
+  category: "date",
+  example: '=DATEADD([@start], 7, "d")',
   minArgs: 3,
   maxArgs: 3,
   call: ([date, amount, unit]) => {

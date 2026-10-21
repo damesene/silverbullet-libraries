@@ -5,6 +5,8 @@ export default {
   name: "ABS",
   syntax: "ABS(number)",
   description: "The number without its sign.",
+  category: "math",
+  example: "=ABS([@change])",
   minArgs: 1,
   maxArgs: 1,
   call: ([number]) => {

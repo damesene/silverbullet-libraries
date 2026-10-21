@@ -58,6 +58,8 @@ export type EditorContext = {
   endHover(): void;
   // Rows are being rearranged: the field losing its focus to that is not leaving it
   movingRows(): boolean;
+  // A feature's dialog is open (TableHost.openDialog): the field losing its focus to it is not leaving it either
+  dialogOpen(): boolean;
   // A row is entered: it stays where it is shown, sorting and filters notwithstanding, until it is left
   holdRow(widget: HTMLElement, info: WidgetInfo, row: number): void;
   // The row held is left: sorting and filters place it
@@ -176,7 +178,7 @@ export class CellEditing {
     this.context.isolate(field);
     field.addEventListener("blur", () => {
       // Focus went elsewhere on purpose: save, but leave the focus there
-      if (this.editor?.field === field && !this.context.movingRows()) void this.finish(true, undefined, false);
+      if (this.editor?.field === field && !this.context.movingRows() && !this.context.dialogOpen()) void this.finish(true, undefined, false);
     });
     // (Through HTMLElement: on the input | textarea union the events lose their types)
     (field as HTMLElement).addEventListener("keydown", (e) => {

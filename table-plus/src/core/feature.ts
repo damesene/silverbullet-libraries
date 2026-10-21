@@ -2,6 +2,9 @@
 // enhances tables, routes events and writes tables; each feature keeps its own
 // state and listeners and works through the host.
 import type { Bridge, FeatureName, SETTINGS, SettingValue } from "../bridge.ts";
+import type { Dialog, DialogOptions } from "./dialog.ts";
+
+export type { Dialog, DialogOptions } from "./dialog.ts";
 import type { IndexMap } from "../ops.ts";
 import type { OtherPages, PageTable, Table } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
@@ -151,6 +154,12 @@ export interface TableHost {
   shownRows(info: WidgetInfo): HTMLTableRowElement[];
   /** Whether a node is one of Table Plus' floating controls (toolbar, grips, menus) */
   isFloating(node: Node): boolean;
+  /**
+   * Opens a feature's modal dialog over the page (one at a time): its keys and
+   * presses are its own, Esc or a press beside it closes it, the focus goes
+   * back where it was; the cell editor stays open meanwhile
+   */
+  openDialog(options: DialogOptions): Dialog;
   /** Re-reads the table, applies `change` and writes it back as one edit */
   write(widget: HTMLElement, change: (table: Table) => Table | undefined, options?: WriteOptions): Promise<WriteResult>;
   /** Closes the cell editor without saving, and drops a cell waiting to be edited */

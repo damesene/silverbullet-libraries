@@ -6,6 +6,8 @@ export default {
   name: "MONTH",
   syntax: "MONTH(date)",
   description: "The month of a date, 1 to 12.",
+  category: "date",
+  example: "=MONTH([@date])",
   minArgs: 1,
   maxArgs: 1,
   call: ([date]) => {

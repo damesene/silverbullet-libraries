@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import libraryPage from "../../../table-plus.md?raw";
 import { BUILT_IN_FUNCTIONS as FUNCTIONS } from "./index.ts";
-import { FormulaError, parseClock, toText, type Value } from "../values.ts";
+import { FUNCTION_CATEGORIES } from "../function.ts";
+import { parse } from "../parser.ts";
+import { FormulaError, isError, parseClock, toText, type Value } from "../values.ts";
 
 // Called in the first cell (A1); ROW() tests set the place itself
 const call = (name: string, ...args: Value[]) => FUNCTIONS[name]!.call(args, { row: 1, column: 1 });
@@ -14,6 +16,10 @@ describe("FUNCTIONS", () => {
     expect(f.description).not.toBe("");
     // The Functions table in table-plus.md: | `SYNTAX` | Description |
     expect(libraryPage).toContain(`| \`${f.syntax}\` | ${f.description} |`);
+    // In a group of the Functions dialog, with an example of it that formulas read
+    expect(Object.keys(FUNCTION_CATEGORIES)).toContain(f.category);
+    expect(f.example!.startsWith("=") && f.example!.includes(`${name}(`)).toBe(true);
+    expect(isError(parse(f.example!))).toBe(false);
   });
 
   it("takes ranges, skipping empty cells and text in them", () => {

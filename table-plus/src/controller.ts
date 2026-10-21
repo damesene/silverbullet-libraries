@@ -16,6 +16,7 @@ import type {
   WriteStep,
   MetadataPart,
 } from "./core/feature.ts";
+import { type Dialog, type DialogOptions, Dialogs } from "./core/dialog.ts";
 import { CellEditing } from "./core/editor.ts";
 import { insertColumnWith, insertRowWith } from "./core/structure.ts";
 import { TouchKeyboard } from "./core/touch-keyboard.ts";
@@ -189,6 +190,8 @@ export class Controller implements TableHost {
   private readonly cellEditor: CellEditing;
   // The settings dialog while open, and while it reads the settings to open
   private settingsDialog: SettingsDialog | undefined;
+  // A feature's dialog (openDialog)
+  private readonly dialogs: Dialogs;
   private settingsOpening = false;
   // Countermeasures to SilverBullet and the on-screen keyboard on touch screens (a workaround, see its file)
   private readonly touchKeyboard: TouchKeyboard;
@@ -256,12 +259,14 @@ export class Controller implements TableHost {
     readonly doc: Document,
     public bridge: Bridge,
   ) {
+    this.dialogs = new Dialogs(doc);
     this.metadata = new Metadata(this);
     this.cellEditor = new CellEditing(this, {
       features: this.features,
       isolate: (element) => this.isolate(element),
       endHover: () => this.hoverEdited(),
       movingRows: () => this.movingRows,
+      dialogOpen: () => this.dialogs.isOpen,
       holdRow: (widget, info, row) => this.holdRow(widget, info, row),
       releaseRow: () => this.releaseRow(),
       editingEnded: (widget) => this.editingEnded(widget),
@@ -429,6 +434,7 @@ export class Controller implements TableHost {
     this.closeTableMenu(false);
     for (const el of [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)]) el.remove();
     this.settingsDialog?.close();
+    this.dialogs.close();
   }
 
   private onBlur = (): void => this.cellEditor.setNavigating(false);
@@ -1623,7 +1629,8 @@ export class Controller implements TableHost {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
-    // The settings dialog's keys are its own (not a selected cell's, not the table menu's)
+    // The settings dialog's keys are its own (not a selected cell's, not the table menu's), a feature's dialog's too
+    if (e.target instanceof Node && this.dialogs.contains(e.target)) return;
     if (this.settingsDialog?.isOpen && e.target instanceof Node && this.settingsDialog.contains(e.target)) return;
     // Keys may scroll (PageDown, a cell editor moving to the next cell): a table written is not held in place against them
     this.dropAnchor();
@@ -2185,10 +2192,15 @@ export class Controller implements TableHost {
     return button;
   }
 
+  openDialog(options: DialogOptions): Dialog {
+    return this.dialogs.open(options);
+  }
+
   isFloating(node: Node): boolean {
     return (
       [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)].some((el) => el.contains(node)) ||
       this.cellEditor.owns(node) ||
+      this.dialogs.contains(node) ||
       !!this.tableMenu?.element.contains(node) ||
       this.features.some((f) => f.owns?.(node))
     );

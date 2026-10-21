@@ -6,6 +6,8 @@ import {
   cellNamesOf,
   columnLetters,
   argumentSpan,
+  findFunctions,
+  needsOperator,
   followTable,
   formulaCell,
   formulaErrors,
@@ -499,6 +501,34 @@ describe("formulaHelp", () => {
     expect(formulaHelp("=", 1)).toEqual(REFERENCE_HELP);
     expect(formulaHelp("=SU", 3)).toEqual(REFERENCE_HELP); // a name typed: the list of functions shows instead
     expect(formulaHelp("text", 2)).toBeUndefined();
+  });
+});
+
+describe("findFunctions", () => {
+  const names = (query: string, category?: Parameters<typeof findFunctions>[1]) => findFunctions(query, category).map((f) => f.name);
+  it("finds functions by their names first, then by what they do", () => {
+    expect(names("sum")[0]).toBe("SUM");
+    // A name starting so, then one containing it, then the descriptions
+    expect(names("count")).toEqual(["COUNT", "COUNTA", "ROW"]); // ROW: "counted in the table"
+    expect(names("date").slice(0, 3)).toEqual(["DATE", "DATEADD", "DATEDIF"]);
+    expect(names("date")).toContain("TODAY"); // "Today's date"
+    // Every word, in any order and case
+    expect(names("ROUNDS decimal")).toEqual(["ROUND"]);
+    expect(names("nothing like this")).toEqual([]);
+    expect(names("").length).toBeGreaterThan(30);
+  });
+
+  it("finds them in a group", () => {
+    expect(names("", "logic")).toEqual(["AND", "IF", "IFERROR", "NOT", "OR"]);
+    expect(names("", "lookup")).toEqual(["ROW", "XLOOKUP"]);
+    expect(names("", "custom")).toEqual([]);
+  });
+});
+
+describe("needsOperator", () => {
+  it("says where a function would follow an operand", () => {
+    expect(["=", "=SUM(", "=A1+", "=IF(A1, ", "=A1 * "].map((f) => needsOperator(f, f.length))).toEqual([false, false, false, false, false]);
+    expect(["=A1", "=VAT([@price])", "=3 ", '="a"'].map((f) => needsOperator(f, f.length))).toEqual([true, true, true, true]);
   });
 });
 

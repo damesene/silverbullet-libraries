@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { clearCustomFunctions, defineCustomFunctions, functionNamed, functionNames, customFunctionsAnew } from "./registry.ts";
 import { BUILT_IN_FUNCTIONS } from "./builtin/index.ts";
 import { HELPERS, customFunctions } from "./custom.ts";
-import { formulaHelp, functionChoices, recalculate } from "./index.ts";
+import { findFunctions, formulaHelp, functionChoices, recalculate } from "./index.ts";
 import { parseTable } from "../markdown.ts";
 import { FormulaError, TimeValue, toNumber, type Value } from "./values.ts";
 
@@ -87,6 +87,16 @@ describe("custom functions", () => {
     ).toBe(error);
     // A code formulas do not know would not read as an error once written
     expect((result(() => new FormulaError("#OOPS" as "#N/A", "x")) as FormulaError).detail).toContain("gave the error #OOPS");
+  });
+
+  it("take a group of the Functions dialog (none: Custom) and an example", () => {
+    defineCustomFunctions([only([{ name: "VAT", category: "math", example: "=VAT([@price])", call: () => 1 }]), only([{ name: "MINE", call: () => 1 }])]);
+    expect(findFunctions("", "math").map((f) => f.name)).toContain("VAT");
+    expect(findFunctions("", "custom").map((f) => f.name)).toEqual(["MINE"]);
+    expect(functionNamed("VAT")!.example).toBe("=VAT([@price])");
+    expect(customFunctions([{ name: "BAD", category: "money", call: () => 1 }]).problems).toEqual([
+      "function 1: BAD: its category is not one of math, logic, text, date, lookup (none: Custom)",
+    ]);
   });
 
   it("are called by formulas, replace a built-in function of their name, and are forgotten when cleared", () => {

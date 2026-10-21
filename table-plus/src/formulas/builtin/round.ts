@@ -5,6 +5,8 @@ export default {
   name: "ROUND",
   syntax: "ROUND(number, [digits])",
   description: "Rounds to the given number of decimal places (default 0), halves away from zero.",
+  category: "math",
+  example: "=ROUND([@price] * 1.21, 2)",
   minArgs: 1,
   maxArgs: 2,
   call: ([number, digits = 0]) => {
