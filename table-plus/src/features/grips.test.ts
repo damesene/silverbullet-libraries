@@ -172,12 +172,19 @@ describe("Row and column grips", () => {
     expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 1");
     grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, shiftKey: true }));
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-    // Rows picked as with Select rows: no menu, the pointer moves the end, a click in the table ends it
+    // Rows 1 to 3 selected at once: no menu, nothing to pick with the pointer
     expect(editor.querySelectorAll(".tp-selected").length).toBe(6);
     expect(document.querySelector(".tp-menu")).toBeNull();
     cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(editor.querySelectorAll(".tp-selected").length).toBe(6);
+    // Shift+click on the second row's: from the first again, rows 1 and 2
+    cell(2, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, shiftKey: true }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
     expect(editor.querySelectorAll(".tp-selected").length).toBe(4);
-    clickOn(cell(3, 1));
+    cell(3, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, shiftKey: true }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
     expect(editor.querySelectorAll(".tp-selected").length).toBe(6);
     item(openMenu(2, "row"), "Delete 3 rows").click();
     await flush();

@@ -80,6 +80,8 @@ export class Grips implements Feature {
   private picking: { readonly key: string; readonly axis: Axis; readonly from: number } | undefined;
   // The grips select lines themselves (their menu stays for them)
   private selectingLines = false;
+  // The line a grip's click selected last: Shift+click on another grip selects from it, as a spreadsheet's anchor
+  private lineAnchor: { readonly key: string; readonly axis: Axis; readonly line: number } | undefined;
   // The press on a grip going on opened its menu otherwise (a right click: macOS's Ctrl+click, Android's long press): its end does nothing
   private pressOpenedMenu = false;
   // The lines selected whole, by table and axis, worked out once per selection (a grip is marked on every hover)
@@ -334,9 +336,10 @@ export class Grips implements Feature {
       if (drag) drag.finish(true);
       else if (pressedLong || this.pressOpenedMenu) return;
       else if (extend) {
-        // Shift+click: rows (columns) selected as with Select rows, on from those selected
+        // Shift+click: the rows (columns) from those selected to this one, at once
         this.closeMenu(false, false);
-        this.pickFrom(target, axis);
+        this.extendTo(target, axis);
+        this.markGrips();
       } else if (this.host.clickSelects() && !wasSelected) {
         // Select mode: a first click selects the row (column), as a click selects a cell; a second opens its menu
         this.closeMenu(false, false);
@@ -373,6 +376,7 @@ export class Grips implements Feature {
     // A row of the whole rows selected: they stay selected, for its menu (Delete 3 rows)
     const lines = this.wholeLinesSelected(info, axis);
     if (lines.length > 1 && lines.includes(line)) return;
+    this.lineAnchor = { key: info.key, axis, line };
     this.selectLines(info, axis, line, line);
   }
 
@@ -384,13 +388,27 @@ export class Grips implements Feature {
     return lines.length > 0 && cells.length === lines.length * whole && (axis === "column" || !lines.includes(0)) ? lines : [];
   }
 
-  /** Shift+click on a grip: selecting rows (columns) from the far end of those selected whole, else from this one */
-  private pickFrom(target: HandleTarget, axis: Axis): void {
+  /**
+   * Shift+click on a grip: the rows (columns) from the one a click selected
+   * (the anchor, while still selected), else from the first of those selected
+   * whole, else from the cells selected, to this one
+   */
+  private extendTo(target: HandleTarget, axis: Axis): void {
+    const { info } = target;
     const line = axis === "row" ? target.row! : target.column;
-    const lines = this.wholeLinesSelected(target.info, axis);
-    const from = lines.length === 0 ? line : lines[0] === line ? lines[lines.length - 1]! : lines[0]!;
-    this.startPicking(target.info, axis, from);
-    this.selectLines(target.info, axis, from, line);
+    const lines = this.wholeLinesSelected(info, axis);
+    const anchor = this.lineAnchor;
+    const cells = this.host.selectedCells(info);
+    const fromCell = cells[0] && (axis === "row" ? (cells[0].row > 0 ? cells[0].row : undefined) : cells[0].column);
+    const from =
+      anchor && anchor.key === info.key && anchor.axis === axis && lines.includes(anchor.line)
+        ? anchor.line
+        : lines.length > 0
+          ? lines[0]!
+          : (fromCell ?? line);
+    this.endPicking();
+    this.selectLines(info, axis, from, line);
+    this.lineAnchor = { key: info.key, axis, line: from };
   }
 
   /** Selects the rows (columns) from `from` to `to`, as shown; a column with its header and every row shown */
