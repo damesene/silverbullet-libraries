@@ -163,12 +163,24 @@ export class AutoFill implements Feature {
   private placeHandle(): void {
     if (this.endDrag) return;
     const selected = this.host.editing ? undefined : this.selection();
-    this.handleAt(selected && this.cellOf(selected, selected.bottom, selected.right));
+    if (selected) this.handleAt(selected, selected.bottom, selected.right);
+    else this.handle.remove();
   }
 
-  private handleAt(cell: HTMLTableCellElement | undefined): void {
-    if (!cell) this.handle.remove();
-    else if (this.handle.parentElement !== cell) cell.append(this.handle);
+  /**
+   * The handle in a cell, on its corner; inside it on the table's last row or
+   * column, where the table's box would cut the part past its edge (a box
+   * that scrolls: its clip cannot be widened) and leave it half to grab
+   */
+  private handleAt(selected: Selected, shown: number, column: number): void {
+    const cell = this.cellOf(selected, shown, column);
+    if (!cell) {
+      this.handle.remove();
+      return;
+    }
+    this.handle.classList.toggle("tp-fill-last-row", shown === selected.rows.length - 1);
+    this.handle.classList.toggle("tp-fill-last-column", column === selected.info.columns - 1);
+    if (this.handle.parentElement !== cell) cell.append(this.handle);
   }
 
   /** The selection with the cells a drag fills */
@@ -280,7 +292,7 @@ export class AutoFill implements Feature {
       extent = this.extentAt(selected, ev.clientX, ev.clientY);
       const area = this.areaOf(selected, extent);
       this.outline(selected, extent && area);
-      this.handleAt(this.cellOf(selected, area.bottom, area.right));
+      this.handleAt(selected, area.bottom, area.right);
       this.showTip(selected, extent, table, ev.clientX, ev.clientY);
     };
     const finish = (apply: boolean) => {

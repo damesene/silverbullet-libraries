@@ -42,9 +42,13 @@ describe("AutoFill", () => {
 
   it("shows the fill handle at the selection's corner, and fills down what is dragged over", async () => {
     await setup(PAGE);
+    // In the table's last row and column: inside the cell (its box would cut what is past its edge)
+    select({ row: 5, column: 2 }, { row: 5, column: 2 });
+    expect([handle().classList.contains("tp-fill-last-row"), handle().classList.contains("tp-fill-last-column")]).toEqual([true, true]);
     select({ row: 1, column: 0 }, { row: 2, column: 1 });
-    // In the selection's last cell, B2
+    // In the selection's last cell, B2, on its corner
     expect(handle().parentElement).toBe(cell(2, 1));
+    expect([handle().classList.contains("tp-fill-last-row"), handle().classList.contains("tp-fill-last-column")]).toEqual([false, false]);
     press();
     // Over row 4 (y 80–100): the last value by the pointer, the cells outlined, the handle in their last one
     pointer(window, "pointermove", 150, 90);
