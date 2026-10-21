@@ -167,12 +167,12 @@ Then `Q3` filled down gives `Q4`, `Q1`, `Q2` (not `Q5`), and `todo`, `doing` giv
 
 ## Cell menu
 
-Right-click a cell (on a touch screen: press and hold it; in the cell editor: the Menu key or Shift+F10) for its menu: the cell is selected (marked, not edited), and stays so afterwards for Ctrl+C and Delete. Right-click a cell of a selection for the selection's menu. Shift+right-click, and a right click in the cell editor, give the browser's menu.
+Right-click a cell (on a touch screen: press and hold it; in the cell editor: the Menu key or Shift+F10) for its menu: the cell is selected (marked, not edited), and stays so afterwards for Ctrl+C and Delete. Right-click a cell of a selection for the selection's menu. A header (right-click or press and hold it) gives its column's menu, the column selected, as its ⠿ grip does; with other cells selected along with it, the selection's menu. Shift+right-click, and a right click in the cell editor, give the browser's menu.
 
 | Item | What it does |
 |---|---|
 | *Copy* | Copies the cell (the cells selected) as Ctrl+C does. |
-| *Cut* | Cuts the cells as Ctrl+X does: copied and outlined, they move where they are pasted, see [[#Cut and paste]]. Not on a header. |
+| *Cut* | Cuts the cells as Ctrl+X does: copied and outlined, they move where they are pasted, see [[#Cut and paste]]. Not on a header (its name stays). |
 | *Paste*, *Paste as new rows* | Pastes the clipboard from the cell (the top left one selected) as Ctrl+V (Ctrl+Shift+V) does, see [[#Pasting from a spreadsheet]]; with cells cut, *Paste (move N cells)* moves them. Greyed out where the page cannot read the clipboard or it holds nothing (cells cut move all the same). |
 | *Clear* | Empties the cell (the cells selected) as Delete does; a header keeps its name. |
 | *Move to…* | Moves the cells selected to the cell you click (tap) next, see [[#Moving cells]]. |
@@ -182,7 +182,7 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 | *Filter: ≠ value* | Hides the rows with this value in this column. |
 | *Delete N rows*, *Delete N columns* | On a selection: deletes the rows (columns) its cells are in. A table keeps at least one column. |
 
-The menu of one cell is titled with the cell's name (*Cell: vat*), else its column and row; the pencil after the title names the cell, see [[#Named cells]] (on a header: its column, see [[#Named columns]]). A row is named in its row menu, see [[#Named rows]].
+The menu of one cell is titled with the cell's name (*Cell: vat*), else its column and row; the pencil after the title names the cell, see [[#Named cells]]. A row is named in its row menu, see [[#Named rows]].
 
 The menus of a cell, of a row and of a column keep one order, so the same actions are in the same place: first a bar of icons for the clipboard (*Copy*, *Cut*, *Paste* and, for rows, *+ Rows*: paste as new rows; their full names show on hover), then *Clear*, then inserting, moving and pinning, the column's type, sorting and filtering, and deleting last. Pairs of actions sit in one row of icon buttons after their name (*Insert* above / below, *Move* up / down, *Pin* top / bottom, *Sort*, *Filter* and its ×, *Align*); a button that cannot be used now is greyed out, and hovering it says why.
 
@@ -520,7 +520,7 @@ Then `=VAT([@price])` works in every table, and typing it shows its syntax and d
 
 ## Column types
 
-A hashtag in a column's header gives the column a type, which changes how its cells show. Pick it in the column's menu (the ⠿ grip above the column, *Type*): the types show in the same menu (hover one to see how it is written and what it shows), the arrow before the menu's title (or the Left key) returns to the column's menu, and the type picked is written as a hashtag in the header. Editing a header changes only the column's name: its type's hashtag stays. In the markdown, the hashtag can also be typed by hand, e.g. for a parameter the menu does not offer (`#currency-usd`).
+A hashtag in a column's header gives the column a type, which changes how its cells show. Pick it in the column's menu (the ⠿ grip above the column, or right-click its header, *Type*): the types show in the same menu (hover one to see how it is written and what it shows), the arrow before the menu's title (or the Left key) returns to the column's menu, and the type picked is written as a hashtag in the header. Editing a header changes only the column's name: its type's hashtag stays. In the markdown, the hashtag can also be typed by hand, e.g. for a parameter the menu does not offer (`#currency-usd`).
 
 ```
 | Item | Price #currency-usd | Rating #stars | Done #check |

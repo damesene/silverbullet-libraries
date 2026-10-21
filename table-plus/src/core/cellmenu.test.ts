@@ -41,10 +41,19 @@ describe("Cell menu", () => {
     ]);
     // Named by the pencil in its title
     expect(menu()!.querySelector(".tp-menu-rename")!.getAttribute("aria-label")).toMatch(/^Name this cell/);
-    // A header: no clearing, no filter; its title names the column
+    // A header: its column's menu, the column selected as its grip selects it
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     rightClick(cell(0, 1));
-    expect(entries()).toEqual(["Copy", "Cut", "Paste", "Paste as new rows"]);
+    expect(menu()!.querySelector(".tp-menu-title")!.textContent).toBe("Column: Qty");
+    expect(menu()!.querySelector('.tp-menu-segmented[aria-label="Sort"], .tp-segments[aria-label="Sort"]')).not.toBeNull();
     expect(menu()!.querySelector(".tp-menu-rename")!.getAttribute("aria-label")).toMatch(/^Name this column/);
+    expect(editor.querySelectorAll(".tp-selected").length).toBe(4);
+    // Cells selected with the header among them: the selection's menu
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    drag(cell(0, 0), cell(1, 0));
+    await flush();
+    rightClick(cell(0, 0));
+    expect(menu()!.querySelector(".tp-menu-title")!.textContent).toBe("2 cells");
   });
 
   it("filters by a cell's value, adding to the column's list; and leaves it out with ≠", async () => {

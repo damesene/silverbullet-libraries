@@ -286,10 +286,10 @@ describe("Pasting from a spreadsheet", () => {
       await flush();
       await flush();
       expect(text).toBe('| Name | Qty |\n|---|---|\n| | 3 |\n| Fig | 2 <meta f="=1+1"> |\n| | |\n| | Pear |\n');
-      // A header is not cut: its name stays
+      // A header's menu is its column's: the column is cut, not its name alone
       await controller.scan();
       openMenu(cell(0, 0));
-      expect(menuItem("Cut")!.getAttribute("aria-disabled")).toBe("true");
+      expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Column: Name");
     });
   });
 

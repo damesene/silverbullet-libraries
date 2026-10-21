@@ -9913,17 +9913,25 @@ var Grips = class {
   /**
    * The cell menu asked for on a cell of rows (columns) selected whole: their
    * menu instead, by the point (the same as their grip's), as a spreadsheet
-   * gives a row's commands for a row selected
+   * gives a row's commands for a row selected. On a header: its column's menu,
+   * the column selected as its grip selects it (the header names the column;
+   * a selection of several cells holding it keeps the selection's menu)
    */
   cellMenu(widget, info, at, point) {
+    const selected = this.host.selectedCells(info);
+    const inSelection = selected.length > 1 && selected.some((ref) => ref.row === at.row && ref.column === at.column);
     for (const axis of ["row", "column"]) {
       const line = axis === "row" ? at.row : at.column;
-      if (axis === "row" && at.row === 0 || !this.wholeLinesSelected(info, axis).includes(line)) continue;
+      if (axis === "row" && at.row === 0) continue;
+      const whole = this.wholeLinesSelected(info, axis).includes(line);
+      const header = axis === "column" && at.row === 0 && !inSelection;
+      if (!whole && !header) continue;
       const cell = this.host.cellAt(info, at);
       if (!cell) return false;
       const target = { widget, info, column: at.column, ...at.row > 0 ? { row: at.row } : {} };
       this.target = target;
       this.closeMenu(false, false);
+      if (!whole) this.select(target, axis);
       this.toggleMenu(axis, target, axis === "row" ? this.rowGrip : this.columnGrip, { cell, ...point });
       return true;
     }
