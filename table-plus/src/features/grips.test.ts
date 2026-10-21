@@ -286,6 +286,64 @@ describe("Row and column grips", () => {
       expect(Array.from(editor.querySelectorAll(".tp-selected")).map((td) => td.textContent!.trim())).toEqual(["a", "1", "b", "2"]);
     });
 
+    it("moves columns too, and a block across pinned and unpinned rows moves the grip's row alone", async () => {
+      await setup(LETTERS + '| <meta pin-bottom="1"> |\n', { "tablePlus.metadata": true });
+      const columnGrip = () => document.querySelector<HTMLElement>(".tp-grip-column")!;
+      const last = Number(controller.shownRows(info()).at(-1)!.dataset.tpRow);
+      controller.selectCells(info(), { row: 0, column: 0 }, { row: last, column: 1 });
+      cell(0, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      columnGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+      // Both columns: none to move them past
+      const right = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Move 2 columns right")!;
+      expect(right.getAttribute("aria-disabled")).toBe("true");
+      key(document.querySelector(".tp-menu")!, "Escape");
+      // Rows c and d (d pinned to the bottom): the grip's row alone
+      controller.selectCells(info(), { row: 3, column: 0 }, { row: 4, column: 1 });
+      cell(3, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+      const labels = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).map((b) => b.textContent);
+      expect(labels).toContain("Move up");
+      expect(labels).not.toContain("Move 2 rows up");
+    });
+
+    it("drops a block where the rows it passes make room, whatever their heights", async () => {
+      await setup(LETTERS);
+      // a and b 20 px high, c and d 100 px: the header 0..20, a 20..40, b 40..60, c 60..160, d 160..260
+      const tops = [0, 20, 40, 60, 160];
+      const heights = [20, 20, 20, 100, 100];
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        const rect = (left: number, top: number, width: number, height: number) =>
+          ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top }) as DOMRect;
+        const row = this instanceof HTMLTableCellElement ? (this.parentElement as HTMLTableRowElement).rowIndex : this instanceof HTMLTableRowElement ? this.rowIndex : -1;
+        if (row >= 0) return rect(this instanceof HTMLTableCellElement ? this.cellIndex * 100 : 0, tops[row]!, this instanceof HTMLTableCellElement ? 100 : 200, heights[row]!);
+        return rect(0, 0, 200, 260);
+      });
+      try {
+        controller.selectCells(info(), { row: 1, column: 0 }, { row: 2, column: 1 });
+        cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 5, clientY: 30 }));
+        // 40 px down: the block's end (100) is not past c's middle (110), so it stays
+        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 40 }));
+        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 70 }));
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+        await flush();
+        expect(body()).toEqual(["| a | 1 |", "| b | 2 |", "| c | 3 |", "| d | 4 |"]);
+        await controller.scan();
+        // 60 px down: its end (120) past c's middle: below c
+        controller.selectCells(info(), { row: 1, column: 0 }, { row: 2, column: 1 });
+        cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 5, clientY: 30 }));
+        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 40 }));
+        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 90 }));
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+        await vi.waitFor(() => expect(body()).toEqual(["| c | 3 |", "| a | 1 |", "| b | 2 |", "| d | 4 |"]));
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
     it("drags them by the grip of one of them", async () => {
       await setup(LETTERS);
       // Rows 20 px high, the header at 0

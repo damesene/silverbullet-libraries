@@ -388,7 +388,10 @@ export class Grips implements Feature {
     const lines = this.wholeLinesSelected(info, axis);
     const first = Math.min(...lines);
     const last = Math.max(...lines);
-    return lines.length > 1 && lines.includes(line) && last - first + 1 === lines.length ? { first, last } : { first: line, last: line };
+    // Pinned and unpinned lines do not move together: across a zone's edge, the grip's line alone
+    const zone = (l: number) => (axis === "row" ? rowZone(info.pins, info.rows, l) : columnZone(info.pins, info.columns, l));
+    const block = lines.length > 1 && lines.includes(line) && last - first + 1 === lines.length && zone(first) === zone(last);
+    return block ? { first, last } : { first: line, last: line };
   }
 
   /** Where a block asked to start at `asked` goes (its first line's place; `first`: it stays) */
@@ -400,9 +403,13 @@ export class Grips implements Feature {
   private moveBlock(widget: HTMLElement, info: WidgetInfo, axis: Axis, block: { first: number; last: number }, asked: number): void {
     const to = this.blockTo(info, axis, block, asked);
     if (to === block.first) return;
-    // Selected where they go before the write: the table rendered anew shows the selection again
-    if (block.last > block.first) this.selectLines(info, axis, to, to + block.last - block.first);
-    void (axis === "row" ? moveRowsTo : moveColumnsTo)(this.host, widget, info, block.first, block.last, to);
+    void (axis === "row" ? moveRowsTo : moveColumnsTo)(this.host, widget, info, block.first, block.last, to).then((result) => {
+      // Selected where they went, once written: the table rendered anew shows the selection
+      if (result !== "written" || block.last === block.first) return;
+      const now = this.host.widgetForKey(info.key);
+      const nowInfo = now && this.host.infoOf(now);
+      this.selectLines(nowInfo ?? info, axis, to, to + block.last - block.first);
+    });
   }
 
   /** The rows (columns) selected, when the selection holds this one; else just it */
@@ -430,11 +437,13 @@ export class Grips implements Feature {
     const index = axis === "row" ? from - 1 : from;
     const lines = items.slice(index, index + count);
     const carried = lines.flat();
-    // The dragged rows are in the document (a large table keeps only the rows in view there); the first stays while the table scrolls
-    const carriedRows = axis === "row" ? lines.map((cells) => cells[0]?.parentElement as HTMLTableRowElement | undefined) : [];
-    for (const tr of carriedRows) if (tr) this.host.rowNeeded(info, tr);
-    const carriedRow = carriedRows[0];
-    if (carriedRow) this.host.holdInDocument(info, carriedRow);
+    // The block's first row stays in the document while the table scrolls (a large table keeps only the rows in view
+    // there, and moves its window to each row asked for: only this one is; the others' places are estimated)
+    const carriedRow = axis === "row" ? (lines[0]?.[0]?.parentElement as HTMLTableRowElement | undefined) : undefined;
+    if (carriedRow) {
+      this.host.rowNeeded(info, carriedRow);
+      this.host.holdInDocument(info, carriedRow);
+    }
     // Where each row (column) was, in the table's own coordinates: the page or
     // the table's box may scroll while dragging. Rows out of the document (a
     // large table's) are where rows of their size would be, after those in it.
@@ -461,8 +470,6 @@ export class Grips implements Feature {
       return { start: last.start + last.size + (i - lastKnown - 1) * typical, size: typical };
     });
     const carriedSize = places.slice(index, index + count).reduce((sum, p) => sum + p.size, 0);
-    // The first line's size: where the block goes is told by the first line's middle, as for one line
-    const firstSize = places[index]?.size ?? 0;
     const ghost = this.ghostOf(axis, lines);
     const start = carried[0]!.getBoundingClientRect();
     carried.forEach((el) => el.classList.add("tp-dragged"));
@@ -477,14 +484,17 @@ export class Grips implements Feature {
       const pointer = axis === "row" ? ev.clientY : ev.clientX;
       if (axis === "row") this.host.place(ghost, start.left, pointer - grab);
       else this.host.place(ghost, pointer - grab, start.top);
-      // The slot the copy's first line's middle is over, in the places the rows (columns) had (in the table, as it is scrolled now)
-      const middle = pointer - grab + firstSize / 2 - tableAt();
-      let slot = 0;
-      for (let i = 0; i < places.length; i++) if (middle >= places[i]!.start + places[i]!.size / 2) slot = i;
-      const asked = axis === "row" ? slot + 1 : slot;
-      to = this.blockTo(info, axis, block, asked);
-      const target = axis === "row" ? to - 1 : to;
+      // The lines the copy has passed, in the places they had (in the table, as it is scrolled now): going down (right),
+      // those after the block whose middle its end is past; going up (left), those before it whose middle its start is past
+      const top = pointer - grab - tableAt();
+      const bottom = top + carriedSize;
       const end = index + count - 1;
+      const middleOf = (i: number) => places[i]!.start + places[i]!.size / 2;
+      let passed = 0;
+      for (let i = end + 1; i < places.length && middleOf(i) < bottom; i++) passed++;
+      if (passed === 0) for (let i = index - 1; i >= 0 && middleOf(i) > top; i--) passed--;
+      to = this.blockTo(info, axis, block, from + passed);
+      const target = axis === "row" ? to - 1 : to;
       items.forEach((cells, i) => {
         // Those the block passes over make room for it: up (left) when it goes down (right), else down
         const shift = i > end && i <= target + count - 1 ? -carriedSize : i < index && i >= target ? carriedSize : 0;

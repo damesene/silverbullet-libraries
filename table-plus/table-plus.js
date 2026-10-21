@@ -9772,7 +9772,9 @@ var Grips = class {
     const lines = this.wholeLinesSelected(info, axis);
     const first = Math.min(...lines);
     const last = Math.max(...lines);
-    return lines.length > 1 && lines.includes(line) && last - first + 1 === lines.length ? { first, last } : { first: line, last: line };
+    const zone = (l) => axis === "row" ? rowZone(info.pins, info.rows, l) : columnZone(info.pins, info.columns, l);
+    const block = lines.length > 1 && lines.includes(line) && last - first + 1 === lines.length && zone(first) === zone(last);
+    return block ? { first, last } : { first: line, last: line };
   }
   /** Where a block asked to start at `asked` goes (its first line's place; `first`: it stays) */
   blockTo(info, axis, block, asked) {
@@ -9782,8 +9784,12 @@ var Grips = class {
   moveBlock(widget, info, axis, block, asked) {
     const to = this.blockTo(info, axis, block, asked);
     if (to === block.first) return;
-    if (block.last > block.first) this.selectLines(info, axis, to, to + block.last - block.first);
-    void (axis === "row" ? moveRowsTo : moveColumnsTo)(this.host, widget, info, block.first, block.last, to);
+    void (axis === "row" ? moveRowsTo : moveColumnsTo)(this.host, widget, info, block.first, block.last, to).then((result) => {
+      if (result !== "written" || block.last === block.first) return;
+      const now2 = this.host.widgetForKey(info.key);
+      const nowInfo = now2 && this.host.infoOf(now2);
+      this.selectLines(nowInfo ?? info, axis, to, to + block.last - block.first);
+    });
   }
   /** The rows (columns) selected, when the selection holds this one; else just it */
   selectedLines(info, axis, line) {
@@ -9804,10 +9810,11 @@ var Grips = class {
     const index = axis === "row" ? from - 1 : from;
     const lines = items.slice(index, index + count);
     const carried = lines.flat();
-    const carriedRows = axis === "row" ? lines.map((cells) => cells[0]?.parentElement) : [];
-    for (const tr of carriedRows) if (tr) this.host.rowNeeded(info, tr);
-    const carriedRow = carriedRows[0];
-    if (carriedRow) this.host.holdInDocument(info, carriedRow);
+    const carriedRow = axis === "row" ? lines[0]?.[0]?.parentElement : void 0;
+    if (carriedRow) {
+      this.host.rowNeeded(info, carriedRow);
+      this.host.holdInDocument(info, carriedRow);
+    }
     const tableAt = () => {
       const r = table.getBoundingClientRect();
       return axis === "row" ? r.top : r.left;
@@ -9831,7 +9838,6 @@ var Grips = class {
       return { start: last.start + last.size + (i - lastKnown - 1) * typical, size: typical };
     });
     const carriedSize = places.slice(index, index + count).reduce((sum, p) => sum + p.size, 0);
-    const firstSize = places[index]?.size ?? 0;
     const ghost = this.ghostOf(axis, lines);
     const start = carried[0].getBoundingClientRect();
     carried.forEach((el) => el.classList.add("tp-dragged"));
@@ -9844,13 +9850,15 @@ var Grips = class {
       const pointer = axis === "row" ? ev.clientY : ev.clientX;
       if (axis === "row") this.host.place(ghost, start.left, pointer - grab);
       else this.host.place(ghost, pointer - grab, start.top);
-      const middle = pointer - grab + firstSize / 2 - tableAt();
-      let slot = 0;
-      for (let i = 0; i < places.length; i++) if (middle >= places[i].start + places[i].size / 2) slot = i;
-      const asked = axis === "row" ? slot + 1 : slot;
-      to = this.blockTo(info, axis, block, asked);
-      const target2 = axis === "row" ? to - 1 : to;
+      const top = pointer - grab - tableAt();
+      const bottom = top + carriedSize;
       const end = index + count - 1;
+      const middleOf = (i) => places[i].start + places[i].size / 2;
+      let passed = 0;
+      for (let i = end + 1; i < places.length && middleOf(i) < bottom; i++) passed++;
+      if (passed === 0) for (let i = index - 1; i >= 0 && middleOf(i) > top; i--) passed--;
+      to = this.blockTo(info, axis, block, from + passed);
+      const target2 = axis === "row" ? to - 1 : to;
       items.forEach((cells, i) => {
         const shift = i > end && i <= target2 + count - 1 ? -carriedSize : i < index && i >= target2 ? carriedSize : 0;
         for (const cell of cells) cell.style.transform = shift ? axis === "row" ? `translateY(${shift}px)` : `translateX(${shift}px)` : "";
