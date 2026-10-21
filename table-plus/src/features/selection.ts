@@ -10,7 +10,7 @@
 // dragged to select more (whole rows and columns stay whole), and a tap on a
 // selection of several cells opens their menu.
 import type { CellMenuGroup, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { clipboardHtml, clipboardText, copyingFromMenu } from "../clipboard.ts";
+import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from "../clipboard.ts";
 import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
 import { PAGE_ROWS } from "../core/editor.ts";
 import { columnBlockTo, deleteColumnsAt, deleteRowsAt, MOVE_BLOCKED, moveColumnsTo, moveRowsTo, rowBlockTo } from "../core/structure.ts";
@@ -386,10 +386,19 @@ export class Selection implements Feature {
     return this.selection?.key === info.key ? this.refs(info) : undefined;
   }
 
-  /** Clear in the menu of a cell or of the cells selected (Copy, Cut and Paste are the paste module's) */
+  /** Clear in the menu of a cell or of the cells selected (Copy, Cut and Paste are the paste module's; Copy here when it is off) */
   cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup[] {
     const body = cells.filter((ref) => ref.row > 0).length;
     const entries: MenuEntry[] = [];
+    if (!this.host.moduleOn("paste")) {
+      entries.push({
+        kind: "item",
+        label: cells.length > 1 ? `Copy ${cells.length} cells` : "Copy",
+        icon: ICONS.duplicate,
+        hint: "Copy as Ctrl+C does: a spreadsheet pastes it into cells",
+        run: () => void this.copy(info, cells),
+      });
+    }
     // A header keeps its name: a column needs one
     if (body > 0) {
       entries.push({
@@ -429,6 +438,22 @@ export class Selection implements Feature {
       { order: 1, entries },
       { order: 9, entries: deleting },
     ];
+  }
+
+  /** The cells, as values in rows as shown, onto the clipboard as Ctrl+C puts them */
+  private async copy(info: WidgetInfo, cells: readonly CellRef[]): Promise<void> {
+    const rows = new Map<number, string[]>();
+    for (const ref of cells) {
+      const cell = this.host.cellAt(info, ref, true);
+      rows.set(ref.row, [...(rows.get(ref.row) ?? []), cell ? cellValue(cell) : ""]);
+    }
+    const values = Array.from(rows.values());
+    try {
+      await writeClipboard(this.host.doc, clipboardText(values), clipboardHtml(values));
+      void this.host.bridge.flash(`Table Plus: copied ${values.length} × ${values[0]?.length ?? 0} cells`, "info");
+    } catch (e) {
+      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
+    }
   }
 
   // A cell's editor opened (also from a + or a menu, which leave the selection): the selection ends

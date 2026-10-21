@@ -196,6 +196,47 @@ describe("Pasting from a spreadsheet", () => {
       expect(edges()).toBe(0);
     });
 
+    it("moves under the header only, names staying where they are, and not into a cell being typed in", async () => {
+      const NAMED = '| Name | Qty |\n|---|---|\n| Pear <meta n="pear"> | 3 |\n| Fig <meta n="fig"> | 2 |\n| | 9 <meta cn="nine"> |\n';
+      await setup(NAMED, { "tablePlus.metadata": true });
+      controller.selectCells(info(), { row: 1, column: 0 }, { row: 1, column: 0 });
+      cutKey();
+      // Onto the header: refused
+      clickOn(cell(0, 1));
+      field().select();
+      pasteText("Pear");
+      await flush();
+      expect(text).toBe(NAMED);
+      key(field(), "Escape");
+      // Into a cell being typed in: the text goes into the field, nothing moves
+      clickOn(cell(3, 0));
+      field().value = "Kiwi ";
+      field().setSelectionRange(5, 5);
+      const typed = pasteText("Pear");
+      expect(typed.defaultPrevented).toBe(false);
+      key(field(), "Escape");
+      await flush();
+      expect(text).toBe(NAMED);
+      // Esc ended the cut, as in a spreadsheet: cut again. Onto Fig: the names stay with their rows (pear's empty first cell, fig's row)
+      controller.selectCells(info(), { row: 1, column: 0 }, { row: 1, column: 0 });
+      cutKey();
+      clickOn(cell(2, 0));
+      field().select();
+      pasteText("Pear");
+      await flush();
+      expect(text).toBe('| Name | Qty |\n|---|---|\n| <meta n="pear"> | 3 |\n| Pear <meta n="fig"> | 2 |\n| | 9 <meta cn="nine"> |\n');
+    });
+
+    it("ends the cut when rows are added or deleted (a cell of the same value is not taken for it)", async () => {
+      await setup("| S |\n|---|\n| open |\n| open |\n| open |\n", { "tablePlus.metadata": true });
+      controller.selectCells(info(), { row: 2, column: 0 }, { row: 2, column: 0 });
+      cutKey();
+      expect(edges()).toBe(1);
+      await controller.write(editor.querySelector<HTMLElement>(".sb-table-widget")!, (t) => ({ ...t, rows: t.rows.filter((_, i) => i !== 1) }));
+      await controller.scan();
+      expect(edges()).toBe(0);
+    });
+
     it("pastes a copy once the cells cut changed, the clipboard holds something else, or Esc ended the cut", async () => {
       await setup(PAGE3, { "tablePlus.metadata": true });
       controller.selectCells(info(), { row: 1, column: 0 }, { row: 1, column: 0 });

@@ -12,6 +12,7 @@
 import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from "../clipboard.ts";
 import type { CellEditor, CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
+import { cellTags, withoutTags } from "../tags.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import { moveCells, parseClipboardCells, pasteCells, planPaste } from "../paste.ts";
@@ -30,10 +31,11 @@ function sameText(text: string): string {
   return text.replace(/\r\n?/g, "\n").replace(/\n$/, "");
 }
 
-/** Cells copied or cut (`moves`): their table, the cells (rows as shown, columns left to right), what they held then, the text copied */
+/** Cells copied or cut (`moves`): their table and its shape, the cells (rows as shown, columns left to right), what they held then, the text copied */
 type Cut = {
   readonly moves: boolean;
   readonly key: string;
+  readonly shape: string;
   readonly cells: readonly (readonly CellRef[])[];
   readonly held: readonly (readonly string[])[];
   readonly text: string;
@@ -130,7 +132,10 @@ export class Paste implements Feature {
       const active = this.host.editing;
       const info = active && this.host.infoOf(active.widget);
       if (!active || !info || active.field !== field) return;
-      const cut = insert ? undefined : this.cutFor(info, text);
+      // Cells cut move into an editor opened for the paste (its text selected whole: Ctrl+V on a selected cell), not one being typed in
+      const whole = field.selectionStart === 0 && field.selectionEnd === field.value.length;
+      const own = this.cut?.cells.some((row) => row.some((ref) => ref.row === active.row && ref.column === active.column));
+      const cut = insert || !whole || own ? undefined : this.cutFor(info, text);
       const data = parseClipboardCells(text);
       if (!cut && !data) return;
       e.preventDefault();
@@ -202,6 +207,24 @@ export class Paste implements Feature {
     };
   }
 
+  /**
+   * A move takes the cell's text and the tags features manage (a formula's)
+   * along; the other hidden tags (a row's or a cell's name) stay where they
+   * are, at both ends, so names keep naming their rows and places
+   */
+  private moveRules() {
+    // The tags a feature does not manage: those keepTags keeps from a cell
+    const unmanaged = (cell: string) => new Set(cellTags(this.host.keepTags("", cell)));
+    return {
+      emptied: (cell: string) => this.host.keepTags("", cell),
+      placed: (moved: string, over: string) => {
+        const stay = unmanaged(moved);
+        const content = [withoutTags(moved), ...cellTags(moved).filter((tag) => !stay.has(tag))].filter((part) => part !== "").join(" ");
+        return this.host.keepTags(content, over);
+      },
+    };
+  }
+
   /** The cells selected, in rows as shown, of the table they are in */
   private selection(): { widget: HTMLElement; info: WidgetInfo; cells: CellRef[] } | undefined {
     for (const widget of Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table`))) {
@@ -237,8 +260,12 @@ export class Paste implements Feature {
       void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
       return;
     }
-    this.startCut(info, rows, text, cutting);
     const size = `${values.length} × ${values[0]?.length ?? 0} cells`;
+    if (cutting && this.host.rearranged(info)) {
+      void this.host.bridge.flash(`Table Plus: copied ${size} (sorted or filtered, cells are not cut: the rows shown are not where they are)`, "info");
+      return;
+    }
+    this.startCut(info, rows, text, cutting);
     void this.host.bridge.flash(cutting ? `Table Plus: cut ${size}: paste them where they go` : `Table Plus: copied ${size}`, "info");
   }
 
@@ -264,6 +291,10 @@ export class Paste implements Feature {
       void this.host.bridge.flash(`Table Plus: copied ${size} (a header keeps its name: cut the cells under it)`, "info");
       return;
     }
+    if (this.host.rearranged(selected.info)) {
+      void this.host.bridge.flash(`Table Plus: copied ${size} (sorted or filtered, cells are not cut: the rows shown are not where they are)`, "info");
+      return;
+    }
     this.startCut(selected.info, rows, text, true);
     void this.host.bridge.flash(`Table Plus: cut ${size}: paste them where they go`, "info");
   };
@@ -280,7 +311,8 @@ export class Paste implements Feature {
     const active = this.host.doc.activeElement;
     const inField = (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd;
     const selected = inField ? undefined : this.selection();
-    if (!selected) return;
+    // Sorted or filtered: the rows shown are not the markdown's, no outline to follow them
+    if (!selected || this.host.rearranged(selected.info)) return;
     const { rows, values } = this.valuesOf(selected.info, selected.cells);
     this.startCut(selected.info, rows, clipboardText(values), false);
   };
@@ -288,7 +320,7 @@ export class Paste implements Feature {
   private startCut(info: WidgetInfo, cells: CellRef[][], text: string, moves: boolean): void {
     const table = this.host.tableOf(info);
     const held = cells.map((row) => row.map((ref) => table.rows[ref.row]?.cells[ref.column] ?? ""));
-    this.cut = { moves, key: info.key, cells, held, text: sameText(text) };
+    this.cut = { moves, key: info.key, shape: this.shapeOf(table), cells, held, text: sameText(text) };
     this.markCut(info);
   }
 
@@ -307,8 +339,14 @@ export class Paste implements Feature {
     if (!cut || cut.key !== info.key) return undefined;
     if (text !== undefined && sameText(text) !== cut.text) return undefined;
     const table = this.host.tableOf(info);
+    // Rows or columns added or deleted: the cells are not where they were (one of the same value would be taken for them)
+    if (this.shapeOf(table) !== cut.shape) return undefined;
     const same = cut.cells.every((row, i) => row.every((ref, j) => (table.rows[ref.row]?.cells[ref.column] ?? "") === cut.held[i]![j]));
     return same ? cut : undefined;
+  }
+
+  private shapeOf(table: ReturnType<TableHost["tableOf"]>): string {
+    return `${table.rows.length}×${table.align.length}`;
   }
 
   /** The cells copied or cut outlined, dashed, as a spreadsheet marks them: a piece in each cell on the area's edge */
@@ -396,6 +434,10 @@ export class Paste implements Feature {
       void this.host.bridge.flash(`Table Plus: ${PASTE_BLOCKED.toLowerCase()}`, "info");
       return;
     }
+    if (cut && at.row === 0) {
+      void this.host.bridge.flash("Table Plus: cells cut move into the rows under the header: paste them on a cell there", "info");
+      return;
+    }
     const plan = planPaste(parseTable(info.source), info.pins, at, cut ? cut.held : data, insert);
     if ("error" in plan) {
       void this.host.bridge.flash(`Table Plus: cannot paste here: ${plan.error}`, "error");
@@ -409,7 +451,7 @@ export class Paste implements Feature {
       (t) => {
         const edited = closed ? closed.save(t) : t;
         if (!edited) return undefined;
-        if (cut) return moveCells(edited, cut.cells, plan);
+        if (cut) return moveCells(edited, cut.cells, plan, this.moveRules());
         const pasted = pasteCells(edited, plan, data, {
           keptBy: (cell) => this.host.cellKeptBy(cell),
           keepTags: (value, from) => this.host.keepTags(value, from),

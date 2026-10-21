@@ -182,24 +182,30 @@ export function pasteCells(table: Table, plan: PastePlan, data: readonly (readon
   return { table: result, skipped };
 }
 
+/** What a move does with a cell's hidden tags: what stays where a cell is emptied, what a cell written over becomes */
+export type MoveRules = {
+  readonly emptied: (cell: string) => string;
+  readonly placed: (moved: string, over: string) => string;
+};
+
 /**
  * The table with cells moved (cut, then pasted): the cells cut (rows of the
  * markdown and columns, as they were cut: rows as shown, columns left to
- * right) emptied, then written as they are, hidden tags and formulas
- * included, where the plan puts them (over what is there, as a spreadsheet
- * moves cells). Header cells cut keep their names.
+ * right) emptied, then written where the plan puts them, over what is there
+ * (as a spreadsheet moves cells); `rules` say what of their hidden tags goes
+ * with them. Body cells only: the plan starts under the header.
  */
-export function moveCells(table: Table, sources: readonly (readonly { row: number; column: number }[])[], plan: PastePlan): Table {
+export function moveCells(table: Table, sources: readonly (readonly { row: number; column: number }[])[], plan: PastePlan, rules: MoveRules): Table {
   const moved = sources.map((row) => row.map((ref) => table.rows[ref.row]?.cells[ref.column] ?? ""));
   let result = table;
-  for (const row of sources) for (const ref of row) if (ref.row > 0) result = setCell(result, ref.row, ref.column, "");
+  for (const row of sources) for (const ref of row) if (ref.row > 0) result = setCell(result, ref.row, ref.column, rules.emptied(result.rows[ref.row]?.cells[ref.column] ?? ""));
   for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
   for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
   moved.forEach((cells, i) => {
     cells.forEach((cell, j) => {
       const row = plan.rows[i]!;
-      if (row === 0 && cell === "") return;
-      result = setCell(result, row, plan.columns[j]!, cell);
+      const column = plan.columns[j]!;
+      result = setCell(result, row, column, rules.placed(cell, result.rows[row]?.cells[column] ?? ""));
     });
   });
   return result;

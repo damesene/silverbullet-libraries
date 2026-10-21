@@ -201,11 +201,12 @@ Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table (sele
 
 Select cells and press **Ctrl+X** (or *Cut* in their menu): they are copied, as Ctrl+C copies them, and outlined with a dashed line; nothing changes yet. Paste into the same table, with Ctrl+V on a cell or *Paste (move N cells)* in its menu: the cells move there, as in a spreadsheet, as one edit (one Ctrl+Z).
 
-* They move as they are: formulas, cell names and hidden tags go with them, written over what the cells there held (formulas there too); where they were, the cells are left empty. Where the table ends, rows and columns are added, as for any paste.
+* They move with their formulas, written over what the cells there held (formulas there too); where they were, the cells are left empty. Names stay where they are: a row's name with its row, a cell's name with its place, at both ends, so formulas using them still find them. Where the table ends, rows and columns are added, as for any paste.
 * A formula that moves keeps its references as written (`=A1*2` still refers to A1); formulas elsewhere that refer to the cells moved are not changed.
-* The cut ends with Esc, another copy, or a change of the cells cut (an edit, a write elsewhere that changes them): what is pasted then is a copy. If the clipboard holds something else when you paste (copied in another application), that is pasted, and the cells cut stay.
+* The cut ends with Esc, another copy, a change of the cells cut, or rows or columns added or deleted: what is pasted then is a copy. If the clipboard holds something else when you paste (copied in another application), that is pasted, and the cells cut stay.
 * Within one table: pasted into another table, the cells are copied, not moved.
-* Header cells are not cut (a column keeps its name): with the header in the selection, Ctrl+X only copies.
+* Header cells are not cut (a column keeps its name), and cells cut move under the header, not into it: with the header in the selection, Ctrl+X only copies. Sorted or filtered, cells are copied, not cut.
+* Ctrl+V in a cell being typed in pastes the text into it, as usual; a move needs the cell selected (Ctrl+V then opens it for the paste) or *Paste (move N cells)* in the menu.
 * On a touch screen, *Cut* and *Paste (move N cells)* work also where the page cannot read the clipboard (SilverBullet over plain http): moving needs no reading.
 
 ## Showing the markdown
@@ -774,7 +775,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
 | `autofill` | The fill handle at the corner of the cells selected: drag it to fill the cells after them, double-click it to fill down. See [[#AutoFill]]. Needs `selection`. Off: no handle. |
 | `excel` | *Export to Excel…* in the table's ⋯ menu: copy for Excel, or download an .xlsx file with the formulas. Setting `functions`: templates for your custom functions in the file. See [[#Excel]]. |
-| `paste` | Copy, Cut and Paste in the cell menu; Ctrl+X cuts cells (they move where they are pasted); Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text, no Copy, Cut or Paste in the cell menu (Ctrl+C still copies). |
+| `paste` | Copy, Cut and Paste in the cell menu; Ctrl+X cuts cells (they move where they are pasted); Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text, no Cut or Paste in the cell menu (Copy and Ctrl+C stay, with the `selection` module). |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
 | `longText` | Long text wraps (up to a maximum cell height) or is cut with an ellipsis at a maximum column width; a cut cell shows an expand button for its popup. Settings: see [[#Long text in cells (`tablePlus.modules.longText`)]]. Off: cells on one line, as wide as their text (F2 still opens a cell's popup while editing). |
 | `widths` | A column's width set by dragging the right edge of its header, *Auto width* in the column's menu, *Reset column widths* in the table's ⋯ menu; with *Store table metadata* stored in the table. Off: columns are as wide as their text; widths stored in tables are kept but not used. |
@@ -1085,7 +1086,7 @@ config.define("tablePlus", {
             enabled = {
               type = "boolean",
               default = true,
-              description = "Copy, Cut and Paste in the cell menu; Ctrl+X cuts cells (they move where they are pasted); Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text, no Copy, Cut or Paste in the cell menu (Ctrl+C still copies).",
+              description = "Copy, Cut and Paste in the cell menu; Ctrl+X cuts cells (they move where they are pasted); Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text, no Cut or Paste in the cell menu (Copy and Ctrl+C stay, with the selection module).",
               ui = { category = "Table Plus: Modules", label = "Copy, cut and paste", priority = 6 },
             },
           },
