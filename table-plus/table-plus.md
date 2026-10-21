@@ -3459,7 +3459,7 @@ body.tp-filling * {
   cursor: crosshair !important;
 }
 /* AutoFill to…: the next click on a cell fills to it */
-body.tp-fill-picking .sb-table-widget.tp-table td {
+.sb-table-widget.tp-table.tp-fill-picking td {
   cursor: crosshair;
 }
 .tp-formula-functions:hover {

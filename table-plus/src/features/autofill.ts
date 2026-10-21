@@ -56,8 +56,9 @@ export class AutoFill implements Feature {
   private tipFor = "";
   // Ends the drag (Esc: without filling)
   private endDrag: ((apply: boolean) => void) | undefined;
-  // AutoFill to…: the table whose cells selected fill to the cell clicked next
+  // AutoFill to…: the table whose cells selected fill to the cell clicked next, and those cells (as the markdown has them)
   private picking: string | undefined;
+  private pickingFrom = "";
   // A touch while picking, until it is a tap or not
   private stopTap: (() => void) | undefined;
 
@@ -120,14 +121,26 @@ export class AutoFill implements Feature {
     return true;
   }
 
-  // Other cells selected: what was picking for them is over
+  // Other cells selected: what was picking for them is over (the same shown again, the table rendered anew, goes on)
   selectionChanged(): void {
-    this.endPicking();
+    if (this.picking && this.selectedNow() !== this.pickingFrom) this.endPicking();
     this.placeHandle();
   }
 
+  // The cell menu opened (a long press): picking ends, the menu is for the cells
+  cellMenuOpened(): void {
+    this.endPicking();
+  }
+
+  /** The cells selected, as the markdown has them, with their table ("": none to fill from) */
+  private selectedNow(): string {
+    const selected = this.selection();
+    if (!selected) return "";
+    return `${selected.info.key} ${this.rowOf(selected, selected.top)}-${this.rowOf(selected, selected.bottom)} ${selected.left}-${selected.right}`;
+  }
+
   /** AutoFill to… in the menu of the cells selected (body cells: a header is no value to go on from) */
-  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
+  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
     if (cells.some((ref) => ref.row === 0)) return undefined;
     const label = "AutoFill to…";
     if (this.host.rearranged(info)) {
@@ -146,7 +159,7 @@ export class AutoFill implements Feature {
           label,
           icon: ICONS.autofill,
           hint: `Then ${press} the last cell to fill: the cells up to it go on from these, as dragging the fill handle fills them`,
-          run: () => this.startPicking(info, press),
+          run: () => this.startPicking(widget, info, press),
         },
       ],
     };
@@ -165,8 +178,9 @@ export class AutoFill implements Feature {
     if (this.picking) this.clearOutline();
   }
 
-  // A table rendered anew (the selection shown again), sorted or filtered, or rows back in the document
-  enhanced(): void {
+  // A table rendered anew (the selection shown again; picking goes on there), sorted or filtered, or rows back in the document
+  enhanced(widget: HTMLElement, info: WidgetInfo): void {
+    if (this.picking === info.key) widget.classList.add("tp-fill-picking");
     this.placeHandle();
   }
 
@@ -183,16 +197,19 @@ export class AutoFill implements Feature {
     this.handle.remove();
   }
 
-  private startPicking(info: WidgetInfo, press: string): void {
+  private startPicking(widget: HTMLElement, info: WidgetInfo, press: string): void {
     this.picking = info.key;
-    this.host.doc.body.classList.add("tp-fill-picking");
-    void this.host.bridge.flash(`Table Plus: ${press} the last cell to fill to; Esc cancels`, "info");
+    this.pickingFrom = this.selectedNow();
+    // The crosshair on that table's cells
+    (this.host.widgetForKey(info.key) ?? widget).classList.add("tp-fill-picking");
+    const cancel = press === "tap" ? "a tap outside the table cancels" : "Esc cancels";
+    void this.host.bridge.flash(`Table Plus: ${press} the last cell to fill to; ${cancel}`, "info");
   }
 
   private endPicking(): void {
     if (!this.picking) return;
     this.picking = undefined;
-    this.host.doc.body.classList.remove("tp-fill-picking");
+    for (const widget of Array.from(this.host.doc.querySelectorAll(".tp-fill-picking"))) widget.classList.remove("tp-fill-picking");
     this.clearOutline();
   }
 
@@ -206,6 +223,8 @@ export class AutoFill implements Feature {
     if (taken) {
       e.preventDefault();
       e.stopPropagation();
+      // Its click would follow a link in the cell, tick a task
+      this.host.takePress();
     }
     return taken;
   }
@@ -217,7 +236,8 @@ export class AutoFill implements Feature {
    */
   private onTouch = (e: PointerEvent): void => {
     this.stopTap?.();
-    if (!this.picking || e.pointerType !== "touch" || e.button !== 0) return;
+    // One finger: a second one is another gesture (a pinch)
+    if (!this.picking || e.pointerType !== "touch" || e.button !== 0 || !e.isPrimary) return;
     const { clientX: x, clientY: y, target } = e;
     const at = Date.now();
     const win = this.host.doc.defaultView!;
@@ -227,7 +247,7 @@ export class AutoFill implements Feature {
     const up = () => {
       stop();
       // Its mouse events would select the cell tapped: the fill selects what it filled
-      if (Date.now() - at < TAP_MS && this.pick(target)) this.host.takeTouch();
+      if (Date.now() - at < TAP_MS && this.pick(target)) this.host.takePress();
     };
     const stop = () => {
       win.removeEventListener("pointermove", move, true);
@@ -241,14 +261,14 @@ export class AutoFill implements Feature {
     this.stopTap = stop;
   };
 
-  /** Picking ends; on a cell of the table, the fill to it (true: the press is taken) */
+  /** Picking ends; on a body cell of the table, the fill to it (true: the press is taken; a header's goes on: its sorting, its filter) */
   private pick(target: EventTarget | null): boolean {
     const key = this.picking;
     this.endPicking();
     const hit = this.host.enhancedWidgetOf(target);
     const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], target) : undefined;
     const ref = hit && cell ? this.host.cellRef(hit[1], cell) : undefined;
-    if (!ref) return false;
+    if (!ref || ref.row === 0) return false;
     const selected = this.selection();
     const extent = selected && selected.info.key === key ? this.extentTo(selected, ref) : undefined;
     if (selected && extent) void this.apply(selected, extent);

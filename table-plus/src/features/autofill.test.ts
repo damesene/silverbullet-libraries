@@ -100,7 +100,11 @@ describe("AutoFill", () => {
   it("fills to the cell clicked after AutoFill to… in the cell menu, also across, and outlines it on hover first", async () => {
     await setup(PAGE);
     const menuItem = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label);
-    const openMenu = (at: Element) => at.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    // A right click, its pointerdown first as a browser fires it
+    const openMenu = (at: Element) => {
+      at.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
+      at.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    };
     select({ row: 1, column: 1 }, { row: 2, column: 1 });
     openMenu(cell(1, 1));
     clickOn(menuItem("AutoFill to…")!);
@@ -131,7 +135,7 @@ describe("AutoFill", () => {
   it("fills to the cell tapped after AutoFill to…, a touch that moves scrolling with picking going on", async () => {
     await setup(PAGE);
     const touch = (target: EventTarget, type: string, x = 0, y = 0) =>
-      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerType: "touch", clientX: x, clientY: y }));
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerType: "touch", isPrimary: true, clientX: x, clientY: y }));
     select({ row: 1, column: 1 }, { row: 2, column: 1 });
     cell(1, 1).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
     clickOn(Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "AutoFill to…")!);
@@ -139,14 +143,30 @@ describe("AutoFill", () => {
     touch(cell(3, 1), "pointerdown", 150, 70);
     touch(window, "pointermove", 150, 20);
     touch(window, "pointerup", 150, 20);
-    expect(document.body.classList.contains("tp-fill-picking")).toBe(true);
+    expect(widget().classList.contains("tp-fill-picking")).toBe(true);
     // A tap, without the mouse events a browser may leave out after scrolling
     touch(cell(4, 1), "pointerdown", 150, 90);
     touch(window, "pointerup", 150, 90);
     await flush();
     await controller.scan();
     expect(rows().map((r) => r.split("|")[2]!.trim())).toEqual(["Mon", "Tue", "Wed", "Thu", ""]);
-    expect(document.body.classList.contains("tp-fill-picking")).toBe(false);
+    expect(document.querySelector(".tp-fill-picking")).toBeNull();
+  });
+
+  it("keeps picking while the same cells show selected again, and lets a press on the header sort, ending it", async () => {
+    await setup(PAGE);
+    select({ row: 1, column: 1 }, { row: 2, column: 1 });
+    cell(1, 1).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
+    cell(1, 1).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    clickOn(Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "AutoFill to…")!);
+    // The table rendered anew shows the same cells selected again
+    select({ row: 1, column: 1 }, { row: 2, column: 1 });
+    expect(widget().classList.contains("tp-fill-picking")).toBe(true);
+    // The header's sort control: picking ends, the click sorts
+    clickOn(cell(0, 0).querySelector(".tp-sort")!);
+    expect(document.querySelector(".tp-fill-picking")).toBeNull();
+    expect(controller.rearranged(controller.infoOf(widget())!)).toBe(true);
+    expect(text).toBe(PAGE);
   });
 
   it("copies a formula with its references moved", async () => {

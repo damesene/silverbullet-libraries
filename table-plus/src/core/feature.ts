@@ -173,11 +173,14 @@ export interface TableHost {
    */
   readonly pressedWith: string;
   /**
-   * The touch going on is the feature's (told by its pointer events: a tap):
-   * the mouse events a browser fires after it are swallowed, as they would
-   * select or edit the cell. A cell menu a touch opens takes it so.
+   * The press going on is the feature's (a mouse's taken in mouseDown, a tap
+   * told by its pointer events): its mouse events after it (a touch's
+   * mousedown, the mouseup, the click) are swallowed, as they would select or
+   * edit the cell, follow a link, sort. A cell menu a touch opens takes it so.
    */
-  takeTouch(): void;
+  takePress(): void;
+  /** Whether the press going on was taken (another feature does nothing more with it) */
+  pressTaken(): boolean;
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
   openCellMenu(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean;
   /** A floating element (position: fixed) in the page, kept out of the editor's way */

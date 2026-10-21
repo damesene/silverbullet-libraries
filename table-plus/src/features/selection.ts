@@ -614,7 +614,7 @@ export class Selection implements Feature {
     };
     const up = () => {
       stop();
-      if (Date.now() - at < TAP_MS) this.host.openCellMenu(widget, info, ref, { x, y });
+      if (Date.now() - at < TAP_MS && !this.host.pressTaken()) this.host.openCellMenu(widget, info, ref, { x, y });
     };
     const stop = () => {
       win.removeEventListener("pointermove", move, true);
