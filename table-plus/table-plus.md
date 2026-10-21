@@ -3287,10 +3287,16 @@ body.tp-autoscrolling * {
 .sb-table-widget td:is(.tp-pin-left, .tp-pin-right):has(> .tp-fill-handle, > .tp-fill-edge) {
   position: sticky;
 }
+/* Centered on the cell's corner, as in a spreadsheet: on the last row or
+   column it reaches past the table, whose clip (and its box's) lets it out */
+.sb-table-widget.tp-table:has(.tp-fill-handle),
+.sb-table-widget.tp-table table:has(.tp-fill-handle) {
+  overflow-clip-margin: 8px;
+}
 .tp-fill-handle {
   position: absolute;
-  right: 0;
-  bottom: 0;
+  right: -4px;
+  bottom: -4px;
   z-index: 2;
   box-sizing: border-box;
   width: 8px;
@@ -3302,6 +3308,8 @@ body.tp-autoscrolling * {
 }
 @media (pointer: coarse) {
   .tp-fill-handle {
+    right: -7px;
+    bottom: -7px;
     width: 14px;
     height: 14px;
   }
