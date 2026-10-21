@@ -69,6 +69,30 @@ describe("Row and column grips", () => {
     expect(editor.querySelectorAll(".tp-selected").length).toBe(2);
   });
 
+  it("gives a right click on a cell of rows (columns) selected whole their menu, not the cell's", async () => {
+    await setup(PAGE);
+    const info = controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!;
+    const rightClick = (target: Element) => {
+      target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
+      target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    };
+    const title = () => document.querySelector(".tp-menu-title")!.textContent;
+    // The Qty column, its header and every row
+    controller.selectCells(info, { row: 0, column: 1 }, { row: 3, column: 1 });
+    rightClick(cell(2, 1));
+    expect(title()).toBe("Column: Qty");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    // Two whole rows
+    controller.selectCells(info, { row: 1, column: 0 }, { row: 2, column: 1 });
+    rightClick(cell(2, 0));
+    expect(title()).toBe("Row 2");
+    expect(Array.from(document.querySelectorAll(".tp-menu-item")).map((b) => b.textContent)).toContain("Delete 2 rows");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    // A cell outside them: the cell's menu, as before
+    rightClick(cell(3, 0));
+    expect(title()).toBe("Cell: Name, row 3");
+  });
+
   it("tints what a hovered grip acts on, and selects it when clicked", async () => {
     await setup(PAGE);
     const tinted = () => Array.from(editor.querySelectorAll(".tp-handle-hover"));

@@ -283,9 +283,9 @@ describe("Selecting cells", () => {
       expect(end().parentElement).toBe(cell(2, 1));
       // In the last column (inside its cell there), not the last row
       expect([end().classList.contains("tp-select-edge-column"), end().classList.contains("tp-select-edge-row")]).toEqual([true, false]);
-      // A tap in the selection: its menu, the cells staying selected
+      // A tap in the selection: its menu (whole rows: the rows'), the cells staying selected
       tap(cell(1, 1));
-      expect(document.querySelector(".tp-menu .tp-menu-title")!.textContent).toBe("4 cells");
+      expect(document.querySelector(".tp-menu .tp-menu-title")!.textContent).toBe("Row 1");
       expect(editor.querySelectorAll(".tp-selected").length).toBe(4);
       key(document.querySelector(".tp-menu")!, "Escape");
       // A whole row dragged down: whole rows
@@ -321,10 +321,11 @@ describe("Selecting cells", () => {
     expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 1");
     touch(cell(1, 1), "pointerdown");
     touch(window, "pointerup");
-    expect(Array.from(document.querySelectorAll(".tp-menu-title")).map((t) => t.textContent)).toEqual(["2 cells"]);
+    // The row selected whole: the row's menu, by the cell, alone
+    expect(Array.from(document.querySelectorAll(".tp-menu-title")).map((t) => t.textContent)).toEqual(["Row 1"]);
     // The tap's mouse events after it, the click on an item that opened under the finger
     clickOn(cell(1, 1));
-    const item = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Clear 2 cells")!;
+    const item = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Delete row")!;
     const click = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
     item.dispatchEvent(click);
     expect(click.defaultPrevented).toBe(true);
@@ -386,14 +387,14 @@ describe("Selecting cells", () => {
 
     it("moves them with Move to… in their menu and a click on the cell they go to, kept within the table", async () => {
       await setup(GRID, { "tablePlus.metadata": true });
-      controller.selectCells(info(), { row: 2, column: 0 }, { row: 2, column: 1 });
+      controller.selectCells(info(), { row: 2, column: 0 }, { row: 3, column: 0 });
       cell(2, 0).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
       cell(2, 0).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
       Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Move 2 cells to…")!.click();
-      // The second column of the last row: two cells wide, they start in the first
+      // The second column of the last row: two cells high, they start a row above
       press(cell(4, 1), "mousedown");
       await flush();
-      expect(text).toBe('| A | B |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| | |\n| 5 <meta n="five"> | 6 |\n| 3 | 4 |\n');
+      expect(text).toBe('| A | B |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| | 4 |\n| <meta n="five"> | 3 |\n| | 5 |\n');
     });
   });
 });

@@ -9771,6 +9771,25 @@ var Grips = class {
   cellMenuOpened() {
     this.closeMenu(false, false);
   }
+  /**
+   * The cell menu asked for on a cell of rows (columns) selected whole: their
+   * menu instead, by the point (the same as their grip's), as a spreadsheet
+   * gives a row's commands for a row selected
+   */
+  cellMenu(widget, info, at, point) {
+    for (const axis of ["row", "column"]) {
+      const line = axis === "row" ? at.row : at.column;
+      if (axis === "row" && at.row === 0 || !this.wholeLinesSelected(info, axis).includes(line)) continue;
+      const cell = this.host.cellAt(info, at);
+      if (!cell) return false;
+      const target = { widget, info, column: at.column, ...at.row > 0 ? { row: at.row } : {} };
+      this.target = target;
+      this.closeMenu(false, false);
+      this.toggleMenu(axis, target, axis === "row" ? this.rowGrip : this.columnGrip, { cell, ...point });
+      return true;
+    }
+    return false;
+  }
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged() {
     if (!this.selectingLines && this.menu) this.closeMenu(false, false);
@@ -9980,7 +9999,8 @@ var Grips = class {
   }
   // ---- menus ----------------------------------------------------------------------
   // A click on the grip whose menu is open closes it; on another grip, that grip's menu opens instead
-  toggleMenu(axis, target, grip) {
+  /** The menu of a line, by its grip, or by a point in a cell (`at`: opened on a cell selected) */
+  toggleMenu(axis, target, grip, at) {
     const line = axis === "row" ? target.row : target.column;
     if (this.menu?.axis === axis && this.menu.line === line) {
       this.closeMenu(true);
@@ -9997,12 +10017,17 @@ var Grips = class {
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     element.addEventListener("mousedown", (e) => e.preventDefault());
     doc.body.append(element);
-    const g = grip.getBoundingClientRect();
-    const cell = this.cellsOf(target, axis)[0] ?? grip;
-    const c = cell.getBoundingClientRect();
-    this.menu = { element, axis, widget, line, anchor: { cell, dx: g.left - c.left, dy: g.top - c.top, width: g.width, height: g.height } };
+    if (at) {
+      const c = at.cell.getBoundingClientRect();
+      this.menu = { element, axis, widget, line, anchor: { cell: at.cell, dx: at.x - c.left, dy: at.y - c.top, width: 0, height: 0 } };
+    } else {
+      const g = grip.getBoundingClientRect();
+      const cell = this.cellsOf(target, axis)[0] ?? grip;
+      const c = cell.getBoundingClientRect();
+      this.menu = { element, axis, widget, line, anchor: { cell, dx: g.left - c.left, dy: g.top - c.top, width: g.width, height: g.height } };
+      grip.classList.add("tp-active");
+    }
     this.positionMenu();
-    grip.classList.add("tp-active");
     focusMenu(element);
   }
   /**
@@ -15738,6 +15763,10 @@ var Controller = class {
    * False when none offers anything: the browser's menu stays.
    */
   openCellMenu(widget, info, at, point) {
+    if (this.features.some((f) => f.cellMenu?.(widget, info, at, point))) {
+      if (this.pressedWith === "touch") this.takePress();
+      return true;
+    }
     let cells = [at];
     for (const feature of this.features) {
       const selected = feature.selectedCells?.(info, at);
