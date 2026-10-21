@@ -206,7 +206,7 @@ Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table (sele
 
 **Drag them by their edge**: with a mouse, point at the edge of the cells selected (the pointer becomes a move cross), press and drag: the cells where they would go are outlined, with their address (`B4:C5`); let go to move them there. Hold **Ctrl** while letting go to copy them instead, as in a spreadsheet (`+` shows before the address). Esc cancels.
 
-**Move to…** in the menu of the cells selected (on a touch screen: tap them, or press and hold), then click (tap) the cell where the first of them goes: they move there. Meanwhile the page scrolls as usual; Esc, or a press outside the table, cancels.
+**Move to…** in the menu of the cells selected (on a touch screen: tap them, or press and hold), then click (tap) the cell where the first of them goes: they move there. With a mouse, where they would go is outlined under the pointer, with its address, as while dragging them. Meanwhile the page scrolls as usual; Esc, or a press outside the table, cancels.
 
 * They move as with cut and paste (below): with their formulas, over what the cells there held, names staying where they are; one edit, one Ctrl+Z.
 * A copy writes a formula with its references moved as far as the cell is (`=A1*2` copied a row down is `=A2*2`), as AutoFill does; the cells written over keep their names.

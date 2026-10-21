@@ -391,8 +391,14 @@ describe("Selecting cells", () => {
       cell(2, 0).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
       cell(2, 0).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
       Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Move 2 cells to…")!.click();
+      // Under the pointer, where they would go is outlined, as while dragging them: two cells high, a row above the last
+      cell(4, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      const outlined = () => Array.from(editor.querySelectorAll(".tp-move-edge")).map((e) => e.parentElement);
+      expect(new Set(outlined())).toEqual(new Set([cell(3, 1), cell(4, 1)]));
+      expect(document.querySelector(".tp-move-tip")!.textContent).toBe("B3:B4");
       // The second column of the last row: two cells high, they start a row above
       press(cell(4, 1), "mousedown");
+      expect(outlined()).toEqual([]);
       await flush();
       expect(text).toBe('| A | B |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| | 4 |\n| <meta n="five"> | 3 |\n| | 5 |\n');
     });

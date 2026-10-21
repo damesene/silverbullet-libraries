@@ -13288,13 +13288,27 @@ var Selection = class {
   startMoving(info) {
     this.moving = info.key;
     this.host.doc.body.classList.add("tp-move-picking");
+    this.host.doc.defaultView.addEventListener("mousemove", this.showMoveTarget, true);
     const press = this.host.pressedWith === "touch" ? "tap the cell where the first one goes (a tap outside the table cancels)" : "click the cell where the first one goes; Esc cancels";
     void this.host.bridge.flash(`Table Plus: ${press}`, "info");
   }
   endMoving() {
     this.moving = void 0;
     this.host.doc.body.classList.remove("tp-move-picking");
+    this.host.doc.defaultView.removeEventListener("mousemove", this.showMoveTarget, true);
+    for (const edge of this.targetEdges) edge.remove();
+    this.targetEdges = [];
+    this.tip.classList.remove("tp-visible");
   }
+  /** While Move to… waits: the cells where the block would go with its first cell under the pointer, outlined */
+  showMoveTarget = (e) => {
+    const block = this.block();
+    if (!block || block.info.key !== this.moving) return;
+    const hit = this.host.enhancedWidgetOf(e.target);
+    const cell = hit && hit[1].key === block.info.key ? this.host.tableCellOf(hit[1], e.target) : void 0;
+    const row = cell ? block.shown.indexOf(cell.parentElement) : -1;
+    this.showTarget(block, cell && row >= 1 ? this.placeOf(block, row, cell.cellIndex) : void 0, false, e.clientX, e.clientY);
+  };
   /** A press while Move to… waits: on a body cell of the table the cells move there (the press taken); elsewhere it ends and goes on */
   movedBy(e) {
     if (e.button !== 0) {
