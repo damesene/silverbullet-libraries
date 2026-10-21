@@ -662,41 +662,48 @@ export class Formulas implements Feature {
 
   /** The formula with its references in their colors, and help for what is typed */
   private showFormulaHint(active: CellEditor, formula: string, refs: readonly Reference[]): void {
+    const { doc } = this.host;
     const hint = this.formulaHint;
-    hint.replaceChildren();
+    // fx at the hint's edge by the cell, the formula and its help beside it
+    const body = doc.createElement("div");
+    body.className = "tp-formula-hint-body";
+    hint.replaceChildren(this.functionsButton(active), body);
     if (refs.length) {
-      const line = this.host.doc.createElement("div");
+      const line = doc.createElement("div");
       line.className = "tp-formula-preview";
       let at = 0;
       refs.forEach((ref, index) => {
         line.append(formula.slice(at, ref.from));
-        const span = this.host.doc.createElement("span");
+        const span = doc.createElement("span");
         span.style.color = REFERENCE_COLORS[index % REFERENCE_COLORS.length]!;
         span.textContent = formula.slice(ref.from, ref.to);
         line.append(span);
         at = ref.to;
       });
       line.append(formula.slice(at));
-      hint.append(line);
+      body.append(line);
     }
     const choices = this.choicesNow(active);
     if (choices && this.choosing) {
-      hint.append(this.choiceList(active, choices, this.choosing.index));
+      body.append(this.choiceList(active, choices, this.choosing.index));
       const picked = functionNamed(choices.names[this.choosing.index]!)!;
-      hint.append(this.helpLine({ syntax: picked.syntax, description: picked.description }));
+      body.append(this.helpLine({ syntax: picked.syntax, description: picked.description }));
+      body.append(Object.assign(doc.createElement("div"), { className: "tp-formula-tab", textContent: "Tab or Enter: insert · ↑ ↓: pick · Esc: close" }));
     } else {
       const help = formulaHelp(formula, active.field.selectionStart ?? formula.length);
-      if (help) hint.append(this.helpLine(help));
+      if (help) body.append(this.helpLine(help));
     }
-    hint.append(this.hintFoot(active, !!(choices && this.choosing)));
     const rect = editorRect(active);
+    hint.classList.remove("tp-above");
     this.host.place(hint, rect.left, rect.bottom + 4);
     // The list made anew: the one picked scrolled into its view (the list's own scroll, not the page's)
     const list = hint.querySelector<HTMLElement>(".tp-formula-choices");
     const picked = list?.querySelector<HTMLElement>('[aria-selected="true"]');
     if (list && picked) list.scrollTop = Math.max(0, picked.offsetTop + picked.offsetHeight - list.clientHeight);
-    const viewHeight = this.host.doc.defaultView!.innerHeight;
+    const viewHeight = doc.defaultView!.innerHeight;
     if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {
+      // Above the cell: fx at its bottom, by the cell again
+      hint.classList.add("tp-above");
       this.host.place(hint, rect.left, rect.top - 4 - hint.offsetHeight);
     }
   }
@@ -728,25 +735,20 @@ export class Formulas implements Feature {
     return list;
   }
 
-  /** The hint's last line: the list's keys while it shows, and fx for every function */
-  private hintFoot(active: CellEditor, listing: boolean): HTMLElement {
-    const { doc } = this.host;
-    const foot = doc.createElement("div");
-    foot.className = "tp-formula-foot";
-    foot.append(Object.assign(doc.createElement("span"), { className: "tp-formula-tab", textContent: listing ? "Tab or Enter: insert · ↑ ↓: pick · Esc: close" : "" }));
-    const more = doc.createElement("button");
+  /** fx: every function, in the Functions dialog */
+  private functionsButton(active: CellEditor): HTMLElement {
+    const more = this.host.doc.createElement("button");
     more.type = "button";
     more.className = "tp-formula-functions";
-    more.title = "Every function, to find one by what it does (Shift+F3)";
+    more.title = "Functions: find one by its name or what it does (Shift+F3)";
+    more.setAttribute("aria-label", more.title);
     more.innerHTML = ICONS.function;
-    more.append(" Functions…");
     // The field keeps the focus until the dialog takes it (the editor stays open)
     more.addEventListener("mousedown", (e) => e.preventDefault());
     more.addEventListener("click", () => {
       if (this.host.editing === active) this.openFunctions(active);
     });
-    foot.append(more);
-    return foot;
+    return more;
   }
 
   /** A function's syntax, the argument the caret is in marked, and what it does */

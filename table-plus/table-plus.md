@@ -2956,8 +2956,10 @@ body.tp-autoscrolling * {
 }
 .tp-formula-hint {
   z-index: 56;
-  flex-direction: column;
-  gap: 3px;
+  /* fx beside the formula and its help, at the edge by the cell (the top, or the bottom above the cell) */
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
   max-width: 460px;
   padding: 5px 8px;
   font-size: 12px;
@@ -2967,6 +2969,15 @@ body.tp-autoscrolling * {
   border-radius: 4px;
   box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
   pointer-events: none;
+}
+.tp-formula-hint.tp-above {
+  align-items: flex-end;
+}
+.tp-formula-hint-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 .tp-formula-preview {
   font-family: var(--editor-font, monospace);
@@ -2995,14 +3006,14 @@ body.tp-autoscrolling * {
   display: flex;
   flex-direction: column;
   max-height: 11.5em;
-  margin: 0 -8px;
+  margin: 0 -8px 0 -4px;
   overflow-y: auto;
   pointer-events: auto;
 }
 .tp-formula-choice {
   display: flex;
   gap: 8px;
-  padding: 2px 8px;
+  padding: 2px 8px 2px 4px;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -3025,19 +3036,12 @@ body.tp-autoscrolling * {
   padding-top: 4px;
   border-top: 1px solid var(--button-border-color);
 }
-.tp-formula-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.tp-formula-foot .tp-formula-tab {
-  flex: 1;
-}
 .tp-formula-functions {
   display: inline-flex;
+  flex: none;
   align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
+  justify-content: center;
+  padding: 3px;
   font: inherit;
   color: inherit;
   background: none;
@@ -3051,8 +3055,13 @@ body.tp-autoscrolling * {
   opacity: 1;
 }
 .tp-formula-functions svg {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
+}
+@media (pointer: coarse) {
+  .tp-formula-functions {
+    padding: 7px;
+  }
 }
 .tp-floating.tp-ref-mark {
   z-index: 49;
