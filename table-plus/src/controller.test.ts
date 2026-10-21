@@ -48,7 +48,8 @@ describe("Controller", () => {
     await setup(NAMED, { "tablePlus.metadata": true, "tablePlus.editor.enterKey": "save", "tablePlus.modules.names.enabled": false });
     expect(document.querySelector(".tp-named")).toBeNull();
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    expect(tableMenuItem(/^Name table/)).toBeUndefined();
+    tableMenuItem(/^Edit markdown$/);
+    expect(document.querySelector(".tp-menu .tp-menu-rename")).toBeNull();
     // The named cell keeps its name when edited, and the formula using it follows
     clickOn(cell(1, 1));
     editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "1";
@@ -80,7 +81,6 @@ describe("Controller", () => {
     tableMenuItem(/^Edit markdown$/);
     const menu = document.querySelector(".tp-menu")!;
     expect(Array.from(menu.querySelectorAll(".tp-menu-item, .tp-menu-separator")).map((e) => e.textContent || "—")).toEqual([
-      "Name table: prices",
       "Theme: Native (global)",
       "Copy as CSV",
       "Export to Excel…",

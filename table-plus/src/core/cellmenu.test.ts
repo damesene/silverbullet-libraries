@@ -37,11 +37,14 @@ describe("Cell menu", () => {
     expect(menu()!.querySelector(".tp-menu-title")!.textContent).toBe("Cell: Qty, row 1");
     expect(entries()).toEqual([
       ...["Copy", "Cut", "Paste", "Paste as new rows", "—"],
-      ...["Clear", "Move to…", "—", "Insert function…", "—", "AutoFill to…", "—", "Filter: = 3", "Filter: ≠ 3", "—", "Name cell", "Name row"],
+      ...["Clear", "Move to…", "—", "Insert function…", "—", "AutoFill to…", "—", "Filter: = 3", "Filter: ≠ 3"],
     ]);
-    // A header: no clearing, no filter, its name last
+    // Named by the pencil in its title
+    expect(menu()!.querySelector(".tp-menu-rename")!.getAttribute("aria-label")).toMatch(/^Name this cell/);
+    // A header: no clearing, no filter; its title names the column
     rightClick(cell(0, 1));
-    expect(entries()).toEqual(["Copy", "Cut", "Paste", "Paste as new rows", "—", "Name column"]);
+    expect(entries()).toEqual(["Copy", "Cut", "Paste", "Paste as new rows"]);
+    expect(menu()!.querySelector(".tp-menu-rename")!.getAttribute("aria-label")).toMatch(/^Name this column/);
   });
 
   it("filters by a cell's value, adding to the column's list; and leaves it out with ≠", async () => {

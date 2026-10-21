@@ -1,21 +1,20 @@
-// Names: a table's name, in its metadata row and set from its toolbar, by
-// which formulas in other tables refer to it. And names kept in cells
-// (names.ts): a column's name, set in the column's
-// menu. Formulas and the stored sorting name the column by it, so renaming the
-// header (also in the markdown) does not break them, nor references from
-// other pages. Setting or removing it rewrites the references to the column on
-// the page (the write steps follow the column's new name). And a cell's name,
-// set in its row's menu, by which formulas on the page (vat) and on other
-// pages ([[Page]]vat) use the cell wherever it is moved. And a row's name,
-// also set in its menu: pear[price] is the row's Price cell, wherever the row
-// is moved or sorted.
-import { columnIdOf, columnKey } from "../columns.ts";
-import type { CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+// Names, each set by the pencil in the title of a menu (menuNaming): a
+// table's name, in its metadata row (the ⋯ menu), by which formulas in other
+// tables refer to it. And names kept in cells (names.ts): a column's name (its
+// menu, or a header's cell menu). Formulas and the stored sorting name the
+// column by it, so renaming the header (also in the markdown) does not break
+// them, nor references from other pages. Setting or removing it rewrites the
+// references to the column on the page (the write steps follow the column's
+// new name). And a cell's name (its cell menu), by which formulas on the page
+// (vat) and on other pages ([[Page]]vat) use the cell wherever it is moved.
+// And a row's name (its row menu): pear[price] is the row's Price cell,
+// wherever the row is moved or sorted.
+import { columnIdOf } from "../columns.ts";
+import type { Feature, MetadataPart, NamingTarget, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { functionNamed } from "../formulas/registry.ts";
-import { ICONS } from "../icons.ts";
 import { findTables, locateBySource, parseTable, type Table } from "../markdown.ts";
 import { metaName, sameTableName, tableNameProblem, withMetaName } from "../meta.ts";
-import type { MenuEntry } from "../menu.ts";
+import type { MenuNaming } from "../menu.ts";
 import { cellNameOf, namedRows, nameOf, nameProblem, rowNameIn, withCellName, withName } from "../names.ts";
 import { setCell } from "../ops.ts";
 
@@ -93,39 +92,71 @@ export class Names implements Feature {
     }
   }
 
-  /** The table's name at the toolbar's left, and "Name table" in its menu */
+  /** The table's name at the toolbar's left: a click opens its ⋯ menu, the name to type in its title */
   toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
     const name = metaName(parseTable(info.source));
-    // A name is metadata: with the setting off, only a table with a metadata row can get one
-    if (!info.metaRow && !this.host.metadataEnabled) return [];
-    const rename = () => void this.renameTable(widget, info);
-    const title = name
-      ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`
-      : "Name this table, so formulas in other tables can refer to it (name!A1)";
-    return [
-      ...(name ? [{ label: name, title, place: "label" as const, run: rename }] : []),
-      { label: "Name table", icon: ICONS.fixedName, ...(name ? { value: name } : {}), title, run: rename },
-    ];
+    if (!name) return [];
+    const title = `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`;
+    return [{ label: name, title, place: "label", run: () => this.host.openTableMenu(widget, true) }];
   }
 
   /**
-   * Names, renames or (with an empty name) unnames a table, asking for the
-   * name; refused when it is not a valid name or another table on the page has it
+   * The name of what a menu is about, in its title with a pencil: the table's
+   * (formulas elsewhere use it as name!A1), a row's (name[column]), a cell's,
+   * a column's ([name] whatever its header says). Names are metadata: with
+   * the setting off only one already there can be changed or removed.
    */
-  private async renameTable(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
+  menuNaming(widget: HTMLElement, info: WidgetInfo, target: NamingTarget): MenuNaming | undefined {
+    const table = parseTable(info.source);
+    const needs = "Needs the Store table metadata setting";
+    if (target.kind === "table") {
+      const name = metaName(table);
+      return {
+        ...(name ? { name } : {}),
+        label: name ? `Rename this table (formulas elsewhere refer to it as ${name}!A1)` : "Name this table, so formulas in other tables can refer to it (name!A1)",
+        ...(info.metaRow || this.host.metadataEnabled ? {} : { disabled: needs }),
+        save: (next) => this.renameTable(widget, info, next),
+      };
+    }
+    if (target.kind === "row") {
+      const name = rowNameIn(table.rows[target.row]?.cells ?? [])?.name;
+      return {
+        ...(name ? { name } : {}),
+        label: name ? `Rename this row (formulas use its cells as ${name}[column])` : "Name this row, so formulas use its cells as name[column], wherever it is moved",
+        ...(this.host.metadataEnabled || name !== undefined ? {} : { disabled: needs }),
+        save: (next) => this.nameRow(widget, info, target.row, next),
+      };
+    }
+    if (target.kind === "cell") {
+      const name = cellNameOf(table.rows[target.row]?.cells[target.column] ?? "");
+      return {
+        ...(name ? { name } : {}),
+        label: name ? `Rename this cell (formulas use it as ${name})` : "Name this cell, so formulas use it by its name, wherever it is moved",
+        ...(this.host.metadataEnabled || name !== undefined ? {} : { disabled: needs }),
+        save: (next) => this.nameCell(widget, info, target.row, target.column, next),
+      };
+    }
+    const name = nameOf(table.rows[0]?.cells[target.column] ?? "");
+    return {
+      ...(name ? { name } : {}),
+      label: name ? `Rename this column (formulas refer to it as [${name}])` : "Name this column, so formulas refer to it as [name] whatever its header says",
+      ...(this.host.metadataEnabled || name !== undefined ? {} : { disabled: needs }),
+      save: (next) => this.rename(widget, info, target.column, next),
+    };
+  }
+
+  /**
+   * Names, renames or (with an empty name) unnames a table; refused, with
+   * why, when it is not a valid name or another table on the page has it
+   */
+  private async renameTable(shownWidget: HTMLElement, shownInfo: WidgetInfo, name: string): Promise<string | undefined> {
     const shown = parseTable(shownInfo.source);
-    const answer = await this.host.promptText("Table name (letters, digits and _; empty: no name)", metaName(shown) ?? "");
-    if (answer === undefined) return;
-    const name = answer.trim();
     // Against the name as stored, so an empty answer also clears a name that is not valid
-    if (name === (shown.meta?.name?.trim() ?? "")) return;
+    if (name === (shown.meta?.name?.trim() ?? "")) return undefined;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     const info = this.host.infoOf(widget) ?? shownInfo;
     const problem = name === "" ? undefined : tableNameProblem(name);
-    if (problem) {
-      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
-      return;
-    }
+    if (problem) return problem;
     if (name !== "") {
       const text = await this.host.bridge.getText();
       // This table where it is now: its position may have moved since it was rendered
@@ -135,79 +166,23 @@ export class Names implements Feature {
         const other = metaName(parseTable(range.text));
         return other !== undefined && sameTableName(other, name);
       });
-      if (taken) {
-        void this.host.bridge.flash(`Table Plus: another table on this page is named ${name}`, "error");
-        return;
-      }
+      if (taken) return `another table on this page is named ${name}`;
     }
     await this.host.write(widget, (t) => withMetaName(t, name === "" ? undefined : name));
     this.host.focusEditor(widget);
+    return undefined;
   }
 
-  /** "Name row" at the top of a row's menu */
-  rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number): MenuEntry[] {
-    const cells = parseTable(info.source).rows[row]?.cells ?? [];
-    const rowName = rowNameIn(cells)?.name;
-    const rowAllowed = this.host.metadataEnabled || rowName !== undefined;
-    return [
-      {
-        kind: "item",
-        label: "Name row",
-        icon: ICONS.fixedName,
-        ...(rowName ? { value: { text: rowName } } : {}),
-        ...(rowAllowed
-          ? {
-              hint: rowName
-                ? `Formulas use this row's cells as ${rowName}[column] (from other tables table!${rowName}[column]), wherever it is moved. Click to rename it`
-                : "Name this row, so formulas use its cells as name[column], wherever it is moved or sorted",
-            }
-          : { disabled: "Needs the Store table metadata setting" }),
-        run: () => void this.nameRow(widget, info, row),
-      },
-    ];
-  }
-
-  /** First in a cell's menu: Name cell and Name row (also in the row's menu); in a header's, Name column */
-  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): { order: number; entries: MenuEntry[] } | undefined {
-    const [cell] = cells;
-    if (cells.length !== 1 || !cell) return undefined;
-    // Naming near the end, as in the menus of rows and columns
-    if (cell.row === 0) return { order: 8, entries: this.columnMenuTopEntries(widget, info, cell.column) };
-    const { row, column } = cell;
-    const name = cellNameOf(parseTable(info.source).rows[row]?.cells[column] ?? "");
-    const allowed = this.host.metadataEnabled || name !== undefined;
-    const entry: MenuEntry = {
-      kind: "item",
-      label: "Name cell",
-      icon: ICONS.fixedName,
-      ...(name ? { value: { text: name } } : {}),
-      ...(allowed
-        ? {
-            hint: name
-              ? `Formulas use this cell as ${name} (on other pages [[Page]]${name}), wherever it is moved. Click to rename it`
-              : "Name this cell, so formulas use it by its name (vat), wherever it is moved",
-          }
-        : { disabled: "Needs the Store table metadata setting" }),
-      run: () => void this.nameCell(widget, info, row, column),
-    };
-    return { order: 8, entries: [entry, ...this.rowMenuEntries(widget, info, row)] };
-  }
-
-  private async nameRow(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number): Promise<void> {
+  /** Names a row (empty: unnames it); refused, with why, when not valid or another row of the table has it */
+  private async nameRow(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number, name: string): Promise<string | undefined> {
     const table = parseTable(shownInfo.source);
     const current = rowNameIn(table.rows[row]?.cells ?? [])?.name ?? "";
-    const answer = await this.host.promptText("Name of the row (letters, digits and _; empty: none)", current);
-    if (answer === undefined) return;
-    const name = answer.trim();
-    if (name === current) return;
+    if (name === current) return undefined;
     let problem = name === "" ? undefined : nameProblem(name, "row");
     // The name is the table's: no other row of it may have it
     const other = name ? namedRows(table).get(name.toLowerCase()) : undefined;
     if (!problem && other !== undefined && other !== row) problem = `another row of this table is named ${name}`;
-    if (problem) {
-      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
-      return;
-    }
+    if (problem) return problem;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     // Renamed where the name is (a column inserted or moved may have taken it out of the first cell)
     await this.host.write(widget, (t) => {
@@ -215,14 +190,13 @@ export class Names implements Feature {
       return setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || undefined));
     });
     this.host.focusEditor(widget);
+    return undefined;
   }
 
-  private async nameCell(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number, column: number): Promise<void> {
+  /** Names a cell (empty: unnames it); refused, with why, when not valid, a function's or another cell's on the page */
+  private async nameCell(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number, column: number, name: string): Promise<string | undefined> {
     const current = cellNameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
-    const answer = await this.host.promptText("Name of the cell (letters, digits and _; empty: none)", current);
-    if (answer === undefined) return;
-    const name = answer.trim();
-    if (name === current) return;
+    if (name === current) return undefined;
     let problem = name === "" ? undefined : nameProblem(name, "cell");
     if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
     if (!problem && name) {
@@ -236,56 +210,27 @@ export class Names implements Feature {
       );
       if (taken) problem = `another cell on this page is named ${name}`;
     }
-    if (problem) {
-      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
-      return;
-    }
+    if (problem) return problem;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     await this.host.write(widget, (t) => setCell(t, row, column, withCellName(t.rows[row]?.cells[column] ?? "", name || undefined)));
     this.host.focusEditor(widget);
+    return undefined;
   }
 
-  /** "Name column" at the top of a column's menu */
-  columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
-    const fixed = nameOf(parseTable(info.source).rows[0]?.cells[column] ?? "");
-    // A name is metadata: with the setting off, only one already there can be changed or removed
-    const allowed = this.host.metadataEnabled || fixed !== undefined;
-    return [
-      {
-        kind: "item",
-        label: "Name column",
-        icon: ICONS.fixedName,
-        ...(fixed ? { value: { text: fixed } } : {}),
-        ...(allowed
-          ? {
-              hint: fixed
-                ? `Formulas refer to this column as [${fixed}], whatever its header says. Click to rename it`
-                : "Name this column, so formulas refer to it as [name] whatever its header says (also from other pages)",
-            }
-          : { disabled: "Needs the Store table metadata setting" }),
-        run: () => void this.rename(widget, info, column),
-      },
-    ];
-  }
-
-  private async rename(shownWidget: HTMLElement, shownInfo: WidgetInfo, column: number): Promise<void> {
+  /** Names a column (empty: unnames it); refused, with why, when not valid or another column answers to it */
+  private async rename(shownWidget: HTMLElement, shownInfo: WidgetInfo, column: number, name: string): Promise<string | undefined> {
     const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
     const current = nameOf(headers[column] ?? "") ?? "";
-    const answer = await this.host.promptText("Name of the column (letters, digits and _; empty: none)", current || columnKey(headers[column] ?? ""));
-    if (answer === undefined) return;
-    const name = answer.trim();
-    if (name === current) return;
+    if (name === current) return undefined;
     const problem = name === "" ? undefined : nameProblem(name, "column");
     // Another column already answers to it: [name] would be ambiguous
     const taken =
       name !== "" &&
       headers.some((header, c) => c !== column && (nameOf(header)?.toLowerCase() === name.toLowerCase() || columnIdOf(headers, c)?.name === name.toLowerCase()));
-    if (problem || taken) {
-      void this.host.bridge.flash(`Table Plus: ${problem ?? `another column of this table is named ${name}`}`, "error");
-      return;
-    }
+    if (problem || taken) return problem ?? `another column of this table is named ${name}`;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     await this.host.write(widget, (t) => setCell(t, 0, column, withName(t.rows[0]?.cells[column] ?? "", name || undefined)));
     this.host.focusEditor(widget);
+    return undefined;
   }
 }

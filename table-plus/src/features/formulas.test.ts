@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buttonLabel, cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, menuButtons, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { buttonLabel, cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, menuButtons, nameInMenu, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
 import { clearCustomFunctions, defineCustomFunctions, functionNamed } from "../formulas/registry.ts";
 import { toNumber, type Value } from "../formulas/values.ts";
@@ -476,10 +476,9 @@ describe("Formulas", () => {
       await flush();
       await controller.scan();
       expect(text).toContain('| Fig | 3 <meta f="=prices!B3"> |');
-      // Renamed with Name
-      vi.spyOn(window, "prompt").mockReturnValue("costs");
-      tableMenuItem(/^Name table/)!.click();
-      await flush();
+      // Renamed in the ⋯ menu's title
+      tableMenuItem(/^Edit markdown$/);
+      expect(await nameInMenu("costs")).toBeUndefined();
       expect(text).toContain('<meta name="costs">');
       expect(text).toContain('| Fig | 3 <meta f="=costs!B3"> |');
     });
@@ -618,17 +617,14 @@ describe("Formulas", () => {
       document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
       window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
     };
-    const item = (label: RegExp) => menuButtons().find((b) => label.test(buttonLabel(b)))!;
 
     it("gives a column a fixed name from its menu, and its references then use it", async () => {
       await setup(PRICES, { "tablePlus.editor.enterKey": "save" });
-      vi.spyOn(window, "prompt").mockReturnValue("price");
       openColumnMenu(0);
-      // Naming near the end of the menu, before selecting and deleting
-      const labels = menuButtons().map((b) => buttonLabel(b));
-      expect(labels.findIndex((l) => /^Name column/.test(l))).toBe(labels.indexOf("Select columns") - 1);
-      item(/^Name column/).click();
-      await flush();
+      // Named in the menu's title, which then shows the name; the menu closes
+      expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Column: Unit price");
+      expect(await nameInMenu("price")).toBeUndefined();
+      expect(document.querySelector(".tp-menu")).toBeNull();
       await controller.scan();
       expect(text).toBe('| Unit price <meta n="price"> | Total |\n|---|---|\n| 3 | 3 <meta f="=SUM([price])"> |\n');
       // The header shows without it, and is edited as the name only: the fixed name stays
@@ -641,12 +637,9 @@ describe("Formulas", () => {
 
     it("refuses a name another column answers to", async () => {
       await setup('| A | B |\n|---|---|\n| 1 | 2 |\n');
-      vi.spyOn(window, "prompt").mockReturnValue("b");
       openColumnMenu(0);
-      item(/^Name column/).click();
-      await flush();
+      expect(await nameInMenu("b")).toBe("another column of this table is named b");
       expect(text).toBe("| A | B |\n|---|---|\n| 1 | 2 |\n");
-      expect(flashes.pop()).toBe("Table Plus: another column of this table is named b");
     });
 
     it("keeps a cell's name when the cell is edited", async () => {
@@ -682,9 +675,8 @@ describe("Formulas", () => {
 
     it("names a cell from its menu; the tables using the name get its value in the same edit", async () => {
       await setup(PAGE4.replace('121 <meta f="=[@price]*(1+vat)">', '0 <meta f="=[@price]*(1+vat)">'), { "tablePlus.editor.enterKey": "save" });
-      vi.spyOn(window, "prompt").mockReturnValue("vat");
-      cellMenuItem(cell(1, 1), /^Name cell/)!.click();
-      await flush();
+      cellMenuItem(cell(1, 1), /^Copy$/);
+      expect(await nameInMenu("vat")).toBeUndefined();
       await controller.scan();
       expect(text).toContain('| VAT | 0.21 <meta cn="vat"> |');
       expect(text).toContain('| Pear | 100 | 121 <meta f="=[@price]*(1+vat)"> |');
@@ -700,17 +692,13 @@ describe("Formulas", () => {
 
     it("names a row from its menu, refusing a name another row of the table has", async () => {
       await setup('| Name | Price |\n|---|---|\n| Pear <meta n="pear"> | 12 |\n| Fig | 3 |\n', { "tablePlus.editor.enterKey": "save" });
-      const prompt = vi.spyOn(window, "prompt");
-      prompt.mockReturnValue("PEAR");
       openRowMenu(2, 1);
-      item(/^Name row/).click();
-      await flush();
-      expect(flashes.pop()).toBe("Table Plus: another row of this table is named PEAR");
-      prompt.mockReturnValue("fig");
-      openRowMenu(2, 1);
-      item(/^Name row/).click();
-      await flush();
+      expect(await nameInMenu("PEAR")).toBe("another row of this table is named PEAR");
+      // Refused, the field stays for another name
+      expect(await nameInMenu("fig")).toBeUndefined();
       await controller.scan();
+      openRowMenu(2, 1);
+      expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row: fig");
       expect(text).toBe('| Name | Price |\n|---|---|\n| Pear <meta n="pear"> | 12 |\n| Fig <meta n="fig"> | 3 |\n');
       expect(cell(2, 0).classList.contains("tp-row-named")).toBe(true);
       expect(cell(2, 0).title).toBe("Row name: fig");
@@ -759,22 +747,14 @@ describe("Formulas", () => {
 
     it("refuses a name another cell on the page has, or a function's", async () => {
       await setup('| A | B |\n|---|---|\n| 1 <meta cn="one"> | 2 |\n');
-      const prompt = vi.spyOn(window, "prompt");
-      prompt.mockReturnValue("ONE");
-      cellMenuItem(cell(1, 1), /^Name cell/)!.click();
-      await flush();
-      expect(flashes.pop()).toBe("Table Plus: another cell on this page is named ONE");
-      prompt.mockReturnValue("sum");
-      cellMenuItem(cell(1, 1), /^Name cell/)!.click();
-      await flush();
-      expect(flashes.pop()).toBe("Table Plus: sum is a function's name");
+      cellMenuItem(cell(1, 1), /^Copy$/);
+      expect(await nameInMenu("ONE")).toBe("another cell on this page is named ONE");
+      expect(await nameInMenu("sum")).toBe("sum is a function's name");
       // A custom one's too
       defineCustomFunctions([{ name: "VAT", syntax: "VAT()", description: "", minArgs: 0, call: () => 1 }]);
-      prompt.mockReturnValue("vat");
-      cellMenuItem(cell(1, 1), /^Name cell/)!.click();
-      await flush();
+      const why = await nameInMenu("vat");
       clearCustomFunctions();
-      expect(flashes.pop()).toBe("Table Plus: vat is a function's name");
+      expect(why).toBe("vat is a function's name");
       expect(text).toBe('| A | B |\n|---|---|\n| 1 <meta cn="one"> | 2 |\n');
     });
 

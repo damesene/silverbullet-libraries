@@ -23,8 +23,6 @@ export type Bridge = {
   readonly readPage?: (name: string) => string | Promise<string>;
   // Optional: writes a page's markdown (with readPage), e.g. edits held for a page no longer in the editor
   readonly writePage?: (name: string, text: string) => unknown;
-  // Optional: asks for a text, e.g. a table's name (else the browser's prompt); undefined: cancelled
-  readonly prompt?: (message: string, defaultValue?: string) => string | undefined | null | Promise<string | undefined | null>;
   // Optional, for the settings dialog: writes the space's configuration page
   // (CONFIG) and loads the configuration again (as SilverBullet's
   // Configuration Manager does); with readPage. Without it (and without

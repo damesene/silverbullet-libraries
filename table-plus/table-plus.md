@@ -171,18 +171,20 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 
 | Item | What it does |
 |---|---|
-| *Insert function…* | Edits the cell (its formula, or a new one) with the *Functions* dialog, see [[#Functions]]. Needs *Store table metadata* for a new formula. |
-| *Name cell*, *Name row* | Names the cell, see [[#Named cells]], or its row, see [[#Named rows]]; on a header *Name column*, see [[#Named columns]]. |
 | *Copy* | Copies the cell (the cells selected) as Ctrl+C does. |
 | *Cut* | Cuts the cells as Ctrl+X does: copied and outlined, they move where they are pasted, see [[#Cut and paste]]. Not on a header. |
 | *Paste*, *Paste as new rows* | Pastes the clipboard from the cell (the top left one selected) as Ctrl+V (Ctrl+Shift+V) does, see [[#Pasting from a spreadsheet]]; with cells cut, *Paste (move N cells)* moves them. Greyed out where the page cannot read the clipboard or it holds nothing (cells cut move all the same). |
 | *Clear* | Empties the cell (the cells selected) as Delete does; a header keeps its name. |
 | *Move to…* | Moves the cells selected to the cell you click (tap) next, see [[#Moving cells]]. |
+| *Insert function…* | Edits the cell (its formula, or a new one) with the *Functions* dialog, see [[#Functions]]. Needs *Store table metadata* for a new formula. |
+| *AutoFill to…* | Fills from the cells selected to the cell you click (tap) next, see [[#AutoFill]]. |
 | *Filter: = value* | Shows only the rows with this value in this column (with the values of the cells selected in one column: any of them). A column filtered by values already gets this one added: `=open\|blocked`. |
 | *Filter: ≠ value* | Hides the rows with this value in this column. |
 | *Delete N rows*, *Delete N columns* | On a selection: deletes the rows (columns) its cells are in. A table keeps at least one column. |
 
-The menus of a cell, of a row and of a column keep one order, so the same actions are in the same place: first a bar of icons for the clipboard (*Copy*, *Cut*, *Paste* and, for rows, *+ Rows*: paste as new rows; their full names show on hover), then *Clear*, then inserting, moving and pinning, sorting and filtering, naming, and deleting last. Pairs of actions sit in one row of icon buttons after their name (*Insert* above / below, *Move* up / down, *Pin* top / bottom, *Sort*, *Align*); a button that cannot be used now is greyed out, and hovering it says why.
+The menu of one cell is titled with the cell's name (*Cell: vat*), else its column and row; the pencil after the title names the cell, see [[#Named cells]] (on a header: its column, see [[#Named columns]]). A row is named in its row menu, see [[#Named rows]].
+
+The menus of a cell, of a row and of a column keep one order, so the same actions are in the same place: first a bar of icons for the clipboard (*Copy*, *Cut*, *Paste* and, for rows, *+ Rows*: paste as new rows; their full names show on hover), then *Clear*, then inserting, moving and pinning, sorting and filtering, and deleting last. Pairs of actions sit in one row of icon buttons after their name (*Insert* above / below, *Move* up / down, *Pin* top / bottom, *Sort*, *Align*); a button that cannot be used now is greyed out, and hovering it says why.
 
 Each comes from a module (`formulas`, `names`, `selection`, `paste`, `autofill`, `filters`, see [[#Settings]]): a module turned off leaves its items out, and with none left the right click gives the browser's menu.
 
@@ -310,7 +312,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 
 ### Named columns
 
-A column can have a name of its own, by which formulas and the stored sorting name it whatever its header says: renaming the header (also in the markdown) breaks nothing, nor references to the column from other pages. Open the column's menu (the ⠿ grip above the column), click *Name column* at its top and type the name (letters, digits and `_`); an empty name removes it.
+A column can have a name of its own, by which formulas and the stored sorting name it whatever its header says: renaming the header (also in the markdown) breaks nothing, nor references to the column from other pages. Open the column's menu (the ⠿ grip above the column, or right-click its header), click the pencil after its title, type the name (letters, digits and `_`) and press Enter (Esc leaves it as it was); an empty name removes it. A name that cannot be used is refused with why, under the field. Named, the menu's title is the name.
 
 * It is stored in the header cell as a hidden `<meta n="price">`: `| Unit price <meta n="price"> |`. SilverBullet does not show it, and a query still reads the column as `unit_price`. The header has a mark in its corner; hover it for the name.
 * `[price]` is the column with that name before any column whose header is Price, which is then `[price:2]`.
@@ -319,7 +321,7 @@ A column can have a name of its own, by which formulas and the stored sorting na
 
 ### Named cells
 
-A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)`, or on another page `[[Prices]]vat`. The name stays with the cell wherever it is moved (also in the markdown), so such references never need to change. Open the cell's menu (right-click it, see [[#Cell menu]]), click *Name cell* and type the name (letters, digits and `_`); an empty name removes it.
+A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)`, or on another page `[[Prices]]vat`. The name stays with the cell wherever it is moved (also in the markdown), so such references never need to change. Open the cell's menu (right-click it, see [[#Cell menu]]), click the pencil after its title, type the name (letters, digits and `_`) and press Enter; an empty name removes it.
 
 * It is stored in the cell as a hidden `<meta cn="vat">`: `| VAT | 0.21 <meta cn="vat"> |`. A named cell has a mark in its corner; hover it for the name.
 * A name is the page's: two cells on a page cannot have the same one, and it cannot be a function's name or read as a cell (`A1`). A formula looks for it in its own table first, then in the page's other tables.
@@ -328,7 +330,7 @@ A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)
 
 ### Named rows
 
-A row can have a name, by which formulas use its cells: `pear[price]` is the Price cell of the row named pear, `prices!pear[price]` of the table named prices, `[[Shop]]prices!pear[price]` on another page. The name stays with the row wherever it is moved or sorted (also in the markdown), and does not depend on what the row's cells say. Open the row's menu (the ⠿ grip left of the row) or the menu of one of its cells (right-click it), click *Name row* and type the name; an empty name removes it.
+A row can have a name, by which formulas use its cells: `pear[price]` is the Price cell of the row named pear, `prices!pear[price]` of the table named prices, `[[Shop]]prices!pear[price]` on another page. The name stays with the row wherever it is moved or sorted (also in the markdown), and does not depend on what the row's cells say. Open the row's menu (the ⠿ grip left of the row), click the pencil after its title (*Row 3*, or the row's name), type the name and press Enter; an empty name removes it.
 
 * It is stored in the row's first cell as a hidden `<meta n="pear">`: `| Pear <meta n="pear"> | 12 |`, as a column's name is in its header. A named row has a mark in the top left corner of its first cell; hover it for the name. A first cell that is also a named cell holds both in one tag: `<meta n="pear" cn="first">`.
 * A row's name is its table's: two rows of a table cannot have the same one. The column after it is written as any column reference (`[price]`, a column's name, `[price:2]`) and follows the column when it is renamed or moved.
@@ -783,7 +785,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | Module | When on |
 |---|---|
 | `formulas` | Formulas can be typed into cells, with their help and references; *Recalculate* in the toolbar; every edit recalculates the table and the tables referring to it, and references follow moved rows and columns. Off: nothing is recalculated, results stay as written, and references do not follow moves. A typed formula is saved as text; a formula cell edited, pasted over or emptied keeps its formula (hidden), which is used again once formulas are on. See [[#Formulas]]. |
-| `names` | Tables, columns, rows and cells can be named: *Name table* in a table's ⋯ menu, *Name column* in the column menu, *Name row* in the row and cell menus, *Name cell* in the cell menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them, but a duplicated row copies them too. See [[#Table names]]. |
+| `names` | Tables, columns, rows and cells can be named: the pencil in the title of a table's ⋯ menu, a column's, a row's or a cell's menu; named headers and cells show a mark. Off: none of these, and no marks; names already in tables are kept and formulas still use them, but a duplicated row copies them too. See [[#Table names]]. |
 | `pageLinks` | Formulas can refer to tables and named cells on other pages (`[[Prices]]fruit!B2`), which Table Plus reads for them. Off: it reads no other page; formulas that refer to one keep the results they have (the formulas using them too), a new one shows `#REF!`. It needs the `formulas` module. See [[#Tables on other pages]]. |
 | `filters` | Rows can be filtered: the toolbar's filter icon shows a filter field under each header, *Filter* in a column menu opens that column's filter, *Filter: = value* in the cell menu filters by a cell's value; with *Store table metadata* the filters are stored in the table. Its setting `smart` (default `true`): fields understand `>10`, `/pattern/`, `=text`, `a\|b` and `!filter`; `false`: everything typed is text to find. Off: no filtering; filters stored in a table are kept but not used. See [[#Filtering]]. |
 | `columnTypes` | A header's type hashtag formats its column, the cell editor offers the type's values, and the column menu has *Type*. Off: cells show as written. See [[#Column types]]. |
@@ -804,7 +806,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 
 ## Table names
 
-A table can have a name, so formulas in other tables can refer to it. Click *Name table* in the ⋯ menu of the table's toolbar and type it; an empty name removes it. The name is stored in the table's metadata row (`<meta name="prices">`), so it needs the *Store table metadata* setting, or a table that has a metadata row already.
+A table can have a name, so formulas in other tables can refer to it. Open the ⋯ menu of the table's toolbar, click the pencil after its title, type the name and press Enter; an empty name removes it. Named, the menu's title is *Table: name*, and the name shows at the toolbar's left: a click on it opens the menu with the name to type. The name is stored in the table's metadata row (`<meta name="prices">`), so it needs the *Store table metadata* setting, or a table that has a metadata row already.
 
 * A name is letters, digits and `_`, not starting with a digit, e.g. `prices` or `price_list`. Names that read as a cell (`A1`, `AB12`) or as `TRUE` / `FALSE` are refused.
 * Names are compared ignoring case, and two tables on a page cannot have the same name.
@@ -983,7 +985,7 @@ config.define("tablePlus", {
             enabled = {
               type = "boolean",
               default = true,
-              description = "Naming tables (Name table in the toolbar's ⋯ menu), columns (Name column in the column menu), rows and cells (Name row in the row menu, Name cell in the cell menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
+              description = "Naming tables, columns, rows and cells (the pencil in the title of the table's ⋯ menu, a column's, a row's or a cell's menu), so formulas refer to them by name; named headers and cells show a mark. Off: none of these; names already in tables are kept and formulas still use them.",
               ui = { category = "Table Plus: Modules", label = "Names", priority = 12 },
             },
           },
@@ -1268,7 +1270,6 @@ if js and js.window then
     redo = editor.redo,
     evalExpression = lua.evalExpression,
     confirm = editor.confirm,
-    prompt = editor.prompt,
     readPage = space.readPage,
     writePage = space.writePage,
     -- The settings dialog: saved as SilverBullet's Configuration Manager saves
@@ -2971,6 +2972,57 @@ body.tp-picking-columns .sb-table-widget.tp-table :is(td, th) {
 .tp-menu .tp-menu-back svg {
   width: 14px;
   height: 14px;
+}
+/* What the menu is about named in its title: a pencil after the title, the title a field once pressed */
+.tp-menu-rename {
+  grid-column: 3;
+  justify-self: start;
+  display: inline-flex;
+  margin: -3px 0;
+  padding: 3px;
+  color: inherit;
+  opacity: 0.6;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tp-menu-rename:hover,
+.tp-menu-rename:focus-visible {
+  opacity: 1;
+  background: color-mix(in srgb, var(--ui-accent-color) 14%, transparent);
+  outline: none;
+}
+.tp-menu-rename[aria-disabled] {
+  opacity: 0.3;
+  cursor: default;
+  background: none;
+}
+.tp-menu .tp-menu-rename svg {
+  width: 14px;
+  height: 14px;
+}
+.tp-menu-title.tp-naming {
+  display: block;
+  padding: 2px 6px 6px;
+}
+.tp-menu-name {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 3px 6px;
+  font: inherit;
+  font-weight: 400;
+  color: inherit;
+  background: var(--root-background-color);
+  border: 1px solid var(--ui-accent-color);
+  border-radius: 5px;
+  outline: none;
+}
+.tp-menu-name-problem {
+  max-width: 260px;
+  padding: 0 8px 6px;
+  font-size: 12px;
+  color: var(--danger-color, #c62828);
 }
 .tp-menu-item {
   display: flex;

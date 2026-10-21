@@ -9303,7 +9303,15 @@ function wrapRuns(entries, wrap) {
     (entry) => entry.kind === "item" ? { ...entry, run: wrap(entry.run) } : entry.kind === "segmented" || entry.kind === "actions" ? { ...entry, options: entry.options.map((option) => ({ ...option, run: wrap(option.run) })) } : entry
   );
 }
-function renderMenu(doc, title, entries, back) {
+function keepFocus(menu) {
+  menu.addEventListener("mousedown", (e) => {
+    if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+  });
+}
+function startNaming(menu) {
+  menu.querySelector(".tp-menu-rename:not([aria-disabled])")?.click();
+}
+function renderMenu(doc, title, entries, back, naming) {
   const menu = doc.createElement("div");
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", title);
@@ -9328,6 +9336,7 @@ function renderMenu(doc, title, entries, back) {
   titleText.textContent = title;
   heading.append(titleText);
   menu.append(heading);
+  if (naming) addNaming(doc, menu, heading, naming);
   let bubble;
   const showDetail = (item, detail) => {
     if (!bubble) {
@@ -9467,6 +9476,7 @@ function renderMenu(doc, title, entries, back) {
   }
   menu.addEventListener("keydown", (e) => {
     e.stopPropagation();
+    if (e.target instanceof HTMLInputElement) return;
     const buttons = Array.from(
       menu.querySelectorAll("button:not([aria-disabled])")
     );
@@ -9492,6 +9502,64 @@ function renderMenu(doc, title, entries, back) {
   });
   return menu;
 }
+function addNaming(doc, menu, heading, naming) {
+  const pencil = doc.createElement("button");
+  pencil.type = "button";
+  pencil.className = "tp-menu-rename";
+  pencil.innerHTML = PENCIL;
+  pencil.setAttribute("aria-label", naming.label);
+  pencil.title = naming.disabled ? `${naming.label}: ${naming.disabled}` : naming.label;
+  if (naming.disabled) pencil.setAttribute("aria-disabled", "true");
+  heading.append(pencil);
+  pencil.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (naming.disabled) return;
+    const field = doc.createElement("input");
+    field.type = "text";
+    field.className = "tp-menu-name";
+    field.value = naming.name ?? "";
+    field.placeholder = "name";
+    field.setAttribute("aria-label", naming.label);
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    const problem = doc.createElement("div");
+    problem.className = "tp-menu-name-problem";
+    problem.hidden = true;
+    const titled = Array.from(heading.childNodes);
+    heading.replaceChildren(field);
+    heading.after(problem);
+    heading.classList.add("tp-naming");
+    const leave = () => {
+      heading.classList.remove("tp-naming");
+      heading.replaceChildren(...titled);
+      problem.remove();
+      menu.focus({ preventScroll: true });
+    };
+    let saving = false;
+    field.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        leave();
+      } else if (ev.key === "Enter" && !ev.isComposing && !saving) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        saving = true;
+        problem.hidden = true;
+        void naming.save(field.value.trim()).then((why) => {
+          saving = false;
+          if (why === void 0) return;
+          problem.textContent = why;
+          problem.hidden = false;
+          field.focus();
+        });
+      }
+    });
+    field.focus();
+    field.select();
+  });
+}
+var PENCIL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg>';
 function focusMenu(menu) {
   const current = menu.dataset.tpList !== void 0 ? menu.querySelector('.tp-menu-item[aria-checked="true"]') : null;
   if (!current) {
@@ -10059,13 +10127,21 @@ var Grips = class {
     if (this.host.pressedWith === "touch") this.host.takePress();
     const { doc } = this.host;
     const { widget, info } = target;
-    const element = axis === "row" ? renderMenu(doc, `Row ${target.row}`, this.rowMenu(widget, info, target.row, target.column)) : renderMenu(
-      doc,
-      `Column: ${cellText(info.table.rows[0].cells[target.column]) || target.column + 1}`,
-      this.columnMenu(widget, info, target.column)
-    );
+    const named2 = this.host.menuNaming(widget, info, axis === "row" ? { kind: "row", row: line } : { kind: "column", column: line });
+    const naming = named2 && {
+      ...named2,
+      save: async (name) => {
+        const why = await named2.save(name);
+        if (why === void 0) this.closeMenu(false);
+        return why;
+      }
+    };
+    const header = cellText(info.table.rows[0].cells[target.column]) || String(target.column + 1);
+    const title = axis === "row" ? naming?.name ? `Row: ${naming.name}` : `Row ${target.row}` : `Column: ${naming?.name ?? header}`;
+    const entries = axis === "row" ? this.rowMenu(widget, info, target.row, target.column) : this.columnMenu(widget, info, target.column);
+    const element = renderMenu(doc, title, entries, void 0, naming);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    element.addEventListener("mousedown", (e) => e.preventDefault());
+    keepFocus(element);
     doc.body.append(element);
     if (at) {
       const c = at.cell.getBoundingClientRect();
@@ -10091,7 +10167,7 @@ var Grips = class {
     const closing = entries.map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry);
     const element = renderMenu(this.host.doc, title, closing, { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) });
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    element.addEventListener("mousedown", (e) => e.preventDefault());
+    keepFocus(element);
     this.swapMenu(element);
   }
   /** Puts `element` in the open menu's place */
@@ -11368,34 +11444,68 @@ Row name: ${row}` : `Row name: ${row}`;
       }
     }
   }
-  /** The table's name at the toolbar's left, and "Name table" in its menu */
+  /** The table's name at the toolbar's left: a click opens its ⋯ menu, the name to type in its title */
   toolbarButtons(widget, info) {
     const name = metaName(parseTable(info.source));
-    if (!info.metaRow && !this.host.metadataEnabled) return [];
-    const rename = () => void this.renameTable(widget, info);
-    const title = name ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it` : "Name this table, so formulas in other tables can refer to it (name!A1)";
-    return [
-      ...name ? [{ label: name, title, place: "label", run: rename }] : [],
-      { label: "Name table", icon: ICONS.fixedName, ...name ? { value: name } : {}, title, run: rename }
-    ];
+    if (!name) return [];
+    const title = `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`;
+    return [{ label: name, title, place: "label", run: () => this.host.openTableMenu(widget, true) }];
   }
   /**
-   * Names, renames or (with an empty name) unnames a table, asking for the
-   * name; refused when it is not a valid name or another table on the page has it
+   * The name of what a menu is about, in its title with a pencil: the table's
+   * (formulas elsewhere use it as name!A1), a row's (name[column]), a cell's,
+   * a column's ([name] whatever its header says). Names are metadata: with
+   * the setting off only one already there can be changed or removed.
    */
-  async renameTable(shownWidget, shownInfo) {
+  menuNaming(widget, info, target) {
+    const table = parseTable(info.source);
+    const needs = "Needs the Store table metadata setting";
+    if (target.kind === "table") {
+      const name2 = metaName(table);
+      return {
+        ...name2 ? { name: name2 } : {},
+        label: name2 ? `Rename this table (formulas elsewhere refer to it as ${name2}!A1)` : "Name this table, so formulas in other tables can refer to it (name!A1)",
+        ...info.metaRow || this.host.metadataEnabled ? {} : { disabled: needs },
+        save: (next) => this.renameTable(widget, info, next)
+      };
+    }
+    if (target.kind === "row") {
+      const name2 = rowNameIn(table.rows[target.row]?.cells ?? [])?.name;
+      return {
+        ...name2 ? { name: name2 } : {},
+        label: name2 ? `Rename this row (formulas use its cells as ${name2}[column])` : "Name this row, so formulas use its cells as name[column], wherever it is moved",
+        ...this.host.metadataEnabled || name2 !== void 0 ? {} : { disabled: needs },
+        save: (next) => this.nameRow(widget, info, target.row, next)
+      };
+    }
+    if (target.kind === "cell") {
+      const name2 = cellNameOf(table.rows[target.row]?.cells[target.column] ?? "");
+      return {
+        ...name2 ? { name: name2 } : {},
+        label: name2 ? `Rename this cell (formulas use it as ${name2})` : "Name this cell, so formulas use it by its name, wherever it is moved",
+        ...this.host.metadataEnabled || name2 !== void 0 ? {} : { disabled: needs },
+        save: (next) => this.nameCell(widget, info, target.row, target.column, next)
+      };
+    }
+    const name = nameOf(table.rows[0]?.cells[target.column] ?? "");
+    return {
+      ...name ? { name } : {},
+      label: name ? `Rename this column (formulas refer to it as [${name}])` : "Name this column, so formulas refer to it as [name] whatever its header says",
+      ...this.host.metadataEnabled || name !== void 0 ? {} : { disabled: needs },
+      save: (next) => this.rename(widget, info, target.column, next)
+    };
+  }
+  /**
+   * Names, renames or (with an empty name) unnames a table; refused, with
+   * why, when it is not a valid name or another table on the page has it
+   */
+  async renameTable(shownWidget, shownInfo, name) {
     const shown = parseTable(shownInfo.source);
-    const answer = await this.host.promptText("Table name (letters, digits and _; empty: no name)", metaName(shown) ?? "");
-    if (answer === void 0) return;
-    const name = answer.trim();
-    if (name === (shown.meta?.name?.trim() ?? "")) return;
+    if (name === (shown.meta?.name?.trim() ?? "")) return void 0;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     const info = this.host.infoOf(widget) ?? shownInfo;
     const problem = name === "" ? void 0 : tableNameProblem(name);
-    if (problem) {
-      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
-      return;
-    }
+    if (problem) return problem;
     if (name !== "") {
       const text = await this.host.bridge.getText();
       const self = locateBySource(text, info.hint, info.source);
@@ -11404,79 +11514,33 @@ Row name: ${row}` : `Row name: ${row}`;
         const other = metaName(parseTable(range.text));
         return other !== void 0 && sameTableName(other, name);
       });
-      if (taken) {
-        void this.host.bridge.flash(`Table Plus: another table on this page is named ${name}`, "error");
-        return;
-      }
+      if (taken) return `another table on this page is named ${name}`;
     }
     await this.host.write(widget, (t) => withMetaName(t, name === "" ? void 0 : name));
     this.host.focusEditor(widget);
+    return void 0;
   }
-  /** "Name row" at the top of a row's menu */
-  rowMenuEntries(widget, info, row) {
-    const cells = parseTable(info.source).rows[row]?.cells ?? [];
-    const rowName = rowNameIn(cells)?.name;
-    const rowAllowed = this.host.metadataEnabled || rowName !== void 0;
-    return [
-      {
-        kind: "item",
-        label: "Name row",
-        icon: ICONS.fixedName,
-        ...rowName ? { value: { text: rowName } } : {},
-        ...rowAllowed ? {
-          hint: rowName ? `Formulas use this row's cells as ${rowName}[column] (from other tables table!${rowName}[column]), wherever it is moved. Click to rename it` : "Name this row, so formulas use its cells as name[column], wherever it is moved or sorted"
-        } : { disabled: "Needs the Store table metadata setting" },
-        run: () => void this.nameRow(widget, info, row)
-      }
-    ];
-  }
-  /** First in a cell's menu: Name cell and Name row (also in the row's menu); in a header's, Name column */
-  cellMenuEntries(widget, info, cells) {
-    const [cell] = cells;
-    if (cells.length !== 1 || !cell) return void 0;
-    if (cell.row === 0) return { order: 8, entries: this.columnMenuTopEntries(widget, info, cell.column) };
-    const { row, column } = cell;
-    const name = cellNameOf(parseTable(info.source).rows[row]?.cells[column] ?? "");
-    const allowed = this.host.metadataEnabled || name !== void 0;
-    const entry = {
-      kind: "item",
-      label: "Name cell",
-      icon: ICONS.fixedName,
-      ...name ? { value: { text: name } } : {},
-      ...allowed ? {
-        hint: name ? `Formulas use this cell as ${name} (on other pages [[Page]]${name}), wherever it is moved. Click to rename it` : "Name this cell, so formulas use it by its name (vat), wherever it is moved"
-      } : { disabled: "Needs the Store table metadata setting" },
-      run: () => void this.nameCell(widget, info, row, column)
-    };
-    return { order: 8, entries: [entry, ...this.rowMenuEntries(widget, info, row)] };
-  }
-  async nameRow(shownWidget, shownInfo, row) {
+  /** Names a row (empty: unnames it); refused, with why, when not valid or another row of the table has it */
+  async nameRow(shownWidget, shownInfo, row, name) {
     const table = parseTable(shownInfo.source);
     const current = rowNameIn(table.rows[row]?.cells ?? [])?.name ?? "";
-    const answer = await this.host.promptText("Name of the row (letters, digits and _; empty: none)", current);
-    if (answer === void 0) return;
-    const name = answer.trim();
-    if (name === current) return;
+    if (name === current) return void 0;
     let problem = name === "" ? void 0 : nameProblem(name, "row");
     const other = name ? namedRows(table).get(name.toLowerCase()) : void 0;
     if (!problem && other !== void 0 && other !== row) problem = `another row of this table is named ${name}`;
-    if (problem) {
-      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
-      return;
-    }
+    if (problem) return problem;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     await this.host.write(widget, (t) => {
       const column = rowNameIn(t.rows[row]?.cells ?? [])?.column ?? 0;
       return setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || void 0));
     });
     this.host.focusEditor(widget);
+    return void 0;
   }
-  async nameCell(shownWidget, shownInfo, row, column) {
+  /** Names a cell (empty: unnames it); refused, with why, when not valid, a function's or another cell's on the page */
+  async nameCell(shownWidget, shownInfo, row, column, name) {
     const current = cellNameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
-    const answer = await this.host.promptText("Name of the cell (letters, digits and _; empty: none)", current);
-    if (answer === void 0) return;
-    const name = answer.trim();
-    if (name === current) return;
+    if (name === current) return void 0;
     let problem = name === "" ? void 0 : nameProblem(name, "cell");
     if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
     if (!problem && name) {
@@ -11489,47 +11553,24 @@ Row name: ${row}` : `Row name: ${row}`;
       );
       if (taken) problem = `another cell on this page is named ${name}`;
     }
-    if (problem) {
-      void this.host.bridge.flash(`Table Plus: ${problem}`, "error");
-      return;
-    }
+    if (problem) return problem;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     await this.host.write(widget, (t) => setCell(t, row, column, withCellName(t.rows[row]?.cells[column] ?? "", name || void 0)));
     this.host.focusEditor(widget);
+    return void 0;
   }
-  /** "Name column" at the top of a column's menu */
-  columnMenuTopEntries(widget, info, column) {
-    const fixed = nameOf(parseTable(info.source).rows[0]?.cells[column] ?? "");
-    const allowed = this.host.metadataEnabled || fixed !== void 0;
-    return [
-      {
-        kind: "item",
-        label: "Name column",
-        icon: ICONS.fixedName,
-        ...fixed ? { value: { text: fixed } } : {},
-        ...allowed ? {
-          hint: fixed ? `Formulas refer to this column as [${fixed}], whatever its header says. Click to rename it` : "Name this column, so formulas refer to it as [name] whatever its header says (also from other pages)"
-        } : { disabled: "Needs the Store table metadata setting" },
-        run: () => void this.rename(widget, info, column)
-      }
-    ];
-  }
-  async rename(shownWidget, shownInfo, column) {
+  /** Names a column (empty: unnames it); refused, with why, when not valid or another column answers to it */
+  async rename(shownWidget, shownInfo, column, name) {
     const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
     const current = nameOf(headers[column] ?? "") ?? "";
-    const answer = await this.host.promptText("Name of the column (letters, digits and _; empty: none)", current || columnKey(headers[column] ?? ""));
-    if (answer === void 0) return;
-    const name = answer.trim();
-    if (name === current) return;
+    if (name === current) return void 0;
     const problem = name === "" ? void 0 : nameProblem(name, "column");
     const taken = name !== "" && headers.some((header, c) => c !== column && (nameOf(header)?.toLowerCase() === name.toLowerCase() || columnIdOf(headers, c)?.name === name.toLowerCase()));
-    if (problem || taken) {
-      void this.host.bridge.flash(`Table Plus: ${problem ?? `another column of this table is named ${name}`}`, "error");
-      return;
-    }
+    if (problem || taken) return problem ?? `another column of this table is named ${name}`;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     await this.host.write(widget, (t) => setCell(t, 0, column, withName(t.rows[0]?.cells[column] ?? "", name || void 0)));
     this.host.focusEditor(widget);
+    return void 0;
   }
 };
 
@@ -14259,10 +14300,6 @@ var Controller = class {
     if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
     else setTimeout(run, 0);
   }
-  async promptText(message4, value = "") {
-    const answer = this.bridge.prompt ? await this.bridge.prompt(message4, value) : this.doc.defaultView.prompt(message4, value);
-    return answer ?? void 0;
-  }
   /**
    * Sorts the rows in the markdown as the view sorts them (the shown values;
    * rows a filter hides too, pinned rows staying where they are), once
@@ -14543,6 +14580,28 @@ var Controller = class {
   }
   clickSelects() {
     return this.features.some((f) => f.clickSelects?.());
+  }
+  menuNaming(widget, info, target) {
+    for (const feature of this.features) {
+      const naming = feature.menuNaming?.(widget, info, target);
+      if (naming) return naming;
+    }
+    return void 0;
+  }
+  /** A menu's naming whose save closes the menu once saved */
+  closingNaming(naming) {
+    if (!naming) return void 0;
+    return {
+      ...naming,
+      save: async (name) => {
+        const why = await naming.save(name);
+        if (why === void 0) this.closeTableMenu(false);
+        return why;
+      }
+    };
+  }
+  openTableMenu(widget, naming = false) {
+    if (this.openMore?.widget === widget) this.openMore.open(naming);
   }
   headerRenamed(name, original) {
     for (const feature of this.features) {
@@ -15220,6 +15279,7 @@ var Controller = class {
     if (e.target instanceof Node && this.dialogs.contains(e.target)) return;
     if (this.settingsDialog?.isOpen && e.target instanceof Node && this.settingsDialog.contains(e.target)) return;
     this.dropAnchor();
+    if (e.target instanceof HTMLInputElement && e.target.closest(".tp-menu")) return;
     if (e.key === "Escape" && this.tableMenu) {
       e.preventDefault();
       e.stopPropagation();
@@ -15238,6 +15298,8 @@ var Controller = class {
   // Where a hovering pointer was last, and the table a + inserted into, to show the + again once it is rendered anew
   lastPointer;
   insertedIn;
+  // The ⋯ menu of the toolbar shown last, for a feature to open (TableHost.openTableMenu)
+  openMore;
   // The pointer left the window: the + goes (no move tells it so)
   onPointerOut = (e) => {
     if (e.relatedTarget !== null) return;
@@ -15829,10 +15891,11 @@ var Controller = class {
         title: "More for this table",
         place: "icon",
         icon: ICONS.more,
-        run: () => this.tableMenu?.kind === "table" ? this.closeTableMenu(true) : this.openTableMenu(widget, more, menuItems)
+        run: () => this.tableMenu?.kind === "table" ? this.closeTableMenu(true) : this.showTableMenu(widget, more, menuItems)
       },
       "tp-bar-more"
     );
+    this.openMore = { widget, open: (naming) => this.showTableMenu(widget, more, menuItems, naming) };
     if (this.tableMenu?.kind === "table") {
       more.classList.add("tp-active");
       this.tableMenu.anchor = more;
@@ -15859,9 +15922,9 @@ var Controller = class {
    * The toolbar's ⋯ menu: the table's actions that are not used all the time,
    * the destructive ones last, after a separator
    */
-  openTableMenu(widget, anchor, items) {
+  showTableMenu(widget, anchor, items, startNamed = false) {
     const place = { kind: "table", anchor };
-    const back = { icon: ICONS.arrowLeft, run: () => this.openTableMenu(widget, anchor, items) };
+    const back = { icon: ICONS.arrowLeft, run: () => this.showTableMenu(widget, anchor, items) };
     const entry = (item) => ({
       kind: "item",
       label: item.label,
@@ -15873,19 +15936,23 @@ var Controller = class {
     });
     const safe = items.filter((item) => !item.danger).map(entry);
     const danger = items.filter((item) => item.danger).map(entry);
-    this.showMenu(widget, "Table", [...safe, ...safe.length && danger.length ? [{ kind: "separator" }] : [], ...danger], place);
+    const info = this.infoOf(widget);
+    const naming = info && this.closingNaming(this.menuNaming(widget, info, { kind: "table" }));
+    const title = naming?.name ? `Table: ${naming.name}` : "Table";
+    this.showMenu(widget, title, [...safe, ...safe.length && danger.length ? [{ kind: "separator" }] : [], ...danger], place, void 0, naming);
+    if (startNamed && this.tableMenu) startNaming(this.tableMenu.element);
   }
   /** A menu of the toolbar or of cells: its items close it when run; Escape or a press elsewhere closes it */
-  showMenu(widget, title, entries, place, back) {
+  showMenu(widget, title, entries, place, back, naming) {
     this.closeTableMenu(false);
     const close = (run) => () => {
       this.closeTableMenu(false);
       run();
     };
     const closing = wrapRuns(entries, close);
-    const element = renderMenu(this.doc, title, closing, back);
+    const element = renderMenu(this.doc, title, closing, back, naming);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    element.addEventListener("mousedown", (e) => e.preventDefault());
+    keepFocus(element);
     this.doc.body.append(element);
     this.tableMenu = { element, widget, ...place };
     place.anchor?.classList.add("tp-active");
@@ -15949,9 +16016,10 @@ var Controller = class {
     const entries = groups.flatMap((group, i) => [...i ? [{ kind: "separator" }] : [], ...group.entries]);
     if (this.pressedWith === "touch") this.takePress();
     const header = cellText(info.table.rows[0].cells[at.column]) || `column ${at.column + 1}`;
-    const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? `Header: ${header}` : `Cell: ${header}, row ${at.row}`;
+    const naming = cells.length === 1 ? this.closingNaming(this.menuNaming(widget, info, at.row === 0 ? { kind: "column", column: at.column } : { kind: "cell", row: at.row, column: at.column })) : void 0;
+    const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? naming?.name ? `Column: ${naming.name}` : `Header: ${header}` : naming?.name ? `Cell: ${naming.name}` : `Cell: ${header}, row ${at.row}`;
     for (const feature of this.features) feature.cellMenuOpened?.();
-    this.showMenu(widget, title, entries, { kind: "cell", point });
+    this.showMenu(widget, title, entries, { kind: "cell", point }, void 0, naming);
     return true;
   }
   /** The cell a pointer event is on, in an enhanced table; not in the cell editor (its menu is the browser's) */

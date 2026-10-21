@@ -21,7 +21,7 @@ import {
 import { cellText } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import { type Align, parseTable, type Table } from "../markdown.ts";
-import { focusMenu, type MenuEntry, renderMenu, wrapRuns } from "../menu.ts";
+import { focusMenu, keepFocus, type MenuEntry, type MenuNaming, renderMenu, wrapRuns } from "../menu.ts";
 import { setAlign } from "../ops.ts";
 import { columnZone, insertColumnAt, insertRowAt, rowZone } from "../pins.ts";
 import { type ViewState, withoutSort, withSort } from "../view.ts";
@@ -689,16 +689,22 @@ export class Grips implements Feature {
     if (this.host.pressedWith === "touch") this.host.takePress();
     const { doc } = this.host;
     const { widget, info } = target;
-    const element =
-      axis === "row"
-        ? renderMenu(doc, `Row ${target.row}`, this.rowMenu(widget, info, target.row!, target.column))
-        : renderMenu(
-            doc,
-            `Column: ${cellText(info.table.rows[0]!.cells[target.column]!) || target.column + 1}`,
-            this.columnMenu(widget, info, target.column),
-          );
+    // The line's name in the title, a pencil to change it (the names module's); saved, the menu closes
+    const named = this.host.menuNaming(widget, info, axis === "row" ? { kind: "row", row: line } : { kind: "column", column: line });
+    const naming: MenuNaming | undefined = named && {
+      ...named,
+      save: async (name) => {
+        const why = await named.save(name);
+        if (why === undefined) this.closeMenu(false);
+        return why;
+      },
+    };
+    const header = cellText(info.table.rows[0]!.cells[target.column]!) || String(target.column + 1);
+    const title = axis === "row" ? (naming?.name ? `Row: ${naming.name}` : `Row ${target.row}`) : `Column: ${naming?.name ?? header}`;
+    const entries = axis === "row" ? this.rowMenu(widget, info, target.row!, target.column) : this.columnMenu(widget, info, target.column);
+    const element = renderMenu(doc, title, entries, undefined, naming);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    element.addEventListener("mousedown", (e) => e.preventDefault());
+    keepFocus(element);
     doc.body.append(element);
     if (at) {
       // By the point pressed, following its cell as the page scrolls
@@ -726,7 +732,7 @@ export class Grips implements Feature {
     const closing = entries.map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry));
     const element = renderMenu(this.host.doc, title, closing, { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) });
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    element.addEventListener("mousedown", (e) => e.preventDefault());
+    keepFocus(element);
     this.swapMenu(element);
   }
 

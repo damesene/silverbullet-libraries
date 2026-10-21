@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
-import { PAGE, bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { describe, expect, it } from "vitest";
+import { PAGE, bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, nameInMenu, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 
 describe("Table metadata", () => {
   useTablePage();
@@ -11,44 +11,44 @@ describe("Table metadata", () => {
   it("names a table from its toolbar, refusing a name that is taken or not valid", async () => {
     const TWO = '| A |\n|---|\n| 1 |\n\n| B |\n|---|\n| 2 |\n| <meta name="prices"> |\n';
     await setup(TWO, { "tablePlus.metadata": true });
-    const nameButton = () => tableMenuItem(/^Name table/)!;
-    const prompt = vi.spyOn(window, "prompt");
-    expect(nameButton().textContent).toBe("Name table");
+    const title = () => document.querySelector(".tp-menu-title")!.textContent;
+    tableMenuItem(/^Edit markdown$/);
+    expect(title()).toBe("Table");
     // Taken by the other table (ignoring case)
-    prompt.mockReturnValue("Prices");
-    nameButton().click();
-    await flush();
+    expect(await nameInMenu("Prices")).toBe("another table on this page is named Prices");
     expect(text).toBe(TWO);
-    expect(flashes.pop()).toBe("Table Plus: another table on this page is named Prices");
     // Not a name
-    prompt.mockReturnValue("A1");
-    nameButton().click();
-    await flush();
+    expect(await nameInMenu("A1")).toContain('"A1" would read as a cell');
     expect(text).toBe(TWO);
-    expect(flashes.pop()).toContain('"A1" would read as a cell');
-    prompt.mockReturnValue("fruit");
-    nameButton().click();
-    await flush();
+    expect(await nameInMenu("fruit")).toBeUndefined();
     expect(text).toBe(TWO.replace("| 1 |\n", '| 1 |\n| <meta name="fruit"> |\n'));
+    // Saved, the menu closes; opened again, its title is the name
+    expect(document.querySelector(".tp-menu")).toBeNull();
     await controller.scan();
-    expect(nameButton().textContent).toBe("Name table: fruit");
-    // Its name at the toolbar's left, which renames it too
-    expect(document.querySelector(".tp-bar .tp-bar-label")!.textContent).toBe("fruit");
+    tableMenuItem(/^Edit markdown$/);
+    expect(title()).toBe("Table: fruit");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    // Its name at the toolbar's left opens the menu with the name to type
+    document.querySelector<HTMLElement>(".tp-bar .tp-bar-label")!.click();
+    expect(document.querySelector<HTMLInputElement>(".tp-menu .tp-menu-name")!.value).toBe("fruit");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     // An empty name removes it
-    prompt.mockReturnValue("");
-    nameButton().click();
-    await flush();
+    tableMenuItem(/^Edit markdown$/);
+    expect(await nameInMenu("")).toBeUndefined();
     expect(text).toBe(TWO);
   });
 
   it("offers a name only with the setting on, or to a table with a metadata row", async () => {
+    const pencil = () => document.querySelector<HTMLElement>(".tp-menu .tp-menu-rename")!;
     await setup(PAGE);
-    expect(tableMenuItem(/^Name table/)).toBeUndefined();
+    tableMenuItem(/^Edit markdown$/);
+    expect(pencil().getAttribute("aria-disabled")).toBe("true");
     // A table with a metadata row gets one with the setting off too
     controller.stop();
     document.body.replaceChildren();
     await setup('| A |\n|---|\n| 1 |\n| 2 |\n| <meta pin-top="1"> |\n');
-    expect(tableMenuItem(/^Name table/)).toBeDefined();
+    tableMenuItem(/^Edit markdown$/);
+    expect(pencil().hasAttribute("aria-disabled")).toBe(false);
   });
 
   it("does not change the table when sorting with the setting off", async () => {

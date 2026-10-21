@@ -163,6 +163,26 @@ export function cellMenuItem(target: Element, label: RegExp): HTMLElement | unde
   );
 }
 
+/**
+ * Names what the open menu is about: its title's pencil pressed, the name
+ * typed, Enter; gives why it was refused (shown under the field), else nothing
+ */
+export async function nameInMenu(name: string): Promise<string | undefined> {
+  const menu = document.querySelector<HTMLElement>(".tp-menu")!;
+  // A name refused leaves the field open for another
+  if (!menu.querySelector(".tp-menu-name")) menu.querySelector<HTMLElement>(".tp-menu-rename")!.click();
+  const field = menu.querySelector<HTMLInputElement>(".tp-menu-name")!;
+  field.value = name;
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  // A refusal comes back in microtasks, before jsdom's next frame (no layout: it would close the menu, seen out of view)
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  const problem = menu.querySelector<HTMLElement>(".tp-menu-name-problem");
+  if (problem && !problem.hidden) return problem.textContent!;
+  await flush();
+  await flush();
+  return undefined;
+}
+
 /** A menu's buttons: its items, and the buttons of its rows and bars of icons (Move up, Copy 3 rows) */
 export const menuButtons = (within: ParentNode = document) =>
   Array.from(within.querySelectorAll<HTMLElement>(".tp-menu-item, .tp-segment, .tp-action"));

@@ -7,7 +7,7 @@ import type { Dialog, DialogOptions } from "./dialog.ts";
 export type { Dialog, DialogOptions } from "./dialog.ts";
 import type { IndexMap } from "../ops.ts";
 import type { OtherPages, PageTable, Table } from "../markdown.ts";
-import type { MenuEntry } from "../menu.ts";
+import type { MenuEntry, MenuNaming } from "../menu.ts";
 import type { Pins, ViewState } from "../view.ts";
 
 export type WidgetInfo = {
@@ -86,7 +86,7 @@ export type ToolbarButton = {
   readonly pressed?: boolean;
   // A chip's other buttons, before its ×
   readonly actions?: readonly { readonly icon: string; readonly title: string; readonly run: () => void }[];
-  // In the menu: what it is set to, after its label and a colon (Name table: prices)
+  // In the menu: what it is set to, after its label and a colon (Theme: Native)
   readonly value?: string;
   // In the menu: destructive, last and red
   readonly danger?: boolean;
@@ -139,6 +139,13 @@ export type CellMenuGroup = { readonly order: number; readonly entries: readonly
 export type MetadataPart = { readonly count: number; readonly what: string; readonly note?: string; readonly tags: readonly string[] };
 
 /** What the controller offers features */
+/** What a menu is about, which can be named in its title */
+export type NamingTarget =
+  | { readonly kind: "cell"; readonly row: number; readonly column: number }
+  | { readonly kind: "row"; readonly row: number }
+  | { readonly kind: "column"; readonly column: number }
+  | { readonly kind: "table" };
+
 export interface TableHost {
   readonly doc: Document;
   readonly bridge: Bridge;
@@ -183,6 +190,10 @@ export interface TableHost {
   pressTaken(): boolean;
   /** Whether a click selects first (a feature's select mode), so that a second one acts: a cell's editor, a grip's menu */
   clickSelects(): boolean;
+  /** The naming for a menu's title (Feature.menuNaming): the first feature's */
+  menuNaming(widget: HTMLElement, info: WidgetInfo, target: NamingTarget): MenuNaming | undefined;
+  /** Opens the table's ⋯ menu (of its toolbar), with `naming` its title's name field open (a name to type) */
+  openTableMenu(widget: HTMLElement, naming?: boolean): void;
   /** A header given a new name (escaped markdown) other than by its editor: with what features keep in it (Feature.headerRenamed) */
   headerRenamed(name: string, original: string): string;
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
@@ -242,8 +253,6 @@ export interface TableHost {
   toolbarChanged(): void;
   /** A table changed its size (a column's width): what follows its layout (pinned columns' offsets, the held header, the controls, cut cells) follows */
   tableResized(info: WidgetInfo): void;
-  /** Asks for a text (SilverBullet's dialog, else the browser's); undefined: cancelled */
-  promptText(message: string, value?: string): Promise<string | undefined>;
   /** Hands the keyboard back to SilverBullet's editor */
   focusEditor(widget: HTMLElement): void;
   /** Whether a table is shown sorted or with rows hidden (filtered), so rows are not where the markdown has them */
@@ -502,6 +511,8 @@ export interface Feature {
   editorValue?(editor: CellEditor, typed: string): string | undefined;
   /** A click selects first (select mode: the selection module's), a second click acts; false: a click acts at once */
   clickSelects?(): boolean;
+  /** The name of what a menu is about (a cell, a row, a column, the table), shown in its title with a pencil to change it */
+  menuNaming?(widget: HTMLElement, info: WidgetInfo, target: NamingTarget): MenuNaming | undefined;
   /** A header given a new name other than by its editor (a paste): what it becomes (the column type's hashtag kept); undefined: as given */
   headerRenamed?(name: string, original: string): string | undefined;
   /**

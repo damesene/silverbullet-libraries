@@ -74,7 +74,33 @@ export function wrapRuns(entries: readonly MenuEntry[], wrap: (run: () => void) 
 /** A submenu's way back to the menu it replaced: an arrow before its title (and the Left key) */
 export type MenuBack = { readonly icon: string; readonly run: () => void };
 
-export function renderMenu(doc: Document, title: string, entries: readonly MenuEntry[], back?: MenuBack): HTMLElement {
+/**
+ * What the menu is about can be named in its title: a pencil after it turns
+ * the title into a field (Enter saves, Esc leaves it as it was); `save` gives
+ * why a name is refused (shown under the field), or nothing once it is saved
+ */
+export type MenuNaming = {
+  readonly name?: string;
+  // What the pencil does (Name this row), its tooltip
+  readonly label: string;
+  // Why it cannot be named now
+  readonly disabled?: string;
+  readonly save: (name: string) => Promise<string | undefined>;
+};
+
+/** A press in a menu keeps the focus where it is (on its button, in the page), but in its field (a name typed) */
+export function keepFocus(menu: HTMLElement): void {
+  menu.addEventListener("mousedown", (e) => {
+    if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+  });
+}
+
+/** The menu's title as a field, its name to type (the pencil pressed) */
+export function startNaming(menu: HTMLElement): void {
+  menu.querySelector<HTMLButtonElement>(".tp-menu-rename:not([aria-disabled])")?.click();
+}
+
+export function renderMenu(doc: Document, title: string, entries: readonly MenuEntry[], back?: MenuBack, naming?: MenuNaming): HTMLElement {
   const menu = doc.createElement("div");
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", title);
@@ -101,6 +127,7 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
   titleText.textContent = title;
   heading.append(titleText);
   menu.append(heading);
+  if (naming) addNaming(doc, menu, heading, naming);
 
   // One bubble for the menu's details, beside it: right, or left where the right has no room
   let bubble: HTMLElement | undefined;
@@ -248,6 +275,8 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
   menu.addEventListener("keydown", (e) => {
     // SilverBullet hands stray keys back to the editor; keys in the menu stay here
     e.stopPropagation();
+    // A name typed in the title: its keys are the field's
+    if (e.target instanceof HTMLInputElement) return;
     const buttons = Array.from(
       menu.querySelectorAll<HTMLButtonElement>("button:not([aria-disabled])"),
     );
@@ -275,6 +304,69 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
   });
   return menu;
 }
+
+/** The pencil after the title, and the field it turns the title into */
+function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, naming: MenuNaming): void {
+  const pencil = doc.createElement("button");
+  pencil.type = "button";
+  pencil.className = "tp-menu-rename";
+  pencil.innerHTML = PENCIL;
+  pencil.setAttribute("aria-label", naming.label);
+  pencil.title = naming.disabled ? `${naming.label}: ${naming.disabled}` : naming.label;
+  if (naming.disabled) pencil.setAttribute("aria-disabled", "true");
+  heading.append(pencil);
+  pencil.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (naming.disabled) return;
+    const field = doc.createElement("input");
+    field.type = "text";
+    field.className = "tp-menu-name";
+    field.value = naming.name ?? "";
+    field.placeholder = "name";
+    field.setAttribute("aria-label", naming.label);
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    const problem = doc.createElement("div");
+    problem.className = "tp-menu-name-problem";
+    problem.hidden = true;
+    const titled = Array.from(heading.childNodes);
+    heading.replaceChildren(field);
+    heading.after(problem);
+    heading.classList.add("tp-naming");
+    const leave = () => {
+      heading.classList.remove("tp-naming");
+      heading.replaceChildren(...titled);
+      problem.remove();
+      menu.focus({ preventScroll: true });
+    };
+    let saving = false;
+    field.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        leave();
+      } else if (ev.key === "Enter" && !ev.isComposing && !saving) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        saving = true;
+        problem.hidden = true;
+        void naming.save(field.value.trim()).then((why) => {
+          saving = false;
+          if (why === undefined) return;
+          problem.textContent = why;
+          problem.hidden = false;
+          field.focus();
+        });
+      }
+    });
+    field.focus();
+    field.select();
+  });
+}
+
+// A pencil: what names
+const PENCIL =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg>';
 
 /**
  * Focuses the menu itself: arrow keys then reach its entries, none looks

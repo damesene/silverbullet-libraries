@@ -2,20 +2,7 @@
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
 import { type Bridge, type FeatureName, moduleOnByDefault, SETTINGS, type SettingValue } from "./bridge.ts";
-import type {
-  CellEditor,
-  CellRef,
-  Feature,
-  RowHold,
-  TableHost,
-  ToolbarButton,
-  WidgetInfo,
-  WriteOptions,
-  WritePage,
-  WriteResult,
-  WriteStep,
-  MetadataPart,
-} from "./core/feature.ts";
+import type { CellEditor, CellRef, Feature, RowHold, TableHost, ToolbarButton, WidgetInfo, WriteOptions, WritePage, WriteResult, WriteStep, MetadataPart, NamingTarget } from "./core/feature.ts";
 import { type Dialog, type DialogOptions, Dialogs } from "./core/dialog.ts";
 import { CellEditing } from "./core/editor.ts";
 import { insertColumnWith, insertRowWith } from "./core/structure.ts";
@@ -74,7 +61,7 @@ import {
   type Table,
   type TableRange,
 } from "./markdown.ts";
-import { focusMenu, type MenuBack, type MenuEntry, renderMenu, wrapRuns } from "./menu.ts";
+import { focusMenu, keepFocus, type MenuBack, type MenuEntry, type MenuNaming, renderMenu, startNaming, wrapRuns } from "./menu.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { appendColumnAt, appendRowAt } from "./pins.ts";
 import { keepTags } from "./tags.ts";
@@ -576,13 +563,6 @@ export class Controller implements TableHost {
     else setTimeout(run, 0);
   }
 
-  async promptText(message: string, value = ""): Promise<string | undefined> {
-    const answer = this.bridge.prompt
-      ? await this.bridge.prompt(message, value)
-      : this.doc.defaultView!.prompt(message, value);
-    return answer ?? undefined;
-  }
-
   /**
    * Sorts the rows in the markdown as the view sorts them (the shown values;
    * rows a filter hides too, pinned rows staying where they are), once
@@ -897,6 +877,31 @@ export class Controller implements TableHost {
 
   clickSelects(): boolean {
     return this.features.some((f) => f.clickSelects?.());
+  }
+
+  menuNaming(widget: HTMLElement, info: WidgetInfo, target: NamingTarget): MenuNaming | undefined {
+    for (const feature of this.features) {
+      const naming = feature.menuNaming?.(widget, info, target);
+      if (naming) return naming;
+    }
+    return undefined;
+  }
+
+  /** A menu's naming whose save closes the menu once saved */
+  private closingNaming(naming: MenuNaming | undefined): MenuNaming | undefined {
+    if (!naming) return undefined;
+    return {
+      ...naming,
+      save: async (name) => {
+        const why = await naming.save(name);
+        if (why === undefined) this.closeTableMenu(false);
+        return why;
+      },
+    };
+  }
+
+  openTableMenu(widget: HTMLElement, naming = false): void {
+    if (this.openMore?.widget === widget) this.openMore.open(naming);
   }
 
   headerRenamed(name: string, original: string): string {
@@ -1706,6 +1711,8 @@ export class Controller implements TableHost {
     if (this.settingsDialog?.isOpen && e.target instanceof Node && this.settingsDialog.contains(e.target)) return;
     // Keys may scroll (PageDown, a cell editor moving to the next cell): a table written is not held in place against them
     this.dropAnchor();
+    // A name typed in a menu's title: its keys are the field's (Esc leaves the name, not the menu)
+    if (e.target instanceof HTMLInputElement && e.target.closest(".tp-menu")) return;
     if (e.key === "Escape" && this.tableMenu) {
       e.preventDefault();
       e.stopPropagation();
@@ -1727,6 +1734,8 @@ export class Controller implements TableHost {
   // Where a hovering pointer was last, and the table a + inserted into, to show the + again once it is rendered anew
   private lastPointer: { readonly pointerType: string; readonly clientX: number; readonly clientY: number } | undefined;
   private insertedIn: string | undefined;
+  // The ⋯ menu of the toolbar shown last, for a feature to open (TableHost.openTableMenu)
+  private openMore: { readonly widget: HTMLElement; readonly open: (naming: boolean) => void } | undefined;
 
   // The pointer left the window: the + goes (no move tells it so)
   private onPointerOut = (e: PointerEvent): void => {
@@ -2442,10 +2451,12 @@ export class Controller implements TableHost {
         title: "More for this table",
         place: "icon",
         icon: ICONS.more,
-        run: () => (this.tableMenu?.kind === "table" ? this.closeTableMenu(true) : this.openTableMenu(widget, more, menuItems)),
+        run: () => (this.tableMenu?.kind === "table" ? this.closeTableMenu(true) : this.showTableMenu(widget, more, menuItems)),
       },
       "tp-bar-more",
     );
+    // A feature opens it too (the table's name at the toolbar's left: its name to type)
+    this.openMore = { widget, open: (naming) => this.showTableMenu(widget, more, menuItems, naming) };
     if (this.tableMenu?.kind === "table") {
       // Shown again (a write, a change of the table's state): the open menu stays, at the new button
       more.classList.add("tp-active");
@@ -2485,10 +2496,10 @@ export class Controller implements TableHost {
    * The toolbar's ⋯ menu: the table's actions that are not used all the time,
    * the destructive ones last, after a separator
    */
-  private openTableMenu(widget: HTMLElement, anchor: HTMLElement, items: readonly ToolbarButton[]): void {
+  private showTableMenu(widget: HTMLElement, anchor: HTMLElement, items: readonly ToolbarButton[], startNamed = false): void {
     const place = { kind: "table" as const, anchor };
     // An item with choices shows them in the menu's place, the back arrow (or ArrowLeft) the menu again
-    const back = { icon: ICONS.arrowLeft, run: () => this.openTableMenu(widget, anchor, items) };
+    const back = { icon: ICONS.arrowLeft, run: () => this.showTableMenu(widget, anchor, items) };
     const entry = (item: ToolbarButton): MenuEntry => ({
       kind: "item",
       label: item.label,
@@ -2500,7 +2511,12 @@ export class Controller implements TableHost {
     });
     const safe = items.filter((item) => !item.danger).map(entry);
     const danger = items.filter((item) => item.danger).map(entry);
-    this.showMenu(widget, "Table", [...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], place);
+    // The table's name in the title, a pencil to change it (the names module's)
+    const info = this.infoOf(widget);
+    const naming = info && this.closingNaming(this.menuNaming(widget, info, { kind: "table" }));
+    const title = naming?.name ? `Table: ${naming.name}` : "Table";
+    this.showMenu(widget, title, [...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], place, undefined, naming);
+    if (startNamed && this.tableMenu) startNaming(this.tableMenu.element);
   }
 
   /** A menu of the toolbar or of cells: its items close it when run; Escape or a press elsewhere closes it */
@@ -2510,6 +2526,7 @@ export class Controller implements TableHost {
     entries: readonly MenuEntry[],
     place: { readonly kind: "table" | "cell"; readonly anchor?: HTMLElement; readonly point?: { x: number; y: number } },
     back?: MenuBack,
+    naming?: MenuNaming,
   ): void {
     this.closeTableMenu(false);
     const close = (run: () => void) => () => {
@@ -2517,9 +2534,9 @@ export class Controller implements TableHost {
       run();
     };
     const closing = wrapRuns(entries, close);
-    const element = renderMenu(this.doc, title, closing, back);
+    const element = renderMenu(this.doc, title, closing, back, naming);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    element.addEventListener("mousedown", (e) => e.preventDefault());
+    keepFocus(element);
     this.doc.body.append(element);
     this.tableMenu = { element, widget, ...place };
     place.anchor?.classList.add("tp-active");
@@ -2591,9 +2608,23 @@ export class Controller implements TableHost {
     const entries = groups.flatMap((group, i): MenuEntry[] => [...(i ? [{ kind: "separator" as const }] : []), ...group.entries]);
     if (this.pressedWith === "touch") this.takePress();
     const header = cellText(info.table.rows[0]!.cells[at.column]!) || `column ${at.column + 1}`;
-    const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? `Header: ${header}` : `Cell: ${header}, row ${at.row}`;
+    // One cell: its name (a header's: its column's) in the title, a pencil to change it
+    const naming =
+      cells.length === 1
+        ? this.closingNaming(this.menuNaming(widget, info, at.row === 0 ? { kind: "column", column: at.column } : { kind: "cell", row: at.row, column: at.column }))
+        : undefined;
+    const title =
+      cells.length > 1
+        ? `${cells.length} cells`
+        : at.row === 0
+          ? naming?.name
+            ? `Column: ${naming.name}`
+            : `Header: ${header}`
+          : naming?.name
+            ? `Cell: ${naming.name}`
+            : `Cell: ${header}, row ${at.row}`;
     for (const feature of this.features) feature.cellMenuOpened?.();
-    this.showMenu(widget, title, entries, { kind: "cell", point });
+    this.showMenu(widget, title, entries, { kind: "cell", point }, undefined, naming);
     return true;
   }
 
