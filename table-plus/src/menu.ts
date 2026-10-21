@@ -277,8 +277,9 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
     e.stopPropagation();
     // A name typed in the title: its keys are the field's
     if (e.target instanceof HTMLInputElement) return;
+    // The title's buttons (the pencil) are Tab's, the arrows go along the entries
     const buttons = Array.from(
-      menu.querySelectorAll<HTMLButtonElement>("button:not([aria-disabled])"),
+      menu.querySelectorAll<HTMLButtonElement>("button:not([aria-disabled]):not(.tp-menu-rename)"),
     );
     const index = buttons.indexOf(doc.activeElement as HTMLButtonElement);
     const focus = (i: number) =>
@@ -315,6 +316,8 @@ function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, namin
   pencil.title = naming.disabled ? `${naming.label}: ${naming.disabled}` : naming.label;
   if (naming.disabled) pencil.setAttribute("aria-disabled", "true");
   heading.append(pencil);
+  // One save at a time, whichever field asked for it (Esc and the pencil again make a new one)
+  let saving = false;
   pencil.addEventListener("click", (e) => {
     e.preventDefault();
     if (naming.disabled) return;
@@ -328,7 +331,10 @@ function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, namin
     field.spellcheck = false;
     const problem = doc.createElement("div");
     problem.className = "tp-menu-name-problem";
+    problem.id = `tp-menu-name-problem-${++problemIds}`;
+    problem.setAttribute("role", "alert");
     problem.hidden = true;
+    field.setAttribute("aria-describedby", problem.id);
     const titled = Array.from(heading.childNodes);
     heading.replaceChildren(field);
     heading.after(problem);
@@ -339,22 +345,26 @@ function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, namin
       problem.remove();
       menu.focus({ preventScroll: true });
     };
-    let saving = false;
     field.addEventListener("keydown", (ev) => {
+      // Keys composing a character (an IME; Safari ends one with an Enter not marked composing) are the composition's
+      if (ev.isComposing || ev.keyCode === 229) return;
       if (ev.key === "Escape") {
         ev.preventDefault();
         ev.stopPropagation();
         leave();
-      } else if (ev.key === "Enter" && !ev.isComposing && !saving) {
+      } else if (ev.key === "Enter" && !saving) {
         ev.preventDefault();
         ev.stopPropagation();
         saving = true;
         problem.hidden = true;
+        field.removeAttribute("aria-invalid");
         void naming.save(field.value.trim()).then((why) => {
           saving = false;
-          if (why === undefined) return;
+          // Left meanwhile (Esc, the menu closed): nothing to show
+          if (why === undefined || !field.isConnected) return;
           problem.textContent = why;
           problem.hidden = false;
+          field.setAttribute("aria-invalid", "true");
           field.focus();
         });
       }
@@ -363,6 +373,9 @@ function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, namin
     field.select();
   });
 }
+
+// Ids tying a name field to its refusal (aria-describedby)
+let problemIds = 0;
 
 // A pencil: what names
 const PENCIL =

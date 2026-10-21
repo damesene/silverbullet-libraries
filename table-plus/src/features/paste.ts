@@ -349,7 +349,9 @@ export class Paste implements Feature {
     if (copyingFromMenu()) return;
     this.endCut();
     const active = this.host.doc.activeElement;
-    const inField = (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd;
+    // A field in a menu (a name typed) copies its own text, if any
+    const inField =
+      ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd) || !!active?.closest(".tp-menu");
     const selected = inField ? undefined : this.selection();
     // Sorted or filtered: the rows shown are not the markdown's, no outline to follow them
     if (!selected || this.host.rearranged(selected.info)) return;

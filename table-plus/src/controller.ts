@@ -362,7 +362,6 @@ export class Controller implements TableHost {
       optional("filters", () => new Filters(this)),
       // After formulas: a formula's result is shown in its column's type
       optional("columnTypes", () => new ColumnTypes(this)),
-      // Before metadata: Name before Remove metadata in the toolbar
       optional("names", () => new Names(this)),
       always(() => this.metadata),
       optional("paste", () => new Paste(this)),
@@ -2628,7 +2627,7 @@ export class Controller implements TableHost {
         : at.row === 0
           ? naming?.name
             ? `Column: ${naming.name}`
-            : `Header: ${header}`
+            : `Column: ${header}`
           : naming?.name
             ? `Cell: ${naming.name}`
             : `Cell: ${header}, row ${at.row}`;

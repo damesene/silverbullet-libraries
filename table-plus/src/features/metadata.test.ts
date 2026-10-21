@@ -38,6 +38,28 @@ describe("Table metadata", () => {
     expect(text).toBe(TWO);
   });
 
+  it("keeps a name's field to itself: arrows skip the pencil, a copy there copies no cells, Enter on the name as it was hands the keyboard back", async () => {
+    await setup('| A |\n|---|\n| 1 |\n| <meta name="fruit"> |\n', { "tablePlus.metadata": true });
+    tableMenuItem(/^Edit markdown$/);
+    const menu = document.querySelector<HTMLElement>(".tp-menu")!;
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    expect(document.activeElement?.classList.contains("tp-menu-item")).toBe(true);
+    // The cell selected, then its menu's field: a copy there is the field's
+    clickOn(cell(1, 0));
+    key(document.activeElement ?? editor, "Escape");
+    document.querySelector<HTMLElement>(".tp-bar .tp-bar-label")!.click();
+    const field = document.querySelector<HTMLInputElement>(".tp-menu .tp-menu-name")!;
+    expect(document.activeElement).toBe(field);
+    field.setSelectionRange(5, 5);
+    window.dispatchEvent(new Event("copy", { bubbles: true, cancelable: true }));
+    expect(flashes).toEqual([]);
+    key(field, "Enter");
+    await flush();
+    expect(text).toBe('| A |\n|---|\n| 1 |\n| <meta name="fruit"> |\n');
+    expect(document.querySelector(".tp-menu")).toBeNull();
+    expect(document.activeElement).toBe(editor);
+  });
+
   it("offers a name only with the setting on, or to a table with a metadata row", async () => {
     const pencil = () => document.querySelector<HTMLElement>(".tp-menu .tp-menu-rename")!;
     await setup(PAGE);

@@ -1084,6 +1084,8 @@ export class Selection implements Feature {
     const cells = this.selection && this.cells();
     const active = this.host.doc.activeElement;
     if (!cells || !e.clipboardData || ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd)) return;
+    // A field in a menu (a name typed) copies its own text, if any
+    if (active?.closest(".tp-menu")) return;
     const values = cells.map((row) => row.map(cellValue));
     e.clipboardData.setData("text/plain", clipboardText(values));
     e.clipboardData.setData("text/html", clipboardHtml(values));

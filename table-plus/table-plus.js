@@ -9494,7 +9494,7 @@ function renderMenu(doc, title, entries, back, naming) {
     e.stopPropagation();
     if (e.target instanceof HTMLInputElement) return;
     const buttons = Array.from(
-      menu.querySelectorAll("button:not([aria-disabled])")
+      menu.querySelectorAll("button:not([aria-disabled]):not(.tp-menu-rename)")
     );
     const index = buttons.indexOf(doc.activeElement);
     const focus = (i) => buttons[(i + buttons.length) % buttons.length]?.focus({ preventScroll: true });
@@ -9527,6 +9527,7 @@ function addNaming(doc, menu, heading, naming) {
   pencil.title = naming.disabled ? `${naming.label}: ${naming.disabled}` : naming.label;
   if (naming.disabled) pencil.setAttribute("aria-disabled", "true");
   heading.append(pencil);
+  let saving = false;
   pencil.addEventListener("click", (e) => {
     e.preventDefault();
     if (naming.disabled) return;
@@ -9540,7 +9541,10 @@ function addNaming(doc, menu, heading, naming) {
     field.spellcheck = false;
     const problem = doc.createElement("div");
     problem.className = "tp-menu-name-problem";
+    problem.id = `tp-menu-name-problem-${++problemIds}`;
+    problem.setAttribute("role", "alert");
     problem.hidden = true;
+    field.setAttribute("aria-describedby", problem.id);
     const titled = Array.from(heading.childNodes);
     heading.replaceChildren(field);
     heading.after(problem);
@@ -9551,22 +9555,24 @@ function addNaming(doc, menu, heading, naming) {
       problem.remove();
       menu.focus({ preventScroll: true });
     };
-    let saving = false;
     field.addEventListener("keydown", (ev) => {
+      if (ev.isComposing || ev.keyCode === 229) return;
       if (ev.key === "Escape") {
         ev.preventDefault();
         ev.stopPropagation();
         leave();
-      } else if (ev.key === "Enter" && !ev.isComposing && !saving) {
+      } else if (ev.key === "Enter" && !saving) {
         ev.preventDefault();
         ev.stopPropagation();
         saving = true;
         problem.hidden = true;
+        field.removeAttribute("aria-invalid");
         void naming.save(field.value.trim()).then((why) => {
           saving = false;
-          if (why === void 0) return;
+          if (why === void 0 || !field.isConnected) return;
           problem.textContent = why;
           problem.hidden = false;
+          field.setAttribute("aria-invalid", "true");
           field.focus();
         });
       }
@@ -9575,6 +9581,7 @@ function addNaming(doc, menu, heading, naming) {
     field.select();
   });
 }
+var problemIds = 0;
 var PENCIL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg>';
 function focusMenu(menu) {
   const current = menu.dataset.tpList !== void 0 ? menu.querySelector('.tp-menu-item[aria-checked="true"]') : null;
@@ -11508,13 +11515,18 @@ Row name: ${row}` : `Row name: ${row}`;
       save: (next) => this.rename(widget, info, target.column, next)
     };
   }
+  /** A name saved as it was: nothing written, the keyboard back in the page (the menu's field had it) */
+  unchanged(widget) {
+    this.host.focusEditor(widget);
+    return void 0;
+  }
   /**
    * Names, renames or (with an empty name) unnames a table; refused, with
    * why, when it is not a valid name or another table on the page has it
    */
   async renameTable(shownWidget, shownInfo, name) {
     const shown = parseTable(shownInfo.source);
-    if (name === (shown.meta?.name?.trim() ?? "")) return void 0;
+    if (name === (shown.meta?.name?.trim() ?? "")) return this.unchanged(shownWidget);
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     const info = this.host.infoOf(widget) ?? shownInfo;
     const problem = name === "" ? void 0 : tableNameProblem(name);
@@ -11537,7 +11549,7 @@ Row name: ${row}` : `Row name: ${row}`;
   async nameRow(shownWidget, shownInfo, row, name) {
     const table = parseTable(shownInfo.source);
     const current = rowNameIn(table.rows[row]?.cells ?? [])?.name ?? "";
-    if (name === current) return void 0;
+    if (name === current) return this.unchanged(shownWidget);
     let problem = name === "" ? void 0 : nameProblem(name, "row");
     const other = name ? namedRows(table).get(name.toLowerCase()) : void 0;
     if (!problem && other !== void 0 && other !== row) problem = `another row of this table is named ${name}`;
@@ -11553,7 +11565,7 @@ Row name: ${row}` : `Row name: ${row}`;
   /** Names a cell (empty: unnames it); refused, with why, when not valid, a function's or another cell's on the page */
   async nameCell(shownWidget, shownInfo, row, column, name) {
     const current = cellNameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
-    if (name === current) return void 0;
+    if (name === current) return this.unchanged(shownWidget);
     let problem = name === "" ? void 0 : nameProblem(name, "cell");
     if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
     if (!problem && name) {
@@ -11576,7 +11588,7 @@ Row name: ${row}` : `Row name: ${row}`;
   async rename(shownWidget, shownInfo, column, name) {
     const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
     const current = nameOf(headers[column] ?? "") ?? "";
-    if (name === current) return void 0;
+    if (name === current) return this.unchanged(shownWidget);
     const problem = name === "" ? void 0 : nameProblem(name, "column");
     const taken = name !== "" && headers.some((header, c) => c !== column && (nameOf(header)?.toLowerCase() === name.toLowerCase() || columnIdOf(headers, c)?.name === name.toLowerCase()));
     if (problem || taken) return problem ?? `another column of this table is named ${name}`;
@@ -12268,7 +12280,7 @@ var Paste = class {
     if (copyingFromMenu()) return;
     this.endCut();
     const active = this.host.doc.activeElement;
-    const inField = (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd;
+    const inField = (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd || !!active?.closest(".tp-menu");
     const selected = inField ? void 0 : this.selection();
     if (!selected || this.host.rearranged(selected.info)) return;
     const { rows, values } = this.valuesOf(selected.info, selected.cells);
@@ -13379,6 +13391,7 @@ var Selection = class {
     const cells = this.selection && this.cells();
     const active = this.host.doc.activeElement;
     if (!cells || !e.clipboardData || (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd) return;
+    if (active?.closest(".tp-menu")) return;
     const values = cells.map((row) => row.map(cellValue2));
     e.clipboardData.setData("text/plain", clipboardText(values));
     e.clipboardData.setData("text/html", clipboardHtml(values));
@@ -14138,7 +14151,6 @@ var Controller = class {
       optional("filters", () => new Filters(this)),
       // After formulas: a formula's result is shown in its column's type
       optional("columnTypes", () => new ColumnTypes(this)),
-      // Before metadata: Name before Remove metadata in the toolbar
       optional("names", () => new Names(this)),
       always(() => this.metadata),
       optional("paste", () => new Paste(this)),
@@ -16033,7 +16045,7 @@ var Controller = class {
     if (this.pressedWith === "touch") this.takePress();
     const header = cellText(info.table.rows[0].cells[at.column]) || `column ${at.column + 1}`;
     const naming = cells.length === 1 ? this.closingNaming(this.menuNaming(widget, info, at.row === 0 ? { kind: "column", column: at.column } : { kind: "cell", row: at.row, column: at.column })) : void 0;
-    const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? naming?.name ? `Column: ${naming.name}` : `Header: ${header}` : naming?.name ? `Cell: ${naming.name}` : `Cell: ${header}, row ${at.row}`;
+    const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? naming?.name ? `Column: ${naming.name}` : `Column: ${header}` : naming?.name ? `Cell: ${naming.name}` : `Cell: ${header}, row ${at.row}`;
     for (const feature of this.features) feature.cellMenuOpened?.();
     this.showMenu(widget, title, entries, { kind: "cell", point }, void 0, naming);
     return true;

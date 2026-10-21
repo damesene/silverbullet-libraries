@@ -145,6 +145,12 @@ export class Names implements Feature {
     };
   }
 
+  /** A name saved as it was: nothing written, the keyboard back in the page (the menu's field had it) */
+  private unchanged(widget: HTMLElement): undefined {
+    this.host.focusEditor(widget);
+    return undefined;
+  }
+
   /**
    * Names, renames or (with an empty name) unnames a table; refused, with
    * why, when it is not a valid name or another table on the page has it
@@ -152,7 +158,7 @@ export class Names implements Feature {
   private async renameTable(shownWidget: HTMLElement, shownInfo: WidgetInfo, name: string): Promise<string | undefined> {
     const shown = parseTable(shownInfo.source);
     // Against the name as stored, so an empty answer also clears a name that is not valid
-    if (name === (shown.meta?.name?.trim() ?? "")) return undefined;
+    if (name === (shown.meta?.name?.trim() ?? "")) return this.unchanged(shownWidget);
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     const info = this.host.infoOf(widget) ?? shownInfo;
     const problem = name === "" ? undefined : tableNameProblem(name);
@@ -177,7 +183,7 @@ export class Names implements Feature {
   private async nameRow(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number, name: string): Promise<string | undefined> {
     const table = parseTable(shownInfo.source);
     const current = rowNameIn(table.rows[row]?.cells ?? [])?.name ?? "";
-    if (name === current) return undefined;
+    if (name === current) return this.unchanged(shownWidget);
     let problem = name === "" ? undefined : nameProblem(name, "row");
     // The name is the table's: no other row of it may have it
     const other = name ? namedRows(table).get(name.toLowerCase()) : undefined;
@@ -196,7 +202,7 @@ export class Names implements Feature {
   /** Names a cell (empty: unnames it); refused, with why, when not valid, a function's or another cell's on the page */
   private async nameCell(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number, column: number, name: string): Promise<string | undefined> {
     const current = cellNameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
-    if (name === current) return undefined;
+    if (name === current) return this.unchanged(shownWidget);
     let problem = name === "" ? undefined : nameProblem(name, "cell");
     if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
     if (!problem && name) {
@@ -221,7 +227,7 @@ export class Names implements Feature {
   private async rename(shownWidget: HTMLElement, shownInfo: WidgetInfo, column: number, name: string): Promise<string | undefined> {
     const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
     const current = nameOf(headers[column] ?? "") ?? "";
-    if (name === current) return undefined;
+    if (name === current) return this.unchanged(shownWidget);
     const problem = name === "" ? undefined : nameProblem(name, "column");
     // Another column already answers to it: [name] would be ambiguous
     const taken =
