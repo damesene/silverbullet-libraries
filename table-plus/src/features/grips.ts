@@ -891,7 +891,6 @@ export class Grips implements Feature {
     };
   }
 
-  /** Entries features add at the top of a menu (naming), before a separator, closing the menu when run */
   /** The features' entries for the lines a grip acts on: the clipboard's bar, then the others (Clear), each a section as in the cell menu */
   private lineSections(widget: HTMLElement, info: WidgetInfo, axis: Axis, line: number): MenuEntry[] {
     const entries = this.host.lineMenuEntries(widget, info, axis, this.selectedLines(info, axis, line));

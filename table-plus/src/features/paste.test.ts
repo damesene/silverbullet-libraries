@@ -141,7 +141,7 @@ describe("Pasting from a spreadsheet", () => {
         document.querySelector(".tp-menu") && key(document.querySelector(".tp-menu")!, "Escape");
         window.dispatchEvent(new Event("focus"));
         openMenu(cell(1, 0));
-        expect(menuItem("Paste")!.title).toBe("The clipboard holds no text to paste");
+        expect(menuItem("Paste")!.title).toBe("Paste: The clipboard holds no text to paste");
       });
     });
   });

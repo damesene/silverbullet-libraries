@@ -101,4 +101,22 @@ describe("Cell menu", () => {
     clickOn(cell(1, 0));
     expect(editor.querySelector(".tp-cell-editor")).toBeNull();
   });
+
+  it("keeps a menu's keys its own: arrows go along it, Enter runs its button, the selection under it stays", async () => {
+    await setup(PAGE);
+    rightClick(cell(1, 1));
+    const press = (k: string) => {
+      const target = (document.activeElement as HTMLElement | null) ?? menu()!;
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+    };
+    press("ArrowDown");
+    // The first button focused (the bar's Copy), the cell still the one selected, no editor
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Copy");
+    expect(Array.from(editor.querySelectorAll(".tp-selected"))).toEqual([cell(1, 1)]);
+    press("ArrowRight");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Cut");
+    press("Enter");
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+    expect(menu()).not.toBeNull();
+  });
 });

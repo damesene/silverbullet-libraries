@@ -208,7 +208,8 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
         const b = button("tp-action", option.run, option.disabled);
         b.setAttribute("role", "menuitem");
         b.setAttribute("aria-label", option.title);
-        if (!option.disabled) b.title = option.title;
+        // As a row's buttons say it: the action, and why it cannot be used now
+        b.title = option.disabled ? `${option.title}: ${option.disabled}` : option.title;
         b.innerHTML = `<span class="tp-icon">${option.icon}</span>`;
         const caption = doc.createElement("span");
         caption.className = "tp-action-caption";

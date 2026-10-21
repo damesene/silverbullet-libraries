@@ -9430,7 +9430,7 @@ function renderMenu(doc, title, entries, back) {
         const b = button("tp-action", option.run, option.disabled);
         b.setAttribute("role", "menuitem");
         b.setAttribute("aria-label", option.title);
-        if (!option.disabled) b.title = option.title;
+        b.title = option.disabled ? `${option.title}: ${option.disabled}` : option.title;
         b.innerHTML = `<span class="tp-icon">${option.icon}</span>`;
         const caption = doc.createElement("span");
         caption.className = "tp-action-caption";
@@ -10232,7 +10232,6 @@ var Grips = class {
       ...axis === "column" && lines.length >= info.columns ? { disabled: "A table needs at least one column" } : {}
     };
   }
-  /** Entries features add at the top of a menu (naming), before a separator, closing the menu when run */
   /** The features' entries for the lines a grip acts on: the clipboard's bar, then the others (Clear), each a section as in the cell menu */
   lineSections(widget, info, axis, line) {
     const entries = this.host.lineMenuEntries(widget, info, axis, this.selectedLines(info, axis, line));
@@ -15227,6 +15226,7 @@ var Controller = class {
       this.closeTableMenu(true);
       return;
     }
+    if (e.key !== "Escape" && e.target instanceof Element && e.target.closest(".tp-menu")) return;
     if (this.cellMenuKey(e)) return;
     for (const feature of this.features) if (feature.keyDown?.(e)) return;
   };

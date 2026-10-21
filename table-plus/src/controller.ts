@@ -1712,6 +1712,8 @@ export class Controller implements TableHost {
       this.closeTableMenu(true);
       return;
     }
+    // A menu's keys are its own (arrows go along it, Enter runs a button): not the selection's under it; Esc closes a feature's menu
+    if (e.key !== "Escape" && e.target instanceof Element && e.target.closest(".tp-menu")) return;
     if (this.cellMenuKey(e)) return;
     for (const feature of this.features) if (feature.keyDown?.(e)) return;
   };

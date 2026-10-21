@@ -2987,7 +2987,7 @@ body.tp-picking-columns .sb-table-widget.tp-table :is(td, th) {
 }
 .tp-menu-item:hover,
 .tp-menu-item:focus-visible,
-.tp-segment:hover,
+.tp-segment:not([aria-disabled="true"]):hover,
 .tp-segment:focus-visible {
   background: color-mix(in srgb, var(--ui-accent-color) 14%, transparent);
   outline: none;
@@ -3202,6 +3202,7 @@ body.tp-picking-columns .sb-table-widget.tp-table :is(td, th) {
 .tp-action:not([aria-disabled="true"]):hover,
 .tp-action:focus-visible {
   background: color-mix(in srgb, var(--ui-accent-color) 15%, transparent);
+  outline: none;
 }
 .tp-action-caption {
   white-space: nowrap;
