@@ -1,5 +1,5 @@
 // Structural edits of a rendered table: inserting, duplicating, deleting,
-// moving and pinning rows and columns. Each is one write, rows and columns
+// moving and pinning rows and columns; moving and copying cells. Each is one write, rows and columns
 // pinned to the edges stay there (pins.ts), and formulas and the stored
 // sorting follow through the write steps (rowMap, columnMap).
 import type { Table } from "../markdown.ts";
@@ -15,8 +15,10 @@ import {
   moveColumns,
   moveRow,
   moveRows,
+  setCell,
 } from "../ops.ts";
-import { withoutTagsWith } from "../tags.ts";
+import { type MoveRules, moveCells } from "../paste.ts";
+import { cellTags, withoutTags, withoutTagsWith } from "../tags.ts";
 import {
   clampColumnMove,
   clampRowMove,
@@ -29,7 +31,62 @@ import {
   pinRow,
   type RowZone,
 } from "../pins.ts";
-import type { TableHost, WidgetInfo, WriteResult } from "./feature.ts";
+import type { CellRef, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
+
+/**
+ * What moving cells does with their hidden tags: the text and the tags a
+ * feature manages (a formula's) go with a cell; the others (a row's or a
+ * cell's name) stay where they are, at both ends, so names keep naming their
+ * rows and places
+ */
+export function cellMoveRules(host: TableHost): MoveRules {
+  // The tags no feature manages: those keepTags keeps from a cell
+  const unmanaged = (cell: string) => new Set(cellTags(host.keepTags("", cell)));
+  return {
+    emptied: (cell) => host.keepTags("", cell),
+    placed: (moved, over) => {
+      const stay = unmanaged(moved);
+      const content = [withoutTags(moved), ...cellTags(moved).filter((tag) => !stay.has(tag))].filter((part) => part !== "").join(" ");
+      return host.keepTags(content, over);
+    },
+  };
+}
+
+/**
+ * Moves the cells (rows of the markdown and columns, as they are shown: row
+ * by row) so that the first goes to `to`, in the table as it is (no rows or
+ * columns added), as one edit; with `copy` they are copied instead, as
+ * AutoFill copies (a formula with its references moved: TableHost.fillCell),
+ * the names of the cells written over kept. Body cells only.
+ */
+export function moveCellsTo(
+  host: TableHost,
+  widget: HTMLElement,
+  info: WidgetInfo,
+  cells: readonly (readonly CellRef[])[],
+  to: CellRef,
+  copy: boolean,
+): Promise<WriteResult> {
+  const rows = cells.map((_, i) => to.row + i);
+  const columns = (cells[0] ?? []).map((_, j) => to.column + j);
+  if (to.row < 1 || rows[rows.length - 1]! >= info.rows || columns[columns.length - 1]! >= info.columns) return Promise.resolve("unchanged");
+  const plan = { rows, columns, newRows: { at: 0, count: 0 }, newColumns: { at: 0, count: 0 }, pins: info.pins };
+  if (!copy) return host.write(widget, (t) => moveCells(t, cells, plan, cellMoveRules(host)));
+  return host.write(widget, (t) => {
+    // Read before any is written: the copy may overlap its cells
+    const raw = cells.map((row) => row.map((ref) => t.rows[ref.row]?.cells[ref.column] ?? ""));
+    let result = t;
+    cells.forEach((row, i) =>
+      row.forEach((from, j) => {
+        const dest = { row: rows[i]!, column: columns[j]! };
+        const cell = raw[i]![j]!;
+        const value = host.fillCell(info, cell, from, dest) ?? withoutTags(cell);
+        result = setCell(result, dest.row, dest.column, host.keepTags(value, result.rows[dest.row]?.cells[dest.column] ?? ""));
+      }),
+    );
+    return result;
+  });
+}
 
 export const MOVE_BLOCKED = "Clear sorting and filters to move rows";
 

@@ -1570,6 +1570,8 @@ var ICONS = {
   sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
   sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
   clear: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  // Arrows four ways: cells moved
+  moveCells: svg('<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>'),
   // Scissors
   cut: svg('<circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.2 16 18 4M15.8 16 6 4"/>'),
   // A clipboard
@@ -1791,7 +1793,170 @@ function pinColumn(pins, columns, column, pin) {
 // table-plus/src/core/layout.ts
 var STICKY_GAP = 42;
 
+// table-plus/src/paste.ts
+function parseClipboardCells(text) {
+  const s = text.replace(/\r\n?/g, "\n");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let start = true;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (start && ch === '"') {
+      let j = i + 1;
+      let value = "";
+      while (j < s.length) {
+        if (s[j] === '"') {
+          if (s[j + 1] !== '"') break;
+          value += '"';
+          j += 2;
+        } else value += s[j++];
+      }
+      if (j < s.length && (j + 1 === s.length || s[j + 1] === "	" || s[j + 1] === "\n")) {
+        cell = value;
+        i = j;
+        start = false;
+        continue;
+      }
+    }
+    start = false;
+    if (ch === "	") {
+      row.push(cell);
+      cell = "";
+      start = true;
+    } else if (ch === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      start = true;
+    } else cell += ch;
+  }
+  if (!start || cell !== "" || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+  if (rows.length === 0 || rows.length === 1 && rows[0].length === 1) return void 0;
+  return rows;
+}
+function along(start, count, length, pinnedAtEnd) {
+  const tail = length - pinnedAtEnd;
+  const inTail = pinnedAtEnd > 0 && start >= tail;
+  const end = inTail ? length : tail;
+  const existing = [];
+  for (let i = start; i < end && existing.length < count; i++) existing.push(i);
+  const missing = count - existing.length;
+  if (missing > 0 && inTail) return void 0;
+  const added = Array.from({ length: missing }, (_, k) => tail + k);
+  return { targets: [...existing, ...added], at: tail, count: missing };
+}
+function planPaste(table, pins, at, data, insert) {
+  const width = Math.max(...data.map((r) => r.length));
+  const columns = along(at.column, width, table.align.length, pins.right);
+  if (!columns) return { error: "there are no columns after the columns pinned to the right to paste into" };
+  if (insert) {
+    const first = Math.max(1, at.row);
+    let p = pins;
+    let rows = table.rows.length;
+    let index = first;
+    const targets = [];
+    for (let k = 0; k < data.length; k++) {
+      const placed = insertRowAt(p, rows, index);
+      targets.push(placed.at);
+      p = placed.pins;
+      rows++;
+      index = placed.at + 1;
+    }
+    return {
+      rows: targets,
+      columns: columns.targets,
+      newRows: { at: targets[0], count: data.length },
+      newColumns: { at: columns.at, count: columns.count },
+      pins: p
+    };
+  }
+  const header = at.row === 0 ? [0] : [];
+  const body = along(Math.max(1, at.row), data.length - header.length, table.rows.length, pins.bottom);
+  if (!body) return { error: "there are no rows below the rows pinned to the bottom to paste into" };
+  return {
+    rows: [...header, ...body.targets],
+    columns: columns.targets,
+    newRows: { at: body.at, count: body.count },
+    newColumns: { at: columns.at, count: columns.count },
+    pins
+  };
+}
+function pasteCells(table, plan, data, rules) {
+  let result = table;
+  for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
+  for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
+  const skipped = /* @__PURE__ */ new Map();
+  data.forEach((values, i) => {
+    const row = plan.rows[i];
+    values.forEach((value, j) => {
+      const column = plan.columns[j];
+      const current = result.rows[row]?.cells[column] ?? "";
+      const cell = escapeCell(value);
+      const kept = rules.keptBy(current);
+      if (kept) {
+        if (cell !== "") skipped.set(kept, (skipped.get(kept) ?? 0) + 1);
+        return;
+      }
+      if (row === 0 && cell === "") return;
+      const named2 = row === 0 && rules.headerRenamed ? rules.headerRenamed(cell, current) : cell;
+      result = setCell(result, row, column, rules.keepTags(named2, current));
+    });
+  });
+  return { table: result, skipped };
+}
+function moveCells(table, sources, plan, rules) {
+  const moved2 = sources.map((row) => row.map((ref) => table.rows[ref.row]?.cells[ref.column] ?? ""));
+  let result = table;
+  for (const row of sources) for (const ref of row) if (ref.row > 0) result = setCell(result, ref.row, ref.column, rules.emptied(result.rows[ref.row]?.cells[ref.column] ?? ""));
+  for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
+  for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
+  moved2.forEach((cells, i) => {
+    cells.forEach((cell, j) => {
+      const row = plan.rows[i];
+      const column = plan.columns[j];
+      result = setCell(result, row, column, rules.placed(cell, result.rows[row]?.cells[column] ?? ""));
+    });
+  });
+  return result;
+}
+
 // table-plus/src/core/structure.ts
+function cellMoveRules(host) {
+  const unmanaged = (cell) => new Set(cellTags(host.keepTags("", cell)));
+  return {
+    emptied: (cell) => host.keepTags("", cell),
+    placed: (moved2, over) => {
+      const stay = unmanaged(moved2);
+      const content = [withoutTags(moved2), ...cellTags(moved2).filter((tag) => !stay.has(tag))].filter((part) => part !== "").join(" ");
+      return host.keepTags(content, over);
+    }
+  };
+}
+function moveCellsTo(host, widget, info, cells, to, copy) {
+  const rows = cells.map((_, i) => to.row + i);
+  const columns = (cells[0] ?? []).map((_, j) => to.column + j);
+  if (to.row < 1 || rows[rows.length - 1] >= info.rows || columns[columns.length - 1] >= info.columns) return Promise.resolve("unchanged");
+  const plan = { rows, columns, newRows: { at: 0, count: 0 }, newColumns: { at: 0, count: 0 }, pins: info.pins };
+  if (!copy) return host.write(widget, (t) => moveCells(t, cells, plan, cellMoveRules(host)));
+  return host.write(widget, (t) => {
+    const raw = cells.map((row) => row.map((ref) => t.rows[ref.row]?.cells[ref.column] ?? ""));
+    let result = t;
+    cells.forEach(
+      (row, i) => row.forEach((from, j) => {
+        const dest = { row: rows[i], column: columns[j] };
+        const cell = raw[i][j];
+        const value = host.fillCell(info, cell, from, dest) ?? withoutTags(cell);
+        result = setCell(result, dest.row, dest.column, host.keepTags(value, result.rows[dest.row]?.cells[dest.column] ?? ""));
+      })
+    );
+    return result;
+  });
+}
 var MOVE_BLOCKED = "Clear sorting and filters to move rows";
 function rowAfterInsert(at) {
   return (r) => r >= at ? r + 1 : r;
@@ -11626,138 +11791,6 @@ var Themes = class {
   }
 };
 
-// table-plus/src/paste.ts
-function parseClipboardCells(text) {
-  const s = text.replace(/\r\n?/g, "\n");
-  const rows = [];
-  let row = [];
-  let cell = "";
-  let start = true;
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (start && ch === '"') {
-      let j = i + 1;
-      let value = "";
-      while (j < s.length) {
-        if (s[j] === '"') {
-          if (s[j + 1] !== '"') break;
-          value += '"';
-          j += 2;
-        } else value += s[j++];
-      }
-      if (j < s.length && (j + 1 === s.length || s[j + 1] === "	" || s[j + 1] === "\n")) {
-        cell = value;
-        i = j;
-        start = false;
-        continue;
-      }
-    }
-    start = false;
-    if (ch === "	") {
-      row.push(cell);
-      cell = "";
-      start = true;
-    } else if (ch === "\n") {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-      start = true;
-    } else cell += ch;
-  }
-  if (!start || cell !== "" || row.length > 0) {
-    row.push(cell);
-    rows.push(row);
-  }
-  if (rows.length === 0 || rows.length === 1 && rows[0].length === 1) return void 0;
-  return rows;
-}
-function along(start, count, length, pinnedAtEnd) {
-  const tail = length - pinnedAtEnd;
-  const inTail = pinnedAtEnd > 0 && start >= tail;
-  const end = inTail ? length : tail;
-  const existing = [];
-  for (let i = start; i < end && existing.length < count; i++) existing.push(i);
-  const missing = count - existing.length;
-  if (missing > 0 && inTail) return void 0;
-  const added = Array.from({ length: missing }, (_, k) => tail + k);
-  return { targets: [...existing, ...added], at: tail, count: missing };
-}
-function planPaste(table, pins, at, data, insert) {
-  const width = Math.max(...data.map((r) => r.length));
-  const columns = along(at.column, width, table.align.length, pins.right);
-  if (!columns) return { error: "there are no columns after the columns pinned to the right to paste into" };
-  if (insert) {
-    const first = Math.max(1, at.row);
-    let p = pins;
-    let rows = table.rows.length;
-    let index = first;
-    const targets = [];
-    for (let k = 0; k < data.length; k++) {
-      const placed = insertRowAt(p, rows, index);
-      targets.push(placed.at);
-      p = placed.pins;
-      rows++;
-      index = placed.at + 1;
-    }
-    return {
-      rows: targets,
-      columns: columns.targets,
-      newRows: { at: targets[0], count: data.length },
-      newColumns: { at: columns.at, count: columns.count },
-      pins: p
-    };
-  }
-  const header = at.row === 0 ? [0] : [];
-  const body = along(Math.max(1, at.row), data.length - header.length, table.rows.length, pins.bottom);
-  if (!body) return { error: "there are no rows below the rows pinned to the bottom to paste into" };
-  return {
-    rows: [...header, ...body.targets],
-    columns: columns.targets,
-    newRows: { at: body.at, count: body.count },
-    newColumns: { at: columns.at, count: columns.count },
-    pins
-  };
-}
-function pasteCells(table, plan, data, rules) {
-  let result = table;
-  for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
-  for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
-  const skipped = /* @__PURE__ */ new Map();
-  data.forEach((values, i) => {
-    const row = plan.rows[i];
-    values.forEach((value, j) => {
-      const column = plan.columns[j];
-      const current = result.rows[row]?.cells[column] ?? "";
-      const cell = escapeCell(value);
-      const kept = rules.keptBy(current);
-      if (kept) {
-        if (cell !== "") skipped.set(kept, (skipped.get(kept) ?? 0) + 1);
-        return;
-      }
-      if (row === 0 && cell === "") return;
-      const named2 = row === 0 && rules.headerRenamed ? rules.headerRenamed(cell, current) : cell;
-      result = setCell(result, row, column, rules.keepTags(named2, current));
-    });
-  });
-  return { table: result, skipped };
-}
-function moveCells(table, sources, plan, rules) {
-  const moved2 = sources.map((row) => row.map((ref) => table.rows[ref.row]?.cells[ref.column] ?? ""));
-  let result = table;
-  for (const row of sources) for (const ref of row) if (ref.row > 0) result = setCell(result, ref.row, ref.column, rules.emptied(result.rows[ref.row]?.cells[ref.column] ?? ""));
-  for (let k = 0; k < plan.newColumns.count; k++) result = insertColumn(result, plan.newColumns.at + k);
-  for (let k = 0; k < plan.newRows.count; k++) result = insertRow(result, plan.newRows.at + k);
-  moved2.forEach((cells, i) => {
-    cells.forEach((cell, j) => {
-      const row = plan.rows[i];
-      const column = plan.columns[j];
-      result = setCell(result, row, column, rules.placed(cell, result.rows[row]?.cells[column] ?? ""));
-    });
-  });
-  return result;
-}
-
 // table-plus/src/features/paste.ts
 var PASTE_BLOCKED = "Clear sorting and filters to paste cells: the rows shown are not where they would go";
 var NO_CLIPBOARD = "The browser lets a page read the clipboard only over https: paste with Ctrl+V, or into a cell's editor";
@@ -11913,22 +11946,6 @@ var Paste = class {
           ...!clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}
         }
       ]
-    };
-  }
-  /**
-   * A move takes the cell's text and the tags features manage (a formula's)
-   * along; the other hidden tags (a row's or a cell's name) stay where they
-   * are, at both ends, so names keep naming their rows and places
-   */
-  moveRules() {
-    const unmanaged = (cell) => new Set(cellTags(this.host.keepTags("", cell)));
-    return {
-      emptied: (cell) => this.host.keepTags("", cell),
-      placed: (moved2, over) => {
-        const stay = unmanaged(moved2);
-        const content = [withoutTags(moved2), ...cellTags(moved2).filter((tag) => !stay.has(tag))].filter((part) => part !== "").join(" ");
-        return this.host.keepTags(content, over);
-      }
     };
   }
   /** The cells selected, in rows as shown, of the table they are in */
@@ -12130,7 +12147,7 @@ var Paste = class {
       (t) => {
         const edited = closed ? closed.save(t) : t;
         if (!edited) return void 0;
-        if (cut) return moveCells(edited, cut.cells, plan, this.moveRules());
+        if (cut) return moveCells(edited, cut.cells, plan, cellMoveRules(this.host));
         const pasted = pasteCells(edited, plan, data, {
           keptBy: (cell) => this.host.cellKeptBy(cell),
           keepTags: (value, from) => this.host.keepTags(value, from),
@@ -12168,6 +12185,11 @@ var MOVE_KEYS2 = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", 
 var EDIT_MODE_KEY = "tablePlus.editMode";
 var AUTOSCROLL_EDGE2 = 40;
 var AUTOSCROLL_STEP2 = 12;
+function columnLetters2(column) {
+  let letters = "";
+  for (let n = column + 1; n > 0; n = Math.floor((n - 1) / 26)) letters = String.fromCharCode(65 + (n - 1) % 26) + letters;
+  return letters;
+}
 var TAP_MS = 500;
 var TAP_MOVE = 10;
 function readEditMode() {
@@ -12199,6 +12221,7 @@ var Selection = class {
       return element;
     };
     this.handles = [handle("start"), handle("end")];
+    this.tip = host.floating("div", "tp-move-tip");
   }
   host;
   // The cells selected (rows of the markdown, header 0), in the table with this key
@@ -12208,6 +12231,12 @@ var Selection = class {
   pressed;
   // A touch on cells selected, until it is a tap (their menu) or not
   stopTap;
+  // The band on the selection's edge a mouse drags it by; the outline where it goes, and its address
+  edges = [];
+  targetEdges = [];
+  tip;
+  // Move to…: the table whose cells selected move to the cell pressed next
+  moving;
   // Edit mode: a click edits a cell; off (select mode, the default) a click selects it. Kept in this browser.
   editMode = readEditMode();
   // The handles at the selection's first and last cell, shown by CSS after a touch (html[data-tp-pointer="touch"])
@@ -12223,6 +12252,8 @@ var Selection = class {
     this.stopTap?.();
     this.stopSelecting?.();
     for (const handle of this.handles) handle.remove();
+    this.tip.remove();
+    this.endMoving();
     delete this.host.doc.documentElement.dataset.tpSelectMode;
   }
   /** Select mode on the page's root, for CSS: a click selects (the default pointer), on a cell selected alone it edits (the text cursor) */
@@ -12232,13 +12263,19 @@ var Selection = class {
     else root.dataset.tpSelectMode = "";
   }
   owns(node) {
-    return this.handles.some((handle) => handle.contains(node));
+    return this.handles.some((handle) => handle.contains(node)) || this.edges.some((edge) => edge.contains(node)) || this.tip.contains(node);
   }
-  // A press on a handle is the handle's (a mouse's, after a touch has shown them): not the cell's
+  /**
+   * A press on a handle is the handle's (a mouse's, after a touch has shown
+   * them): not the cell's. On the selection's edge it drags the cells; while
+   * Move to… waits, a press on a cell moves them there.
+   */
   mouseDown(e) {
-    if (!(e.target instanceof Node) || !this.owns(e.target)) return false;
+    if (this.moving) return this.movedBy(e);
+    if (!(e.target instanceof Element) || !this.owns(e.target)) return false;
     e.preventDefault();
     e.stopPropagation();
+    if (e.button === 0 && e.target.closest(".tp-select-edge")) this.dragCells(e);
     return true;
   }
   // Any click ends a selection (one on Table Plus' own controls aside)
@@ -12321,6 +12358,11 @@ var Selection = class {
     this.stopSelecting = end;
   }
   keyDown(e) {
+    if (e.key === "Escape" && this.moving) {
+      e.preventDefault();
+      this.endMoving();
+      return true;
+    }
     if (!this.selection) return false;
     if (e.key === "Escape") {
       e.preventDefault();
@@ -12528,6 +12570,16 @@ var Selection = class {
         ...columns.length >= info.columns ? { disabled: "A table needs at least one column" } : {}
       });
     }
+    const block = this.block();
+    if (block && block.info.key === info.key && cells.length > 0) {
+      entries.push({
+        kind: "item",
+        label: cells.length > 1 ? `Move ${cells.length} cells to\u2026` : "Move to\u2026",
+        icon: ICONS.moveCells,
+        hint: "Then click (tap) the cell where the first one goes: they move there, as dragging their edge moves them",
+        run: () => this.startMoving(info)
+      });
+    }
     return [
       { order: 1, entries },
       { order: 9, entries: deleting }
@@ -12577,6 +12629,7 @@ var Selection = class {
     for (const row of cells) for (const cell of row) cell.classList.add("tp-selected");
     if (cells.length === 1 && cells[0].length === 1) cells[0][0].classList.add("tp-selected-alone");
     this.placeHandles(cells);
+    this.placeEdges(cells);
     this.host.selectionChanged();
   }
   /**
@@ -12663,6 +12716,10 @@ var Selection = class {
    */
   onTouch = (e) => {
     this.stopTap?.();
+    if (this.moving) {
+      this.touchMove(e);
+      return;
+    }
     const selection = this.selection;
     if (e.pointerType !== "touch" || e.button !== 0 || !selection || e.target instanceof Node && this.owns(e.target)) return;
     const hit = this.host.enhancedWidgetOf(e.target);
@@ -12715,6 +12772,206 @@ var Selection = class {
   unmark() {
     for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected", "tp-selected-alone");
     for (const handle of this.handles) handle.remove();
+    for (const edge of this.edges) edge.remove();
+    this.edges = [];
+  }
+  // ---- moving the cells selected ---------------------------------------------
+  /** The cells selected as a block that can move: body cells of a table shown as written */
+  block() {
+    const selection = this.selection;
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    const rows = this.cells();
+    if (!widget || !info || !rows?.length || this.host.rearranged(info)) return void 0;
+    const shown = this.host.shownRows(info);
+    const top = shown.indexOf(rows[0][0].parentElement);
+    if (top < 1) return void 0;
+    const cells = rows.map((row) => row.map((cell) => this.host.cellRef(info, cell)));
+    return { widget, info, shown, top, left: rows[0][0].cellIndex, height: rows.length, width: rows[0].length, cells };
+  }
+  /**
+   * The band a mouse drags the cells by: a piece on the outer side of each
+   * cell on the selection's edge (CSS shows it for a mouse only, with the move
+   * pointer); none where the cells cannot move
+   */
+  placeEdges(rows) {
+    for (const edge of this.edges) edge.remove();
+    this.edges = [];
+    if (!this.block()) return;
+    const last = rows.length - 1;
+    rows.forEach(
+      (row, i) => row.forEach((cell, j) => {
+        const sides = [i === 0 && "top", i === last && "bottom", j === 0 && "left", j === row.length - 1 && "right"].filter(Boolean);
+        for (const side of sides) {
+          const edge = this.host.doc.createElement("span");
+          edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-select-edge tp-select-edge-${side}`;
+          cell.append(edge);
+          this.edges.push(edge);
+        }
+      })
+    );
+  }
+  /** Where the block goes with its first cell at the row (as shown) and column given, kept within the table's body */
+  placeOf(block, row, column) {
+    return {
+      row: Math.max(1, Math.min(block.shown.length - block.height, row)),
+      column: Math.max(0, Math.min(block.info.columns - block.width, column))
+    };
+  }
+  /** The cells where the block would go outlined, dashed, and its address (A1 as formulas count rows) by the pointer */
+  showTarget(block, at, copy, x, y) {
+    for (const edge of this.targetEdges) edge.remove();
+    this.targetEdges = [];
+    if (!at || at.row === block.top && at.column === block.left) {
+      this.tip.classList.remove("tp-visible");
+      return;
+    }
+    for (let i = 0; i < block.height; i++) {
+      const tr = block.shown[at.row + i];
+      for (let j = 0; j < block.width; j++) {
+        const sides = [i === 0 && "top", i === block.height - 1 && "bottom", j === 0 && "left", j === block.width - 1 && "right"].filter(Boolean);
+        const cell = sides.length ? tr?.cells[at.column + j] : void 0;
+        if (!cell) continue;
+        const edge = this.host.doc.createElement("span");
+        edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-move-edge ${sides.map((s) => `tp-move-${s}`).join(" ")}`;
+        cell.append(edge);
+        this.targetEdges.push(edge);
+      }
+    }
+    const name = (row, column) => `${columnLetters2(column)}${row}`;
+    const range = block.height * block.width > 1 ? `${name(at.row, at.column)}:${name(at.row + block.height - 1, at.column + block.width - 1)}` : name(at.row, at.column);
+    this.tip.textContent = copy ? `+ ${range}` : range;
+    this.host.place(this.tip, x + 14, y + 14);
+  }
+  /**
+   * The cells dragged by their edge: the cell under the pointer takes the
+   * place of the one pressed, the cells where they go outlined; let go, they
+   * move there (with Ctrl, as in a spreadsheet: copied), as one edit. Esc
+   * cancels. Within the table's body: no rows or columns added.
+   */
+  dragCells(e) {
+    const block = this.block();
+    const pressed = e.target instanceof Element ? e.target.closest("td") : null;
+    if (!block || !pressed) return;
+    const pressedRow = block.shown.indexOf(pressed.parentElement) - block.top;
+    const pressedColumn = pressed.cellIndex - block.left;
+    const doc = this.host.doc;
+    const win = doc.defaultView;
+    let at;
+    let copy = false;
+    doc.body.classList.add("tp-moving-cells");
+    const move = (ev) => {
+      copy = ev.ctrlKey || ev.metaKey;
+      const under = doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null;
+      const hit = this.host.enhancedWidgetOf(under);
+      const cell = hit && hit[1].key === block.info.key ? this.host.tableCellOf(hit[1], under) : void 0;
+      if (cell) {
+        const row = block.shown.indexOf(cell.parentElement);
+        if (row >= 0) at = this.placeOf(block, row - pressedRow, cell.cellIndex - pressedColumn);
+      }
+      this.showTarget(block, at, copy, ev.clientX, ev.clientY);
+    };
+    const finish = (apply) => {
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", up, true);
+      win.removeEventListener("keydown", key2, true);
+      win.removeEventListener("keyup", key2, true);
+      doc.body.classList.remove("tp-moving-cells");
+      this.showTarget(block, void 0, false, 0, 0);
+      if (apply && at && (at.row !== block.top || at.column !== block.left)) void this.moveBlock(block, at, copy);
+    };
+    const up = (ev) => {
+      copy = ev.ctrlKey || ev.metaKey;
+      finish(true);
+    };
+    const key2 = (ev) => {
+      if (ev.key === "Escape" && ev.type === "keydown") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        finish(false);
+      } else if (ev.key === "Control" || ev.key === "Meta") {
+        copy = ev.type === "keydown";
+        this.tip.textContent = copy ? `+ ${this.tip.textContent.replace(/^\+ /, "")}` : this.tip.textContent.replace(/^\+ /, "");
+      }
+    };
+    win.addEventListener("mousemove", move, true);
+    win.addEventListener("mouseup", up, true);
+    win.addEventListener("keydown", key2, true);
+    win.addEventListener("keyup", key2, true);
+  }
+  /** The block moved (copied) to start at a row as shown and a column; selected there, before the write (shown again once rendered) */
+  async moveBlock(block, at, copy) {
+    const rowOf = (shown) => Number(block.shown[shown].dataset.tpRow);
+    const to = { row: rowOf(at.row), column: at.column };
+    this.selectCells(block.info, to, { row: rowOf(at.row + block.height - 1), column: at.column + block.width - 1 });
+    const result = await moveCellsTo(this.host, block.widget, block.info, block.cells, to, copy);
+    if (result !== "written") this.selectCells(block.info, block.cells[0][0], block.cells[block.cells.length - 1][block.width - 1]);
+  }
+  /** Move to…: the next press on a cell of the table (a click, a tap) moves the cells there */
+  startMoving(info) {
+    this.moving = info.key;
+    this.host.doc.body.classList.add("tp-move-picking");
+    const press = this.host.pressedWith === "touch" ? "tap the cell where the first one goes (a tap outside the table cancels)" : "click the cell where the first one goes; Esc cancels";
+    void this.host.bridge.flash(`Table Plus: ${press}`, "info");
+  }
+  endMoving() {
+    this.moving = void 0;
+    this.host.doc.body.classList.remove("tp-move-picking");
+  }
+  /** A press while Move to… waits: on a body cell of the table the cells move there (the press taken); elsewhere it ends and goes on */
+  movedBy(e) {
+    if (e.button !== 0) {
+      this.endMoving();
+      return false;
+    }
+    const taken = this.moveCellsAt(e.target);
+    if (taken) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    return taken;
+  }
+  /**
+   * A touch while Move to… waits: a tap is a press (told by its pointer
+   * events: a browser may fire no mouse events for a tap after scrolling); a
+   * touch that moves scrolls the page, Move to… goes on
+   */
+  touchMove(e) {
+    if (e.pointerType !== "touch" || e.button !== 0 || !e.isPrimary) return;
+    const { clientX: x, clientY: y, target } = e;
+    const at = Date.now();
+    const win = this.host.doc.defaultView;
+    const move = (ev) => {
+      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE) stop();
+    };
+    const up = () => {
+      stop();
+      if (Date.now() - at < TAP_MS && this.moving) this.moveCellsAt(target);
+    };
+    const stop = () => {
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", up, true);
+      win.removeEventListener("pointercancel", stop, true);
+      this.stopTap = void 0;
+    };
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", up, true);
+    win.addEventListener("pointercancel", stop, true);
+    this.stopTap = stop;
+  }
+  /** Move to… ends; on a body cell of the table, the cells move there (true: the press is taken, its mouse events with it) */
+  moveCellsAt(target) {
+    const key2 = this.moving;
+    this.endMoving();
+    const block = this.block();
+    const hit = this.host.enhancedWidgetOf(target);
+    const cell = hit && hit[1].key === key2 ? this.host.tableCellOf(hit[1], target) : void 0;
+    const row = cell && block ? block.shown.indexOf(cell.parentElement) : -1;
+    if (!block || block.info.key !== key2 || !cell || row < 1) return false;
+    this.host.takePress();
+    const at = this.placeOf(block, row, cell.cellIndex);
+    if (at.row !== block.top || at.column !== block.left) void this.moveBlock(block, at, false);
+    return true;
   }
   /** The selected cells as references, rows as shown (the header first), columns left to right */
   refs(info) {

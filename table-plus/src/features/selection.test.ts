@@ -344,4 +344,53 @@ describe("Selecting cells", () => {
     controller.stop();
     expect(document.documentElement.dataset.tpSelectMode).toBeUndefined();
   });
+
+  describe("moving the cells selected", () => {
+    const GRID = '| A | B |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| 3 | 4 |\n| 5 <meta n="five"> | 6 |\n| | |\n';
+    const info = () => controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!;
+    const under = (target: Element) => Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => target });
+    const edge = () => editor.querySelector<HTMLElement>(".tp-select-edge-right")!;
+
+    it("drags them by their edge: moved, formulas with them, names staying; with Ctrl copied, a formula's references moved", async () => {
+      await setup(GRID, { "tablePlus.metadata": true });
+      try {
+        controller.selectCells(info(), { row: 1, column: 0 }, { row: 1, column: 1 });
+        expect(editor.querySelectorAll(".tp-select-edge").length).toBe(6);
+        // Pressed on the first row's edge, the pointer over the third row: the cells there
+        press(edge(), "mousedown");
+        under(cell(3, 0));
+        window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 5, clientY: 5 }));
+        expect(document.querySelector(".tp-move-tip")!.textContent).toBe("A3:B3");
+        window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        await flush();
+        // The formula keeps its reference as written: A1, now empty
+        expect(text).toBe('| A | B |\n|---|---|\n| | |\n| 3 | 4 |\n| 1 <meta n="five"> | 0 <meta f="=A1*2"> |\n| | |\n');
+        await controller.scan();
+        // Copied back with Ctrl: the formula's reference moved with it
+        controller.selectCells(info(), { row: 3, column: 0 }, { row: 3, column: 1 });
+        press(edge(), "mousedown");
+        under(cell(4, 0));
+        window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, ctrlKey: true }));
+        expect(document.querySelector(".tp-move-tip")!.textContent).toBe("+ A4:B4");
+        window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, ctrlKey: true }));
+        await flush();
+        expect(text).toContain('| 1 | 6 <meta f="=A2*2"> |');
+        expect(text).toContain('| 1 <meta n="five"> | 0 <meta f="=A1*2"> |');
+      } finally {
+        delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+      }
+    });
+
+    it("moves them with Move to… in their menu and a click on the cell they go to, kept within the table", async () => {
+      await setup(GRID, { "tablePlus.metadata": true });
+      controller.selectCells(info(), { row: 2, column: 0 }, { row: 2, column: 1 });
+      cell(2, 0).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
+      cell(2, 0).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+      Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Move 2 cells to…")!.click();
+      // The second column of the last row: two cells wide, they start in the first
+      press(cell(4, 1), "mousedown");
+      await flush();
+      expect(text).toBe('| A | B |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| | |\n| 5 <meta n="five"> | 6 |\n| 3 | 4 |\n');
+    });
+  });
 });

@@ -31,7 +31,7 @@ describe("Cell menu", () => {
     await controller.scan();
     rightClick(cell(1, 1));
     expect(menu()!.querySelector(".tp-menu-title")!.textContent).toBe("Cell: Qty, row 1");
-    expect(entries()).toEqual(["Insert function…", "—", "Name cell", "Name row", "—", "Copy", "Cut", "Paste", "Paste as new rows", "—", "Clear", "—", "AutoFill to…", "—", "Filter: = 3", "Filter: ≠ 3"]);
+    expect(entries()).toEqual(["Insert function…", "—", "Name cell", "Name row", "—", "Copy", "Cut", "Paste", "Paste as new rows", "—", "Clear", "Move to…", "—", "AutoFill to…", "—", "Filter: = 3", "Filter: ≠ 3"]);
     // A header: its name, no clearing, no filter
     rightClick(cell(0, 1));
     expect(entries()).toEqual(["Name column", "—", "Copy", "Cut", "Paste", "Paste as new rows"]);
@@ -58,7 +58,7 @@ describe("Cell menu", () => {
     await flush();
     rightClick(cell(2, 1));
     expect(menu()!.querySelector(".tp-menu-title")!.textContent).toBe("2 cells");
-    expect(entries()).toEqual(["Copy 2 cells", "Cut 2 cells", "Paste", "Paste as new rows", "—", "Clear 2 cells", "—", "AutoFill to…", "—", "Filter: = 3, 10", "Filter: ≠ 3, 10", "—", "Delete 2 rows", "Delete column"]);
+    expect(entries()).toEqual(["Copy 2 cells", "Cut 2 cells", "Paste", "Paste as new rows", "—", "Clear 2 cells", "Move 2 cells to…", "—", "AutoFill to…", "—", "Filter: = 3, 10", "Filter: ≠ 3, 10", "—", "Delete 2 rows", "Delete column"]);
     cellMenuItem(cell(2, 1), /^Copy 2 cells$/)!.click();
     await flush();
     expect(copied).toBe("3\n10");

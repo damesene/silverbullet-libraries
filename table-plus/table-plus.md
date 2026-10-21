@@ -71,7 +71,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Shift+click** a cell: the cells from the one being edited (it is saved) to this one are selected; with cells selected already, from the first of them; else just this cell.
 * **Shift+arrows** (Ctrl+Shift+arrows too) move the selection's far corner by a cell; in a cell editor, Ctrl+Shift+arrows start a selection there.
 * With cells selected, **arrows** (and Ctrl+arrows) go to the cell beside, **Home / End** to the row's first / last cell, **Ctrl+Home / End** to the table's first / last cell, **PageUp / PageDown** 10 rows up / down (PageUp stops at the first row under the header). The selection is then that cell; with Shift it extends to it.
-* **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows). The cells copied are outlined with a dashed line, as in a spreadsheet, until they are pasted, or Esc, another copy or a change of them; they can be pasted again after that too (the clipboard keeps them). **Ctrl+X** cuts them: see [[#Moving cells (cut and paste)]].
+* **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows). The cells copied are outlined with a dashed line, as in a spreadsheet, until they are pasted, or Esc, another copy or a change of them; they can be pasted again after that too (the clipboard keeps them). **Ctrl+X** cuts them: see [[#Cut and paste]].
 * Cells copy what they show: a formula's result, a link's text.
 * The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
 * **Delete** empties the selected cells, formulas included, as one edit (Ctrl+Z brings them back). Header cells keep their names: a column needs one. Names of rows and cells stay with their cells.
@@ -174,9 +174,10 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 | *Insert function…* | Edits the cell (its formula, or a new one) with the *Functions* dialog, see [[#Functions]]. Needs *Store table metadata* for a new formula. |
 | *Name cell*, *Name row* | Names the cell, see [[#Named cells]], or its row, see [[#Named rows]]; on a header *Name column*, see [[#Named columns]]. |
 | *Copy* | Copies the cell (the cells selected) as Ctrl+C does. |
-| *Cut* | Cuts the cells as Ctrl+X does: copied and outlined, they move where they are pasted, see [[#Moving cells (cut and paste)]]. Not on a header. |
+| *Cut* | Cuts the cells as Ctrl+X does: copied and outlined, they move where they are pasted, see [[#Cut and paste]]. Not on a header. |
 | *Paste*, *Paste as new rows* | Pastes the clipboard from the cell (the top left one selected) as Ctrl+V (Ctrl+Shift+V) does, see [[#Pasting from a spreadsheet]]; with cells cut, *Paste (move N cells)* moves them. Greyed out where the page cannot read the clipboard or it holds nothing (cells cut move all the same). |
 | *Clear* | Empties the cell (the cells selected) as Delete does; a header keeps its name. |
+| *Move to…* | Moves the cells selected to the cell you click (tap) next, see [[#Moving cells]]. |
 | *Filter: = value* | Shows only the rows with this value in this column (with the values of the cells selected in one column: any of them). A column filtered by values already gets this one added: `=open\|blocked`. |
 | *Filter: ≠ value* | Hides the rows with this value in this column. |
 | *Delete N rows*, *Delete N columns* | On a selection: deletes the rows (columns) its cells are in. A table keeps at least one column. |
@@ -197,7 +198,18 @@ Copy cells in Excel, Google Sheets or LibreOffice, click a cell of a table (sele
 * The paste is one edit: one Ctrl+Z undoes it. It is not possible while the table is sorted or filtered, as the rows shown are not where the cells would go.
 * Ctrl+V and *Paste* paste from the top left cell selected, as a spreadsheet does.
 
-## Moving cells (cut and paste)
+## Moving cells
+
+**Drag them by their edge**: with a mouse, point at the edge of the cells selected (the pointer becomes a move cross), press and drag: the cells where they would go are outlined, with their address (`B4:C5`); let go to move them there. Hold **Ctrl** while letting go to copy them instead, as in a spreadsheet (`+` shows before the address). Esc cancels.
+
+**Move to…** in the menu of the cells selected (on a touch screen: tap them, or press and hold), then click (tap) the cell where the first of them goes: they move there. Meanwhile the page scrolls as usual; Esc, or a press outside the table, cancels.
+
+* They move as with cut and paste (below): with their formulas, over what the cells there held, names staying where they are; one edit, one Ctrl+Z.
+* A copy writes a formula with its references moved as far as the cell is (`=A1*2` copied a row down is `=A2*2`), as AutoFill does; the cells written over keep their names.
+* They stay within the table: no rows or columns are added, and they go under the header. Not while the table is sorted or filtered, nor with the header among them.
+* Formulas elsewhere that refer to the cells moved are not changed, and a formula moved keeps its references as written (a spreadsheet would follow them).
+
+### Cut and paste
 
 Select cells and press **Ctrl+X** (or *Cut* in their menu): they are copied, as Ctrl+C copies them, and outlined with a dashed line; nothing changes yet. Paste into the same table, with Ctrl+V on a cell or *Paste (move N cells)* in its menu: the cells move there, as in a spreadsheet, as one edit (one Ctrl+Z).
 
@@ -614,7 +626,7 @@ On a phone or a tablet:
 * The sort buttons in the header are always shown (there is no hover to show them on). The toolbar (the filter icon, the ⋯ menu) shows while a cell of the table is edited.
 * Swiping scrolls a wide table sideways and the page up and down, as usual.
 * **Selecting more cells**: tap a cell, then drag one of the dots at the selection's corners (top left, bottom right) across other cells; near the edge of the screen the page scrolls along. Tap a row's or column's handle to select the whole row (column), then drag a dot to select more rows (columns): they stay whole.
-* **Tap a cell of a selection** of several cells for their menu (copy, clear, delete the rows or columns), as in a spreadsheet's app.
+* **Tap a cell of a selection** of several cells for their menu (copy, clear, delete the rows or columns, *Move to…*), as in a spreadsheet's app.
 * Press and hold a cell for its menu (copy, cut, paste, clear, filter by its value, name it).
 * **AutoFill**: select the cells to go on from, tap them for their menu, *AutoFill to…*, then tap the last cell to fill, see [[#AutoFill]]. The fill handle does not show after a touch: the corner's dot selects.
 * Not on touch screens: the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
@@ -3316,6 +3328,86 @@ html[data-tp-pointer="touch"] .tp-select-handle::after {
 .tp-select-end.tp-select-edge-column {
   right: -7px;
 }
+/* The band on the selection's edge a mouse drags the cells by (not after a
+   touch: there Move to… in their menu); the cells where they go outlined, and
+   their address by the pointer */
+.sb-table-widget td:has(> .tp-select-edge, > .tp-move-edge) {
+  position: relative;
+}
+.sb-table-widget td:is(.tp-pin-left, .tp-pin-right):has(> .tp-select-edge, > .tp-move-edge) {
+  position: sticky;
+}
+.tp-select-edge {
+  position: absolute;
+  z-index: 1;
+  cursor: move;
+}
+html[data-tp-pointer="touch"] .tp-select-edge {
+  display: none;
+}
+.tp-select-edge-top {
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+}
+.tp-select-edge-bottom {
+  bottom: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+}
+.tp-select-edge-left {
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+}
+.tp-select-edge-right {
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+}
+.tp-move-edge {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 0 dashed var(--ui-accent-color, #4a7cc7);
+  pointer-events: none;
+}
+.tp-move-edge.tp-move-top {
+  border-top-width: 2px;
+}
+.tp-move-edge.tp-move-bottom {
+  border-bottom-width: 2px;
+}
+.tp-move-edge.tp-move-left {
+  border-left-width: 2px;
+}
+.tp-move-edge.tp-move-right {
+  border-right-width: 2px;
+}
+.tp-move-tip {
+  z-index: 57;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: var(--root-color);
+  background: var(--root-background-color);
+  border: 1px solid var(--button-border-color);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+  pointer-events: none;
+  white-space: nowrap;
+}
+body.tp-moving-cells,
+body.tp-moving-cells * {
+  cursor: move !important;
+}
+body.tp-move-picking .sb-table-widget.tp-table td {
+  cursor: crosshair !important;
+}
+
 /* A handle dragged: the cell under the finger is found past the handles */
 body.tp-select-dragging .tp-select-handle {
   pointer-events: none;

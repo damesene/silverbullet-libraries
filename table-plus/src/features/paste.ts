@@ -12,7 +12,7 @@
 import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from "../clipboard.ts";
 import type { CellEditor, CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
-import { cellTags, withoutTags } from "../tags.ts";
+import { cellMoveRules } from "../core/structure.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import { moveCells, parseClipboardCells, pasteCells, planPaste } from "../paste.ts";
@@ -208,24 +208,6 @@ export class Paste implements Feature {
           ...(!clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}),
         },
       ],
-    };
-  }
-
-  /**
-   * A move takes the cell's text and the tags features manage (a formula's)
-   * along; the other hidden tags (a row's or a cell's name) stay where they
-   * are, at both ends, so names keep naming their rows and places
-   */
-  private moveRules() {
-    // The tags a feature does not manage: those keepTags keeps from a cell
-    const unmanaged = (cell: string) => new Set(cellTags(this.host.keepTags("", cell)));
-    return {
-      emptied: (cell: string) => this.host.keepTags("", cell),
-      placed: (moved: string, over: string) => {
-        const stay = unmanaged(moved);
-        const content = [withoutTags(moved), ...cellTags(moved).filter((tag) => !stay.has(tag))].filter((part) => part !== "").join(" ");
-        return this.host.keepTags(content, over);
-      },
     };
   }
 
@@ -455,7 +437,7 @@ export class Paste implements Feature {
       (t) => {
         const edited = closed ? closed.save(t) : t;
         if (!edited) return undefined;
-        if (cut) return moveCells(edited, cut.cells, plan, this.moveRules());
+        if (cut) return moveCells(edited, cut.cells, plan, cellMoveRules(this.host));
         const pasted = pasteCells(edited, plan, data, {
           keptBy: (cell) => this.host.cellKeptBy(cell),
           keepTags: (value, from) => this.host.keepTags(value, from),
