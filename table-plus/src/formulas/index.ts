@@ -25,7 +25,7 @@ export { formulaErrors, type NamedCell, recalculate, type TableSource, totalRows
 export { type Node as FormulaNode, parse as parseFormula } from "./parser.ts";
 export { parseDate, toUnit, type Unit } from "./dates.ts";
 export { ERROR_CODES, FormulaError, parseClock, type Scalar } from "./values.ts";
-export { calculatedFormula, followTable, formulasAfterEdit, shiftReferences, withCalculatedCells, withoutFormulas } from "./edits.ts";
+export { calculatedFormula, filledFormula, followTable, formulasAfterEdit, shiftReferences, withCalculatedCells, withoutFormulas } from "./edits.ts";
 export { argumentSpan, cycleFixed, findFunctions, type FormulaHelp, formulaHelp, functionChoices, type FunctionChoices, nameTyped, needsOperator, type PointedSpan, REFERENCE_HELP, referenceSlot } from "./help.ts";
 export { FUNCTION_CATEGORIES, type FormulaFunction, type FunctionCategory } from "./function.ts";
 export { functionNamed, isCustomFunction } from "./registry.ts";

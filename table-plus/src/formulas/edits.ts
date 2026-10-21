@@ -245,3 +245,32 @@ export function followTable(table: Table, before: Table, after: Table, rowMap?: 
   const renamed = newName(edit);
   return withFormulas(table, (formula) => renameIn(rewriteReferences(formula, (ref) => isTo(ref, name), edit), name, renamed));
 }
+
+/**
+ * A formula copied `rows` rows and `columns` columns away (AutoFill), as a
+ * spreadsheet copies it: each cell reference's edges move with it but those
+ * fixed with $ ($A$1, A$1, $A1); one moved off the table (`size`: its body
+ * rows and columns) becomes #REF!. References to another table move as well,
+ * not checked against it. [column], [@column] and names stay: they need no
+ * moving.
+ */
+export function filledFormula(formula: string, rows: number, columns: number, size: { readonly rows: number; readonly columns: number }): string {
+  let result = formula;
+  for (const ref of references(formula).reverse()) {
+    if (ref.kind !== "area") continue;
+    const { area, fixed } = ref;
+    const moved = {
+      top: fixed?.top ? area.top : area.top + rows,
+      left: fixed?.left ? area.left : area.left + columns,
+      bottom: fixed?.bottom ? area.bottom : area.bottom + rows,
+      right: fixed?.right ? area.right : area.right + columns,
+    };
+    const off = Math.min(moved.top, moved.left) < 0 || (!ref.table && (moved.bottom >= size.rows || moved.right >= size.columns));
+    const written = formula.slice(ref.from, ref.to);
+    const start = cellName(moved.top, moved.left, fixed && { column: fixed.left, row: fixed.top });
+    const end = cellName(moved.bottom, moved.right, fixed && { column: fixed.right, row: fixed.bottom });
+    const text = off ? REF_ERROR : written.includes(":") ? `${start}:${end}` : start;
+    result = result.slice(0, ref.from) + text + result.slice(ref.to);
+  }
+  return result;
+}

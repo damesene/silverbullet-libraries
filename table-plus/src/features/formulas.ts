@@ -20,6 +20,7 @@ import {
   callsCustomFunctions,
   columnRefText,
   cycleFixed,
+  filledFormula,
   formulaCell,
   formulaCount,
   formulaErrors,
@@ -337,6 +338,20 @@ export class Formulas implements Feature {
     const tables = this.tableSource();
     if (recalculate(model, tables) !== model) this.stale.add(info.table);
     this.markCells(info, model, tables);
+  }
+
+  /**
+   * AutoFill: a formula cell copied into another cell, its references moved
+   * as far (those fixed with $ not); its result is calculated as it is
+   * written. A new formula is metadata: without the setting it is copied as
+   * its value.
+   */
+  fillCell(info: WidgetInfo, cell: string, from: CellRef, to: CellRef): string | undefined {
+    const stored = formulaOf(cell);
+    if (!stored || from.row === 0 || to.row === 0 || !this.host.metadataEnabled) return undefined;
+    const table = parseTable(info.source);
+    const size = { rows: table.rows.length - 1, columns: table.rows[0]?.cells.length ?? 0 };
+    return formulaCell("", filledFormula(stored.formula, to.row - from.row, to.column - from.column, size));
   }
 
   /** Insert function… in a body cell's menu: the cell edited (its formula, or a new one) and the Functions dialog for it */

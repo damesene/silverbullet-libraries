@@ -52,6 +52,7 @@ var FEATURE_NAMES = [
   "filters",
   "columnTypes",
   "selection",
+  "autofill",
   "lazy",
   "themes",
   "export",
@@ -76,6 +77,7 @@ var MODULE_LABELS = {
   filters: "Filters",
   columnTypes: "Column types",
   selection: "Cell selection",
+  autofill: "AutoFill",
   lazy: "Lazy saving",
   themes: "Themes",
   export: "Export",
@@ -96,6 +98,7 @@ var MODULE_DESCRIPTIONS = {
   filters: "Show only the rows whose cells match what you type under a header",
   columnTypes: "A header's hashtag formats its column (#currency, #stars\u2026)",
   selection: "A click selects a cell, as in a spreadsheet; drag or Shift to select more, to copy, paste over or empty them",
+  autofill: "A square at the corner of the cells selected: drag it to fill the cells after them (1, 2 \u2192 3, 4; Mon \u2192 Tue; formulas with their references moved), double-click it to fill down",
   lazy: "An icon in a table's toolbar switches it to saving its cells edited together, a moment after editing stops: quicker typing in large tables",
   themes: "How tables look (header, lines, stripes, spacing): a theme for every table, another one for a table from its \u22EF menu",
   export: "Copy as CSV in a table's \u22EF menu",
@@ -239,8 +242,8 @@ var SETTINGS = {
     parse: pixels
   }
 };
-function settingChoices(key, doc, current) {
-  const setting = SETTINGS[key];
+function settingChoices(key2, doc, current) {
+  const setting = SETTINGS[key2];
   if (!setting.choices) return [];
   const options = setting.choices.map((value, i) => ({ value, label: setting.choiceLabels?.[i] ?? value }));
   const more = (value) => ({ value, label: setting.moreLabel?.(value) ?? value });
@@ -1211,8 +1214,8 @@ var CellEditing = class {
     return this.editor;
   }
   /** After a write: edit `focus` in the table with `key` once it is rendered again */
-  editAfterWrite(key, focus) {
-    this.pending = { key, ...focus, until: Date.now() + 3e3 };
+  editAfterWrite(key2, focus) {
+    this.pending = { key: key2, ...focus, until: Date.now() + 3e3 };
   }
   /** No cell waits to be edited (a write failed, or editing was cancelled) */
   dropPending() {
@@ -1479,14 +1482,14 @@ var CellEditing = class {
    * The cell is saved in the same edit and the editor stays on it. Rows cannot
    * move while sorted or filtered, nor the header row.
    */
-  async moveWithKeyboard(key) {
+  async moveWithKeyboard(key2) {
     const active = this.editor;
     const info = active && this.host.infoOf(active.widget);
     if (!active || !info) return;
-    const vertical = key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown";
-    const step = key === "ArrowUp" || key === "ArrowLeft" ? -1 : 1;
+    const vertical = key2 === "ArrowUp" || key2 === "ArrowDown" || key2 === "PageUp" || key2 === "PageDown";
+    const step = key2 === "ArrowUp" || key2 === "ArrowLeft" ? -1 : 1;
     const from = vertical ? active.row : active.column;
-    const asked = key === "Home" ? 0 : key === "End" ? info.columns - 1 : key === "PageUp" ? from - PAGE_ROWS : key === "PageDown" ? from + PAGE_ROWS : from + step;
+    const asked = key2 === "Home" ? 0 : key2 === "End" ? info.columns - 1 : key2 === "PageUp" ? from - PAGE_ROWS : key2 === "PageDown" ? from + PAGE_ROWS : from + step;
     if (vertical) {
       if (from === 0) return;
       if (this.host.rearranged(info)) {
@@ -1513,21 +1516,21 @@ var CellEditing = class {
    * With Shift the cells from the edited one to that one are selected (the
    * editor closes, saving); where no feature selects, the cell opens with its text selected.
    */
-  async navigate(key, shift) {
+  async navigate(key2, shift) {
     const active = this.editor;
     const info = active && this.host.infoOf(active.widget);
     if (!active || !info) return;
     const shown = this.host.shownRows(info);
     let r = shown.indexOf(active.cell.parentElement);
     let column = active.column;
-    if (key === "ArrowLeft") column--;
-    else if (key === "ArrowRight") column++;
-    else if (key === "ArrowUp") r--;
-    else if (key === "ArrowDown") r++;
-    else if (key === "Home") column = 0;
-    else if (key === "End") column = info.columns - 1;
-    else if (key === "PageUp") r = r === 0 ? 0 : Math.max(1, r - PAGE_ROWS);
-    else if (key === "PageDown") r = Math.min(shown.length - 1, r + PAGE_ROWS);
+    if (key2 === "ArrowLeft") column--;
+    else if (key2 === "ArrowRight") column++;
+    else if (key2 === "ArrowUp") r--;
+    else if (key2 === "ArrowDown") r++;
+    else if (key2 === "Home") column = 0;
+    else if (key2 === "End") column = info.columns - 1;
+    else if (key2 === "PageUp") r = r === 0 ? 0 : Math.max(1, r - PAGE_ROWS);
+    else if (key2 === "PageDown") r = Math.min(shown.length - 1, r + PAGE_ROWS);
     const target = shown[r]?.cells[column];
     if (!target || target === active.cell) return;
     const ref = this.host.cellRef(info, target);
@@ -1748,7 +1751,7 @@ var TABS = [
     ]
   }
 ];
-var moduleOf = (key) => /^tablePlus\.modules\.([^.]+)\./.exec(SETTINGS[key].path)?.[1];
+var moduleOf = (key2) => /^tablePlus\.modules\.([^.]+)\./.exec(SETTINGS[key2].path)?.[1];
 var enabledPath = (name) => `tablePlus.modules.${name}.enabled`;
 var SettingsDialog = class {
   constructor(context) {
@@ -1784,8 +1787,8 @@ var SettingsDialog = class {
         return fallback;
       }
     };
-    for (const key of Object.keys(SETTINGS)) {
-      const setting = SETTINGS[key];
+    for (const key2 of Object.keys(SETTINGS)) {
+      const setting = SETTINGS[key2];
       const value = setting.parse(await read(setting.path, setting.default)) ?? setting.default;
       this.initial.set(setting.path, value);
     }
@@ -1865,7 +1868,7 @@ var SettingsDialog = class {
       for (const group of tab.groups) {
         if (group.title) panel.append(el("h3", "tp-settings-group", group.title));
         const card2 = el("div", "tp-settings-card");
-        for (const key of group.keys) card2.append(this.row(key));
+        for (const key2 of group.keys) card2.append(this.row(key2));
         panel.append(card2);
       }
       addTab(tab.id, tab.title, panel);
@@ -1931,8 +1934,8 @@ var SettingsDialog = class {
     return text;
   }
   /** A setting's row: its name left, its control right (a switch, a choice, a number) */
-  row(key) {
-    const setting = SETTINGS[key];
+  row(key2) {
+    const setting = SETTINGS[key2];
     const value = this.values.get(setting.path);
     const row = this.el("label", "tp-settings-row");
     row.dataset.tpSetting = setting.path;
@@ -1941,7 +1944,7 @@ var SettingsDialog = class {
       row.append(this.switch(value === true, (on) => this.change(setting.path, on)));
       return row;
     }
-    const choices = settingChoices(key, this.context.doc, value);
+    const choices = settingChoices(key2, this.context.doc, value);
     if (choices.length) {
       const select = this.el("select");
       for (const choice of choices) select.append(new Option(choice.label, choice.value, false, choice.value === value));
@@ -1975,10 +1978,10 @@ var SettingsDialog = class {
     toggle.querySelector("input").dataset.tpModule = name;
     row.append(this.label(MODULE_LABELS[name], MODULE_DESCRIPTIONS[name]), toggle);
     block.append(row);
-    const keys = Object.keys(SETTINGS).filter((key) => moduleOf(key) === name);
+    const keys = Object.keys(SETTINGS).filter((key2) => moduleOf(key2) === name);
     if (keys.length > 0) {
       const own = this.el("div", "tp-settings-module-settings");
-      for (const key of keys) own.append(this.row(key));
+      for (const key2 of keys) own.append(this.row(key2));
       block.append(own);
       this.moduleSettings.set(name, own);
     }
@@ -2237,15 +2240,15 @@ function notANumber(text) {
 var numberFormats = /* @__PURE__ */ new Map();
 var dateFormats = /* @__PURE__ */ new Map();
 function numberFormat(locale, options = {}) {
-  const key = `${locale ?? ""}|${JSON.stringify(options)}`;
-  let format = numberFormats.get(key);
-  if (!format) numberFormats.set(key, format = new Intl.NumberFormat(locale, options));
+  const key2 = `${locale ?? ""}|${JSON.stringify(options)}`;
+  let format = numberFormats.get(key2);
+  if (!format) numberFormats.set(key2, format = new Intl.NumberFormat(locale, options));
   return format;
 }
 function dateTimeFormat(locale, options) {
-  const key = `${locale ?? ""}|${JSON.stringify(options)}`;
-  let format = dateFormats.get(key);
-  if (!format) dateFormats.set(key, format = new Intl.DateTimeFormat(locale, options));
+  const key2 = `${locale ?? ""}|${JSON.stringify(options)}`;
+  let format = dateFormats.get(key2);
+  if (!format) dateFormats.set(key2, format = new Intl.DateTimeFormat(locale, options));
   return format;
 }
 function formatNumber(n, locale, options = {}) {
@@ -2727,8 +2730,8 @@ var progress_default = columnType({
   },
   format: (text, { max }, locale) => {
     const share = numberOf(text) / max;
-    const filled = Math.round(share * 10);
-    return `${"\u25B0".repeat(filled)}${"\u25B1".repeat(10 - filled)} ${formatNumber(share, locale, { style: "percent" })}`;
+    const filled2 = Math.round(share * 10);
+    return `${"\u25B0".repeat(filled2)}${"\u25B1".repeat(10 - filled2)} ${formatNumber(share, locale, { style: "percent" })}`;
   }
 });
 
@@ -3952,16 +3955,16 @@ function matchingCells(values, pairs) {
 }
 
 // table-plus/src/formulas/builtin/xlookup.ts
-function order(key, value) {
-  if (key === null || isError(key) || typeof key === "boolean" || typeof value === "boolean") return void 0;
-  if (typeof key === "string" && key.trim() === "") return void 0;
-  const dk = typeof key === "string" ? parseDate(key) : void 0;
+function order(key2, value) {
+  if (key2 === null || isError(key2) || typeof key2 === "boolean" || typeof value === "boolean") return void 0;
+  if (typeof key2 === "string" && key2.trim() === "") return void 0;
+  const dk = typeof key2 === "string" ? parseDate(key2) : void 0;
   const dv = typeof value === "string" ? parseDate(value) : void 0;
   if (dk || dv) return dk && dv ? dk.ms - dv.ms : void 0;
-  const nk = toNumber(key);
+  const nk = toNumber(key2);
   const nv = toNumber(value);
   if (!isError(nk) || !isError(nv)) return !isError(nk) && !isError(nv) ? nk - nv : void 0;
-  const tk = toText(key).toLowerCase();
+  const tk = toText(key2).toLowerCase();
   const tv = toText(value).toLowerCase();
   return tk < tv ? -1 : tk > tv ? 1 : 0;
 }
@@ -5376,13 +5379,13 @@ var Book = class {
   sheet(ref, from) {
     const page = ref.page ?? from.page;
     if (page === from.page && from.name !== void 0 && from.name.toLowerCase() === ref.name.toLowerCase()) return from;
-    const key = `${page ?? ""}\0${ref.name.toLowerCase()}`;
-    let sheet = this.sheets.get(key);
+    const key2 = `${page ?? ""}\0${ref.name.toLowerCase()}`;
+    let sheet = this.sheets.get(key2);
     if (!sheet) {
       const table = this.source?.(ref.name, page);
       if (!table) return new FormulaError("#REF!", `there is no table named ${ref.name}${page === void 0 ? " on this page" : ` on ${page}`}`);
       sheet = this.sheetOf(table, page);
-      this.sheets.set(key, sheet);
+      this.sheets.set(key2, sheet);
     }
     return sheet;
   }
@@ -5458,20 +5461,20 @@ var Sheet = class {
   }
   /** The result of the formula in a cell */
   result(row, column, formula) {
-    const key = `${row},${column}`;
-    const known2 = this.results.get(key);
+    const key2 = `${row},${column}`;
+    const known2 = this.results.get(key2);
     if (known2 !== void 0) return known2;
-    if (this.evaluating.has(key)) {
+    if (this.evaluating.has(key2)) {
       return new FormulaError("#CYCLE!", `${cellName(row, column)} depends on its own result`);
     }
     if (this.book.keepsResult(formula)) {
       const shown = unescapeCell(formulaOf(this.body[row]?.[column] ?? "")?.value ?? "").trim();
       const code = shown === "" ? "#REF!" : ERROR_CODES.find((c) => c === shown);
       const kept = code ? new FormulaError(code, "the other page is not read (are links to other pages turned off?)") : asNumber(shown) ?? parseClock(shown) ?? shown;
-      this.results.set(key, kept);
+      this.results.set(key2, kept);
       return kept;
     }
-    this.evaluating.add(key);
+    this.evaluating.add(key2);
     let result;
     try {
       const tree = parse(formula);
@@ -5480,9 +5483,9 @@ var Sheet = class {
         result = new FormulaError("#NUM!", "the result is not a finite number");
       }
     } finally {
-      this.evaluating.delete(key);
+      this.evaluating.delete(key2);
     }
-    this.results.set(key, result);
+    this.results.set(key2, result);
     return result;
   }
   /** The text a formula cell shows for its result */
@@ -5833,6 +5836,26 @@ function followTable(table, before, after, rowMap, columnMap) {
   const edit = { before, after, rowMap, columnMap };
   const renamed = newName(edit);
   return withFormulas(table, (formula) => renameIn(rewriteReferences(formula, (ref) => isTo(ref, name), edit), name, renamed));
+}
+function filledFormula(formula, rows, columns, size) {
+  let result = formula;
+  for (const ref of references(formula).reverse()) {
+    if (ref.kind !== "area") continue;
+    const { area, fixed } = ref;
+    const moved2 = {
+      top: fixed?.top ? area.top : area.top + rows,
+      left: fixed?.left ? area.left : area.left + columns,
+      bottom: fixed?.bottom ? area.bottom : area.bottom + rows,
+      right: fixed?.right ? area.right : area.right + columns
+    };
+    const off = Math.min(moved2.top, moved2.left) < 0 || !ref.table && (moved2.bottom >= size.rows || moved2.right >= size.columns);
+    const written = formula.slice(ref.from, ref.to);
+    const start = cellName(moved2.top, moved2.left, fixed && { column: fixed.left, row: fixed.top });
+    const end = cellName(moved2.bottom, moved2.right, fixed && { column: fixed.right, row: fixed.bottom });
+    const text = off ? REF_ERROR : written.includes(":") ? `${start}:${end}` : start;
+    result = result.slice(0, ref.from) + text + result.slice(ref.to);
+  }
+  return result;
 }
 
 // table-plus/src/formulas/help.ts
@@ -6358,11 +6381,11 @@ function excelCall(name, args, templates, custom3 = false) {
   if (template === false) return { reason: `${name} is set to be written as its value` };
   if (typeof template === "string") {
     if (template.trim() === "") return { reason: `the template of ${name} is empty` };
-    const filled = template.replace(/\{(\d+)\}/g, (_, i) => {
+    const filled2 = template.replace(/\{(\d+)\}/g, (_, i) => {
       const arg = args[Number(i) - 1];
       return arg ? arg.operation ? `(${arg.text})` : arg.text : "";
     });
-    return `(${withFutureNames(filled)})`;
+    return `(${withFutureNames(filled2)})`;
   }
   if (custom3) return { reason: `${name} is a custom function with no Excel form (see tablePlus.modules.excel.functions)` };
   const own = EXCEL_FUNCTIONS[name];
@@ -6623,8 +6646,8 @@ function xlsxName(typed) {
 function skippedGroups(skipped, parts = 4) {
   const groups = /* @__PURE__ */ new Map();
   for (const s of skipped) {
-    const key = `${s.reason}\0${s.formula}`;
-    groups.set(key, [...groups.get(key) ?? [], s]);
+    const key2 = `${s.reason}\0${s.formula}`;
+    groups.set(key2, [...groups.get(key2) ?? [], s]);
   }
   return Array.from(groups.values(), (cells) => {
     const sorted = [...cells].sort((a, b) => a.column - b.column || a.row - b.row);
@@ -6961,8 +6984,8 @@ function pageTables(tables, here, replace, others) {
   const pages = /* @__PURE__ */ new Map();
   const namesOf2 = (page) => {
     const isHere = page === void 0 || page === here;
-    const key = isHere ? "" : page;
-    let names = pages.get(key);
+    const key2 = isHere ? "" : page;
+    let names = pages.get(key2);
     if (!names) {
       const list = isHere ? tables() : others?.tables(page);
       if (!list) return void 0;
@@ -6973,7 +6996,7 @@ function pageTables(tables, here, replace, others) {
         if (own && !names.tables.has(own)) names.tables.set(own, table);
         for (const [name, cell] of namedCells(table)) if (!names.cells.has(name)) names.cells.set(name, { table, ...cell });
       }
-      pages.set(key, names);
+      pages.set(key2, names);
     }
     return names;
   };
@@ -7242,8 +7265,8 @@ var Filters = class {
     }
   }
   /** The table with `key` as rendered now: a write renders a table anew */
-  table(key) {
-    const widget = this.host.widgetForKey(key);
+  table(key2) {
+    const widget = this.host.widgetForKey(key2);
     const info = widget && this.host.infoOf(widget);
     return widget && info ? [widget, info] : void 0;
   }
@@ -7309,7 +7332,7 @@ var Filters = class {
   }
   /** The filter icon at the toolbar's right; while filtered, "3 of 10 rows", its × clearing the filters */
   toolbarButtons(_widget, info) {
-    const { key } = info;
+    const { key: key2 } = info;
     const buttons = [];
     if (this.hidesRows(info)) {
       const rows = this.host.bodyRows(info);
@@ -7319,7 +7342,7 @@ var Filters = class {
         title: "Clear the filters",
         place: "chip",
         icon: ICONS.filter,
-        run: () => this.clearAll(key)
+        run: () => this.clearAll(key2)
       });
     }
     buttons.push({
@@ -7327,13 +7350,13 @@ var Filters = class {
       title: "Show or hide the filter row (hidden, the filters still apply: the toolbar and the headers show them)",
       place: "icon",
       icon: ICONS.filter,
-      pressed: this.shown.has(key),
+      pressed: this.shown.has(key2),
       run: () => {
-        if (this.shown.has(key)) this.shown.delete(key);
-        else this.shown.add(key);
-        const table = this.table(key);
+        if (this.shown.has(key2)) this.shown.delete(key2);
+        else this.shown.add(key2);
+        const table = this.table(key2);
         if (table) this.host.viewChanged(...table);
-        this.scheduleStore(key);
+        this.scheduleStore(key2);
       }
     });
     return buttons;
@@ -7354,12 +7377,12 @@ var Filters = class {
       if (!values.some((v) => normalizeForFilter(v) === normalizeForFilter(value))) values.push(value);
     }
     if (values.some((v) => v.includes("|"))) return void 0;
-    const { key } = info;
+    const { key: key2 } = info;
     const apply = (prefix) => () => {
-      const table = this.table(key);
+      const table = this.table(key2);
       if (!table) return;
-      this.setFilter(key, column, withValues(this.filtersOf(table[1])[column] ?? "", prefix, values));
-      this.scheduleStore(key);
+      this.setFilter(key2, column, withValues(this.filtersOf(table[1])[column] ?? "", prefix, values));
+      this.scheduleStore(key2);
     };
     const label = valuesLabel(values);
     return {
@@ -7382,8 +7405,8 @@ var Filters = class {
     return true;
   }
   /** Filters typed move with their columns; stored ones follow them in the markdown (meta.ts) */
-  columnsMoved(key, map) {
-    const typed = this.typed.get(key);
+  columnsMoved(key2, map) {
+    const typed = this.typed.get(key2);
     if (!typed) return;
     const moved2 = [];
     typed.forEach((value, column) => {
@@ -7392,12 +7415,12 @@ var Filters = class {
       while (moved2.length <= target) moved2.push("");
       moved2[target] = value;
     });
-    this.typed.set(key, moved2);
+    this.typed.set(key2, moved2);
   }
   /** Remove metadata: what is typed goes too, the table shows what its markdown has */
-  viewForgotten(key) {
-    this.typed.delete(key);
-    this.storesWaiting.delete(key);
+  viewForgotten(key2) {
+    this.typed.delete(key2);
+    this.storesWaiting.delete(key2);
   }
   /** The filter row as the filters are: shown with them, or gone */
   syncRow(info) {
@@ -7433,42 +7456,42 @@ var Filters = class {
    * cell of it is edited: a write renders the table anew, which would take a
    * field's focus or close the cell editor
    */
-  scheduleStore(key) {
-    clearTimeout(this.storeTimers.get(key));
+  scheduleStore(key2) {
+    clearTimeout(this.storeTimers.get(key2));
     this.storeTimers.set(
-      key,
+      key2,
       setTimeout(() => {
-        this.storeTimers.delete(key);
+        this.storeTimers.delete(key2);
         const active = this.host.doc.activeElement;
-        const table = this.table(key);
+        const table = this.table(key2);
         if (active instanceof HTMLInputElement && active.classList.contains("tp-filter")) {
-          if (this.bubble?.input === active ? this.bubble.key === key : !!table && table[1].table.contains(active)) return;
+          if (this.bubble?.input === active ? this.bubble.key === key2 : !!table && table[1].table.contains(active)) return;
         }
         const editing = this.host.editing;
-        if (!table || editing && this.host.infoOf(editing.widget)?.key === key) {
-          this.storesWaiting.add(key);
+        if (!table || editing && this.host.infoOf(editing.widget)?.key === key2) {
+          this.storesWaiting.add(key2);
           return;
         }
-        void this.store(key);
+        void this.store(key2);
       }, 0)
     );
   }
   /** A cell editor closed: filters waiting for it are stored */
   editorClosed(editor) {
-    const key = this.host.infoOf(editor.widget)?.key;
-    if (key && this.storesWaiting.delete(key)) this.scheduleStore(key);
+    const key2 = this.host.infoOf(editor.widget)?.key;
+    if (key2 && this.storesWaiting.delete(key2)) this.scheduleStore(key2);
   }
   /** A table rendered again: filters waiting for it are stored */
   enhanced(_widget, info) {
     if (this.storesWaiting.delete(info.key)) this.scheduleStore(info.key);
   }
-  async store(key) {
-    const table = this.table(key);
-    const typed = this.typed.get(key);
+  async store(key2) {
+    const table = this.table(key2);
+    const typed = this.typed.get(key2);
     if (!table || !typed) return;
     const [widget, info] = table;
     if (sameFilters(typed, this.storedFilters(info))) {
-      this.typed.delete(key);
+      this.typed.delete(key2);
       return;
     }
     if (!(info.metaRow || this.host.metadataEnabled)) return;
@@ -7478,25 +7501,25 @@ var Filters = class {
       if (filter.trim() !== "") filters.set(column, filter.trim());
     });
     const result = await this.host.write(widget, (t) => withColumnMeta(t, "filter", filters));
-    if (result !== "failed" && sameFilters(this.typed.get(key) ?? [], written)) this.typed.delete(key);
+    if (result !== "failed" && sameFilters(this.typed.get(key2) ?? [], written)) this.typed.delete(key2);
   }
   // ---- typing ---------------------------------------------------------------------
   /** A column's field in the filter row: the filter icon, the field, its clear button */
-  field(key, column) {
+  field(key2, column) {
     const cell = this.host.doc.createElement("td");
-    const { box, input } = this.filterBox(key, column);
+    const { box, input } = this.filterBox(key2, column);
     input.addEventListener("focus", () => {
       void this.readOptions();
       if (this.bubble?.input !== input) {
-        this.showBubble(key, column, input, () => input.isConnected ? input : void 0);
+        this.showBubble(key2, column, input, () => input.isConnected ? input : void 0);
       }
     });
-    input.addEventListener("blur", (e) => this.left(key, input, e));
+    input.addEventListener("blur", (e) => this.left(key2, input, e));
     cell.append(box);
     return cell;
   }
   /** A filter field with the filter icon before it and its clear button after it */
-  filterBox(key, column) {
+  filterBox(key2, column) {
     const { doc } = this.host;
     const box = doc.createElement("div");
     box.className = "tp-filter-box";
@@ -7511,7 +7534,7 @@ var Filters = class {
     input.spellcheck = false;
     input.dataset.tpColumn = String(column);
     this.host.isolate(input);
-    input.addEventListener("input", () => this.setFilter(key, column, input.value));
+    input.addEventListener("input", () => this.setFilter(key2, column, input.value));
     input.addEventListener("keydown", (e) => {
       if (e.key === "Escape" || e.key === "Enter") {
         e.preventDefault();
@@ -7530,7 +7553,7 @@ var Filters = class {
     clear.addEventListener("mousedown", (e) => e.preventDefault());
     clear.addEventListener("click", (e) => {
       e.preventDefault();
-      this.type(key, input, column, "");
+      this.type(key2, input, column, "");
     });
     box.append(icon, input, clear);
     return { box, input };
@@ -7542,34 +7565,34 @@ var Filters = class {
     this.scheduleStore(info.key);
   }
   /** The toolbar chip's ×: no filter any more */
-  clearAll(key) {
-    this.typed.set(key, []);
-    const table = this.table(key);
+  clearAll(key2) {
+    this.typed.set(key2, []);
+    const table = this.table(key2);
     for (const input of Array.from(table?.[1].table.querySelectorAll("input.tp-filter") ?? [])) input.value = "";
-    if (this.bubble?.key === key) this.hideBubble();
+    if (this.bubble?.key === key2) this.hideBubble();
     if (table) this.host.viewChanged(...table);
-    this.scheduleStore(key);
+    this.scheduleStore(key2);
   }
-  setFilter(key, column, value) {
-    const table = this.table(key);
+  setFilter(key2, column, value) {
+    const table = this.table(key2);
     if (table) {
       const filters = [...this.filtersOf(table[1])];
       while (filters.length <= column) filters.push("");
       filters[column] = value;
-      this.typed.set(key, filters);
+      this.typed.set(key2, filters);
       this.host.viewChanged(...table);
     }
     const bubble = this.bubble;
-    if (bubble && bubble.key === key && bubble.column === column) {
+    if (bubble && bubble.key === key2 && bubble.column === column) {
       bubble.element.classList.toggle("tp-filter-typed", value !== "");
       this.renderBubble();
     }
   }
   /** Puts `value` in the field as if typed */
-  type(key, input, column, value) {
+  type(key2, input, column, value) {
     input.value = value;
     input.closest("td")?.classList.toggle("tp-filter-typed", value !== "");
-    this.setFilter(key, column, value);
+    this.setFilter(key2, column, value);
   }
   // ---- the bubble -------------------------------------------------------------
   /**
@@ -7578,22 +7601,22 @@ var Filters = class {
    * column, it closes.
    */
   openFilter(info, column) {
-    const { key } = info;
-    if (this.bubble?.popover && this.bubble.key === key && this.bubble.column === column) {
+    const { key: key2 } = info;
+    if (this.bubble?.popover && this.bubble.key === key2 && this.bubble.column === column) {
       this.hideBubble();
       return;
     }
     void this.readOptions();
-    const { box, input } = this.filterBox(key, column);
+    const { box, input } = this.filterBox(key2, column);
     input.value = this.filtersOf(info)[column] ?? "";
-    input.addEventListener("blur", (e) => this.left(key, input, e));
-    const anchor = () => this.table(key)?.[1].table.rows[0]?.cells[column];
-    this.showBubble(key, column, input, anchor, box);
+    input.addEventListener("blur", (e) => this.left(key2, input, e));
+    const anchor = () => this.table(key2)?.[1].table.rows[0]?.cells[column];
+    this.showBubble(key2, column, input, anchor, box);
     this.bubble?.element.classList.toggle("tp-filter-typed", input.value !== "");
     input.focus({ preventScroll: true });
     input.setSelectionRange(input.value.length, input.value.length);
   }
-  showBubble(key, column, input, anchor, head) {
+  showBubble(key2, column, input, anchor, head) {
     this.hideBubble();
     const { doc } = this.host;
     const element = doc.createElement("div");
@@ -7607,18 +7630,18 @@ var Filters = class {
     if (head) element.append(head);
     element.append(body);
     doc.body.append(element);
-    this.bubble = { element, body, input, key, column, anchor, popover: !!head };
+    this.bubble = { element, body, input, key: key2, column, anchor, popover: !!head };
     this.renderBubble();
   }
   /**
    * A field lost the focus: its bubble goes, unless the focus went into it (a
    * value ticked), and the filters are stored once no field has it
    */
-  left(key, input, e) {
+  left(key2, input, e) {
     const bubble = this.bubble;
     if (bubble?.input === input && e.relatedTarget instanceof Node && bubble.element.contains(e.relatedTarget)) return;
     if (bubble?.input === input) this.hideBubble();
-    this.scheduleStore(key);
+    this.scheduleStore(key2);
   }
   hideBubble() {
     this.bubble?.element.remove();
@@ -7629,13 +7652,13 @@ var Filters = class {
     const bubble = this.bubble;
     const info = bubble && this.table(bubble.key)?.[1];
     if (!bubble || !info) return;
-    const { key, column, input } = bubble;
+    const { key: key2, column, input } = bubble;
     const { doc } = this.host;
     const values = this.columnValues(info, column);
     const parts = [];
     if (this.options.smart) {
-      const filled = values.filter((v) => v.value !== "");
-      const numeric = filled.length > 0 && filled.filter((v) => asNumber(v.value) !== void 0).length * 2 >= filled.length;
+      const filled2 = values.filter((v) => v.value !== "");
+      const numeric = filled2.length > 0 && filled2.filter((v) => asNumber(v.value) !== void 0).length * 2 >= filled2.length;
       const hints = numeric ? [...NUMBER_HINTS, ...TEXT_HINTS.slice(0, 3)] : TEXT_HINTS;
       const list = doc.createElement("div");
       list.className = "tp-filter-hints";
@@ -7649,7 +7672,7 @@ var Filters = class {
         b.append(code, ` ${hint.text}`);
         b.addEventListener("click", (e) => {
           e.preventDefault();
-          this.type(key, input, column, hint.apply(input.value.trim()));
+          this.type(key2, input, column, hint.apply(input.value.trim()));
           input.focus({ preventScroll: true });
           input.setSelectionRange(input.value.length, input.value.length);
         });
@@ -7658,7 +7681,7 @@ var Filters = class {
       parts.push(list);
       const pickable = values.filter((v) => !v.value.includes("|"));
       if (pickable.length > 0 && pickable.length <= MAX_VALUES && values.length <= MAX_VALUES) {
-        parts.push(this.valueList(key, input, column, pickable));
+        parts.push(this.valueList(key2, input, column, pickable));
       }
     }
     bubble.body.replaceChildren(...parts);
@@ -7679,7 +7702,7 @@ var Filters = class {
     bubble.element.style.top = `${Math.round(top)}px`;
   }
   /** The column's values to tick: ticked are those the field's =a|b names */
-  valueList(key, input, column, values) {
+  valueList(key2, input, column, values) {
     const { doc } = this.host;
     const text = input.value.trim();
     const ticked = new Set(text.startsWith("=") ? text.slice(1).split("|").map((v) => normalizeForFilter(v.trim())) : []);
@@ -7706,7 +7729,7 @@ var Filters = class {
           return n === normalized ? box.checked : ticked.has(n);
         });
         const filter = chosen.length === 0 ? "" : chosen.length === 1 && chosen[0].value === "" ? "=|" : `=${chosen.map((v) => v.value).join("|")}`;
-        this.type(key, input, column, filter);
+        this.type(key2, input, column, filter);
         input.focus({ preventScroll: true });
       });
       list.append(item);
@@ -7904,9 +7927,9 @@ var Formulas = class {
   tableSource() {
     const { pageText, currentPage } = this.host;
     const others = this.host.otherPages();
-    const key = `${others?.version ?? -1}\0${currentPage}\0${pageText}`;
-    if (this.source?.key !== key) {
-      this.source = { key, source: pageTables(() => pageTablesOf(pageText), currentPage, void 0, others) };
+    const key2 = `${others?.version ?? -1}\0${currentPage}\0${pageText}`;
+    if (this.source?.key !== key2) {
+      this.source = { key: key2, source: pageTables(() => pageTablesOf(pageText), currentPage, void 0, others) };
     }
     return this.source.source;
   }
@@ -8111,6 +8134,19 @@ var Formulas = class {
     const tables = this.tableSource();
     if (recalculate(model, tables) !== model) this.stale.add(info.table);
     this.markCells(info, model, tables);
+  }
+  /**
+   * AutoFill: a formula cell copied into another cell, its references moved
+   * as far (those fixed with $ not); its result is calculated as it is
+   * written. A new formula is metadata: without the setting it is copied as
+   * its value.
+   */
+  fillCell(info, cell, from, to) {
+    const stored = formulaOf(cell);
+    if (!stored || from.row === 0 || to.row === 0 || !this.host.metadataEnabled) return void 0;
+    const table = parseTable(info.source);
+    const size = { rows: table.rows.length - 1, columns: table.rows[0]?.cells.length ?? 0 };
+    return formulaCell("", filledFormula(stored.formula, to.row - from.row, to.column - from.column, size));
   }
   /** Insert function… in a body cell's menu: the cell edited (its formula, or a new one) and the Functions dialog for it */
   cellMenuEntries(_widget, info, cells) {
@@ -8357,9 +8393,9 @@ ${error}` : stored.formula;
     if (!choices) return void 0;
     const typed = field.value.slice(choices.from, choices.to);
     if (this.tableSource().cell?.(typed)) return void 0;
-    const key = `${choices.from}:${typed}`;
-    if (this.dismissed === key) return void 0;
-    if (this.choosing?.key !== key) this.choosing = { key, index: 0 };
+    const key2 = `${choices.from}:${typed}`;
+    if (this.dismissed === key2) return void 0;
+    if (this.choosing?.key !== key2) this.choosing = { key: key2, index: 0 };
     return choices;
   }
   /** Puts a function offered in place of the name typed, with its "(": the help for its arguments follows */
@@ -9611,8 +9647,8 @@ var History = class {
   keyDown(e) {
     const { bridge } = this.host;
     const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
-    const key = e.key.toLowerCase();
-    const step = mod && key === "z" ? e.shiftKey ? "redo" : "undo" : mod && key === "y" && !e.shiftKey ? "redo" : void 0;
+    const key2 = e.key.toLowerCase();
+    const step = mod && key2 === "z" ? e.shiftKey ? "redo" : "undo" : mod && key2 === "y" && !e.shiftKey ? "redo" : void 0;
     const inEditor = e.target instanceof Element && !!e.target.closest(EDITOR_SELECTOR);
     if (!step || !inEditor || !bridge[step] || !bridge.getCursor) return false;
     e.preventDefault();
@@ -9809,8 +9845,8 @@ var Widths = class {
     return true;
   }
   /** The table with `key` as rendered now: a write renders it anew */
-  current(key) {
-    const widget = this.host.widgetForKey(key);
+  current(key2) {
+    const widget = this.host.widgetForKey(key2);
     const info = widget && this.host.infoOf(widget);
     return widget && info ? [widget, info] : void 0;
   }
@@ -9838,15 +9874,15 @@ var Widths = class {
     if (result !== "failed") for (const column of set.keys()) this.viewed.get(info.key)?.delete(column);
   }
   /** Columns moved, inserted or deleted: the widths set for the view go with them */
-  columnsMoved(key, map) {
-    const view = this.viewed.get(key);
+  columnsMoved(key2, map) {
+    const view = this.viewed.get(key2);
     if (!view) return;
     const moved2 = /* @__PURE__ */ new Map();
     for (const [column, width] of view) {
       const target = map(column);
       if (target !== void 0) moved2.set(target, width);
     }
-    this.viewed.set(key, moved2);
+    this.viewed.set(key2, moved2);
   }
   // ---- the menus --------------------------------------------------------------------
   // Before Remove metadata (the widths module comes before it), which would remove them too
@@ -10819,9 +10855,9 @@ var Lazy = class {
       }
     ];
   }
-  toggle(key) {
-    if (this.on.delete(key)) void this.switchedOff(key);
-    else this.on.add(key);
+  toggle(key2) {
+    if (this.on.delete(key2)) void this.switchedOff(key2);
+    else this.on.add(key2);
     this.host.toolbarChanged();
   }
   /**
@@ -10829,9 +10865,9 @@ var Lazy = class {
    * toolbar leaves its editor open): closed and saved first, no longer held,
    * in a write that takes the others along
    */
-  async switchedOff(key) {
+  async switchedOff(key2) {
     if (this.host.editing) await this.host.saveEditing();
-    await this.flush(key);
+    await this.flush(key2);
   }
   holdCellEdit(_widget, info, edit) {
     if (!this.on.has(info.key)) return false;
@@ -10862,13 +10898,13 @@ var Lazy = class {
     };
   }
   /** Edits written (by any write of the table): no longer held, unless edited again meanwhile */
-  written(key, edits, skipped) {
-    const held = this.held.get(key);
+  written(key2, edits, skipped) {
+    const held = this.held.get(key2);
     if (held) {
       for (const edit of edits) if (held.edits.get(cellId(edit)) === edit) held.edits.delete(cellId(edit));
       if (!held.edits.size) {
-        this.held.delete(key);
-        this.marked.delete(key);
+        this.held.delete(key2);
+        this.marked.delete(key2);
       }
     }
     if (skipped) void this.host.bridge.flash(`Table Plus: ${skipped} ${skipped === 1 ? "cell was" : "cells were"} changed elsewhere meanwhile, the edit there was not saved`, "error");
@@ -10937,38 +10973,38 @@ var Lazy = class {
   /** Writes what is held for every table; how many writes went into the editor */
   async flushAll() {
     let writes = 0;
-    for (const key of [...this.held.keys()]) if (await this.flush(key)) writes++;
+    for (const key2 of [...this.held.keys()]) if (await this.flush(key2)) writes++;
     return writes;
   }
   /**
    * Writes what is held for a table: into the editor while its page is there,
    * else into the page's file; whether it went into the editor (one undo step)
    */
-  async flush(key) {
-    const going = this.flushing.get(key);
+  async flush(key2) {
+    const going = this.flushing.get(key2);
     if (going) {
       await going;
       return false;
     }
-    const flush = this.flushNow(key).finally(() => this.flushing.delete(key));
-    this.flushing.set(key, flush);
+    const flush = this.flushNow(key2).finally(() => this.flushing.delete(key2));
+    this.flushing.set(key2, flush);
     return flush;
   }
-  async flushNow(key) {
+  async flushNow(key2) {
     clearTimeout(this.timer);
-    const held = this.held.get(key);
+    const held = this.held.get(key2);
     if (!held?.edits.size) return false;
     if (Date.now() - this.leavingSince < LEAVING_MS) return false;
     if (await this.host.bridge.getCurrentPage() !== held.page) {
-      await this.flushToPage(key, held);
+      await this.flushToPage(key2, held);
       return false;
     }
-    const widget = this.host.widgetForKey(key);
+    const widget = this.host.widgetForKey(key2);
     if (!widget || this.host.editing) return false;
     return await this.host.write(widget, (table) => table) === "written";
   }
   /** The page left: what was held for it is written into its file (SilverBullet saved it before loading the other) */
-  async flushToPage(key, held) {
+  async flushToPage(key2, held) {
     const { readPage, writePage } = this.host.bridge;
     const count = held.edits.size;
     const lost = () => void this.host.bridge.flash(`Table Plus: ${count} ${count === 1 ? "cell" : "cells"} edited on ${held.page} could not be saved`, "error");
@@ -10981,7 +11017,7 @@ var Lazy = class {
       const format = await this.host.setting("autoFormat");
       const markdown = serializeTable(format ? { ...table, padded: true } : table);
       await writePage(held.page, text.slice(0, range.from) + markdown + text.slice(range.to));
-      this.held.delete(key);
+      this.held.delete(key2);
       const saved = count - skipped;
       if (saved) void this.host.bridge.flash(`Table Plus: saved ${saved} ${saved === 1 ? "cell" : "cells"} edited on ${held.page}`, "info");
       if (skipped) void this.host.bridge.flash(`Table Plus: ${skipped} ${skipped === 1 ? "cell" : "cells"} on ${held.page} changed elsewhere meanwhile, the edit there was not saved`, "error");
@@ -10992,8 +11028,8 @@ var Lazy = class {
   }
   async pageLoaded(name) {
     this.leavingSince = 0;
-    for (const [key, held] of [...this.held]) if (held.page !== name) await this.flush(key);
-    for (const key of [...this.on]) if (!key.startsWith(`${name}#`)) this.on.delete(key);
+    for (const [key2, held] of [...this.held]) if (held.page !== name) await this.flush(key2);
+    for (const key2 of [...this.on]) if (!key2.startsWith(`${name}#`)) this.on.delete(key2);
   }
   // A navigation: nothing goes into the editor until the other page is loaded (pageLoaded)
   onPopState = () => {
@@ -11463,7 +11499,7 @@ var Selection = class {
    */
   afterCellPress(info, anchor) {
     this.stopSelecting?.();
-    const { key } = info;
+    const { key: key2 } = info;
     const win = this.host.doc.defaultView;
     const move = (ev) => {
       if (ev.buttons === 0) {
@@ -11471,14 +11507,14 @@ var Selection = class {
         return;
       }
       const hit = this.host.enhancedWidgetOf(ev.target);
-      const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], ev.target) : void 0;
+      const cell = hit && hit[1].key === key2 ? this.host.tableCellOf(hit[1], ev.target) : void 0;
       const ref = hit && cell ? this.host.cellRef(hit[1], cell) : void 0;
       if (!ref) return;
       const current = this.selection;
       if (!current) {
         if (ref.row === anchor.row && ref.column === anchor.column) return;
         this.host.cancelEditing();
-        this.selection = { key, anchor, focus: ref };
+        this.selection = { key: key2, anchor, focus: ref };
       } else if (current.focus.row === ref.row && current.focus.column === ref.column) return;
       else current.focus = ref;
       this.show();
@@ -11557,9 +11593,9 @@ var Selection = class {
     const info = widget && this.host.infoOf(widget);
     if (!selection || !info || e.metaKey || e.isComposing) return false;
     const typing = (e.key.length === 1 || e.key === "Dead") && e.ctrlKey === e.altKey;
-    const plain = !e.ctrlKey && !e.altKey && !e.shiftKey;
-    const asIs = plain && (e.key === "Enter" || e.key === "F2");
-    const emptied = plain && e.key === "Backspace";
+    const plain2 = !e.ctrlKey && !e.altKey && !e.shiftKey;
+    const asIs = plain2 && (e.key === "Enter" || e.key === "F2");
+    const emptied = plain2 && e.key === "Backspace";
     if (!typing && !asIs && !emptied) return false;
     if (!typing) e.preventDefault();
     e.stopPropagation();
@@ -11619,12 +11655,12 @@ var Selection = class {
    * sorted or filtered, nor with the header), its columns left or right, as
    * one edit; the selection goes with them
    */
-  async moveLines(key) {
+  async moveLines(key2) {
     const selection = this.selection;
     const widget = selection && this.host.widgetForKey(selection.key);
     const info = widget && this.host.infoOf(widget);
     if (!selection || !widget || !info) return;
-    const vertical = key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown";
+    const vertical = key2 === "ArrowUp" || key2 === "ArrowDown" || key2 === "PageUp" || key2 === "PageDown";
     const lines = vertical ? [selection.anchor.row, selection.focus.row] : [selection.anchor.column, selection.focus.column];
     const first = Math.min(...lines);
     const last = Math.max(...lines);
@@ -11635,7 +11671,7 @@ var Selection = class {
         return;
       }
     }
-    const asked = key === "Home" ? 0 : key === "End" ? info.columns - (last - first + 1) : key === "PageUp" ? first - PAGE_ROWS : key === "PageDown" ? first + PAGE_ROWS : key === "ArrowUp" || key === "ArrowLeft" ? first - 1 : first + 1;
+    const asked = key2 === "Home" ? 0 : key2 === "End" ? info.columns - (last - first + 1) : key2 === "PageUp" ? first - PAGE_ROWS : key2 === "PageDown" ? first + PAGE_ROWS : key2 === "ArrowUp" || key2 === "ArrowLeft" ? first - 1 : first + 1;
     const to = vertical ? rowBlockTo(info, first, last, asked) : columnBlockTo(info, first, last, asked);
     if (to === first) return;
     const follow = (ref) => vertical ? { ...ref, row: lineAfterBlockMove(ref.row, first, last, to) } : { ...ref, column: lineAfterBlockMove(ref.column, first, last, to) };
@@ -11837,6 +11873,428 @@ var Selection = class {
     e.stopImmediatePropagation();
     void this.host.bridge.flash(`Table Plus: copied ${values.length} \xD7 ${values[0]?.length ?? 0} cells`, "info");
   };
+};
+
+// table-plus/src/autofill/builtin/dates.ts
+var DAY4 = 864e5;
+function monthOf(date) {
+  const d = new Date(date.ms);
+  return d.getUTCFullYear() * 12 + d.getUTCMonth();
+}
+var dates_default = {
+  name: "dates",
+  match: (values) => {
+    const dates = values.map(parseDate);
+    if (dates.length === 0 || !dates.every((d) => d)) return void 0;
+    const all = dates;
+    const first = all[0];
+    const text = (date) => {
+      const written = formatDate(date);
+      return typeof written === "string" ? written : "";
+    };
+    if (all.length === 1) return (i) => text({ ms: first.ms + i * DAY4, time: first.time });
+    const months = monthOf(all[1]) - monthOf(first);
+    const byMonths = months !== 0 && all.every((d, i) => d.ms === addUnits(first, i * months, "m").ms);
+    if (byMonths) return (i) => text(addUnits(first, i * months, "m"));
+    const step = all[1].ms - first.ms;
+    if (step === 0 || !all.every((d, i) => d.ms === first.ms + i * step)) return void 0;
+    return (i) => text({ ms: first.ms + i * step, time: all.some((d) => d.time) });
+  }
+};
+
+// table-plus/src/autofill/builtin/lists.ts
+var LISTS = [
+  ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+  ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  ["pond\u011Bl\xED", "\xFAter\xFD", "st\u0159eda", "\u010Dtvrtek", "p\xE1tek", "sobota", "ned\u011Ble"],
+  ["po", "\xFAt", "st", "\u010Dt", "p\xE1", "so", "ne"],
+  ["leden", "\xFAnor", "b\u0159ezen", "duben", "kv\u011Bten", "\u010Derven", "\u010Dervenec", "srpen", "z\xE1\u0159\xED", "\u0159\xEDjen", "listopad", "prosinec"],
+  ["led", "\xFAno", "b\u0159e", "dub", "kv\u011B", "\u010Dvn", "\u010Dvc", "srp", "z\xE1\u0159", "\u0159\xEDj", "lis", "pro"]
+];
+function key(word) {
+  return plain(word.trim().toLowerCase());
+}
+function plain(word) {
+  return word.normalize("NFD").replace(/\p{M}/gu, "");
+}
+function inCase(word, as) {
+  if (as.length > 1 && as === as.toUpperCase() && as !== as.toLowerCase()) return word.toUpperCase();
+  if (as[0] === as[0].toUpperCase() && as[0] !== as[0].toLowerCase()) return word[0].toUpperCase() + word.slice(1).toLowerCase();
+  return word.toLowerCase();
+}
+function listSeries(name, lists) {
+  return {
+    name,
+    match: (values) => {
+      if (values.length === 0) return void 0;
+      for (const list of lists) {
+        const keys = list.map(key);
+        const indexes = values.map((v) => keys.indexOf(key(v)));
+        if (indexes.some((i) => i < 0)) continue;
+        const n = list.length;
+        const step = indexes.length === 1 ? 1 : ((indexes[1] - indexes[0]) % n + n) % n;
+        if (step === 0 || !indexes.every((index, i) => index === ((indexes[0] + i * step) % n + n) % n)) continue;
+        const bare2 = values.every((v) => plain(v) === v) && values.some((_, i) => plain(list[indexes[i]]) !== list[indexes[i]]);
+        const first = values[0].trim();
+        return (i) => {
+          const word = list[((indexes[0] + i * step) % n + n) % n];
+          return inCase(bare2 ? plain(word) : word, first);
+        };
+      }
+      return void 0;
+    }
+  };
+}
+var lists_default = listSeries("lists", LISTS);
+
+// table-plus/src/autofill/builtin/numbered.ts
+var NUMBERED_RE = /^(.*?)(\d+)(\D*)$/s;
+var numbered_default = {
+  name: "numbered text",
+  match: (values) => {
+    const parts = values.map((v) => NUMBERED_RE.exec(v));
+    if (parts.length === 0 || !parts.every((m) => m)) return void 0;
+    const all = parts;
+    const [, prefix, , suffix] = all[0];
+    if (prefix.trim() === "" && suffix.trim() === "") return void 0;
+    if (!all.every((m) => m[1] === prefix && m[3] === suffix)) return void 0;
+    const numbers2 = all.map((m) => Number(m[2]));
+    const step = numbers2.length === 1 ? 1 : numbers2[1] - numbers2[0];
+    if (step === 0 || !numbers2.every((n, i) => n === numbers2[0] + i * step)) return void 0;
+    const width = all[0][2].startsWith("0") ? all[0][2].length : 0;
+    return (i) => {
+      const n = numbers2[0] + i * step;
+      return `${prefix}${n < 0 ? "-" : ""}${String(Math.abs(n)).padStart(width, "0")}${suffix}`;
+    };
+  }
+};
+
+// table-plus/src/autofill/builtin/numbers.ts
+var NUMBER_RE2 = /^([-+]?)(\d+)(?:([.,])(\d+))?$/;
+var numbers_default = {
+  name: "numbers",
+  match: (values) => {
+    const parts = values.map((v) => NUMBER_RE2.exec(v.trim()));
+    if (parts.length < 2 || !parts.every((m) => m)) return void 0;
+    const all = parts;
+    const numbers2 = all.map((m) => Number(`${m[1]}${m[2]}.${m[4] ?? "0"}`));
+    const comma = all.some((m) => m[3] === ",");
+    const decimals = Math.max(...all.map((m) => m[4]?.length ?? 0));
+    const width = Math.max(0, ...all.filter((m) => m[2].length > 1 && m[2].startsWith("0")).map((m) => m[2].length));
+    const n = numbers2.length;
+    const meanX = (n - 1) / 2;
+    const meanY = numbers2.reduce((a, b) => a + b, 0) / n;
+    const slope = numbers2.reduce((sum, y, x) => sum + (x - meanX) * (y - meanY), 0) / numbers2.reduce((sum, _, x) => sum + (x - meanX) ** 2, 0);
+    const steps = numbers2.slice(1).map((y, x) => y - numbers2[x]);
+    const even = steps.every((s) => Math.abs(s - steps[0]) < 1e-9);
+    const places = even ? decimals : decimals + 2;
+    return (i) => {
+      const value = even ? numbers2[0] + i * steps[0] : meanY + (i - meanX) * slope;
+      let text = (Math.round(value * 10 ** places) / 10 ** places).toFixed(places);
+      if (!even && places > decimals) text = text.replace(/0+$/, "").replace(/\.$/, "");
+      const [sign, digits] = text.startsWith("-") ? ["-", text.slice(1)] : ["", text];
+      const [whole, fraction2] = digits.split(".");
+      const padded3 = whole.padStart(width, "0");
+      return `${sign}${padded3}${fraction2 ? `${comma ? "," : "."}${fraction2}` : ""}`;
+    };
+  }
+};
+
+// table-plus/src/autofill/builtin/times.ts
+var DAY5 = 86400;
+var times_default = {
+  name: "times",
+  match: (values) => {
+    const times = values.map((v) => parseClock(v)?.seconds);
+    if (times.length === 0 || !times.every((t) => t !== void 0)) return void 0;
+    const all = times;
+    const first = all[0];
+    const step = all.length === 1 ? 3600 : all[1] - first;
+    if (step === 0 || !all.every((t, i) => t === first + i * step)) return void 0;
+    const ofDay = all.every((t) => t >= 0 && t < DAY5);
+    return (i) => {
+      const seconds = first + i * step;
+      return formatClock(ofDay ? (seconds % DAY5 + DAY5) % DAY5 : seconds);
+    };
+  }
+};
+
+// table-plus/src/autofill/builtin/index.ts
+var BUILT_IN_SERIES = [dates_default, times_default, numbers_default, lists_default, numbered_default];
+
+// table-plus/src/autofill/registry.ts
+function allSeries() {
+  return BUILT_IN_SERIES;
+}
+function seriesFor(values) {
+  for (const series of allSeries()) {
+    const next = series.match(values);
+    if (next) return { name: series.name, next };
+  }
+  const k = values.length;
+  return { name: "repeat", next: (i) => values[(i % k + k) % k] ?? "" };
+}
+
+// table-plus/src/autofill/fill.ts
+function cellValue2(cell) {
+  return unescapeCell(withoutTags(cell)).trim();
+}
+function fillLine(table, line, cells) {
+  const raw = (cell) => table.rows[cell.row]?.cells[cell.column] ?? "";
+  const { sources, targets, backward } = line;
+  const k = sources.length;
+  if (k === 0) return targets.map(() => "");
+  const sourceOf = (j) => backward ? sources[k - 1 - j % k] : sources[j % k];
+  if (sources.some((s) => cells.claim(raw(s), s, s) !== void 0)) {
+    return targets.map((target, j) => {
+      const source = sourceOf(j);
+      const copy = cells.claim(raw(source), source, target) ?? escapeCell(cellValue2(raw(source)));
+      return cells.keepTags(copy, raw(target));
+    });
+  }
+  const { next } = seriesFor(sources.map((s) => cellValue2(raw(s))));
+  return targets.map((target, j) => cells.keepTags(escapeCell(next(backward ? -1 - j : k + j)), raw(target)));
+}
+function filled(table, lines, cells) {
+  let result = table;
+  for (const line of lines) {
+    fillLine(table, line, cells).forEach((cell, j) => {
+      const target = line.targets[j];
+      result = setCell(result, target.row, target.column, cell);
+    });
+  }
+  return result;
+}
+
+// table-plus/src/features/autofill.ts
+var AutoFill = class {
+  constructor(host) {
+    this.host = host;
+    this.handle = host.floating("div", "tp-fill-handle");
+    this.handle.title = "Drag to fill the cells after these (1, 2 \u2192 3, 4; Mon \u2192 Tue), double-click to fill down";
+    this.outline = host.floating("div", "tp-fill-outline");
+    this.tip = host.floating("div", "tp-fill-tip");
+    this.handle.addEventListener("pointerdown", (e) => this.drag(e));
+    this.handle.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      this.fillDown();
+    });
+  }
+  host;
+  handle;
+  outline;
+  tip;
+  dragging = false;
+  // Ends the drag (Esc: without filling)
+  endDrag;
+  stop() {
+    for (const el of [this.handle, this.outline, this.tip]) el.remove();
+  }
+  owns(node) {
+    return [this.handle, this.outline, this.tip].some((el) => el.contains(node));
+  }
+  selectionChanged() {
+    this.placeHandle();
+  }
+  layoutChanged() {
+    if (!this.dragging) this.placeHandle();
+  }
+  // Esc while dragging cancels the fill (before the selection module takes Esc: the cells stay selected)
+  keyDown(e) {
+    if (e.key !== "Escape" || !this.endDrag) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    this.endDrag(false);
+    return true;
+  }
+  editorOpened() {
+    this.handle.classList.remove("tp-visible");
+  }
+  /** The cells selected in a table shown, if they are body cells of a table shown as written */
+  selection() {
+    for (const widget of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.host.infoOf(widget);
+      const refs = info ? this.host.selectedCells(info) : [];
+      if (!info || refs.length === 0) continue;
+      if (refs.some((ref) => ref.row === 0) || this.host.rearranged(info)) return void 0;
+      const rows = this.host.shownRows(info).slice(1);
+      const shown = refs.map((ref) => rows.findIndex((tr) => Number(tr.dataset.tpRow) === ref.row));
+      if (shown.some((i) => i < 0)) return void 0;
+      const columns = refs.map((ref) => ref.column);
+      return {
+        widget,
+        info,
+        rows,
+        top: Math.min(...shown),
+        bottom: Math.max(...shown),
+        left: Math.min(...columns),
+        right: Math.max(...columns)
+      };
+    }
+    return void 0;
+  }
+  /** The markdown's row (the header 0) of a body row as shown */
+  rowOf(selected, shown) {
+    return Number(selected.rows[shown].dataset.tpRow);
+  }
+  /** The handle at the bottom right corner of the cells selected, while that corner is in view */
+  placeHandle() {
+    const selected = this.host.editing ? void 0 : this.selection();
+    const cell = selected && this.host.cellAt(selected.info, { row: this.rowOf(selected, selected.bottom), column: selected.right });
+    const part = cell && cell.isConnected && this.host.shownPart(selected.widget, selected.info, cell);
+    const rect = cell?.getBoundingClientRect();
+    if (!part || !rect || part.right < rect.right - 1 || part.bottom < rect.bottom - 1) {
+      this.handle.classList.remove("tp-visible");
+      return;
+    }
+    const size = this.handle.offsetWidth || 8;
+    this.host.place(this.handle, rect.right - size / 2, rect.bottom - size / 2);
+  }
+  /**
+   * How far the pointer at x, y fills: along the axis it went further out of
+   * the selection on, to the row or column under it, within the table
+   */
+  extentAt(selected, x, y) {
+    const rects = selected.rows.map((tr) => tr.isConnected ? tr.getBoundingClientRect() : void 0);
+    let row = rects.findIndex((r) => r && y >= r.top && y < r.bottom);
+    if (row < 0) {
+      const measured = rects.map((r, i) => ({ r, i })).filter((m) => m.r);
+      if (measured.length === 0) return void 0;
+      row = y < measured[0].r.top ? measured[0].i : measured[measured.length - 1].i;
+    }
+    const cells = Array.from(selected.rows[selected.bottom]?.cells ?? []).map((c) => c.getBoundingClientRect());
+    let column = cells.findIndex((r) => x >= r.left && x < r.right);
+    if (column < 0) column = cells.length && x < cells[0].left ? 0 : cells.length - 1;
+    const down = row > selected.bottom ? row - selected.bottom : row < selected.top ? selected.top - row : 0;
+    const across = column > selected.right ? column - selected.right : column < selected.left ? selected.left - column : 0;
+    if (down === 0 && across === 0) return void 0;
+    return down >= across ? { axis: "rows", to: row } : { axis: "columns", to: column };
+  }
+  /** The lines a fill writes: each column (row) of the selection, its cells selected and those dragged over, nearest first */
+  lines(selected, extent) {
+    const { top, bottom, left, right } = selected;
+    const cell = (shown, column) => ({ row: this.rowOf(selected, shown), column });
+    const span = (from, to) => Array.from({ length: Math.abs(to - from) + 1 }, (_, i) => from <= to ? from + i : from - i);
+    if (extent.axis === "rows") {
+      const backward2 = extent.to < top;
+      const targets2 = backward2 ? span(top - 1, extent.to) : span(bottom + 1, extent.to);
+      return span(left, right).map((column) => ({
+        sources: span(top, bottom).map((r) => cell(r, column)),
+        targets: targets2.map((r) => cell(r, column)),
+        backward: backward2
+      }));
+    }
+    const backward = extent.to < left;
+    const targets = backward ? span(left - 1, extent.to) : span(right + 1, extent.to);
+    return span(top, bottom).map((r) => ({
+      sources: span(left, right).map((column) => cell(r, column)),
+      targets: targets.map((column) => cell(r, column)),
+      backward
+    }));
+  }
+  fillCells(info) {
+    return {
+      claim: (cell, from, to) => this.host.fillCell(info, cell, from, to),
+      keepTags: (value, from) => this.host.keepTags(value, from)
+    };
+  }
+  /** The handle dragged: the cells the pointer goes over outlined, the last one's value by the pointer; written as it is let go */
+  drag(e) {
+    if (e.button !== 0) return;
+    const selected = this.selection();
+    if (!selected) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const win = this.host.doc.defaultView;
+    const table = this.host.tableOf(selected.info);
+    let extent;
+    this.dragging = true;
+    this.host.doc.body.classList.add("tp-filling");
+    const move = (ev) => {
+      extent = this.extentAt(selected, ev.clientX, ev.clientY);
+      this.preview(selected, extent, table, ev.clientX, ev.clientY);
+    };
+    const finish = (apply) => {
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", up, true);
+      this.endDrag = void 0;
+      this.dragging = false;
+      this.host.doc.body.classList.remove("tp-filling");
+      this.outline.classList.remove("tp-visible");
+      this.tip.classList.remove("tp-visible");
+      if (apply && extent) void this.apply(selected, extent);
+      else this.placeHandle();
+    };
+    const up = () => finish(true);
+    this.endDrag = finish;
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", up, true);
+  }
+  /** The cells a drag would fill outlined with the selected ones, the value of the farthest one by the pointer */
+  preview(selected, extent, table, x, y) {
+    if (!extent) {
+      this.outline.classList.remove("tp-visible");
+      this.tip.classList.remove("tp-visible");
+      return;
+    }
+    const rows = extent.axis === "rows" ? [Math.min(selected.top, extent.to), Math.max(selected.bottom, extent.to)] : [selected.top, selected.bottom];
+    const columns = extent.axis === "columns" ? [Math.min(selected.left, extent.to), Math.max(selected.right, extent.to)] : [selected.left, selected.right];
+    const first = this.host.cellAt(selected.info, { row: this.rowOf(selected, rows[0]), column: columns[0] });
+    const last = this.host.cellAt(selected.info, { row: this.rowOf(selected, rows[1]), column: columns[1] });
+    if (first?.isConnected && last?.isConnected) {
+      const a = first.getBoundingClientRect();
+      const b = last.getBoundingClientRect();
+      Object.assign(this.outline.style, {
+        left: `${Math.min(a.left, b.left)}px`,
+        top: `${Math.min(a.top, b.top)}px`,
+        width: `${Math.max(a.right, b.right) - Math.min(a.left, b.left)}px`,
+        height: `${Math.max(a.bottom, b.bottom) - Math.min(a.top, b.top)}px`
+      });
+      this.outline.classList.add("tp-visible");
+    }
+    const [line] = this.lines(selected, extent);
+    const cells = line ? fillLine(table, line, this.fillCells(selected.info)) : [];
+    const value = cells.length ? cellValue2(cells[cells.length - 1]) : "";
+    const count = this.lines(selected, extent).reduce((n, l) => n + l.targets.length, 0);
+    this.tip.textContent = value || `${count} ${count === 1 ? "cell" : "cells"}`;
+    this.host.place(this.tip, x + 14, y + 14);
+  }
+  /** Double click: down as far as the column beside the selection (left, else right) has values */
+  fillDown() {
+    const selected = this.selection();
+    if (!selected) return;
+    const table = this.host.tableOf(selected.info);
+    const columns = table.rows[0]?.cells.length ?? 0;
+    const beside = [selected.left - 1, selected.right + 1].filter((c) => c >= 0 && c < columns);
+    const filledBeside = (column, shown) => cellValue2(table.rows[this.rowOf(selected, shown)]?.cells[column] ?? "") !== "";
+    let to = selected.bottom;
+    for (const column of beside) {
+      if (!filledBeside(column, selected.bottom + 1)) continue;
+      while (to + 1 < selected.rows.length && filledBeside(column, to + 1)) to++;
+      break;
+    }
+    if (to > selected.bottom) void this.apply(selected, { axis: "rows", to });
+  }
+  /**
+   * The cells filled, in one edit, and selected with the ones they were
+   * filled from: selected before the write (the table rendered anew shows the
+   * selection again), the selection put back when nothing is written
+   */
+  async apply(selected, extent) {
+    const { info, widget } = selected;
+    const lines = this.lines(selected, extent);
+    const rows = extent.axis === "rows" ? [Math.min(selected.top, extent.to), Math.max(selected.bottom, extent.to)] : [selected.top, selected.bottom];
+    const columns = extent.axis === "columns" ? [Math.min(selected.left, extent.to), Math.max(selected.right, extent.to)] : [selected.left, selected.right];
+    const corner = (shown, column) => ({ row: this.rowOf(selected, shown), column });
+    this.host.selectCells(info, corner(rows[0], columns[0]), corner(rows[1], columns[1]));
+    const result = await this.host.write(widget, (t) => filled(t, lines, this.fillCells(info)));
+    if (result === "written") return;
+    const now2 = this.host.widgetForKey(info.key);
+    const nowInfo = now2 && this.host.infoOf(now2);
+    if (nowInfo) this.host.selectCells(nowInfo, corner(selected.top, selected.left), corner(selected.bottom, selected.right));
+  }
 };
 
 // table-plus/src/features/sticky.ts
@@ -12125,6 +12583,8 @@ var Controller = class {
       optional("names", () => new Names(this)),
       always(() => this.metadata),
       optional("paste", () => new Paste(this)),
+      // AutoFill before the selection: Esc while dragging the fill handle cancels the fill, the selection stays
+      optional("autofill", () => new AutoFill(this)),
       optional("selection", () => new Selection(this)),
       optional("lazy", () => new Lazy(this)),
       optional("themes", () => new Themes(this)),
@@ -12335,12 +12795,12 @@ var Controller = class {
    * The view a table's metadata stored ends with the metadata, so the rows
    * show as written: forgotten, so Ctrl+Z (the metadata back) shows it again
    */
-  forgetStoredView(key) {
-    clearTimeout(this.sortTimers.get(key));
-    this.sortTimers.delete(key);
-    this.sortsWaiting.delete(key);
-    this.views.delete(key);
-    for (const feature of this.features) feature.viewForgotten?.(key);
+  forgetStoredView(key2) {
+    clearTimeout(this.sortTimers.get(key2));
+    this.sortTimers.delete(key2);
+    this.sortsWaiting.delete(key2);
+    this.views.delete(key2);
+    for (const feature of this.features) feature.viewForgotten?.(key2);
   }
   /**
    * The table as rendered now: a write (e.g. of a stored sorting) re-renders
@@ -12577,6 +13037,13 @@ var Controller = class {
   keepTags(value, from) {
     return keepTags(value, from, new Set(this.features.flatMap((f) => f.takesTags?.() ?? [])));
   }
+  fillCell(info, cell, from, to) {
+    for (const feature of this.features) {
+      const copy = feature.fillCell?.(info, cell, from, to);
+      if (copy !== void 0) return copy;
+    }
+    return void 0;
+  }
   cellKeptBy(cell) {
     for (const feature of this.features) {
       const reason = feature.keepsCell?.(cell);
@@ -12608,28 +13075,28 @@ var Controller = class {
    * table is edited (writing would render the table anew under the editor): then
    * once the editor closes.
    */
-  scheduleSortStore(key) {
-    clearTimeout(this.sortTimers.get(key));
+  scheduleSortStore(key2) {
+    clearTimeout(this.sortTimers.get(key2));
     this.sortTimers.set(
-      key,
+      key2,
       setTimeout(() => {
-        this.sortTimers.delete(key);
+        this.sortTimers.delete(key2);
         const active = this.cellEditor.active;
-        if (active && this.infos.get(active.widget)?.key === key) this.sortsWaiting.add(key);
-        else void this.storeSort(key);
+        if (active && this.infos.get(active.widget)?.key === key2) this.sortsWaiting.add(key2);
+        else void this.storeSort(key2);
       }, STORE_SORT_DELAY_MS)
     );
   }
   /** The cell editor closed: a sorting waiting for it is stored */
   editingEnded(widget) {
-    const key = this.infos.get(widget)?.key;
-    if (key && this.sortsWaiting.delete(key)) this.scheduleSortStore(key);
+    const key2 = this.infos.get(widget)?.key;
+    if (key2 && this.sortsWaiting.delete(key2)) this.scheduleSortStore(key2);
   }
-  async storeSort(key) {
-    const widget = this.widgetForKey(key);
+  async storeSort(key2) {
+    const widget = this.widgetForKey(key2);
     const info = widget && this.infos.get(widget);
     if (this.stopped || !widget || !info || !await this.metadataAllowed(info)) return;
-    const view = this.views.get(key) ?? DEFAULT_VIEW;
+    const view = this.views.get(key2) ?? DEFAULT_VIEW;
     const sort = view.sort ? { column: view.sort.column, direction: view.sort.direction } : void 0;
     await this.write(widget, (t) => withMetaSort(t, sort));
   }
@@ -12721,10 +13188,10 @@ var Controller = class {
     if (this.cellEditor.active) void this.cellEditor.finish(false);
   }
   /** The rendered table a view key belongs to, if it is enhanced and on screen */
-  widgetForKey(key) {
+  widgetForKey(key2) {
     for (const widget of Array.from(this.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
       const info = this.infos.get(widget);
-      if (info?.key === key && renderedTable(widget) === info.table) return widget;
+      if (info?.key === key2 && renderedTable(widget) === info.table) return widget;
     }
     return void 0;
   }
@@ -12791,12 +13258,12 @@ var Controller = class {
     if (widget && info && renderedTable(widget) === info.table && this.rearranged(info)) this.applyView(widget, info);
   }
   /** After a write: a new row focused is held beside the rows asked */
-  holdAfterWrite(key, options) {
+  holdAfterWrite(key2, options) {
     if (options.hold && options.focus) {
-      this.held = { key, row: options.focus.row, ...options.hold };
+      this.held = { key: key2, row: options.focus.row, ...options.hold };
       return;
     }
-    if (this.held?.key === key && options.rowMap) this.held = void 0;
+    if (this.held?.key === key2 && options.rowMap) this.held = void 0;
   }
   /**
    * A cell's value for sorting and filtering: the edited cell shows the
@@ -13076,19 +13543,19 @@ var Controller = class {
   };
   // ---- keeping a table written in its place ----------------------------------
   /** Before a write: where the table is in the page's view */
-  anchorAt(widget, key) {
+  anchorAt(widget, key2) {
     const scroller = widget.isConnected ? this.scrollParentOf(widget) : void 0;
     this.anchor = scroller && {
-      key,
+      key: key2,
       scroller,
       offset: widget.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
       until: Date.now() + ANCHOR_MS
     };
   }
   /** The table rendered anew is scrolled to where it was, so the row edited stays under the user's eyes */
-  keepAnchor(key, widget = this.widgetForKey(key)) {
+  keepAnchor(key2, widget = this.widgetForKey(key2)) {
     const anchor = this.anchor;
-    if (!anchor || anchor.key !== key || !widget) return;
+    if (!anchor || anchor.key !== key2 || !widget) return;
     if (Date.now() > anchor.until || !anchor.scroller.isConnected) {
       this.anchor = void 0;
       return;
@@ -13101,11 +13568,11 @@ var Controller = class {
    * there, also once the editor has measured the new rendering, in the next
    * frames
    */
-  anchorAgain(widget, key) {
+  anchorAgain(widget, key2) {
     const anchor = this.anchor;
-    if (!anchor || anchor.key !== key) return;
+    if (!anchor || anchor.key !== key2) return;
     anchor.offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
-    const keep = () => this.keepAnchor(key);
+    const keep = () => this.keepAnchor(key2);
     const win = this.doc.defaultView;
     win.requestAnimationFrame?.(() => {
       keep();
@@ -13538,6 +14005,7 @@ var Controller = class {
   }
   selectionChanged() {
     this.showQuietMarks();
+    for (const feature of this.features) feature.selectionChanged?.();
   }
   /**
    * The table whose last row or column has the cell edited, the cell hovered
@@ -14066,8 +14534,8 @@ function customType(definition) {
   if (syntax !== void 0 && typeof syntax !== "string") return `${tag}: its syntax is not text`;
   if (description !== void 0 && typeof description !== "string") return `${tag}: its description is not text`;
   if (icon !== void 0 && (typeof icon !== "string" || !icon.trim().startsWith("<svg"))) return `${tag}: its icon is not an SVG (lineIcon draws one)`;
-  for (const [key, method] of Object.entries({ check, format, sortValue, choices })) {
-    if (method !== void 0 && typeof method !== "function") return `${tag}: ${key} is not a function`;
+  for (const [key2, method] of Object.entries({ check, format, sortValue, choices })) {
+    if (method !== void 0 && typeof method !== "function") return `${tag}: ${key2} is not a function`;
   }
   const specs = specsOf(params);
   if (typeof specs === "string") return `${tag}: ${specs}`;
@@ -14138,8 +14606,8 @@ function specOf(spec, last) {
   switch (spec.kind) {
     case "number": {
       const { integer, min, max, default: d } = spec;
-      for (const [key, value] of Object.entries({ min, max, default: d })) {
-        if (value !== void 0 && (typeof value !== "number" || Number.isNaN(value))) return `${key} is not a number`;
+      for (const [key2, value] of Object.entries({ min, max, default: d })) {
+        if (value !== void 0 && (typeof value !== "number" || Number.isNaN(value))) return `${key2} is not a number`;
       }
       if (integer !== void 0 && typeof integer !== "boolean") return "integer is not true or false";
       const lowest = min ?? -Infinity;

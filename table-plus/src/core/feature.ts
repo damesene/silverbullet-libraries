@@ -245,6 +245,8 @@ export interface TableHost {
   keepTags(value: string, from: string): string;
   /** Why a cell's value is a feature's (Feature.keepsCell): pasting leaves it */
   cellKeptBy(cell: string): string | undefined;
+  /** A feature's copy of a cell for another cell (Feature.fillCell), or undefined: copied as its value */
+  fillCell(info: WidgetInfo, cell: string, from: CellRef, to: CellRef): string | undefined;
   /** Keyboard and input events from a field of a feature must not reach SilverBullet's editor */
   isolate(element: HTMLElement): void;
   /** A cell's value as sorting and filtering see it: a type's value, the edited cell's typed text */
@@ -472,5 +474,14 @@ export interface Feature {
    * (formulas: "formula cell", the formula computes it); undefined: it is not
    */
   keepsCell?(cell: string): string | undefined;
+  /**
+   * A copy of a cell the feature makes for another cell of the table (`to`;
+   * AutoFill), a cell of the markdown's table, the header 0: formulas, their
+   * references moved by as many rows and columns; undefined: not the
+   * feature's cell (it is copied as its value)
+   */
+  fillCell?(info: WidgetInfo, cell: string, from: CellRef, to: CellRef): string | undefined;
+  /** The cells selected changed (the selection module): what goes with them follows */
+  selectionChanged?(): void;
   editorClosed?(editor: CellEditor): void;
 }

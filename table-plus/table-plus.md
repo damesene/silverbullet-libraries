@@ -105,6 +105,26 @@ config.set("tablePlus.modules.excel.functions", {
 })
 ```
 
+## AutoFill
+
+Select cells and drag the small square at the bottom right corner of the selection (the fill handle) down, up, right or left: the cells you drag over go on from the selected ones, as in a spreadsheet. While you drag, the cells are outlined and the value the last one will get shows by the pointer; let go to fill them (one edit, one Ctrl+Z), Esc cancels. Double-click the square to fill down as far as the column beside the selection (left, else right) has values.
+
+| Selected | Goes on with |
+|---|---|
+| `1`, `2` | `3`, `4`, `5` … (the step between them; several uneven numbers: their trend) |
+| `1` | `1`, `1` … (one number repeats, as in a spreadsheet; select two for a series) |
+| `Item 1` | `Item 2`, `Item 3` … (text with a number; `A-01` → `A-02`, `Q1`, `Q3` → `Q5`) |
+| `Mon`, `Tue` | `Wed`, `Thu` … (days and months, long and short, English and Czech: `Po`, `Út` → `St`; typed without diacritics, `Po`, `Ut` → `St`, `Ct`; their case kept) |
+| `2025-11-06` | `2025-11-07` … (dates day by day; `2025-01-31`, `2025-02-28` → `2025-03-31` month by month; any other step between them) |
+| `14:30` | `15:30` … (times hour by hour, or by the step between them) |
+| a formula | the formula in each cell, its references moved as far as the cell is from the formula's: `=B1*2` filled down gives `=B2*2`; a reference with `$` keeps that part (`=$B$1*2`, see [[#References]]); one moved off the table is `#REF!`. `[@column]` and `[column]` need no moving. A new formula needs *Store table metadata*: without it, the formula's result is filled. |
+| anything else | the selected cells over again |
+
+* Each column of the selection (each row, filling right or left) is filled on its own: numbers in one column, days in the next.
+* It fills within the table: dragging past its last row or column adds none.
+* Not while the table is sorted or filtered: the rows shown are not where the cells would go (the square does not show).
+* Cells filled over keep the hidden tags they had (a cell's name).
+
 ## Cell menu
 
 Right-click a cell (on a touch screen: press and hold it; in the cell editor: the Menu key or Shift+F10) for its menu: the cell is selected (marked, not edited), and stays so afterwards for Ctrl+C and Delete. Right-click a cell of a selection for the selection's menu. Shift+right-click, and a right click in the cell editor, give the browser's menu.
@@ -694,6 +714,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `themes` | Tables look as their theme sets: the *Theme* setting (`theme`, default `native`), or a table's own from *Theme* in its ⋯ menu; stripes from *Stripes* (`stripes`: `rows`, the default, `columns` or `none`), or as the icons in *Theme* in a table's ⋯ menu say. See [[#Themes]]. Off: tables look as SilverBullet shows them (striped); a theme stored in a table is kept but not used. |
 | `lazy` | The toolbar's lazy saving icon (a clock) switches a table to saving its cells edited together, a moment after editing stops. Setting `delay` (milliseconds, default `500`). See [[#Lazy saving]]. Off: every cell is saved as you leave it. |
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
+| `autofill` | The fill handle at the corner of the cells selected: drag it to fill the cells after them, double-click it to fill down. See [[#AutoFill]]. Off: no handle. |
 | `excel` | *Export to Excel…* in the table's ⋯ menu: copy for Excel, or download an .xlsx file with the formulas. Setting `functions`: templates for your custom functions in the file. See [[#Excel]]. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
@@ -937,6 +958,18 @@ config.define("tablePlus", {
               default = true,
               description = "A click selects a cell (a second click edits it; the Edit mode button in the toolbar edits on the first click); dragging, Shift+click and Shift+arrows select more; Ctrl+C copies them for a spreadsheet, Delete empties them. Off: a click edits.",
               ui = { category = "Table Plus: Modules", label = "Cell selection", priority = 7 },
+            },
+          },
+        },
+        autofill = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "A square at the bottom right corner of the cells selected: drag it to fill the cells after them (1, 2 → 3, 4; Mon → Tue; Item 1 → Item 2; formulas with their references moved), double-click it to fill down as far as the column beside has values.",
+              ui = { category = "Table Plus: Modules", label = "AutoFill", priority = 6.95 },
             },
           },
         },
@@ -3242,6 +3275,45 @@ body.tp-autoscrolling * {
   cursor: pointer;
   pointer-events: auto;
   opacity: 0.8;
+}
+/* The autofill module: the fill handle at the selection's corner, the cells a drag fills outlined, the last one's value by the pointer */
+.tp-fill-handle {
+  z-index: 54;
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  background: var(--ui-accent-color, #4a7cc7);
+  border: 1px solid var(--root-background-color, #fff);
+  cursor: crosshair;
+  touch-action: none;
+}
+@media (pointer: coarse) {
+  .tp-fill-handle {
+    width: 14px;
+    height: 14px;
+  }
+}
+.tp-fill-outline {
+  z-index: 53;
+  box-sizing: border-box;
+  border: 2px dashed var(--ui-accent-color, #4a7cc7);
+  pointer-events: none;
+}
+.tp-fill-tip {
+  z-index: 57;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: var(--root-color);
+  background: var(--root-background-color);
+  border: 1px solid var(--button-border-color);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+  pointer-events: none;
+  white-space: nowrap;
+}
+body.tp-filling,
+body.tp-filling * {
+  cursor: crosshair !important;
 }
 .tp-formula-functions:hover {
   opacity: 1;

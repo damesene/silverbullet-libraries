@@ -7,6 +7,7 @@ import {
   columnLetters,
   argumentSpan,
   cycleFixed,
+  filledFormula,
   findFunctions,
   needsOperator,
   followTable,
@@ -618,6 +619,21 @@ describe("cells with $", () => {
   it("are not taken for a function's name while typed", () => {
     expect(functionChoices("=$A", 3, 3)).toBeUndefined();
     expect(functionChoices("=A$", 3, 3)).toBeUndefined();
+  });
+});
+
+describe("filledFormula", () => {
+  const size = { rows: 5, columns: 3 };
+  it("moves a formula's references as far as it is copied, but the parts fixed with $", () => {
+    expect(filledFormula("=A1*2", 2, 0, size)).toBe("=A3*2");
+    expect(filledFormula("=SUM(A1:B2)", 1, 1, size)).toBe("=SUM(B2:C3)");
+    expect(filledFormula("=$A$1+A$1+$A1", 2, 1, size)).toBe("=$A$1+B$1+$A3");
+    expect(filledFormula("=SUM($A$1:A1)", 3, 0, size)).toBe("=SUM($A$1:A4)");
+    // Up or left past the table, or past its end: #REF!
+    expect(filledFormula("=A1+B2", -1, 0, size)).toBe("=#REF!+B1");
+    expect(filledFormula("=C1", 0, 1, size)).toBe("=#REF!");
+    // Another table's references move, unchecked; columns and names need no moving
+    expect(filledFormula("=prices!B2+[qty]+[@qty]+vat", 1, 0, size)).toBe("=prices!B3+[qty]+[@qty]+vat");
   });
 });
 

@@ -43,6 +43,7 @@ import { Lazy } from "./features/lazy.ts";
 import { Themes } from "./features/themes.ts";
 import { Paste } from "./features/paste.ts";
 import { Selection } from "./features/selection.ts";
+import { AutoFill } from "./features/autofill.ts";
 import { Sticky } from "./features/sticky.ts";
 import {
   caretTextOffset,
@@ -375,6 +376,8 @@ export class Controller implements TableHost {
       optional("names", () => new Names(this)),
       always(() => this.metadata),
       optional("paste", () => new Paste(this)),
+      // AutoFill before the selection: Esc while dragging the fill handle cancels the fill, the selection stays
+      optional("autofill", () => new AutoFill(this)),
       optional("selection", () => new Selection(this)),
       optional("lazy", () => new Lazy(this)),
       optional("themes", () => new Themes(this)),
@@ -888,6 +891,14 @@ export class Controller implements TableHost {
 
   keepTags(value: string, from: string): string {
     return keepTags(value, from, new Set(this.features.flatMap((f) => f.takesTags?.() ?? [])));
+  }
+
+  fillCell(info: WidgetInfo, cell: string, from: CellRef, to: CellRef): string | undefined {
+    for (const feature of this.features) {
+      const copy = feature.fillCell?.(info, cell, from, to);
+      if (copy !== undefined) return copy;
+    }
+    return undefined;
   }
 
   cellKeptBy(cell: string): string | undefined {
@@ -2056,6 +2067,7 @@ export class Controller implements TableHost {
 
   selectionChanged(): void {
     this.showQuietMarks();
+    for (const feature of this.features) feature.selectionChanged?.();
   }
 
   /**
