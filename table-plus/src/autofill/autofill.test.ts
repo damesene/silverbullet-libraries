@@ -23,6 +23,12 @@ describe("series", () => {
     // Uneven: their trend
     expect(after(["1", "2", "4"], 1)).toEqual(["5.33"]);
     expect(after(["7"])).toEqual(["7", "7", "7"]);
+    // One number repeats, whatever its sign or decimals; numbers of more than 15 digits are no series
+    expect(after(["9.99"], 2)).toEqual(["9.99", "9.99"]);
+    expect(after(["-3"], 2)).toEqual(["-3", "-3"]);
+    expect(after(["2,5"], 1)).toEqual(["2,5"]);
+    expect(after(["12345678901234567890", "12345678901234567890"], 1)).toEqual(["12345678901234567890"]);
+    expect(after(["Acct 12345678901234567890"], 1)).toEqual(["Acct 12345678901234567890"]);
   });
 
   it("goes on with text with a number in it", () => {
@@ -30,7 +36,9 @@ describe("series", () => {
     expect(after(["A-01"], 2)).toEqual(["A-02", "A-03"]);
     expect(after(["Q1", "Q3"], 2)).toEqual(["Q5", "Q7"]);
     expect(after(["10 %", "20 %"], 1)).toEqual(["30 %"]);
-    expect(before(["Item 1"], 2)).toEqual(["Item 0", "Item -1"]);
+    // Back past 0: up again, no minus sign in the text
+    expect(before(["Item 1"], 2)).toEqual(["Item 0", "Item 1"]);
+    expect(before(["A-01"], 2)).toEqual(["A-00", "A-01"]);
   });
 
   it("goes round days and months, English and Czech, in the case and diacritics typed", () => {
@@ -43,6 +51,9 @@ describe("series", () => {
     expect(after(["leden", "březen"], 2)).toEqual(["květen", "červenec"]);
     expect(after(["Jan", "Apr"], 1)).toEqual(["Jul"]);
     expect(before(["Mon"], 1)).toEqual(["Sun"]);
+    // The short Czech words are everyday words too: one repeats, two make a series
+    expect(after(["ne"], 2)).toEqual(["ne", "ne"]);
+    expect(after(["ne", "po"], 1)).toEqual(["út"]);
   });
 
   it("goes on with dates and times", () => {
@@ -54,6 +65,10 @@ describe("series", () => {
     expect(after(["14:30"], 2)).toEqual(["15:30", "16:30"]);
     expect(after(["23:00"], 1)).toEqual(["00:00"]);
     expect(after(["8:00", "8:15"], 1)).toEqual(["08:30"]);
+    // Dates with dots, written as the first one is
+    expect(after(["6.11.2025"], 2)).toEqual(["7.11.2025", "8.11.2025"]);
+    expect(after(["06. 11. 2025", "13. 11. 2025"], 1)).toEqual(["20. 11. 2025"]);
+    expect(after(["31.1.2025", "28.2.2025"], 1)).toEqual(["31.3.2025"]);
   });
 
   it("repeats what fits no series", () => {

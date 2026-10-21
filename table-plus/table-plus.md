@@ -111,17 +111,18 @@ Select cells and drag the small square at the bottom right corner of the selecti
 
 | Selected | Goes on with |
 |---|---|
-| `1`, `2` | `3`, `4`, `5` … (the step between them; several uneven numbers: their trend) |
-| `1` | `1`, `1` … (one number repeats, as in a spreadsheet; select two for a series) |
+| `1`, `2` | `3`, `4`, `5` … (the step between them; several uneven numbers: their trend; written as they are: `1,5`, `2,5` → `3,5`, `001`, `002` → `003`) |
+| `1` | `1`, `1` … (one number repeats, as in a spreadsheet, `9.99` and `-3` too; select two for a series. Numbers of more than 15 digits always repeat: they would not be kept exactly) |
 | `Item 1` | `Item 2`, `Item 3` … (text with a number; `A-01` → `A-02`, `Q1`, `Q3` → `Q5`) |
-| `Mon`, `Tue` | `Wed`, `Thu` … (days and months, long and short, English and Czech: `Po`, `Út` → `St`; typed without diacritics, `Po`, `Ut` → `St`, `Ct`; their case kept) |
-| `2025-11-06` | `2025-11-07` … (dates day by day; `2025-01-31`, `2025-02-28` → `2025-03-31` month by month; any other step between them) |
+| `Mon`, `Tue` | `Wed`, `Thu` … (days and months, long and short, English and Czech: `Po`, `Út` → `St`; typed without diacritics, `Po`, `Ut` → `St`, `Ct`; their case kept. The short Czech ones, also everyday words (`ne`, `po`, `so`, `pro`), need two selected: one repeats) |
+| `2025-11-06` | `2025-11-07` … (dates day by day, also written `6.11.2025` or `06. 11. 2025`, kept so; `2025-01-31`, `2025-02-28` → `2025-03-31` month by month; any other step between them) |
 | `14:30` | `15:30` … (times hour by hour, or by the step between them) |
-| a formula | the formula in each cell, its references moved as far as the cell is from the formula's: `=B1*2` filled down gives `=B2*2`; a reference with `$` keeps that part (`=$B$1*2`, see [[#References]]); one moved off the table is `#REF!`. `[@column]` and `[column]` need no moving. A new formula needs *Store table metadata*: without it, the formula's result is filled. |
+| a formula | the formula in each cell, its references moved as far as the cell is from the formula's: `=B1*2` filled down gives `=B2*2`; a reference with `$` keeps that part (`=$B$1*2`, see [[#References]]); one moved off the table is `#REF!` (references to another table move without that check). `[@column]` and `[column]` need no moving. A new formula needs *Store table metadata*: without it, the formulas' results are filled as values (as a series where they make one). |
 | anything else | the selected cells over again |
 
 * Each column of the selection (each row, filling right or left) is filled on its own: numbers in one column, days in the next.
-* It fills within the table: dragging past its last row or column adds none.
+* It fills within the table: dragging past its last row or column adds none. Rows pinned to the top or bottom (totals) and pinned columns are filled only from cells of their own: a fill from the other rows stops before them.
+* It needs the `selection` module (the cells selected are what it fills from).
 * Not while the table is sorted or filtered: the rows shown are not where the cells would go (the square does not show).
 * Cells filled over keep the hidden tags they had (a cell's name).
 
@@ -714,7 +715,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `themes` | Tables look as their theme sets: the *Theme* setting (`theme`, default `native`), or a table's own from *Theme* in its ⋯ menu; stripes from *Stripes* (`stripes`: `rows`, the default, `columns` or `none`), or as the icons in *Theme* in a table's ⋯ menu say. See [[#Themes]]. Off: tables look as SilverBullet shows them (striped); a theme stored in a table is kept but not used. |
 | `lazy` | The toolbar's lazy saving icon (a clock) switches a table to saving its cells edited together, a moment after editing stops. Setting `delay` (milliseconds, default `500`). See [[#Lazy saving]]. Off: every cell is saved as you leave it. |
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
-| `autofill` | The fill handle at the corner of the cells selected: drag it to fill the cells after them, double-click it to fill down. See [[#AutoFill]]. Off: no handle. |
+| `autofill` | The fill handle at the corner of the cells selected: drag it to fill the cells after them, double-click it to fill down. See [[#AutoFill]]. Needs `selection`. Off: no handle. |
 | `excel` | *Export to Excel…* in the table's ⋯ menu: copy for Excel, or download an .xlsx file with the formulas. Setting `functions`: templates for your custom functions in the file. See [[#Excel]]. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
@@ -3276,9 +3277,21 @@ body.tp-autoscrolling * {
   pointer-events: auto;
   opacity: 0.8;
 }
-/* The autofill module: the fill handle at the selection's corner, the cells a drag fills outlined, the last one's value by the pointer */
+/* The autofill module: the fill handle in the corner of the selection's last
+   cell, the cells a drag fills outlined (a piece in each cell on the edge),
+   the last one's value by the pointer. In the cells, out of the layout, as
+   the pin mark is: they scroll with the table, under its held header */
+.sb-table-widget td:has(> .tp-fill-handle, > .tp-fill-edge) {
+  position: relative;
+}
+.sb-table-widget td:is(.tp-pin-left, .tp-pin-right):has(> .tp-fill-handle, > .tp-fill-edge) {
+  position: sticky;
+}
 .tp-fill-handle {
-  z-index: 54;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
   box-sizing: border-box;
   width: 8px;
   height: 8px;
@@ -3293,11 +3306,24 @@ body.tp-autoscrolling * {
     height: 14px;
   }
 }
-.tp-fill-outline {
-  z-index: 53;
-  box-sizing: border-box;
-  border: 2px dashed var(--ui-accent-color, #4a7cc7);
+.tp-fill-edge {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0 dashed var(--ui-accent-color, #4a7cc7);
   pointer-events: none;
+}
+.tp-fill-edge.tp-fill-top {
+  border-top-width: 2px;
+}
+.tp-fill-edge.tp-fill-bottom {
+  border-bottom-width: 2px;
+}
+.tp-fill-edge.tp-fill-left {
+  border-left-width: 2px;
+}
+.tp-fill-edge.tp-fill-right {
+  border-right-width: 2px;
 }
 .tp-fill-tip {
   z-index: 57;

@@ -36,20 +36,27 @@ describe("AutoFill", () => {
   const handle = () => document.querySelector<HTMLElement>(".tp-fill-handle")!;
   const pointer = (target: EventTarget, type: string, x: number, y: number) =>
     target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }));
+  // A press on the handle with the mouse (detail 2: a double click's second)
+  const press = (detail = 1) => handle().dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, detail }));
   const rows = () => text.split("\n").slice(2, 7);
 
   it("shows the fill handle at the selection's corner, and fills down what is dragged over", async () => {
     await setup(PAGE);
     select({ row: 1, column: 0 }, { row: 2, column: 1 });
-    expect(handle().classList.contains("tp-visible")).toBe(true);
-    // The corner of B2 (row 2 at y 40–60, column 1 at x 100–200)
-    expect([handle().style.left, handle().style.top]).toEqual(["196px", "56px"]);
-    pointer(handle(), "pointerdown", 199, 59);
-    // Over row 4 (y 80–100): the last value by the pointer, the cells outlined
+    // In the selection's last cell, B2
+    expect(handle().parentElement).toBe(cell(2, 1));
+    press();
+    // Over row 4 (y 80–100): the last value by the pointer, the cells outlined, the handle in their last one
     pointer(window, "pointermove", 150, 90);
     expect(document.querySelector(".tp-fill-tip")!.textContent).toBe("4");
-    expect(document.querySelector(".tp-fill-outline")!.classList.contains("tp-visible")).toBe(true);
+    expect(handle().parentElement).toBe(cell(4, 1));
+    const edges = (r: number, c: number) => Array.from(cell(r, c).querySelector(".tp-fill-edge")?.classList ?? []).filter((n) => /^tp-fill-(top|bottom|left|right)$/.test(n));
+    expect(edges(1, 0)).toEqual(["tp-fill-top", "tp-fill-left"]);
+    expect(edges(3, 1)).toEqual(["tp-fill-right"]);
+    expect(edges(4, 1)).toEqual(["tp-fill-bottom", "tp-fill-right"]);
+    expect(document.querySelectorAll(".tp-fill-edge").length).toBe(8);
     pointer(window, "pointerup", 150, 90);
+    expect(document.querySelectorAll(".tp-fill-edge").length).toBe(0);
     await flush();
     await controller.scan();
     expect(rows()).toEqual(["| 1 | Mon | a |", "| 2 | Tue | b |", "| 3 | Wed | |", "| 4 | Thu | |", "| | | |"]);
@@ -60,14 +67,16 @@ describe("AutoFill", () => {
   it("fills right, repeats what fits no series, and cancels with Esc", async () => {
     await setup(PAGE);
     select({ row: 1, column: 0 }, { row: 1, column: 0 });
-    pointer(handle(), "pointerdown", 99, 39);
+    press();
     pointer(window, "pointermove", 250, 30);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     pointer(window, "pointerup", 250, 30);
     await flush();
     expect(rows()[0]).toBe("| 1 | Mon | a |");
-    // A single number repeats, as in a spreadsheet
-    pointer(handle(), "pointerdown", 99, 39);
+    // Back in the cell selected
+    expect(handle().parentElement).toBe(cell(1, 0));
+    // A single number repeats, as in a spreadsheet (a touch: its pointer)
+    handle().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, pointerType: "touch" }));
     pointer(window, "pointermove", 250, 30);
     pointer(window, "pointerup", 250, 30);
     await flush();
@@ -77,7 +86,9 @@ describe("AutoFill", () => {
   it("fills down as far as the column beside has values on a double click", async () => {
     await setup("| N | Day |\n|---|---|\n| 1 | Mon |\n| 2 | |\n| 3 | |\n| | |\n");
     select({ row: 1, column: 1 }, { row: 1, column: 1 });
-    handle().dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+    press(1);
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    press(2);
     await flush();
     expect(text).toBe("| N | Day |\n|---|---|\n| 1 | Mon |\n| 2 | Tue |\n| 3 | Wed |\n| | |\n");
   });
@@ -85,22 +96,43 @@ describe("AutoFill", () => {
   it("copies a formula with its references moved", async () => {
     await setup("| N | Twice |\n|---|---|\n| 1 | 2 <meta f=\"=A1*2\"> |\n| 5 | |\n| 7 | |\n", { "tablePlus.metadata": true });
     select({ row: 1, column: 1 }, { row: 1, column: 1 });
-    pointer(handle(), "pointerdown", 199, 39);
+    press();
     pointer(window, "pointermove", 150, 70);
     pointer(window, "pointerup", 150, 70);
     await flush();
     expect(text).toBe('| N | Twice |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| 5 | 10 <meta f="=A2*2"> |\n| 7 | 14 <meta f="=A3*2"> |\n');
   });
 
+  it("stops before pinned rows, ends a drag taken away without filling, and fills down to the end without a value beside", async () => {
+    await setup('| N | Day |\n|---|---|\n| 1 | Mon |\n| 2 | |\n| 3 | |\n| Total | x |\n| <meta pin-bottom="1"> |\n', { "tablePlus.metadata": true });
+    select({ row: 1, column: 1 }, { row: 1, column: 1 });
+    // Dragged over the total row (row 4, y 80–100): the fill stops before it
+    press();
+    pointer(window, "pointermove", 150, 90);
+    expect(document.querySelector(".tp-fill-tip")!.textContent).toBe("Wed");
+    // The pointer taken away: nothing filled
+    window.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }));
+    pointer(window, "pointerup", 150, 90);
+    await flush();
+    expect(text).toContain("| 2 | |");
+    // A double click on the last row of its zone: nothing to fill, no error
+    select({ row: 3, column: 0 }, { row: 3, column: 0 });
+    press(2);
+    await flush();
+    expect(text).toContain("| 3 | |");
+  });
+
   it("does not show while a cell is edited, nor on a sorted table", async () => {
     await setup(PAGE);
     select({ row: 1, column: 0 }, { row: 1, column: 0 });
-    expect(handle().classList.contains("tp-visible")).toBe(true);
+    expect(handle()).not.toBeNull();
     clickOn(cell(1, 2));
-    expect(handle().classList.contains("tp-visible")).toBe(false);
+    await flush();
+    expect(handle()).toBeNull();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     clickOn(cell(0, 0).querySelector(".tp-sort")!);
     select({ row: 1, column: 0 }, { row: 1, column: 0 });
-    expect(handle().classList.contains("tp-visible")).toBe(false);
+    await flush();
+    expect(handle()).toBeNull();
   });
 });

@@ -1,15 +1,22 @@
 import type { Series } from "../series.ts";
 
+/**
+ * A list AutoFill goes round; `alone`: one word of it starts the series (else
+ * two are needed: the short Czech days and months are also everyday words,
+ * ne, po, so, pro, a column of which is copied)
+ */
+export type FillList = { readonly words: readonly string[]; readonly alone: boolean };
+
 /** Lists AutoFill goes round: days and months, English and Czech, long and short */
-export const LISTS: readonly (readonly string[])[] = [
-  ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-  ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
-  ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-  ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"],
-  ["po", "út", "st", "čt", "pá", "so", "ne"],
-  ["leden", "únor", "březen", "duben", "květen", "červen", "červenec", "srpen", "září", "říjen", "listopad", "prosinec"],
-  ["led", "úno", "bře", "dub", "kvě", "čvn", "čvc", "srp", "zář", "říj", "lis", "pro"],
+export const LISTS: readonly FillList[] = [
+  { words: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], alone: true },
+  { words: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], alone: true },
+  { words: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"], alone: true },
+  { words: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], alone: true },
+  { words: ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"], alone: true },
+  { words: ["po", "út", "st", "čt", "pá", "so", "ne"], alone: false },
+  { words: ["leden", "únor", "březen", "duben", "květen", "červen", "červenec", "srpen", "září", "říjen", "listopad", "prosinec"], alone: true },
+  { words: ["led", "úno", "bře", "dub", "kvě", "čvn", "čvc", "srp", "zář", "říj", "lis", "pro"], alone: false },
 ];
 
 /** A word as lists are matched: lower case, without diacritics (Út is út, ut and UT) */
@@ -33,12 +40,13 @@ function inCase(word: string, as: string): string {
  * the list (Fri, Sat → Sun, Mon). Written as the first is: its case, and
  * without diacritics when the words are typed without them (Po, Ut → St, Ct).
  */
-export function listSeries(name: string, lists: readonly (readonly string[])[]): Series {
+export function listSeries(name: string, lists: readonly FillList[]): Series {
   return {
     name,
     match: (values) => {
       if (values.length === 0) return undefined;
-      for (const list of lists) {
+      for (const { words: list, alone } of lists) {
+        if (!alone && values.length < 2) continue;
         const keys = list.map(key);
         const indexes = values.map((v) => keys.indexOf(key(v)));
         if (indexes.some((i) => i < 0)) continue;

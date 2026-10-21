@@ -2577,7 +2577,8 @@ export class Controller implements TableHost {
   /** A long press on a touch screen: the cell menu, where no right click is (iOS fires no contextmenu) */
   private onPointerDown = (e: PointerEvent): void => {
     this.stopLongPress?.();
-    if (e.pointerType !== "touch") return;
+    // A feature's own element in a cell (the fill handle) is no long press on the cell
+    if (e.pointerType !== "touch" || (e.target instanceof Node && this.isFloating(e.target))) return;
     const hit = this.cellOfEvent(e);
     if (!hit) return;
     const win = this.doc.defaultView!;

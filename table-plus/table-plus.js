@@ -11877,6 +11877,30 @@ var Selection = class {
 
 // table-plus/src/autofill/builtin/dates.ts
 var DAY4 = 864e5;
+var DOTTED_RE = /^(\d{1,2})\.(\s?)(\d{1,2})\.(\s?)(\d{4})$/;
+var ISO = {
+  read: parseDate,
+  // A date past the years 0 to 9999 cannot be written: shown as the error a formula gives
+  write: (date) => {
+    const written = formatDate(date);
+    return typeof written === "string" ? written : written.code;
+  }
+};
+function dotted(first) {
+  const m = DOTTED_RE.exec(first.trim());
+  if (!m) return void 0;
+  const pad2 = (n, as) => String(n).padStart(as.length, "0");
+  return {
+    read: (text) => {
+      const d = DOTTED_RE.exec(text.trim());
+      return d ? parseDate(`${d[5]}-${d[3].padStart(2, "0")}-${d[1].padStart(2, "0")}`) : void 0;
+    },
+    write: (date) => {
+      const d = new Date(date.ms);
+      return `${pad2(d.getUTCDate(), m[1])}.${m[2]}${pad2(d.getUTCMonth() + 1, m[3])}.${m[4]}${d.getUTCFullYear()}`;
+    }
+  };
+}
 function monthOf(date) {
   const d = new Date(date.ms);
   return d.getUTCFullYear() * 12 + d.getUTCMonth();
@@ -11884,14 +11908,13 @@ function monthOf(date) {
 var dates_default = {
   name: "dates",
   match: (values) => {
-    const dates = values.map(parseDate);
-    if (dates.length === 0 || !dates.every((d) => d)) return void 0;
+    if (values.length === 0) return void 0;
+    const written = dotted(values[0]) ?? ISO;
+    const dates = values.map((v) => written.read(v));
+    if (!dates.every((d) => d)) return void 0;
     const all = dates;
     const first = all[0];
-    const text = (date) => {
-      const written = formatDate(date);
-      return typeof written === "string" ? written : "";
-    };
+    const text = written.write;
     if (all.length === 1) return (i) => text({ ms: first.ms + i * DAY4, time: first.time });
     const months = monthOf(all[1]) - monthOf(first);
     const byMonths = months !== 0 && all.every((d, i) => d.ms === addUnits(first, i * months, "m").ms);
@@ -11904,14 +11927,14 @@ var dates_default = {
 
 // table-plus/src/autofill/builtin/lists.ts
 var LISTS = [
-  ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-  ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
-  ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-  ["pond\u011Bl\xED", "\xFAter\xFD", "st\u0159eda", "\u010Dtvrtek", "p\xE1tek", "sobota", "ned\u011Ble"],
-  ["po", "\xFAt", "st", "\u010Dt", "p\xE1", "so", "ne"],
-  ["leden", "\xFAnor", "b\u0159ezen", "duben", "kv\u011Bten", "\u010Derven", "\u010Dervenec", "srpen", "z\xE1\u0159\xED", "\u0159\xEDjen", "listopad", "prosinec"],
-  ["led", "\xFAno", "b\u0159e", "dub", "kv\u011B", "\u010Dvn", "\u010Dvc", "srp", "z\xE1\u0159", "\u0159\xEDj", "lis", "pro"]
+  { words: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], alone: true },
+  { words: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], alone: true },
+  { words: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"], alone: true },
+  { words: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], alone: true },
+  { words: ["pond\u011Bl\xED", "\xFAter\xFD", "st\u0159eda", "\u010Dtvrtek", "p\xE1tek", "sobota", "ned\u011Ble"], alone: true },
+  { words: ["po", "\xFAt", "st", "\u010Dt", "p\xE1", "so", "ne"], alone: false },
+  { words: ["leden", "\xFAnor", "b\u0159ezen", "duben", "kv\u011Bten", "\u010Derven", "\u010Dervenec", "srpen", "z\xE1\u0159\xED", "\u0159\xEDjen", "listopad", "prosinec"], alone: true },
+  { words: ["led", "\xFAno", "b\u0159e", "dub", "kv\u011B", "\u010Dvn", "\u010Dvc", "srp", "z\xE1\u0159", "\u0159\xEDj", "lis", "pro"], alone: false }
 ];
 function key(word) {
   return plain(word.trim().toLowerCase());
@@ -11929,7 +11952,8 @@ function listSeries(name, lists) {
     name,
     match: (values) => {
       if (values.length === 0) return void 0;
-      for (const list of lists) {
+      for (const { words: list, alone } of lists) {
+        if (!alone && values.length < 2) continue;
         const keys = list.map(key);
         const indexes = values.map((v) => keys.indexOf(key(v)));
         if (indexes.some((i) => i < 0)) continue;
@@ -11949,38 +11973,18 @@ function listSeries(name, lists) {
 }
 var lists_default = listSeries("lists", LISTS);
 
-// table-plus/src/autofill/builtin/numbered.ts
-var NUMBERED_RE = /^(.*?)(\d+)(\D*)$/s;
-var numbered_default = {
-  name: "numbered text",
-  match: (values) => {
-    const parts = values.map((v) => NUMBERED_RE.exec(v));
-    if (parts.length === 0 || !parts.every((m) => m)) return void 0;
-    const all = parts;
-    const [, prefix, , suffix] = all[0];
-    if (prefix.trim() === "" && suffix.trim() === "") return void 0;
-    if (!all.every((m) => m[1] === prefix && m[3] === suffix)) return void 0;
-    const numbers2 = all.map((m) => Number(m[2]));
-    const step = numbers2.length === 1 ? 1 : numbers2[1] - numbers2[0];
-    if (step === 0 || !numbers2.every((n, i) => n === numbers2[0] + i * step)) return void 0;
-    const width = all[0][2].startsWith("0") ? all[0][2].length : 0;
-    return (i) => {
-      const n = numbers2[0] + i * step;
-      return `${prefix}${n < 0 ? "-" : ""}${String(Math.abs(n)).padStart(width, "0")}${suffix}`;
-    };
-  }
-};
-
 // table-plus/src/autofill/builtin/numbers.ts
 var NUMBER_RE2 = /^([-+]?)(\d+)(?:([.,])(\d+))?$/;
+var MAX_DIGITS = 15;
 var numbers_default = {
   name: "numbers",
   match: (values) => {
     const parts = values.map((v) => NUMBER_RE2.exec(v.trim()));
     if (parts.length < 2 || !parts.every((m) => m)) return void 0;
     const all = parts;
+    if (all.some((m) => m[2].length + (m[4]?.length ?? 0) > MAX_DIGITS)) return void 0;
     const numbers2 = all.map((m) => Number(`${m[1]}${m[2]}.${m[4] ?? "0"}`));
-    const comma = all.some((m) => m[3] === ",");
+    const comma = all.find((m) => m[3])?.[3] === ",";
     const decimals = Math.max(...all.map((m) => m[4]?.length ?? 0));
     const width = Math.max(0, ...all.filter((m) => m[2].length > 1 && m[2].startsWith("0")).map((m) => m[2].length));
     const n = numbers2.length;
@@ -11998,6 +12002,30 @@ var numbers_default = {
       const [whole, fraction2] = digits.split(".");
       const padded3 = whole.padStart(width, "0");
       return `${sign}${padded3}${fraction2 ? `${comma ? "," : "."}${fraction2}` : ""}`;
+    };
+  }
+};
+
+// table-plus/src/autofill/builtin/numbered.ts
+var NUMBERED_RE = /^(.*?)(\d+)(\D*)$/s;
+var numbered_default = {
+  name: "numbered text",
+  match: (values) => {
+    if (values.some((v) => NUMBER_RE2.test(v.trim()))) return void 0;
+    const parts = values.map((v) => NUMBERED_RE.exec(v));
+    if (parts.length === 0 || !parts.every((m) => m)) return void 0;
+    const all = parts;
+    const [, prefix, , suffix] = all[0];
+    if (prefix.trim() === "" && suffix.trim() === "") return void 0;
+    if (!all.every((m) => m[1] === prefix && m[3] === suffix)) return void 0;
+    if (all.some((m) => m[2].length > 15)) return void 0;
+    const numbers2 = all.map((m) => Number(m[2]));
+    const step = numbers2.length === 1 ? 1 : numbers2[1] - numbers2[0];
+    if (step === 0 || !numbers2.every((n, i) => n === numbers2[0] + i * step)) return void 0;
+    const width = all[0][2].startsWith("0") ? all[0][2].length : 0;
+    return (i) => {
+      const n = numbers2[0] + i * step;
+      return `${prefix}${String(Math.abs(n)).padStart(width, "0")}${suffix}`;
     };
   }
 };
@@ -12072,34 +12100,42 @@ function filled(table, lines, cells) {
 var AutoFill = class {
   constructor(host) {
     this.host = host;
-    this.handle = host.floating("div", "tp-fill-handle");
+    this.handle = host.doc.createElement("div");
+    this.handle.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-fill-handle`;
     this.handle.title = "Drag to fill the cells after these (1, 2 \u2192 3, 4; Mon \u2192 Tue), double-click to fill down";
-    this.outline = host.floating("div", "tp-fill-outline");
     this.tip = host.floating("div", "tp-fill-tip");
-    this.handle.addEventListener("pointerdown", (e) => this.drag(e));
-    this.handle.addEventListener("dblclick", (e) => {
+    this.handle.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" || e.button !== 0) return;
       e.preventDefault();
-      this.fillDown();
+      e.stopPropagation();
+      this.drag();
     });
   }
   host;
   handle;
-  outline;
   tip;
-  dragging = false;
+  // The outline of what a drag fills: a piece in each cell on its edge
+  edges = [];
+  outlined = "";
   // Ends the drag (Esc: without filling)
   endDrag;
   stop() {
-    for (const el of [this.handle, this.outline, this.tip]) el.remove();
+    this.endDrag?.(false);
+    this.handle.remove();
+    this.tip.remove();
   }
   owns(node) {
-    return [this.handle, this.outline, this.tip].some((el) => el.contains(node));
+    return this.handle.contains(node) || this.tip.contains(node);
   }
-  selectionChanged() {
-    this.placeHandle();
-  }
-  layoutChanged() {
-    if (!this.dragging) this.placeHandle();
+  /** A press on the handle is the handle's, not its cell's: a drag, or with a double click a fill down */
+  mouseDown(e) {
+    if (!(e.target instanceof Node) || !this.handle.contains(e.target)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.button !== 0) return true;
+    if (e.detail === 2) this.fillDown();
+    else if (e.detail < 2) this.drag();
+    return true;
   }
   // Esc while dragging cancels the fill (before the selection module takes Esc: the cells stay selected)
   keyDown(e) {
@@ -12109,8 +12145,21 @@ var AutoFill = class {
     this.endDrag(false);
     return true;
   }
+  selectionChanged() {
+    this.placeHandle();
+  }
+  // A table rendered anew (the selection shown again), sorted or filtered, or rows back in the document
+  enhanced() {
+    this.placeHandle();
+  }
+  viewApplied() {
+    this.placeHandle();
+  }
+  rowsAttached() {
+    this.placeHandle();
+  }
   editorOpened() {
-    this.handle.classList.remove("tp-visible");
+    this.handle.remove();
   }
   /** The cells selected in a table shown, if they are body cells of a table shown as written */
   selection() {
@@ -12120,17 +12169,25 @@ var AutoFill = class {
       if (!info || refs.length === 0) continue;
       if (refs.some((ref) => ref.row === 0) || this.host.rearranged(info)) return void 0;
       const rows = this.host.shownRows(info).slice(1);
-      const shown = refs.map((ref) => rows.findIndex((tr) => Number(tr.dataset.tpRow) === ref.row));
-      if (shown.some((i) => i < 0)) return void 0;
-      const columns = refs.map((ref) => ref.column);
+      const index = new Map(rows.map((tr, i) => [Number(tr.dataset.tpRow), i]));
+      let [top, bottom, left, right] = [Infinity, -Infinity, Infinity, -Infinity];
+      for (const ref of refs) {
+        const at = index.get(ref.row);
+        if (at === void 0) return void 0;
+        [top, bottom, left, right] = [Math.min(top, at), Math.max(bottom, at), Math.min(left, ref.column), Math.max(right, ref.column)];
+      }
+      const { pins } = info;
+      const zone = (at, first, last, before, after) => at < first + before ? [first, first + before - 1] : at > last - after ? [last - after + 1, last] : [first + before, last - after];
       return {
         widget,
         info,
         rows,
-        top: Math.min(...shown),
-        bottom: Math.max(...shown),
-        left: Math.min(...columns),
-        right: Math.max(...columns)
+        top,
+        bottom,
+        left,
+        right,
+        rowZone: zone(bottom, 0, rows.length - 1, pins.top, pins.bottom),
+        columnZone: zone(right, 0, info.columns - 1, pins.left, pins.right)
       };
     }
     return void 0;
@@ -12139,22 +12196,60 @@ var AutoFill = class {
   rowOf(selected, shown) {
     return Number(selected.rows[shown].dataset.tpRow);
   }
-  /** The handle at the bottom right corner of the cells selected, while that corner is in view */
+  /** The cell of a body row as shown, while it is in the document */
+  cellOf(selected, shown, column) {
+    const cell = this.host.cellAt(selected.info, { row: this.rowOf(selected, shown), column });
+    return cell?.isConnected ? cell : void 0;
+  }
+  /** The handle in the bottom right cell of the selection (none while a cell is edited, or a drag places it) */
   placeHandle() {
+    if (this.endDrag) return;
     const selected = this.host.editing ? void 0 : this.selection();
-    const cell = selected && this.host.cellAt(selected.info, { row: this.rowOf(selected, selected.bottom), column: selected.right });
-    const part = cell && cell.isConnected && this.host.shownPart(selected.widget, selected.info, cell);
-    const rect = cell?.getBoundingClientRect();
-    if (!part || !rect || part.right < rect.right - 1 || part.bottom < rect.bottom - 1) {
-      this.handle.classList.remove("tp-visible");
-      return;
+    this.handleAt(selected && this.cellOf(selected, selected.bottom, selected.right));
+  }
+  handleAt(cell) {
+    if (!cell) this.handle.remove();
+    else if (this.handle.parentElement !== cell) cell.append(this.handle);
+  }
+  /** The selection with the cells a drag fills */
+  areaOf(selected, extent) {
+    const { top, bottom, left, right } = selected;
+    if (!extent) return { top, bottom, left, right };
+    return extent.axis === "rows" ? { top: Math.min(top, extent.to), bottom: Math.max(bottom, extent.to), left, right } : { top, bottom, left: Math.min(left, extent.to), right: Math.max(right, extent.to) };
+  }
+  /** An area outlined: a piece in each of its cells on an edge, marked with the sides it draws */
+  outline(selected, area) {
+    const key2 = area ? `${area.top},${area.bottom},${area.left},${area.right}` : "";
+    if (key2 === this.outlined) return;
+    this.outlined = key2;
+    for (const edge of this.edges) edge.remove();
+    this.edges = [];
+    if (!area) return;
+    const piece = (shown, column) => {
+      const cell = this.cellOf(selected, shown, column);
+      if (!cell) return;
+      const sides = [
+        shown === area.top && "tp-fill-top",
+        shown === area.bottom && "tp-fill-bottom",
+        column === area.left && "tp-fill-left",
+        column === area.right && "tp-fill-right"
+      ].filter(Boolean);
+      const edge = this.host.doc.createElement("span");
+      edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-fill-edge ${sides.join(" ")}`;
+      cell.append(edge);
+      this.edges.push(edge);
+    };
+    for (let shown = area.top; shown <= area.bottom; shown++) {
+      if (shown === area.top || shown === area.bottom) for (let column = area.left; column <= area.right; column++) piece(shown, column);
+      else {
+        piece(shown, area.left);
+        if (area.right !== area.left) piece(shown, area.right);
+      }
     }
-    const size = this.handle.offsetWidth || 8;
-    this.host.place(this.handle, rect.right - size / 2, rect.bottom - size / 2);
   }
   /**
    * How far the pointer at x, y fills: along the axis it went further out of
-   * the selection on, to the row or column under it, within the table
+   * the selection on, to the row or column under it, within the selection's zone
    */
   extentAt(selected, x, y) {
     const rects = selected.rows.map((tr) => tr.isConnected ? tr.getBoundingClientRect() : void 0);
@@ -12170,7 +12265,13 @@ var AutoFill = class {
     const down = row > selected.bottom ? row - selected.bottom : row < selected.top ? selected.top - row : 0;
     const across = column > selected.right ? column - selected.right : column < selected.left ? selected.left - column : 0;
     if (down === 0 && across === 0) return void 0;
-    return down >= across ? { axis: "rows", to: row } : { axis: "columns", to: column };
+    const clamp = (n, [lo, hi]) => Math.max(lo, Math.min(hi, n));
+    if (down >= across) {
+      const to2 = clamp(row, selected.rowZone);
+      return to2 > selected.bottom || to2 < selected.top ? { axis: "rows", to: to2 } : void 0;
+    }
+    const to = clamp(column, selected.columnZone);
+    return to > selected.right || to < selected.left ? { axis: "columns", to } : void 0;
   }
   /** The lines a fill writes: each column (row) of the selection, its cells selected and those dragged over, nearest first */
   lines(selected, extent) {
@@ -12200,64 +12301,51 @@ var AutoFill = class {
       keepTags: (value, from) => this.host.keepTags(value, from)
     };
   }
-  /** The handle dragged: the cells the pointer goes over outlined, the last one's value by the pointer; written as it is let go */
-  drag(e) {
-    if (e.button !== 0) return;
+  /** The handle dragged: what it fills outlined, the handle at its corner, the last value by the pointer; written as it is let go */
+  drag() {
     const selected = this.selection();
     if (!selected) return;
-    e.preventDefault();
-    e.stopPropagation();
     const win = this.host.doc.defaultView;
     const table = this.host.tableOf(selected.info);
     let extent;
-    this.dragging = true;
     this.host.doc.body.classList.add("tp-filling");
     const move = (ev) => {
       extent = this.extentAt(selected, ev.clientX, ev.clientY);
-      this.preview(selected, extent, table, ev.clientX, ev.clientY);
+      const area = this.areaOf(selected, extent);
+      this.outline(selected, extent && area);
+      this.handleAt(this.cellOf(selected, area.bottom, area.right));
+      this.showTip(selected, extent, table, ev.clientX, ev.clientY);
     };
     const finish = (apply) => {
       win.removeEventListener("pointermove", move, true);
       win.removeEventListener("pointerup", up, true);
+      win.removeEventListener("pointercancel", cancel, true);
+      win.removeEventListener("blur", cancel);
       this.endDrag = void 0;
-      this.dragging = false;
       this.host.doc.body.classList.remove("tp-filling");
-      this.outline.classList.remove("tp-visible");
+      this.outline(selected, void 0);
       this.tip.classList.remove("tp-visible");
       if (apply && extent) void this.apply(selected, extent);
       else this.placeHandle();
     };
     const up = () => finish(true);
+    const cancel = () => finish(false);
     this.endDrag = finish;
     win.addEventListener("pointermove", move, true);
     win.addEventListener("pointerup", up, true);
+    win.addEventListener("pointercancel", cancel, true);
+    win.addEventListener("blur", cancel);
   }
-  /** The cells a drag would fill outlined with the selected ones, the value of the farthest one by the pointer */
-  preview(selected, extent, table, x, y) {
+  /** By the pointer: the value the farthest cell filled gets (else how many cells are filled) */
+  showTip(selected, extent, table, x, y) {
     if (!extent) {
-      this.outline.classList.remove("tp-visible");
       this.tip.classList.remove("tp-visible");
       return;
     }
-    const rows = extent.axis === "rows" ? [Math.min(selected.top, extent.to), Math.max(selected.bottom, extent.to)] : [selected.top, selected.bottom];
-    const columns = extent.axis === "columns" ? [Math.min(selected.left, extent.to), Math.max(selected.right, extent.to)] : [selected.left, selected.right];
-    const first = this.host.cellAt(selected.info, { row: this.rowOf(selected, rows[0]), column: columns[0] });
-    const last = this.host.cellAt(selected.info, { row: this.rowOf(selected, rows[1]), column: columns[1] });
-    if (first?.isConnected && last?.isConnected) {
-      const a = first.getBoundingClientRect();
-      const b = last.getBoundingClientRect();
-      Object.assign(this.outline.style, {
-        left: `${Math.min(a.left, b.left)}px`,
-        top: `${Math.min(a.top, b.top)}px`,
-        width: `${Math.max(a.right, b.right) - Math.min(a.left, b.left)}px`,
-        height: `${Math.max(a.bottom, b.bottom) - Math.min(a.top, b.top)}px`
-      });
-      this.outline.classList.add("tp-visible");
-    }
-    const [line] = this.lines(selected, extent);
-    const cells = line ? fillLine(table, line, this.fillCells(selected.info)) : [];
+    const lines = this.lines(selected, extent);
+    const cells = lines[0] ? fillLine(table, lines[0], this.fillCells(selected.info)) : [];
     const value = cells.length ? cellValue2(cells[cells.length - 1]) : "";
-    const count = this.lines(selected, extent).reduce((n, l) => n + l.targets.length, 0);
+    const count = lines.reduce((n, l) => n + l.targets.length, 0);
     this.tip.textContent = value || `${count} ${count === 1 ? "cell" : "cells"}`;
     this.host.place(this.tip, x + 14, y + 14);
   }
@@ -12268,11 +12356,12 @@ var AutoFill = class {
     const table = this.host.tableOf(selected.info);
     const columns = table.rows[0]?.cells.length ?? 0;
     const beside = [selected.left - 1, selected.right + 1].filter((c) => c >= 0 && c < columns);
-    const filledBeside = (column, shown) => cellValue2(table.rows[this.rowOf(selected, shown)]?.cells[column] ?? "") !== "";
+    const last = selected.rowZone[1];
+    const filledBeside = (column, shown) => shown <= last && cellValue2(table.rows[this.rowOf(selected, shown)]?.cells[column] ?? "") !== "";
     let to = selected.bottom;
     for (const column of beside) {
       if (!filledBeside(column, selected.bottom + 1)) continue;
-      while (to + 1 < selected.rows.length && filledBeside(column, to + 1)) to++;
+      while (filledBeside(column, to + 1)) to++;
       break;
     }
     if (to > selected.bottom) void this.apply(selected, { axis: "rows", to });
@@ -12285,10 +12374,9 @@ var AutoFill = class {
   async apply(selected, extent) {
     const { info, widget } = selected;
     const lines = this.lines(selected, extent);
-    const rows = extent.axis === "rows" ? [Math.min(selected.top, extent.to), Math.max(selected.bottom, extent.to)] : [selected.top, selected.bottom];
-    const columns = extent.axis === "columns" ? [Math.min(selected.left, extent.to), Math.max(selected.right, extent.to)] : [selected.left, selected.right];
+    const area = this.areaOf(selected, extent);
     const corner = (shown, column) => ({ row: this.rowOf(selected, shown), column });
-    this.host.selectCells(info, corner(rows[0], columns[0]), corner(rows[1], columns[1]));
+    this.host.selectCells(info, corner(area.top, area.left), corner(area.bottom, area.right));
     const result = await this.host.write(widget, (t) => filled(t, lines, this.fillCells(info)));
     if (result === "written") return;
     const now2 = this.host.widgetForKey(info.key);
@@ -14434,7 +14522,7 @@ var Controller = class {
   /** A long press on a touch screen: the cell menu, where no right click is (iOS fires no contextmenu) */
   onPointerDown = (e) => {
     this.stopLongPress?.();
-    if (e.pointerType !== "touch") return;
+    if (e.pointerType !== "touch" || e.target instanceof Node && this.isFloating(e.target)) return;
     const hit = this.cellOfEvent(e);
     if (!hit) return;
     const win = this.doc.defaultView;
