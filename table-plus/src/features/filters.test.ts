@@ -16,7 +16,7 @@ describe("Filters", () => {
     cell(1, column).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-    Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Filter")!.click();
+    document.querySelector<HTMLElement>('.tp-menu .tp-segment[aria-label="Filter this column"]')!.click();
   };
   const chip = () => {
     cell(0, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
@@ -44,6 +44,35 @@ describe("Filters", () => {
     expect(bodyTexts()).toEqual(["Pear", "apple", "Fig"]);
     expect(cell(0, 1).classList.contains("tp-filtered")).toBe(false);
     expect(chip()).toBeNull();
+  });
+
+  it("has Filter in a column's menu as a row of icons after its type and sorting, its × removing the column's filter", async () => {
+    await setup(PAGE);
+    const openMenu = () => {
+      if (document.querySelector(".tp-menu")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      cell(0, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      cell(1, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    };
+    const remove = () => document.querySelector<HTMLElement>('.tp-menu .tp-segment[aria-label="Remove this column\'s filter"]')!;
+    openMenu();
+    const rows = Array.from(document.querySelectorAll(".tp-menu .tp-menu-item, .tp-menu .tp-menu-segmented")).map(
+      (e) => e.querySelector(".tp-label")?.textContent ?? "",
+    );
+    expect(rows.findIndex((l) => l.startsWith("Type"))).toBe(rows.indexOf("Sort") - 1);
+    expect(rows.indexOf("Filter")).toBe(rows.indexOf("Sort") + 1);
+    expect(remove().getAttribute("aria-disabled")).toBe("true");
+    remove().click();
+    expect(document.querySelector(".tp-menu")).not.toBeNull();
+    document.querySelector<HTMLElement>('.tp-menu .tp-segment[aria-label="Filter this column"]')!.click();
+    typeInto(popoverField()!, "3");
+    expect(bodyTexts()).toEqual(["Pear"]);
+    openMenu();
+    expect(remove().hasAttribute("aria-disabled")).toBe(false);
+    remove().click();
+    expect(document.querySelector(".tp-menu")).toBeNull();
+    expect(bodyTexts()).toEqual(["Pear", "apple", "Fig"]);
   });
 
   it("offers a column's few values to tick, as =a|b", async () => {

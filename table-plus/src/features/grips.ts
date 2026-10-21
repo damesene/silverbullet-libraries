@@ -913,20 +913,14 @@ export class Grips implements Feature {
    * The entries features add to a column's menu: run, they close the menu,
    * but one that showed other entries in its place (a list to pick from)
    */
-  private featureColumnEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
-    const entries = this.host.columnMenuEntries(widget, info, column, (title, list) => this.replaceMenu(title, list));
-    return entries.map((entry): MenuEntry =>
-      entry.kind === "item"
-        ? {
-            ...entry,
-            run: () => {
-              const shown = this.menu?.element;
-              entry.run();
-              if (this.menu && this.menu.element === shown) this.closeMenu(false);
-            },
-          }
-        : entry,
-    );
+  private featureColumnEntries(widget: HTMLElement, info: WidgetInfo, column: number, lead = false): MenuEntry[] {
+    const open = (title: string, list: readonly MenuEntry[]) => this.replaceMenu(title, list);
+    const entries = lead ? this.host.columnMenuLeadEntries(widget, info, column, open) : this.host.columnMenuEntries(widget, info, column, open);
+    return wrapRuns(entries, (run) => () => {
+      const shown = this.menu?.element;
+      run();
+      if (this.menu && this.menu.element === shown) this.closeMenu(false);
+    });
   }
 
   private columnMenu(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
@@ -1009,6 +1003,7 @@ export class Grips implements Feature {
         ],
       },
       { kind: "separator" },
+      ...this.featureColumnEntries(widget, info, column, true),
       {
         kind: "segmented",
         label: "Sort",

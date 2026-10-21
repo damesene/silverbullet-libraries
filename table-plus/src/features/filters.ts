@@ -265,9 +265,24 @@ export class Filters implements Feature {
     };
   }
 
-  /** "Filter" in a column's menu: its filter in a bubble under its header */
+  /** "Filter" in a column's menu: its filter in a bubble under its header, and a × removing it */
   columnMenuEntries(_widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
-    return [{ kind: "item", label: "Filter", icon: ICONS.filter, run: () => this.openFilter(info, column) }];
+    const filtered = (this.filtersOf(info)[column] ?? "").trim() !== "";
+    return [
+      {
+        kind: "segmented",
+        label: "Filter",
+        options: [
+          { icon: ICONS.filter, title: "Filter this column", run: () => this.openFilter(info, column) },
+          {
+            icon: ICONS.clear,
+            title: "Remove this column's filter",
+            run: () => this.clear(info, column),
+            ...(filtered ? {} : { disabled: "This column is not filtered" }),
+          },
+        ],
+      },
+    ];
   }
 
   action(name: string, element: HTMLElement, _widget: HTMLElement, info: WidgetInfo): boolean {
@@ -452,10 +467,11 @@ export class Filters implements Feature {
     return { box, input };
   }
 
-  /** A field's clear button in the filter row */
+  /** A column's filter removed: a field's clear button in the filter row, the × in the column's menu */
   private clear(info: WidgetInfo, column: number): void {
     const input = info.table.querySelector<HTMLInputElement>(`.tp-filter-row input.tp-filter[data-tp-column="${column}"]`);
     if (input) this.type(info.key, input, column, "");
+    else this.setFilter(info.key, column, "");
     this.scheduleStore(info.key);
   }
 

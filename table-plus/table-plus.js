@@ -3457,8 +3457,8 @@ var ColumnTypes = class {
     if (this.picking && this.picker.classList.contains("tp-visible")) this.placePicker(this.picking.editor);
   }
   // ---- the column menu ----------------------------------------------------------
-  /** "Type: …" in a column's menu: picks the column's type, written as a hashtag in its header */
-  columnMenuEntries(widget, info, column, open) {
+  /** "Type: …" in a column's menu (first in its section of sorting and filtering): picks the column's type, written as a hashtag in its header */
+  columnMenuLeadEntries(widget, info, column, open) {
     const header = parseTable(info.source).rows[0]?.cells[column] ?? "";
     const current = columnTypeOf(unescapeCell(header));
     const setType = (tag) => () => void this.host.write(widget, (t) => setCell(t, 0, column, withColumnType(t.rows[0]?.cells[column] ?? "", tag)));
@@ -7942,9 +7942,24 @@ var Filters = class {
       ]
     };
   }
-  /** "Filter" in a column's menu: its filter in a bubble under its header */
+  /** "Filter" in a column's menu: its filter in a bubble under its header, and a × removing it */
   columnMenuEntries(_widget, info, column) {
-    return [{ kind: "item", label: "Filter", icon: ICONS.filter, run: () => this.openFilter(info, column) }];
+    const filtered = (this.filtersOf(info)[column] ?? "").trim() !== "";
+    return [
+      {
+        kind: "segmented",
+        label: "Filter",
+        options: [
+          { icon: ICONS.filter, title: "Filter this column", run: () => this.openFilter(info, column) },
+          {
+            icon: ICONS.clear,
+            title: "Remove this column's filter",
+            run: () => this.clear(info, column),
+            ...filtered ? {} : { disabled: "This column is not filtered" }
+          }
+        ]
+      }
+    ];
   }
   action(name, element, _widget, info) {
     const column = Number(element.dataset.tpColumn);
@@ -8107,10 +8122,11 @@ var Filters = class {
     box.append(icon, input, clear);
     return { box, input };
   }
-  /** A field's clear button in the filter row */
+  /** A column's filter removed: a field's clear button in the filter row, the × in the column's menu */
   clear(info, column) {
     const input = info.table.querySelector(`.tp-filter-row input.tp-filter[data-tp-column="${column}"]`);
     if (input) this.type(info.key, input, column, "");
+    else this.setFilter(info.key, column, "");
     this.scheduleStore(info.key);
   }
   /** The toolbar chip's ×: no filter any more */
@@ -10322,18 +10338,14 @@ var Grips = class {
    * The entries features add to a column's menu: run, they close the menu,
    * but one that showed other entries in its place (a list to pick from)
    */
-  featureColumnEntries(widget, info, column) {
-    const entries = this.host.columnMenuEntries(widget, info, column, (title, list) => this.replaceMenu(title, list));
-    return entries.map(
-      (entry) => entry.kind === "item" ? {
-        ...entry,
-        run: () => {
-          const shown = this.menu?.element;
-          entry.run();
-          if (this.menu && this.menu.element === shown) this.closeMenu(false);
-        }
-      } : entry
-    );
+  featureColumnEntries(widget, info, column, lead = false) {
+    const open = (title, list) => this.replaceMenu(title, list);
+    const entries = lead ? this.host.columnMenuLeadEntries(widget, info, column, open) : this.host.columnMenuEntries(widget, info, column, open);
+    return wrapRuns(entries, (run) => () => {
+      const shown = this.menu?.element;
+      run();
+      if (this.menu && this.menu.element === shown) this.closeMenu(false);
+    });
   }
   columnMenu(widget, info, column) {
     const host = this.host;
@@ -10402,6 +10414,7 @@ var Grips = class {
         ]
       },
       { kind: "separator" },
+      ...this.featureColumnEntries(widget, info, column, true),
       {
         kind: "segmented",
         label: "Sort",
@@ -14692,6 +14705,9 @@ var Controller = class {
   }
   columnMenuEntries(widget, info, column, open) {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
+  }
+  columnMenuLeadEntries(widget, info, column, open) {
+    return this.features.flatMap((f) => f.columnMenuLeadEntries?.(widget, info, column, open) ?? []);
   }
   columnMenuTopEntries(widget, info, column) {
     return this.features.flatMap((f) => f.columnMenuTopEntries?.(widget, info, column) ?? []);

@@ -1017,6 +1017,15 @@ export class Controller implements TableHost {
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
   }
 
+  columnMenuLeadEntries(
+    widget: HTMLElement,
+    info: WidgetInfo,
+    column: number,
+    open: (title: string, entries: readonly MenuEntry[]) => void,
+  ): MenuEntry[] {
+    return this.features.flatMap((f) => f.columnMenuLeadEntries?.(widget, info, column, open) ?? []);
+  }
+
   columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
     return this.features.flatMap((f) => f.columnMenuTopEntries?.(widget, info, column) ?? []);
   }

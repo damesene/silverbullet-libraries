@@ -326,6 +326,13 @@ export interface TableHost {
     column: number,
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[];
+  /** The entries features put first in a column's menu's section of sorting and filtering (see Feature.columnMenuLeadEntries) */
+  columnMenuLeadEntries(
+    widget: HTMLElement,
+    info: WidgetInfo,
+    column: number,
+    open: (title: string, entries: readonly MenuEntry[]) => void,
+  ): MenuEntry[];
   /** The entries features add at the top of a column's menu (see Feature.columnMenuTopEntries) */
   columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
   /** The entries features add with inserting and moving a column (see Feature.columnMenuInsertEntries) */
@@ -383,10 +390,17 @@ export interface Feature {
   /** Marks on a table's cells, once its rows know their rows in the markdown (data-tp-row) */
   decorate?(widget: HTMLElement, info: WidgetInfo): void;
   /**
-   * Entries for a column's menu, after its sorting and filter; `open` shows
-   * other entries in the menu's place (they close the menu when run)
+   * Entries for a column's menu, after its sorting; `open` shows other
+   * entries in the menu's place (they close the menu when run)
    */
   columnMenuEntries?(
+    widget: HTMLElement,
+    info: WidgetInfo,
+    column: number,
+    open: (title: string, entries: readonly MenuEntry[]) => void,
+  ): MenuEntry[];
+  /** As columnMenuEntries, first in that section, before the sorting: what the column is (its type) */
+  columnMenuLeadEntries?(
     widget: HTMLElement,
     info: WidgetInfo,
     column: number,

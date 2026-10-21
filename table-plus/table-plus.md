@@ -184,7 +184,7 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 
 The menu of one cell is titled with the cell's name (*Cell: vat*), else its column and row; the pencil after the title names the cell, see [[#Named cells]] (on a header: its column, see [[#Named columns]]). A row is named in its row menu, see [[#Named rows]].
 
-The menus of a cell, of a row and of a column keep one order, so the same actions are in the same place: first a bar of icons for the clipboard (*Copy*, *Cut*, *Paste* and, for rows, *+ Rows*: paste as new rows; their full names show on hover), then *Clear*, then inserting, moving and pinning, sorting and filtering, and deleting last. Pairs of actions sit in one row of icon buttons after their name (*Insert* above / below, *Move* up / down, *Pin* top / bottom, *Sort*, *Align*); a button that cannot be used now is greyed out, and hovering it says why.
+The menus of a cell, of a row and of a column keep one order, so the same actions are in the same place: first a bar of icons for the clipboard (*Copy*, *Cut*, *Paste* and, for rows, *+ Rows*: paste as new rows; their full names show on hover), then *Clear*, then inserting, moving and pinning, the column's type, sorting and filtering, and deleting last. Pairs of actions sit in one row of icon buttons after their name (*Insert* above / below, *Move* up / down, *Pin* top / bottom, *Sort*, *Filter* and its ×, *Align*); a button that cannot be used now is greyed out, and hovering it says why.
 
 Each comes from a module (`formulas`, `names`, `selection`, `paste`, `autofill`, `filters`, see [[#Settings]]): a module turned off leaves its items out, and with none left the right click gives the browser's menu.
 
@@ -241,7 +241,7 @@ A plain click edits a cell and no longer switches the table to its markdown. To 
 
 ## Filtering
 
-* **One column**: *Filter* in its column menu opens its filter in a bubble under the header, nothing in the table moves. While a column filters, its header shows a filter icon: click it to change the filter.
+* **One column**: the filter icon after *Filter* in its column menu opens its filter in a bubble under the header, nothing in the table moves; the × beside it removes the column's filter (greyed out while the column has none). While a column filters, its header shows a filter icon: click it to change the filter.
 * **All columns**: the filter icon in the table's toolbar shows a filter field under each header; click it again to hide them. Hidden, the filters still apply.
 * While filtered, the toolbar shows *3 of 10 rows*; its × clears all filters. A field's × clears that one.
 * Under the field you type in, a bubble shows what it understands (click one to put it in the field) and, for a column with up to 12 different values, those values with how many rows have each: tick them to show only those rows (`=open|blocked`).

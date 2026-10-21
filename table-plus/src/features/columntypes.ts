@@ -113,8 +113,8 @@ export class ColumnTypes implements Feature {
 
   // ---- the column menu ----------------------------------------------------------
 
-  /** "Type: …" in a column's menu: picks the column's type, written as a hashtag in its header */
-  columnMenuEntries(
+  /** "Type: …" in a column's menu (first in its section of sorting and filtering): picks the column's type, written as a hashtag in its header */
+  columnMenuLeadEntries(
     widget: HTMLElement,
     info: WidgetInfo,
     column: number,
