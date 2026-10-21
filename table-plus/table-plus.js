@@ -55,6 +55,7 @@ var FEATURE_NAMES = [
   "lazy",
   "themes",
   "export",
+  "excel",
   "paste",
   "handles",
   "widths",
@@ -78,6 +79,7 @@ var MODULE_LABELS = {
   lazy: "Lazy saving",
   themes: "Themes",
   export: "Export",
+  excel: "Excel",
   paste: "Paste from spreadsheets",
   handles: "Row and column handles",
   widths: "Column widths",
@@ -97,6 +99,7 @@ var MODULE_DESCRIPTIONS = {
   lazy: "An icon in a table's toolbar switches it to saving its cells edited together, a moment after editing stops: quicker typing in large tables",
   themes: "How tables look (header, lines, stripes, spacing): a theme for every table, another one for a table from its \u22EF menu",
   export: "Copy as CSV in a table's \u22EF menu",
+  excel: "Export to Excel\u2026 in a table's \u22EF menu: copy for Excel (numbers and dates as Excel's), or download an .xlsx file with the formulas",
   paste: "Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
   handles: "Handles beside rows and above columns: drag to move them, click for their menu",
   widths: "Drag the right edge of a header to set its column's width",
@@ -353,6 +356,7 @@ var ICONS = {
   rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),
   columnLeft: svg('<rect x="13" y="3" width="7" height="18" rx="1"/><path d="M3 12h7M6.5 8.5v7"/>'),
   columnRight: svg('<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M14 12h7M17.5 8.5v7"/>'),
+  download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
   duplicate: svg('<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'),
   // No stripes: an empty table, struck through (rows and columns: its tinted lines)
   stripesNone: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M5 18L19 6"/>'),
@@ -635,12 +639,12 @@ function parseTableText(text) {
     return { cells, source: line, sourceCells: cells };
   });
   const widths = lines.map((l) => charLength(l));
-  const padded2 = lines.length > 2 && widths.every((w) => w === widths[0]) && lines.some((l) => /\S {2,}\|/.test(l));
+  const padded3 = lines.length > 2 && widths.every((w) => w === widths[0]) && lines.some((l) => /\S {2,}\|/.test(l));
   return {
     indent: /^\s*/.exec(header)[0],
     align,
     rows,
-    padded: padded2,
+    padded: padded3,
     delimiterSource: delimiter,
     alignSource: align,
     ...meta && last !== void 0 ? { meta, metaSource: { line: last, meta } } : {}
@@ -2924,9 +2928,9 @@ function hiddenTagsCss() {
 }
 `;
 }
-function attempt(typed, call) {
+function attempt(typed, call2) {
   try {
-    return call();
+    return call2();
   } catch (e) {
     return `#${typed.tag} failed: ${e instanceof Error ? e.message : String(e)}`;
   }
@@ -3166,98 +3170,6 @@ ${shown}` : shown;
     link.rel = "noopener";
     link.textContent = shown.text;
     cell.prepend(link);
-  }
-};
-
-// table-plus/src/features/export.ts
-function csvText(values) {
-  const quote = (v) => /[",\r\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
-  return values.map((row) => `${row.map(quote).join(",")}\r
-`).join("");
-}
-var Export = class {
-  constructor(host) {
-    this.host = host;
-  }
-  host;
-  /** Copy as CSV in the toolbar's menu */
-  toolbarButtons(widget, info) {
-    return [
-      {
-        label: "Copy as CSV",
-        title: "Copy the table as CSV: its rows as shown (sorted, filtered), cells as Ctrl+C copies them",
-        icon: ICONS.duplicate,
-        run: () => void this.copyCsv(widget, info)
-      }
-    ];
-  }
-  async copyCsv(shownWidget, shownInfo) {
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    const info = this.host.infoOf(widget) ?? shownInfo;
-    const rows = this.host.shownRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.host.cellValue(cell)));
-    try {
-      await this.host.doc.defaultView.navigator.clipboard.writeText(csvText(values));
-      const body = rows.length - 1;
-      void this.host.bridge.flash(`Table Plus: copied ${body} row${body === 1 ? "" : "s"} as CSV`, "info");
-    } catch (e) {
-      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
-    }
-  }
-};
-
-// table-plus/src/features/expressions.ts
-var Expressions = class {
-  constructor(host) {
-    this.host = host;
-  }
-  host;
-  timer;
-  stopped = false;
-  stop() {
-    this.stopped = true;
-    clearTimeout(this.timer);
-  }
-  /** SilverBullet's `page:index` event for a page */
-  async pageIndexed(name) {
-    const { bridge } = this.host;
-    if (this.stopped || !bridge.evalExpression) return;
-    if (name !== await bridge.getCurrentPage()) return;
-    const delay = await this.host.setting("expressionsDelay");
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.refresh(), delay);
-  }
-  async refresh() {
-    const { bridge, doc } = this.host;
-    for (const widget of Array.from(doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
-      const info = this.host.infoOf(widget);
-      if (this.stopped || !info || !info.source.includes("${")) continue;
-      const rows = parseTable(info.source).rows;
-      let changed = false;
-      for (let row = 0; row < rows.length; row++) {
-        const cells = rows[row].cells;
-        for (let column = 0; column < cells.length; column++) {
-          const expression = /^\$\{([\s\S]+)\}$/.exec(cells[column].trim())?.[1];
-          if (!expression) continue;
-          let value;
-          try {
-            value = await bridge.evalExpression(expression.replaceAll("\\|", "|"));
-          } catch {
-            continue;
-          }
-          const text = value === null || value === void 0 ? "" : typeof value === "number" ? formatLuaNumber(value) : typeof value === "string" || typeof value === "boolean" ? String(value) : void 0;
-          const cell = this.host.cellAt(info, { row, column }, true);
-          if (text === void 0 || !cell || cell === this.host.editing?.cell || renderedTable(widget) !== info.table) continue;
-          if (cellText(cell) === text) continue;
-          for (const node of Array.from(cell.childNodes)) {
-            if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
-          }
-          cell.prepend(doc.createTextNode(text));
-          changed = true;
-        }
-      }
-      if (changed && renderedTable(widget) === info.table) this.host.applyView(widget, info);
-    }
   }
 };
 
@@ -4743,14 +4655,14 @@ var textjoin_default = {
   category: "text",
   example: '=TEXTJOIN(", ", TRUE, [tag])',
   minArgs: 3,
-  call: ([delimiter, ignoreEmpty, ...texts]) => {
-    const error = firstError(texts);
+  call: ([delimiter, ignoreEmpty, ...texts2]) => {
+    const error = firstError(texts2);
     if (error) return error;
     const d = toText(delimiter);
     const ignore = toBoolean(ignoreEmpty);
     if (isError(d)) return d;
     if (isError(ignore)) return ignore;
-    return flatten(texts).map((v) => toText(v)).filter((t) => !ignore || t !== "").join(d);
+    return flatten(texts2).map((v) => toText(v)).filter((t) => !ignore || t !== "").join(d);
   }
 };
 
@@ -5469,6 +5381,19 @@ var Book = class {
     return sheet;
   }
 };
+function totalRows(table) {
+  const headers = table.rows[0]?.cells ?? [];
+  const totals = /* @__PURE__ */ new Set();
+  table.rows.slice(1).forEach((row, r) => {
+    row.cells.forEach((cell, column) => {
+      const stored = formulaOf(cell);
+      const tree = stored && parse(stored.formula);
+      if (!tree || isError(tree)) return;
+      if (Array.from(wholeColumnNames(tree, /* @__PURE__ */ new Set())).some((name) => referencedColumn(headers, name) === column)) totals.add(r);
+    });
+  });
+  return totals;
+}
 var Sheet = class {
   /** `page`: the page the table is on, when it is not the formulas' own (its unnamed references are to tables there) */
   constructor(table, book = new Book(void 0), page) {
@@ -5561,13 +5486,6 @@ var Sheet = class {
     const text = toText(result);
     return typeof result === "number" && this.decimalComma ? text.replace(".", ",") : text;
   }
-  /** Whether the cell holds a formula that refers to the whole column `target` */
-  refersToColumn(row, column, target) {
-    const stored = formulaOf(this.body[row]?.[column] ?? "");
-    const tree = stored && parse(stored.formula);
-    if (!tree || isError(tree)) return false;
-    return Array.from(wholeColumnNames(tree, /* @__PURE__ */ new Set())).some((name) => referencedColumn(this.headers, name) === target);
-  }
   /** The cell of the row named `row` in the column `column` */
   rowCellValue(row, column, prefix = "") {
     this.rowNames ??= namedRows(this.table);
@@ -5603,19 +5521,10 @@ var Sheet = class {
     }
     return values;
   }
-  /**
-   * The total rows: those with a cell that refers to its own whole column, as
-   * =SUM([qty]) under Qty. A cell that refers to another column ([@qty] /
-   * SUM([qty]) in a Share column) does not make its row one.
-   */
+  /** The total rows (see totalRows), once */
   totalRows() {
-    if (this.totals) return this.totals;
-    const totals = /* @__PURE__ */ new Set();
-    for (let r = 0; r < this.rows; r++) {
-      for (let c = 0; c < this.columns; c++) if (this.refersToColumn(r, c, c)) totals.add(r);
-    }
-    this.totals = totals;
-    return totals;
+    this.totals ??= totalRows(this.table);
+    return this.totals;
   }
   /** A named cell's value: in this table, else on this table's page (or `page`) */
   named(name, page) {
@@ -5967,10 +5876,10 @@ function formulaHelp(text, caret) {
     else if ((token.text === "," || token.text === ";") && open.length) open[open.length - 1].argument++;
   });
   for (let i = open.length - 1; i >= 0; i--) {
-    const call = open[i];
-    const f = call.name ? functionNamed(call.name) : void 0;
+    const call2 = open[i];
+    const f = call2.name ? functionNamed(call2.name) : void 0;
     if (!f) continue;
-    const argument = i === open.length - 1 ? argumentSpan(f.syntax, call.argument) : void 0;
+    const argument = i === open.length - 1 ? argumentSpan(f.syntax, call2.argument) : void 0;
     return { syntax: f.syntax, description: f.description, ...argument ? { argument } : {} };
   }
   return REFERENCE_HELP;
@@ -6019,6 +5928,543 @@ var FUNCTION_CATEGORIES = {
   date: "Date & time",
   lookup: "Lookup & table"
 };
+
+// table-plus/src/excel/xlsx.ts
+var FORMAT_STYLES = ["date", "dateTime", "dateTimeSeconds", "time", "timeSeconds", "percent", "percent1", "percent2"];
+var FORMAT_CODES = {
+  date: { id: 164, code: "yyyy\\-mm\\-dd" },
+  dateTime: { id: 165, code: "yyyy\\-mm\\-dd hh:mm" },
+  dateTimeSeconds: { id: 166, code: "yyyy\\-mm\\-dd hh:mm:ss" },
+  time: { id: 167, code: "[h]:mm" },
+  timeSeconds: { id: 168, code: "[h]:mm:ss" },
+  percent: { id: 9 },
+  percent1: { id: 169, code: "0.0%" },
+  percent2: { id: 10 }
+};
+function xmlText(text) {
+  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+function sheetName(name) {
+  const cleaned = name.replace(/[:\\/?*[\]]/g, "_").replace(/^'+|'+$/g, "").trim().slice(0, 31);
+  return cleaned.toLowerCase() === "history" ? "History_" : cleaned || "Table";
+}
+function cellXml(ref, cell, style) {
+  const { value, formula } = cell;
+  const format = value.kind === "number" && value.format ? FORMAT_STYLES.indexOf(value.format) + 2 : void 0;
+  const s = style ?? format;
+  const sAttr = s === void 0 ? "" : ` s="${s}"`;
+  if (formula) {
+    const f = formula.array ? `<f t="array" ref="${ref}">${xmlText(formula.text)}</f>` : `<f>${xmlText(formula.text)}</f>`;
+    switch (value.kind) {
+      case "number":
+        return `<c r="${ref}"${sAttr}>${f}<v>${value.value}</v></c>`;
+      case "boolean":
+        return `<c r="${ref}"${sAttr} t="b">${f}<v>${value.value ? 1 : 0}</v></c>`;
+      case "error":
+        return `<c r="${ref}"${sAttr} t="e">${f}<v>${xmlText(value.value)}</v></c>`;
+      case "empty":
+        return `<c r="${ref}"${sAttr} t="str">${f}<v></v></c>`;
+      case "text":
+        return `<c r="${ref}"${sAttr} t="str">${f}<v>${xmlText(value.value)}</v></c>`;
+    }
+  }
+  switch (value.kind) {
+    case "empty":
+      return "";
+    case "number":
+      return `<c r="${ref}"${sAttr}><v>${value.value}</v></c>`;
+    case "boolean":
+      return `<c r="${ref}"${sAttr} t="b"><v>${value.value ? 1 : 0}</v></c>`;
+    case "error":
+      return `<c r="${ref}"${sAttr} t="e"><v>${xmlText(value.value)}</v></c>`;
+    case "text":
+      return `<c r="${ref}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${xmlText(value.value)}</t></is></c>`;
+  }
+}
+function columnWidth(texts2) {
+  const longest = texts2.reduce((n, t) => Math.max(n, t.length), 0);
+  return Math.min(60, Math.max(8, longest + 2));
+}
+function sheetXml(sheet) {
+  const cols = (sheet.widths ?? []).map((w, c) => `<col min="${c + 1}" max="${c + 1}" width="${w}" customWidth="1"/>`).join("");
+  const header = `<row r="1">${sheet.header.map((name, c) => cellXml(`${columnLetters(c)}1`, { value: name === "" ? { kind: "empty" } : { kind: "text", value: name } }, 1)).join("")}</row>`;
+  const rows = sheet.rows.map((cells, r) => `<row r="${r + 2}">${cells.map((cell, c) => cellXml(`${columnLetters(c)}${r + 2}`, cell)).join("")}</row>`).join("");
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>' + (cols ? `<cols>${cols}</cols>` : "") + `<sheetData>${header}${rows}</sheetData></worksheet>`;
+}
+function stylesXml() {
+  const custom3 = FORMAT_STYLES.map((f) => FORMAT_CODES[f]).filter((f) => f.code);
+  const numFmts = custom3.map((f) => `<numFmt numFmtId="${f.id}" formatCode="${xmlText(f.code)}"/>`).join("");
+  const xfs = [
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>',
+    '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>',
+    ...FORMAT_STYLES.map((f) => `<xf numFmtId="${FORMAT_CODES[f].id}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>`)
+  ];
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="${custom3.length}">${numFmts}</numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+}
+var XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+function xlsxParts(sheet) {
+  return [
+    [
+      "[Content_Types].xml",
+      `${XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`
+    ],
+    [
+      "_rels/.rels",
+      `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`
+    ],
+    [
+      "xl/workbook.xml",
+      `${XML}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlText(sheetName(sheet.name))}" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="0" fullCalcOnLoad="1"/></workbook>`
+    ],
+    [
+      "xl/_rels/workbook.xml.rels",
+      `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`
+    ],
+    ["xl/styles.xml", stylesXml()],
+    ["xl/worksheets/sheet1.xml", sheetXml(sheet)]
+  ];
+}
+var crcTable;
+function crc32(data) {
+  if (!crcTable) {
+    crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+      crcTable[n] = c >>> 0;
+    }
+  }
+  let crc = 4294967295;
+  for (const byte of data) crc = crcTable[(crc ^ byte) & 255] ^ crc >>> 8;
+  return (crc ^ 4294967295) >>> 0;
+}
+function zip(files) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  const DOS_DATE = 0 << 9 | 1 << 5 | 1;
+  for (const [name, data] of files) {
+    const nameBytes = encoder.encode(name);
+    const crc = crc32(data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 67324752, true);
+    local.setUint16(4, 20, true);
+    local.setUint16(6, 2048, true);
+    local.setUint16(8, 0, true);
+    local.setUint16(10, 0, true);
+    local.setUint16(12, DOS_DATE, true);
+    local.setUint32(14, crc, true);
+    local.setUint32(18, data.length, true);
+    local.setUint32(22, data.length, true);
+    local.setUint16(26, nameBytes.length, true);
+    local.setUint16(28, 0, true);
+    const entry = new DataView(new ArrayBuffer(46));
+    entry.setUint32(0, 33639248, true);
+    entry.setUint16(4, 20, true);
+    entry.setUint16(6, 20, true);
+    entry.setUint16(8, 2048, true);
+    entry.setUint16(10, 0, true);
+    entry.setUint16(12, 0, true);
+    entry.setUint16(14, DOS_DATE, true);
+    entry.setUint32(16, crc, true);
+    entry.setUint32(20, data.length, true);
+    entry.setUint32(24, data.length, true);
+    entry.setUint16(28, nameBytes.length, true);
+    entry.setUint32(42, offset, true);
+    chunks.push(new Uint8Array(local.buffer), nameBytes, data);
+    central.push(new Uint8Array(entry.buffer), nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const centralSize = central.reduce((n, c) => n + c.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 101010256, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, centralSize, true);
+  end.setUint32(16, offset, true);
+  const all = [...chunks, ...central, new Uint8Array(end.buffer)];
+  const out = new Uint8Array(all.reduce((n, c) => n + c.length, 0));
+  let at = 0;
+  for (const c of all) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+function xlsxFile(sheet) {
+  const encoder = new TextEncoder();
+  return zip(xlsxParts(sheet).map(([name, text]) => [name, encoder.encode(text)]));
+}
+
+// table-plus/src/excel/values.ts
+var DAY3 = 864e5;
+var EXCEL_LEAP_BUG = -25508;
+var EPOCH = 25569;
+function serialOf(ms) {
+  const days = ms / DAY3;
+  return days < EXCEL_LEAP_BUG ? void 0 : days + EPOCH;
+}
+var PLAIN_NUMBER_RE = /^(?:\p{Sc}\s*)?-?(?:0|[1-9]\d{0,2}(?:[  ]\d{3})+|[1-9]\d*)(?:[.,]\d+)?(?:\s*[\p{Sc}%])?$/u;
+function excelValue(text) {
+  const t = text.trim();
+  if (t === "") return { kind: "empty" };
+  const upper = t.toUpperCase();
+  if (upper === "TRUE" || upper === "FALSE") return { kind: "boolean", value: upper === "TRUE" };
+  if (ERROR_CODES.includes(t)) return { kind: "error", value: t === "#CYCLE!" || t === "#ERROR!" ? "#VALUE!" : t };
+  const date = parseDate(t);
+  if (date) {
+    const serial = serialOf(date.ms);
+    if (serial === void 0) return { kind: "text", value: t };
+    const seconds = /:\d{2}:\d{2}$/.test(t);
+    return { kind: "number", value: serial, format: date.time ? seconds ? "dateTimeSeconds" : "dateTime" : "date" };
+  }
+  const time = parseClock(t);
+  if (time) return time.seconds < 0 ? { kind: "text", value: t } : { kind: "number", value: time.seconds / 86400, format: /:\d{2}:\d{2}$/.test(t) ? "timeSeconds" : "time" };
+  const n = PLAIN_NUMBER_RE.test(t) && t.replace(/\D/g, "").replace(/^0+/, "").length <= 15 ? asNumber(t) : void 0;
+  if (n === void 0) return { kind: "text", value: t };
+  if (t.endsWith("%")) {
+    const decimals = /[.,](\d+)\s*%$/.exec(t)?.[1]?.length ?? 0;
+    return { kind: "number", value: n / 100, format: decimals === 0 ? "percent" : decimals === 1 ? "percent1" : "percent2" };
+  }
+  return { kind: "number", value: n };
+}
+
+// table-plus/src/excel/clipboard.ts
+var MSO_FORMATS = {
+  date: "yyyy\\-mm\\-dd",
+  dateTime: "yyyy\\-mm\\-dd hh:mm",
+  dateTimeSeconds: "yyyy\\-mm\\-dd hh:mm:ss",
+  time: "\\[h\\]:mm",
+  timeSeconds: "\\[h\\]:mm:ss",
+  percent: "0%",
+  percent1: "0.0%",
+  percent2: "0.00%"
+};
+function cellHtml(text) {
+  const value = excelValue(text);
+  const shown = xmlText(text);
+  switch (value.kind) {
+    case "empty":
+      return "<td></td>";
+    case "number":
+      return value.format ? `<td x:num="${value.value}" style="mso-number-format:'${MSO_FORMATS[value.format]}'">${shown}</td>` : `<td x:num="${value.value}">${shown}</td>`;
+    case "boolean":
+      return `<td x:bool="${value.value ? "TRUE" : "FALSE"}">${shown}</td>`;
+    case "error":
+      return `<td x:err="${xmlText(value.value)}">${shown}</td>`;
+    case "text":
+      return `<td style="mso-number-format:'\\@'">${shown}</td>`;
+  }
+}
+function excelHtml(header, rows) {
+  const head = `<tr>${header.map((h) => `<td style="font-weight:bold;mso-number-format:'\\@'">${xmlText(h)}</td>`).join("")}</tr>`;
+  const body = rows.map((row) => `<tr>${row.map(cellHtml).join("")}</tr>`).join("");
+  return `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body><table>${head}${body}</table></body></html>`;
+}
+function excelText(header, rows) {
+  const quote = (v) => /[\t\r\n"]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+  return [header, ...rows].map((row) => row.map(quote).join("	")).join("\r\n");
+}
+
+// table-plus/src/excel/functions.ts
+var FUTURE_FUNCTIONS = /* @__PURE__ */ new Set([
+  "CONCAT",
+  "TEXTJOIN",
+  "XLOOKUP",
+  "XMATCH",
+  "MAXIFS",
+  "MINIFS",
+  "IFS",
+  "SWITCH",
+  "IFNA",
+  "DAYS",
+  "ISOWEEKNUM",
+  "CEILING.MATH",
+  "FLOOR.MATH",
+  "STDEV.S",
+  "STDEV.P",
+  "VAR.S",
+  "VAR.P",
+  "RANK.EQ",
+  "RANK.AVG",
+  "LET"
+]);
+function call(name, args) {
+  return `${FUTURE_FUNCTIONS.has(name) ? "_xlfn." : ""}${name}(${args.join(",")})`;
+}
+function withFutureNames(text) {
+  return text.replace(
+    /(?<![\w.])([A-Z][A-Z0-9]*(?:\.[A-Z0-9]+)*)(?=\()/gi,
+    (name) => FUTURE_FUNCTIONS.has(name.toUpperCase()) ? `_xlfn.${name.toUpperCase()}` : name
+  );
+}
+var SAME_IN_EXCEL = /* @__PURE__ */ new Set([
+  "SUM",
+  "AVERAGE",
+  "MIN",
+  "MAX",
+  "PRODUCT",
+  "COUNT",
+  "COUNTA",
+  "SUMIFS",
+  "COUNTIFS",
+  "AVERAGEIFS",
+  "MAXIFS",
+  "MINIFS",
+  "SUMPRODUCT",
+  "MEDIAN",
+  "LARGE",
+  "SMALL",
+  "RANK",
+  "STDEV",
+  "INT",
+  "MROUND",
+  "MOD",
+  "ABS",
+  "IF",
+  "IFERROR",
+  "AND",
+  "OR",
+  "NOT",
+  "ISNUMBER",
+  "CONCAT",
+  "TEXTJOIN",
+  "LEN",
+  "MID",
+  "SEARCH",
+  "SUBSTITUTE",
+  "UPPER",
+  "LOWER",
+  "PROPER",
+  "TRIM",
+  "XLOOKUP",
+  "TODAY",
+  "NOW",
+  "DATE",
+  "YEAR",
+  "MONTH",
+  "DAY",
+  "HOUR",
+  "MINUTE",
+  "SECOND",
+  "WEEKDAY",
+  "ISOWEEKNUM",
+  "EOMONTH",
+  "NETWORKDAYS",
+  "WORKDAY"
+]);
+var texts = (args) => args.map((a) => a.text);
+var padded2 = (args, defaults) => defaults.map((d, i) => args[i] === void 0 || args[i].text === "" ? d : args[i].text);
+function unitOf(arg) {
+  if (typeof arg?.literal !== "string") return void 0;
+  const unit = toUnit(arg.literal);
+  if (typeof unit === "string") return unit;
+  const partial2 = arg.literal.trim().toLowerCase();
+  return partial2 === "md" || partial2 === "ym" || partial2 === "yd" ? partial2 : void 0;
+}
+var UNIT_REASON = { reason: "its unit is not written in the formula (it comes from a cell)" };
+var EXCEL_FUNCTIONS = {
+  // Ours count from the first row under the header, Excel's from the sheet's first row (the header)
+  ROW: () => "(ROW()-1)",
+  // Ours: digits optional; Excel's: required
+  ROUND: (args) => call("ROUND", padded2(args, ["", "0"])),
+  ROUNDUP: (args) => call("ROUNDUP", padded2(args, ["", "0"])),
+  ROUNDDOWN: (args) => call("ROUNDDOWN", padded2(args, ["", "0"])),
+  TIME: (args) => call("TIME", padded2(args, ["", "0", "0"])),
+  // Ours are Excel's CEILING.MATH and FLOOR.MATH (the significance optional, its sign left out)
+  CEILING: (args) => call("CEILING.MATH", texts(args)),
+  FLOOR: (args) => call("FLOOR.MATH", texts(args)),
+  // Excel reads TEXT's format codes in its own language (a Czech Excel's year is "rrrr")
+  TEXT: () => ({ reason: "Excel reads TEXT's format codes in its own language" }),
+  DATEADD: ([date, amount, unit]) => {
+    const d = `(${date.text})`;
+    const n = `(${amount.text})`;
+    switch (unitOf(unit)) {
+      case "s":
+        return `${d}+${n}/86400`;
+      case "min":
+        return `${d}+${n}/1440`;
+      case "h":
+        return `${d}+${n}/24`;
+      case "d":
+        return `${d}+${n}`;
+      case "w":
+        return `${d}+${n}*7`;
+      // EDATE drops the time of day: added again
+      case "m":
+        return `${call("EDATE", [d, n])}+MOD(${d},1)`;
+      case "y":
+        return `${call("EDATE", [d, `${n}*12`])}+MOD(${d},1)`;
+      default:
+        return UNIT_REASON;
+    }
+  },
+  DATEDIF: ([start, end, unit]) => {
+    const days = `((${end.text})-(${start.text}))`;
+    const u = unitOf(unit);
+    switch (u) {
+      case "s":
+        return call("TRUNC", [`${days}*86400`]);
+      case "min":
+        return call("TRUNC", [`${days}*1440`]);
+      case "h":
+        return call("TRUNC", [`${days}*24`]);
+      case "d":
+        return call("TRUNC", [days]);
+      case "w":
+        return call("TRUNC", [`${days}/7`]);
+      // Excel's own units (it gives #NUM! where the end is earlier; ours count back)
+      case "m":
+      case "y":
+      case "md":
+      case "ym":
+      case "yd":
+        return call("DATEDIF", [start.text, end.text, `"${u.toUpperCase()}"`]);
+      default:
+        return UNIT_REASON;
+    }
+  }
+};
+var templateOf = (name, templates) => Object.entries(templates).find(([n]) => n.toUpperCase() === name)?.[1];
+function hasTemplate(name, templates) {
+  return templateOf(name, templates) !== void 0;
+}
+function excelCall(name, args, templates, custom3 = false) {
+  const template = templateOf(name, templates);
+  if (template === false) return { reason: `${name} is set to be written as its value` };
+  if (typeof template === "string") {
+    if (template.trim() === "") return { reason: `the template of ${name} is empty` };
+    const filled = template.replace(/\{(\d+)\}/g, (_, i) => {
+      const arg = args[Number(i) - 1];
+      return arg ? arg.operation ? `(${arg.text})` : arg.text : "";
+    });
+    return `(${withFutureNames(filled)})`;
+  }
+  if (custom3) return { reason: `${name} is a custom function with no Excel form (see tablePlus.modules.excel.functions)` };
+  const own = EXCEL_FUNCTIONS[name];
+  if (own) return own(args);
+  if (SAME_IN_EXCEL.has(name)) return call(name, texts(args));
+  return { reason: `${name} has no Excel form` };
+}
+
+// table-plus/src/excel/formulas.ts
+var EXCEL_ERRORS = /* @__PURE__ */ new Set(["#NULL!", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#N/A"]);
+var NotInExcel = class {
+  constructor(reason) {
+    this.reason = reason;
+  }
+  reason;
+};
+function excelCell(row, column) {
+  return `${columnLetters(column)}${row + 2}`;
+}
+function excelFormula(formula, table, row, column, templates = {}) {
+  const tree = parse(formula);
+  if (tree instanceof FormulaError) return { reason: `it cannot be read: ${tree.detail}` };
+  const headers = table.rows[0]?.cells ?? [];
+  const bodyRows = table.rows.length - 1;
+  let array = false;
+  let totals;
+  const columnOf = (name) => referencedColumn(headers, name);
+  const write = (node) => {
+    switch (node.kind) {
+      case "literal": {
+        const v = node.value;
+        if (v === null) return { text: "", range: false };
+        if (typeof v === "number") return { text: String(v), range: false };
+        if (typeof v === "boolean") return { text: v ? "TRUE" : "FALSE", range: false };
+        if (v instanceof FormulaError) return { text: EXCEL_ERRORS.has(v.code) ? v.code : "#VALUE!", range: false };
+        if (typeof v === "string") return { text: `"${v.replaceAll('"', '""')}"`, range: false };
+        throw new NotInExcel("it has a value Excel cannot write");
+      }
+      case "area": {
+        if (node.table) throw new NotInExcel(`it refers to the table ${node.table.name}`);
+        const { top, left, bottom, right } = node.area;
+        if (bottom >= bodyRows || right >= headers.length) return { text: "#REF!", range: false };
+        const one = top === bottom && left === right;
+        return { text: one ? excelCell(top, left) : `${excelCell(top, left)}:${excelCell(bottom, right)}`, range: node.range && !one };
+      }
+      case "column": {
+        if (node.table) throw new NotInExcel(`it refers to the table ${node.table.name}`);
+        const c = columnOf(node.name);
+        if (c === void 0) return { text: "#REF!", range: false };
+        if (node.thisRow) return { text: excelCell(row, c), range: false };
+        totals ??= totalRows(table);
+        const rows = Array.from({ length: bodyRows }, (_, r) => r).filter((r) => !totals.has(r));
+        if (rows.length === 0) throw new NotInExcel(`[${node.name}] has no rows`);
+        const first = rows[0];
+        const last = rows[rows.length - 1];
+        if (last - first + 1 !== rows.length) throw new NotInExcel(`[${node.name}] has total rows between its rows`);
+        return first === last ? { text: excelCell(first, c), range: false } : { text: `${excelCell(first, c)}:${excelCell(last, c)}`, range: true };
+      }
+      case "named": {
+        if (node.page !== void 0) throw new NotInExcel(`it refers to ${node.name} on another page`);
+        const found = namedCells(table).get(node.name.toLowerCase());
+        if (!found) throw new NotInExcel(`${node.name} is not a cell of this table`);
+        return { text: excelCell(found.row - 1, found.column), range: false };
+      }
+      case "rowCell": {
+        if (node.table) throw new NotInExcel(`it refers to the table ${node.table.name}`);
+        const r = namedRows(table).get(node.row.toLowerCase());
+        const c = columnOf(node.column);
+        if (r === void 0 || c === void 0) return { text: "#REF!", range: false };
+        return { text: excelCell(r - 1, c), range: false };
+      }
+      case "unary": {
+        const arg = write(node.arg);
+        if (arg.range) array = true;
+        const inner = wrapped(node.arg, arg);
+        return { text: node.op === "%" ? `${inner}%` : `${node.op}${inner}`, range: arg.range };
+      }
+      case "binary": {
+        const left = write(node.left);
+        const right = write(node.right);
+        if (left.range || right.range) array = true;
+        return { text: `${wrapped(node.left, left)}${node.op}${wrapped(node.right, right)}`, range: left.range || right.range };
+      }
+      case "call": {
+        const f = functionNamed(node.name);
+        const count = node.args.length;
+        if (f && !hasTemplate(node.name, templates) && (count < f.minArgs || f.maxArgs !== void 0 && count > f.maxArgs)) {
+          throw new NotInExcel(`${node.name} has a wrong number of arguments`);
+        }
+        const args = node.args.map((arg) => ({
+          text: write(arg).text,
+          ...arg.kind === "binary" || arg.kind === "unary" ? { operation: true } : {},
+          ...arg.kind === "literal" && arg.value !== null && !(arg.value instanceof FormulaError) ? { literal: arg.value } : {}
+        }));
+        const written = excelCall(node.name, args, templates, isCustomFunction(node.name));
+        if (typeof written !== "string") throw new NotInExcel(written.reason);
+        return { text: written, range: false };
+      }
+    }
+  };
+  const wrapped = (node, written) => node.kind === "binary" || node.kind === "unary" ? `(${written.text})` : written.text;
+  try {
+    const written = write(tree);
+    if (written.range) return { reason: "its result is a range, not one value" };
+    return { text: written.text, array };
+  } catch (e) {
+    if (e instanceof NotInExcel) return { reason: e.reason };
+    throw e;
+  }
+}
+
+// table-plus/src/export/table.ts
+function currentTable(host, widget, info) {
+  const current = host.widgetForKey(info.key) ?? widget;
+  return { widget: current, info: host.infoOf(current) ?? info };
+}
+function exportedTable(host, info, rows) {
+  const values = (tr) => Array.from(tr.cells).map((cell) => host.cellValue(cell));
+  const body = rows === "shown" ? host.shownRows(info).filter((tr) => tr.dataset.tpRow !== void 0) : host.bodyRows(info);
+  return {
+    header: values(info.table.rows[0]),
+    rows: body.map((tr) => ({ row: Number(tr.dataset.tpRow), values: values(tr) }))
+  };
+}
 
 // table-plus/src/meta.ts
 function withMeta(table, name, value) {
@@ -6133,6 +6579,357 @@ function metadataAfterEdit(before, after, edit) {
   const followed = followColumnMeta(before, after, edit.columnMap ?? ((c) => c));
   return edit.pins ? withMetaPins(followed, edit.pins) : followed;
 }
+
+// table-plus/src/features/excel.ts
+var XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+var FUNCTIONS_PATH = "tablePlus.modules.excel.functions";
+function excelTemplates(value) {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry) => typeof entry[1] === "string" || entry[1] === false)
+  );
+}
+function fileName(name) {
+  return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "Table";
+}
+function xlsxName(typed) {
+  return `${fileName(typed.trim().replace(/\.xlsx$/i, ""))}.xlsx`;
+}
+function skippedGroups(skipped, parts = 4) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const s of skipped) {
+    const key = `${s.reason}\0${s.formula}`;
+    groups.set(key, [...groups.get(key) ?? [], s]);
+  }
+  return Array.from(groups.values(), (cells) => {
+    const sorted = [...cells].sort((a, b) => a.column - b.column || a.row - b.row);
+    const runs = [];
+    for (let i = 0; i < sorted.length; ) {
+      let j = i;
+      while (j + 1 < sorted.length && sorted[j + 1].column === sorted[i].column && sorted[j + 1].row === sorted[j].row + 1) j++;
+      const first = sorted[i];
+      const last = sorted[j];
+      runs.push(i === j ? excelCell(first.row, first.column) : `${excelCell(first.row, first.column)}:${excelCell(last.row, last.column)}`);
+      i = j + 1;
+    }
+    const more = runs.length - parts;
+    return {
+      cells: more > 0 ? `${runs.slice(0, parts).join(", ")} and ${more} more` : runs.join(", "),
+      formula: cells[0].formula,
+      reason: cells[0].reason,
+      count: cells.length
+    };
+  });
+}
+var SHOWN_GROUPS = 50;
+var plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+var Excel = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  opening = false;
+  /** Export to Excel… in the toolbar's menu */
+  toolbarButtons(widget, info) {
+    return [
+      {
+        label: "Export to Excel\u2026",
+        title: "Copy the table for Excel, or download it as an Excel file with its formulas",
+        icon: ICONS.download,
+        run: () => void this.open(widget, info)
+      }
+    ];
+  }
+  /** The dialog: both ways, with what they keep, and the outcome of the one taken */
+  async open(shownWidget, shownInfo) {
+    if (this.opening) return;
+    this.opening = true;
+    const { info } = currentTable(this.host, shownWidget, shownInfo);
+    const shown = exportedTable(this.host, info, "shown");
+    let workbook;
+    try {
+      workbook = await this.workbook(info);
+    } catch (e) {
+      console.error("Table Plus: the table could not be prepared for Excel", e);
+      void this.host.bridge.flash(`Table Plus: could not prepare the table for Excel (${String(e)})`, "error");
+      return;
+    } finally {
+      this.opening = false;
+    }
+    const { doc } = this.host;
+    const el = (tag, className, text) => {
+      const e = doc.createElement(tag);
+      e.className = className;
+      if (text !== void 0) e.textContent = text;
+      return e;
+    };
+    const button = (text, primary = false) => {
+      const b = el("button", primary ? "tp-dialog-primary" : "tp-dialog-button", text);
+      b.type = "button";
+      return b;
+    };
+    const option = (title, lines, actions, ...more) => {
+      const box = el("section", "tp-excel-option");
+      const head = el("div", "tp-excel-option-head");
+      const right = el("div", "tp-excel-option-actions");
+      right.append(...actions);
+      head.append(el("h3", "tp-excel-option-title", title), right);
+      const list = el("ul", "tp-excel-option-text");
+      for (const line of lines) list.append(el("li", "", line));
+      box.append(head, list);
+      box.append(...more);
+      return box;
+    };
+    const status = el("div", "tp-excel-status");
+    status.setAttribute("role", "status");
+    const report = (text, ok) => {
+      status.textContent = text;
+      status.classList.toggle("tp-excel-ok", ok);
+      status.classList.toggle("tp-excel-error", !ok);
+    };
+    const copy = button("Copy");
+    const rows = shown.rows.length;
+    const copyBox = option(
+      "Copy for Excel",
+      [
+        `${plural(rows, "row", "rows")} as shown here (sorted, filtered), with the header, to paste into a sheet.`,
+        "Numbers, dates, times and TRUE / FALSE paste as Excel's values, in any language of Excel.",
+        "Lost: formulas (their results are pasted), how column types show cells (currency signs, stars), links."
+      ],
+      [copy]
+    );
+    const download = button("Download", true);
+    const formulaNote = el("div", "tp-excel-formulas");
+    const { skipped, formulas } = workbook;
+    if (skipped.length === 0) {
+      formulaNote.classList.add("tp-excel-ok");
+      formulaNote.textContent = formulas === 0 ? "No formulas in the table." : `All ${plural(formulas, "formula", "formulas")} will be Excel formulas.`;
+    } else {
+      formulaNote.append(
+        el(
+          "div",
+          "tp-excel-formulas-title",
+          `${plural(skipped.length, "formula", "formulas")} of ${formulas} will be written as ${skipped.length === 1 ? "its value" : "their values"} (cells as Excel names them):`
+        )
+      );
+      const list = el("div", "tp-excel-skipped");
+      const groups = skippedGroups(skipped);
+      for (const g of groups.slice(0, SHOWN_GROUPS)) {
+        const item = el("div", "tp-excel-skipped-item");
+        const cells = el("span", "tp-excel-skipped-cell", g.cells);
+        if (g.count > 1) cells.title = plural(g.count, "cell", "cells");
+        item.append(cells, el("code", "tp-excel-skipped-formula", g.formula), el("span", "tp-excel-skipped-reason", g.reason));
+        list.append(item);
+      }
+      if (groups.length > SHOWN_GROUPS) list.append(el("div", "tp-excel-skipped-more", `\u2026 and ${groups.length - SHOWN_GROUPS} more`));
+      formulaNote.append(list);
+    }
+    const nameField = el("label", "tp-excel-file");
+    nameField.append(el("span", "tp-excel-file-label", "File name:"));
+    const nameInput = el("input", "tp-excel-file-input");
+    nameInput.type = "text";
+    nameInput.value = fileName(workbook.name);
+    nameInput.spellcheck = false;
+    nameInput.setAttribute("aria-label", "File name");
+    const fit = () => nameInput.size = Math.max(1, nameInput.value.length);
+    fit();
+    nameInput.addEventListener("input", fit);
+    nameField.append(nameInput, el("span", "tp-excel-file-extension", ".xlsx"));
+    const downloadBox = option(
+      "Download .xlsx",
+      [
+        "The whole table, every row in the order of the markdown (not as sorted or filtered), the header in row 1.",
+        "Numbers, dates and times as Excel's values; formulas as Excel formulas, calculated again by Excel."
+      ],
+      [nameField, download],
+      formulaNote
+    );
+    const content = el("div", "tp-excel");
+    content.append(copyBox, downloadBox, status);
+    const close = button("Close");
+    const footer = el("div", "tp-excel-foot");
+    footer.append(close);
+    const dialog = this.host.openDialog({
+      title: "Export to Excel",
+      subtitle: workbook.name,
+      className: "tp-excel-dialog",
+      content,
+      footer,
+      focus: download
+    });
+    close.addEventListener("click", () => dialog.close());
+    copy.addEventListener("click", () => void this.copy(shown).then(({ text, ok }) => report(text, ok)));
+    const save = () => {
+      const { text, ok } = this.download(workbook, xlsxName(nameInput.value));
+      report(text, ok);
+    };
+    download.addEventListener("click", save);
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" || e.isComposing) return;
+      e.preventDefault();
+      save();
+    });
+  }
+  /** The rows as shown onto the clipboard, for Excel */
+  async copy(table) {
+    const rows = table.rows.map((r) => r.values);
+    const win = this.host.doc.defaultView;
+    try {
+      const clipboard = win.navigator.clipboard;
+      if (win?.ClipboardItem && clipboard.write) {
+        const blob = (type, text) => new Blob([text], { type });
+        await clipboard.write([
+          new win.ClipboardItem({ "text/plain": blob("text/plain", excelText(table.header, rows)), "text/html": blob("text/html", excelHtml(table.header, rows)) })
+        ]);
+      } else {
+        await clipboard.writeText(excelText(table.header, rows));
+      }
+      return { text: `Copied ${plural(rows.length, "row", "rows")}: paste them into Excel.`, ok: true };
+    } catch (e) {
+      return { text: `Could not copy: ${String(e)}`, ok: false };
+    }
+  }
+  /** The file: every row of the markdown in its place, formulas as Excel writes them, those it cannot as values */
+  async workbook(info) {
+    const exported = exportedTable(this.host, info, "all");
+    const model = this.host.tableOf(info);
+    const templates = excelTemplates(await this.host.bridge.getConfig?.(FUNCTIONS_PATH, {}));
+    const skipped = [];
+    let formulas = 0;
+    const rows = Array.from({ length: Math.max(0, model.rows.length - 1) }, () => []);
+    for (const { row, values } of exported.rows) {
+      rows[row - 1] = values.map((text, column) => {
+        const value = excelValue(text);
+        const stored = formulaOf(model.rows[row]?.cells[column] ?? "");
+        if (!stored) return { value };
+        formulas++;
+        const formula = excelFormula(stored.formula, model, row - 1, column, templates);
+        if ("reason" in formula) {
+          skipped.push({ row: row - 1, column, formula: stored.formula, reason: formula.reason });
+          return { value };
+        }
+        return { value, formula };
+      });
+    }
+    const page = await this.host.bridge.getCurrentPage();
+    const name = metaName(model) ?? page.split("/").pop() ?? "Table";
+    const widths = exported.header.map((h, c) => columnWidth([h, ...exported.rows.map((r) => r.values[c] ?? "")]));
+    return { name, make: () => xlsxFile({ name, header: exported.header, rows, widths }), formulas, skipped };
+  }
+  /** The file made and given to the browser to download */
+  download(workbook, file) {
+    let bytes;
+    try {
+      bytes = workbook.make();
+    } catch (e) {
+      console.error("Table Plus: the Excel file could not be made", e);
+      return { text: `Could not make the file: ${String(e)}`, ok: false };
+    }
+    const { doc } = this.host;
+    const win = doc.defaultView;
+    const url = win.URL.createObjectURL(new Blob([bytes], { type: XLSX_TYPE }));
+    const link = doc.createElement("a");
+    link.href = url;
+    link.download = file;
+    link.style.display = "none";
+    doc.body.append(link);
+    link.click();
+    link.remove();
+    win.setTimeout(() => win.URL.revokeObjectURL(url), 6e4);
+    const values = workbook.skipped.length;
+    return { text: `Downloaded ${file}${values ? `, ${plural(values, "formula", "formulas")} as values` : ""}.`, ok: true };
+  }
+};
+
+// table-plus/src/features/export.ts
+function csvText(values) {
+  const quote = (v) => /[",\r\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+  return values.map((row) => `${row.map(quote).join(",")}\r
+`).join("");
+}
+var Export = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  /** Copy as CSV in the toolbar's menu */
+  toolbarButtons(widget, info) {
+    return [
+      {
+        label: "Copy as CSV",
+        title: "Copy the table as CSV: its rows as shown (sorted, filtered), cells as Ctrl+C copies them",
+        icon: ICONS.duplicate,
+        run: () => void this.copyCsv(widget, info)
+      }
+    ];
+  }
+  async copyCsv(shownWidget, shownInfo) {
+    const { info } = currentTable(this.host, shownWidget, shownInfo);
+    const table = exportedTable(this.host, info, "shown");
+    try {
+      await this.host.doc.defaultView.navigator.clipboard.writeText(csvText([table.header, ...table.rows.map((r) => r.values)]));
+      const body = table.rows.length;
+      void this.host.bridge.flash(`Table Plus: copied ${body} row${body === 1 ? "" : "s"} as CSV`, "info");
+    } catch (e) {
+      void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");
+    }
+  }
+};
+
+// table-plus/src/features/expressions.ts
+var Expressions = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  timer;
+  stopped = false;
+  stop() {
+    this.stopped = true;
+    clearTimeout(this.timer);
+  }
+  /** SilverBullet's `page:index` event for a page */
+  async pageIndexed(name) {
+    const { bridge } = this.host;
+    if (this.stopped || !bridge.evalExpression) return;
+    if (name !== await bridge.getCurrentPage()) return;
+    const delay = await this.host.setting("expressionsDelay");
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.refresh(), delay);
+  }
+  async refresh() {
+    const { bridge, doc } = this.host;
+    for (const widget of Array.from(doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.host.infoOf(widget);
+      if (this.stopped || !info || !info.source.includes("${")) continue;
+      const rows = parseTable(info.source).rows;
+      let changed = false;
+      for (let row = 0; row < rows.length; row++) {
+        const cells = rows[row].cells;
+        for (let column = 0; column < cells.length; column++) {
+          const expression = /^\$\{([\s\S]+)\}$/.exec(cells[column].trim())?.[1];
+          if (!expression) continue;
+          let value;
+          try {
+            value = await bridge.evalExpression(expression.replaceAll("\\|", "|"));
+          } catch {
+            continue;
+          }
+          const text = value === null || value === void 0 ? "" : typeof value === "number" ? formatLuaNumber(value) : typeof value === "string" || typeof value === "boolean" ? String(value) : void 0;
+          const cell = this.host.cellAt(info, { row, column }, true);
+          if (text === void 0 || !cell || cell === this.host.editing?.cell || renderedTable(widget) !== info.table) continue;
+          if (cellText(cell) === text) continue;
+          for (const node of Array.from(cell.childNodes)) {
+            if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
+          }
+          cell.prepend(doc.createTextNode(text));
+          changed = true;
+        }
+      }
+      if (changed && renderedTable(widget) === info.table) this.host.applyView(widget, info);
+    }
+  }
+};
 
 // table-plus/src/formulas/page.ts
 function pageTables(tables, here, replace, others) {
@@ -9604,7 +10401,7 @@ var hasTags = (cell) => cellTags(cell).length > 0;
 function hasMetadata(table) {
   return table.meta !== void 0 || table.rows.some((row) => row.cells.some(hasTags));
 }
-function plural(n, word) {
+function plural2(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 function described(parts, tables, form) {
@@ -9640,7 +10437,7 @@ var Metadata = class {
     const shown = parseTable(shownInfo.source);
     const removed = [
       ...shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name, theme, stripes)"] : [],
-      ...described(this.host.metadataParts([shown]), [shown], (p) => `its ${plural(p.count, p.what)}${p.note ? `: ${p.note}` : ""}`)
+      ...described(this.host.metadataParts([shown]), [shown], (p) => `its ${plural2(p.count, p.what)}${p.note ? `: ${p.note}` : ""}`)
     ];
     if (!await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
@@ -9661,7 +10458,7 @@ var Metadata = class {
       return;
     }
     const models = tables.map((range) => parseTable(range.text));
-    const parts = described(this.host.metadataParts(models), models, (p) => `${plural(p.count, p.what)}${p.note ? ` (${p.note})` : ""}`);
+    const parts = described(this.host.metadataParts(models), models, (p) => `${plural2(p.count, p.what)}${p.note ? ` (${p.note})` : ""}`);
     const question = `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` + (parts.length ? `, including ${parts.join(" and ")}` : "") + "? Ctrl+Z brings it back.";
     if (!await this.host.ask(question)) return;
     const from = tables[tables.length - 1].from;
@@ -10444,7 +11241,7 @@ function pasteCells(table, plan, data, rules) {
 
 // table-plus/src/features/paste.ts
 var PASTE_BLOCKED = "Clear sorting and filters to paste cells: the rows shown are not where they would go";
-function plural2(n, word) {
+function plural3(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 var Paste = class {
@@ -10513,11 +11310,11 @@ var Paste = class {
     if (result !== "written") return;
     const width = Math.max(...data.map((r) => r.length));
     const added = [
-      ...newRows.count && !insert ? [`added ${plural2(newRows.count, "row")}`] : [],
-      ...newColumns.count ? [`added ${plural2(newColumns.count, "column")}`] : [],
-      ...Array.from(skipped, ([what2, count]) => `kept ${plural2(count, what2)}`)
+      ...newRows.count && !insert ? [`added ${plural3(newRows.count, "row")}`] : [],
+      ...newColumns.count ? [`added ${plural3(newColumns.count, "column")}`] : [],
+      ...Array.from(skipped, ([what2, count]) => `kept ${plural3(count, what2)}`)
     ];
-    const what = insert ? `${plural2(data.length, "new row")}` : `${data.length} \xD7 ${width} cells`;
+    const what = insert ? `${plural3(data.length, "new row")}` : `${data.length} \xD7 ${width} cells`;
     void this.host.bridge.flash(`Table Plus: pasted ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
     this.host.focusEditor(closed.widget);
   }
@@ -11288,6 +12085,7 @@ var Controller = class {
       optional("lazy", () => new Lazy(this)),
       optional("themes", () => new Themes(this)),
       optional("export", () => new Export(this)),
+      optional("excel", () => new Excel(this)),
       // Its icon last in the toolbar, before the menu
       optional("fullScreen", () => new FullScreen(this)),
       always(() => new Expressions(this)),
@@ -13234,7 +14032,7 @@ function customType(definition) {
     if (!NAME_RE2.test(alias)) return `${tag}: the alias ${alias} is not letters, digits and _`;
     if (typeof written !== "string" || !readParams(specs, written || void 0)) return `${tag}: the alias ${alias} stands for parameters ${JSON.stringify(written)} the type does not take`;
   }
-  const call = (method, result) => {
+  const call2 = (method, result) => {
     if (isObject(result) && typeof result.then === "function") throw new Error(`${method} returned a promise: a type gives its result at once`);
     return result;
   };
@@ -13247,14 +14045,14 @@ function customType(definition) {
     aliases: Object.fromEntries(Object.entries(aliases).map(([alias, written]) => [alias.toLowerCase(), written])),
     check: (text, p) => {
       if (!check) return void 0;
-      const why = call("check", check(text, p));
+      const why = call2("check", check(text, p));
       if (why === void 0 || why === null || why === "") return void 0;
       if (typeof why !== "string") throw new Error(`check returned ${kindOf(why)}: it gives why a value is not one of the type (text), or nothing`);
       return why;
     },
     format: (text, p, locale) => {
       if (!format) return text;
-      const shown = call("format", format(text, p, locale));
+      const shown = call2("format", format(text, p, locale));
       if (typeof shown === "string") return shown;
       if (typeof shown === "number") return String(shown);
       if (isObject(shown) && typeof shown.text === "string" && typeof shown.href === "string") return { text: shown.text, href: shown.href };
@@ -13262,14 +14060,14 @@ function customType(definition) {
     },
     ...sortValue ? {
       sortValue: (text, p) => {
-        const value = call("sortValue", sortValue(text, p));
+        const value = call2("sortValue", sortValue(text, p));
         if (typeof value === "string" || typeof value === "number") return String(value);
         throw new Error(`sortValue returned ${kindOf(value)}: it gives a text or a number`);
       }
     } : {},
     ...choices ? {
       choices: (p) => {
-        const list = call("choices", choices(p));
+        const list = call2("choices", choices(p));
         if (!Array.isArray(list)) throw new Error(`choices returned ${kindOf(list)}: it gives a list`);
         return list.map((choice) => {
           if (typeof choice === "string") return { value: choice, label: choice };
@@ -13374,11 +14172,11 @@ function customFunctions(definitions) {
 }
 function customFunction(definition) {
   if (!isObject2(definition)) return "not an object";
-  const { name, syntax, description, category, example, minArgs = 0, maxArgs, call } = definition;
+  const { name, syntax, description, category, example, minArgs = 0, maxArgs, call: call2 } = definition;
   if (typeof name !== "string" || !NAME_RE3.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and . starting with a letter`;
   const upper = name.toUpperCase();
   if (CELL_RE.test(name) || upper === "TRUE" || upper === "FALSE") return `its name ${name} reads as ${upper === "TRUE" || upper === "FALSE" ? "a value" : "a cell"} in formulas`;
-  if (typeof call !== "function") return `${upper} has no call function`;
+  if (typeof call2 !== "function") return `${upper} has no call function`;
   if (syntax !== void 0 && typeof syntax !== "string") return `${upper}: its syntax is not text`;
   if (description !== void 0 && typeof description !== "string") return `${upper}: its description is not text`;
   if (category !== void 0 && !(typeof category === "string" && category in FUNCTION_CATEGORIES)) {
@@ -13398,7 +14196,7 @@ function customFunction(definition) {
     call: (args, context) => {
       let result;
       try {
-        result = call(args, context);
+        result = call2(args, context);
       } catch (e) {
         result = e instanceof FormulaError ? e : new FormulaError("#VALUE!", `${upper} failed: ${message2(e)}`);
       }

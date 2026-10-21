@@ -24,6 +24,7 @@ import { CONFIG_PAGE, withConfigSettings } from "./configpage.ts";
 import { SettingsDialog } from "./settings.ts";
 import { Autoscroll } from "./features/autoscroll.ts";
 import { ColumnTypes } from "./features/columntypes.ts";
+import { Excel } from "./features/excel.ts";
 import { Export } from "./features/export.ts";
 import { Expressions } from "./features/expressions.ts";
 import { PageLinks } from "./features/pagelinks.ts";
@@ -378,6 +379,7 @@ export class Controller implements TableHost {
       optional("lazy", () => new Lazy(this)),
       optional("themes", () => new Themes(this)),
       optional("export", () => new Export(this)),
+      optional("excel", () => new Excel(this)),
       // Its icon last in the toolbar, before the menu
       optional("fullScreen", () => new FullScreen(this)),
       always(() => new Expressions(this)),

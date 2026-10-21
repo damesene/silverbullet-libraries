@@ -79,6 +79,30 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * Typing, Enter or F2 edits the first cell selected (see [[#Editing cells]]).
 * Esc or a click elsewhere ends the selection.
 * **Copy as CSV** in the ⋯ menu of the table's toolbar (the `export` module) copies the whole table as CSV (commas between cells, quotes where a cell needs them): its header and its rows as shown, sorted and filtered, cells as Ctrl+C copies them.
+* **Export to Excel…** in the same menu: see [[#Excel]].
+
+## Excel
+
+**Export to Excel…** in the ⋯ menu of a table's toolbar (the `excel` module) opens a dialog with two ways, what each keeps and loses; after one is taken, the dialog says how it went (*Close* or Esc closes it):
+
+* **Copy for Excel** copies the table for pasting into Excel: its header and its rows as shown, sorted and filtered. Numbers (`12,50 €`, `15 %`), dates (`2025-11-06`), times (`14:30`) and `TRUE` / `FALSE` paste as Excel's numbers, dates and logical values, whatever the language of your Excel; other cells as text. A number only when nothing written would be lost: `007`, `+420 777 123 456`, `3 kg` and numbers of more than 15 digits stay text. Values only: formulas paste as their results.
+* **Download .xlsx** downloads the whole table as an Excel file of one sheet, named after the table (its name, else the page; the file's name can be changed in the dialog, Enter downloads too): the header in row 1 (bold, kept in view), every row under it in the order of the markdown (not as sorted or filtered: formulas refer to rows by their place), values as above, and the formulas as Excel writes them. The file is made in the browser; nothing is sent anywhere.
+
+Formulas in the file:
+
+* References become Excel's: `A1` (the first row under the header) is Excel's `A2`, `[qty]` the column's rows (without the table's total rows) such as `B2:B9`, `[@qty]` the cell in the formula's row, a named cell or row its cell. Functions are written as Excel has them: `CEILING` as `CEILING.MATH`, `ROW()` counting from the first row under the header, `DATEADD` with `+` or `EDATE`, `DATEDIF`'s units with Excel's.
+* A formula Excel cannot have is written as its value: one that refers to another table or page, a whole column with total rows between its rows, `TEXT` (Excel reads its format codes in its own language), `DATEADD` or `DATEDIF` whose unit comes from a cell, a custom function without an Excel form. The dialog lists them under *Download .xlsx* before the file is made, each with its cell (as Excel names it) and why, or says that every formula will be an Excel formula.
+* In Excel, dates, times, percentages and amounts are numbers: a formula that takes them as text (`[@due] & " due"`, `LEN`, `CONCAT`) gives Excel's number there (`45967 due`), where Table Plus gives the text as written.
+* Excel calculates the formulas again when it opens the file. Formulas with operators on whole ranges (`SUM([qty] * [price])`) are written as array formulas, so older versions of Excel calculate them too; `XLOOKUP`, `TEXTJOIN`, `MAXIFS` and the like need Excel 2019, 2021 or 365.
+* Your custom functions are written as Excel formulas by templates in the setting `tablePlus.modules.excel.functions`: `{1}`, `{2}`… are the function's arguments (as Excel writes them), `false` writes the function's cells as their values. Write the template as Excel's English formulas are, with commas:
+
+```lua
+config.set("tablePlus.modules.excel.functions", {
+  VAT = "ROUND(({1})*1.21,2)",
+  MARGIN = "({1}-{2})/{1}",
+  SLUG = false,
+})
+```
 
 ## Cell menu
 
@@ -668,6 +692,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("tablePlu
 | `themes` | Tables look as their theme sets: the *Theme* setting (`theme`, default `native`), or a table's own from *Theme* in its ⋯ menu; stripes from *Stripes* (`stripes`: `rows`, the default, `columns` or `none`), or as the icons in *Theme* in a table's ⋯ menu say. See [[#Themes]]. Off: tables look as SilverBullet shows them (striped); a theme stored in a table is kept but not used. |
 | `lazy` | The toolbar's lazy saving icon (a clock) switches a table to saving its cells edited together, a moment after editing stops. Setting `delay` (milliseconds, default `500`). See [[#Lazy saving]]. Off: every cell is saved as you leave it. |
 | `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
+| `excel` | *Export to Excel…* in the table's ⋯ menu: copy for Excel, or download an .xlsx file with the formulas. Setting `functions`: templates for your custom functions in the file. See [[#Excel]]. |
 | `paste` | Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text. |
 | `handles` | The handles beside rows and above columns: drag them to move rows and columns, click them for the row and column menus. Off: rows and columns still move with Ctrl+Alt+arrows, and the **+** on a border still inserts them. |
 | `longText` | Long text wraps (up to a maximum cell height) or is cut with an ellipsis at a maximum column width; a cut cell shows an expand button for its popup. Settings: see [[#Long text in cells (`tablePlus.modules.longText`)]]. Off: cells on one line, as wide as their text (F2 still opens a cell's popup while editing). |
@@ -977,6 +1002,23 @@ config.define("tablePlus", {
               default = true,
               description = "Copy as CSV in a table's ⋯ menu: the whole table, its rows as shown.",
               ui = { category = "Table Plus: Modules", label = "Export", priority = 5 },
+            },
+          },
+        },
+        excel = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "Export to Excel… in a table's ⋯ menu: copy for Excel (numbers and dates as Excel's values), or download an .xlsx file with the formulas.",
+              ui = { category = "Table Plus: Modules", label = "Excel", priority = 4.9 },
+            },
+            functions = {
+              -- No default: an empty Lua table could read as a list
+              type = "object",
+              description = "How your custom functions are written in an Excel file: a template by the function's name, {1}, {2}… its arguments (VAT = \"ROUND(({1})*1.21,2)\"), or false: its cells as their values.",
             },
           },
         },
@@ -2162,6 +2204,117 @@ body.tp-resizing * {
 .tp-functions-foot {
   display: flex;
   align-items: center;
+  gap: 8px;
+}
+/* The Excel dialog: the formulas written as values, each with its cell and why */
+.tp-excel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tp-excel-option {
+  padding: 8px 10px;
+  border: 1px solid var(--button-border-color);
+  border-radius: 6px;
+}
+.tp-excel-option-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tp-excel-option-title {
+  margin: 0;
+  font-size: 14px;
+}
+.tp-excel-option-text {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.tp-excel-option-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+/* The file's name edited in place: text with a dashed line under it, as wide as it is, .xlsx right after it */
+.tp-excel-file {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 13px;
+}
+.tp-excel-file-label {
+  margin-right: 4px;
+  opacity: 0.75;
+}
+.tp-excel-file-input {
+  /* As wide as its text where the browser can (else the size attribute set by script) */
+  field-sizing: content;
+  min-width: 1ch;
+  max-width: 22em;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  border-bottom: 1px dashed currentColor;
+  border-radius: 0;
+  outline: none;
+}
+.tp-excel-file-input:focus {
+  border-bottom-style: solid;
+  border-bottom-color: var(--ui-accent-color, currentColor);
+}
+.tp-excel-formulas {
+  margin-top: 8px;
+  font-size: 13px;
+}
+.tp-excel-formulas-title {
+  margin-bottom: 4px;
+}
+.tp-excel-ok {
+  color: var(--tp-excel-ok, #2e7d32);
+}
+.tp-excel-error {
+  color: var(--tp-excel-error, #c62828);
+}
+html[data-theme="dark"] .tp-excel-ok {
+  color: var(--tp-excel-ok, #81c784);
+}
+html[data-theme="dark"] .tp-excel-error {
+  color: var(--tp-excel-error, #ef9a9a);
+}
+.tp-excel-status:empty {
+  display: none;
+}
+.tp-excel-skipped {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 30vh;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.tp-excel-skipped-item {
+  display: grid;
+  grid-template-columns: 4em minmax(0, 1fr);
+  column-gap: 8px;
+}
+.tp-excel-skipped-cell {
+  grid-row: span 2;
+  font-weight: 600;
+}
+.tp-excel-skipped-formula {
+  overflow-wrap: anywhere;
+}
+.tp-excel-skipped-reason {
+  opacity: 0.75;
+}
+.tp-excel-foot {
+  display: flex;
+  justify-content: flex-end;
   gap: 8px;
 }
 /* A phone: the dialog takes the screen, the list above the one picked, larger targets for a finger */

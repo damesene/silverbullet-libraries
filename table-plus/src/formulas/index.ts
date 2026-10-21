@@ -21,8 +21,12 @@
 export { formulaCell, formulaCount, formulaOf, isErrorText, isFormulaInput, type StoredFormula } from "./cell.ts";
 export { type Area, areaText, callsCustomFunctions, cellName, cellNamesOf, columnLetters, columnRefText, namedReferences, type Reference, referencedColumn, referencedColumnId, references, referredCellNames, referredPages, referredTableNames, type TableRef, withColumnKeys } from "./references.ts";
 export { autofixFormula, type FormulaFix } from "./autofix.ts";
-export { formulaErrors, type NamedCell, recalculate, type TableSource } from "./evaluate.ts";
+export { formulaErrors, type NamedCell, recalculate, type TableSource, totalRows } from "./evaluate.ts";
+export { type Node as FormulaNode, parse as parseFormula } from "./parser.ts";
+export { parseDate, toUnit, type Unit } from "./dates.ts";
+export { ERROR_CODES, FormulaError, parseClock, type Scalar } from "./values.ts";
 export { calculatedFormula, followTable, formulasAfterEdit, shiftReferences, withCalculatedCells, withoutFormulas } from "./edits.ts";
 export { argumentSpan, findFunctions, type FormulaHelp, formulaHelp, functionChoices, type FunctionChoices, nameTyped, needsOperator, type PointedSpan, REFERENCE_HELP, referenceSlot } from "./help.ts";
 export { FUNCTION_CATEGORIES, type FormulaFunction, type FunctionCategory } from "./function.ts";
+export { functionNamed, isCustomFunction } from "./registry.ts";
 export type { IndexMap } from "../ops.ts";

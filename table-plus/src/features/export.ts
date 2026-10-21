@@ -2,6 +2,7 @@
 // menu. Copy as CSV: its header and its rows as shown (sorted, filtered),
 // cells as Ctrl+C copies them (host.cellValue).
 import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import { currentTable, exportedTable } from "../export/table.ts";
 import { ICONS } from "../icons.ts";
 
 /** Cells as CSV (RFC 4180): commas between, line breaks after rows; a cell with a comma, a quote or a line break in quotes */
@@ -26,13 +27,11 @@ export class Export implements Feature {
   }
 
   private async copyCsv(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    const info = this.host.infoOf(widget) ?? shownInfo;
-    const rows = this.host.shownRows(info);
-    const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.host.cellValue(cell)));
+    const { info } = currentTable(this.host, shownWidget, shownInfo);
+    const table = exportedTable(this.host, info, "shown");
     try {
-      await this.host.doc.defaultView!.navigator.clipboard.writeText(csvText(values));
-      const body = rows.length - 1;
+      await this.host.doc.defaultView!.navigator.clipboard.writeText(csvText([table.header, ...table.rows.map((r) => r.values)]));
+      const body = table.rows.length;
       void this.host.bridge.flash(`Table Plus: copied ${body} row${body === 1 ? "" : "s"} as CSV`, "info");
     } catch (e) {
       void this.host.bridge.flash(`Table Plus: could not copy (${String(e)})`, "error");

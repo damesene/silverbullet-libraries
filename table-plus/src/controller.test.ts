@@ -83,6 +83,7 @@ describe("Controller", () => {
       "Name table: prices",
       "Theme: Native (global)",
       "Copy as CSV",
+      "Export to Excel…",
       "Format table",
       "Edit markdown",
       "Table Plus settings…",

@@ -75,6 +75,26 @@ class Book {
   }
 }
 
+/**
+ * A table's total rows (body rows from 0): those with a cell that refers to
+ * its own whole column, as =SUM([qty]) under Qty. A cell that refers to
+ * another column ([@qty] / SUM([qty]) in a Share column) does not make its row
+ * one. [qty] leaves them out.
+ */
+export function totalRows(table: Table): ReadonlySet<number> {
+  const headers = table.rows[0]?.cells ?? [];
+  const totals = new Set<number>();
+  table.rows.slice(1).forEach((row, r) => {
+    row.cells.forEach((cell, column) => {
+      const stored = formulaOf(cell);
+      const tree = stored && parse(stored.formula);
+      if (!tree || isError(tree)) return;
+      if (Array.from(wholeColumnNames(tree, new Set())).some((name) => referencedColumn(headers, name) === column)) totals.add(r);
+    });
+  });
+  return totals;
+}
+
 /** A table's cells as a sheet: values of plain cells, results of formula cells */
 class Sheet {
   private readonly headers: readonly string[];
@@ -177,14 +197,6 @@ class Sheet {
     return typeof result === "number" && this.decimalComma ? text.replace(".", ",") : text;
   }
 
-  /** Whether the cell holds a formula that refers to the whole column `target` */
-  private refersToColumn(row: number, column: number, target: number): boolean {
-    const stored = formulaOf(this.body[row]?.[column] ?? "");
-    const tree = stored && parse(stored.formula);
-    if (!tree || isError(tree)) return false;
-    return Array.from(wholeColumnNames(tree, new Set())).some((name) => referencedColumn(this.headers, name) === target);
-  }
-
   /** The cell of the row named `row` in the column `column` */
   rowCellValue(row: string, column: string, prefix = ""): Value {
     this.rowNames ??= namedRows(this.table);
@@ -224,19 +236,10 @@ class Sheet {
     return values;
   }
 
-  /**
-   * The total rows: those with a cell that refers to its own whole column, as
-   * =SUM([qty]) under Qty. A cell that refers to another column ([@qty] /
-   * SUM([qty]) in a Share column) does not make its row one.
-   */
+  /** The total rows (see totalRows), once */
   private totalRows(): ReadonlySet<number> {
-    if (this.totals) return this.totals;
-    const totals = new Set<number>();
-    for (let r = 0; r < this.rows; r++) {
-      for (let c = 0; c < this.columns; c++) if (this.refersToColumn(r, c, c)) totals.add(r);
-    }
-    this.totals = totals;
-    return totals;
+    this.totals ??= totalRows(this.table);
+    return this.totals;
   }
 
   /** A named cell's value: in this table, else on this table's page (or `page`) */
