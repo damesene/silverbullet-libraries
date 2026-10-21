@@ -135,7 +135,8 @@ class Parser {
       if (this.peekOp(")")) this.at++;
       else {
         for (;;) {
-          args.push(this.comparison());
+          // An argument left out between others (XLOOKUP(a, b, c, , 1)) is null, which a function takes as not given
+          args.push(this.peekOp(",", ";") ? { kind: "literal", value: null } : this.comparison());
           if (this.peekOp(",", ";")) {
             this.at++;
             continue;

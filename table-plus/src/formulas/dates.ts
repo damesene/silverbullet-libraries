@@ -3,7 +3,7 @@
 // it and write their results the same way, so the markdown stays readable and
 // the #date column type shows them. A date and time is taken as written, with
 // no time zone (as spreadsheets do): adding an hour is an hour on the clock.
-import { asTime, DAY_SECONDS, FormulaError, isError, single, type Scalar, toText, type Value } from "./values.ts";
+import { asTime, DAY_SECONDS, FormulaError, isError, isRange, single, type Scalar, toText, type Value } from "./values.ts";
 
 const DAY = 86_400_000;
 
@@ -160,6 +160,34 @@ export function dateArithmetic(op: "+" | "-", left: Scalar, right: Scalar): Scal
   const days = other === null ? 0 : typeof other === "number" ? other : time ? time.seconds / DAY_SECONDS : undefined;
   if (days === undefined) return new FormulaError("#VALUE!", `"${typeof other === "string" ? other : String(other)}" is not a number of days or a time to add to a date`);
   return formatDate(addUnits((a ?? b)!, op === "-" ? -days : days, "d"));
+}
+
+/** The day a date is on, counted from 1970-01-01 (its time left out) */
+export function dayNumber(date: DateTime): number {
+  return Math.floor(date.ms / DAY);
+}
+
+/** The date of a day counted from 1970-01-01 */
+export function dayDate(day: number): string | FormulaError {
+  return formatDate({ ms: day * DAY, time: false });
+}
+
+/** The day of the week of a day counted from 1970-01-01 (a Thursday): 0 Sunday to 6 Saturday */
+export function weekdayOf(day: number): number {
+  return (((day + 4) % 7) + 7) % 7;
+}
+
+/** The days of the holidays NETWORKDAYS and WORKDAY are given: dates, empty cells skipped */
+export function holidayDays(value: Value | undefined): Set<number> | FormulaError {
+  const days = new Set<number>();
+  if (value === undefined || value === null) return days;
+  for (const item of isRange(value) ? value : [value]) {
+    if (item === null || (typeof item === "string" && item.trim() === "")) continue;
+    const date = toDate(item);
+    if (isError(date)) return date;
+    days.add(dayNumber(date));
+  }
+  return days;
 }
 
 /** A date's part in the calendar */

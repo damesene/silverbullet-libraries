@@ -128,13 +128,15 @@ describe("Formulas", () => {
       await setup(TOTAL);
       clickOn(cell(3, 1));
       typeIn("=a");
-      expect(options().map((o) => o.querySelector("code")!.textContent)).toEqual(["ABS", "AND", "AVERAGE"]);
+      expect(options().map((o) => o.querySelector("code")!.textContent)).toEqual(["ABS", "AND", "AVERAGE", "AVERAGEIFS"]);
       expect(picked()).toBe("ABS");
       expect(help()).toBe("ABS(number)");
       key(field(), "ArrowDown");
       key(field(), "ArrowDown");
+      key(field(), "ArrowDown");
       key(field(), "ArrowDown"); // stays on the last
-      expect(picked()).toBe("AVERAGE");
+      expect(picked()).toBe("AVERAGEIFS");
+      key(field(), "ArrowUp");
       key(field(), "ArrowUp");
       expect(picked()).toBe("AND");
       key(field(), "Enter");
@@ -215,7 +217,7 @@ describe("Formulas", () => {
       // The cell editor stays open behind it; keys typed in the dialog are the dialog's
       expect(field().isConnected).toBe(true);
       find("decimal places");
-      expect(listed()).toEqual(["ROUND"]);
+      expect(listed()).toEqual(["ROUND", "ROUNDDOWN", "ROUNDUP"]);
       expect(dialog()!.querySelector(".tp-functions-syntax")!.textContent).toBe("ROUND(number, [digits])");
       expect(dialog()!.querySelector(".tp-functions-example code")!.textContent).toBe("=ROUND([@price] * 1.21, 2)");
       key(search(), "Enter");
@@ -236,7 +238,7 @@ describe("Formulas", () => {
       expect(down.defaultPrevented).toBe(true);
       fx.click();
       Array.from(dialog()!.querySelectorAll<HTMLElement>(".tp-functions-group")).find((b) => b.textContent === "Logic")!.click();
-      expect(listed()).toEqual(["AND", "IF", "IFERROR", "NOT", "OR"]);
+      expect(listed()).toEqual(["AND", "IF", "IFERROR", "ISNUMBER", "NOT", "OR"]);
       key(search(), "ArrowDown");
       expect(picked()).toBe("IF");
       key(search(), "Escape");

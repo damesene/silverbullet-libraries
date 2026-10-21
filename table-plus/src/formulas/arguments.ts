@@ -11,6 +11,7 @@ import {
   type Scalar,
   TimeValue,
   toBoolean,
+  toNumber,
   type Value,
 } from "./values.ts";
 
@@ -54,4 +55,24 @@ export function booleans(args: readonly Value[]): boolean[] | FormulaError {
     }
   }
   return result;
+}
+
+/**
+ * A number rid of the noise of binary fractions (0.29 * 100 is
+ * 28.999999999999996): 15 significant digits, as spreadsheets keep, so it
+ * rounds up or down to where it should. Of `like`'s size: a difference of
+ * large numbers (5.1 - 5) has the noise of those numbers.
+ */
+export function tidy(n: number, like = n): number {
+  if (!Number.isFinite(n) || n === 0) return n;
+  const decimals = 14 - Math.floor(Math.log10(Math.abs(like || n)));
+  const result = decimals >= 0 && decimals <= 100 ? Number(n.toFixed(decimals)) : Number(n.toPrecision(15));
+  // Not -0, which would be written as such
+  return result === 0 ? 0 : result;
+}
+
+/** An argument as a whole number (truncated), or its error */
+export function toWhole(value: Value): number | FormulaError {
+  const n = toNumber(value);
+  return isError(n) ? n : Math.trunc(n);
 }

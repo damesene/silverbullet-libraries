@@ -36,6 +36,37 @@ import minute from "./minute.ts";
 import second from "./second.ts";
 import weekday from "./weekday.ts";
 import row from "./row.ts";
+import sumifs from "./sumifs.ts";
+import countifs from "./countifs.ts";
+import averageifs from "./averageifs.ts";
+import maxifs from "./maxifs.ts";
+import minifs from "./minifs.ts";
+import sumproduct from "./sumproduct.ts";
+import median from "./median.ts";
+import large from "./large.ts";
+import small from "./small.ts";
+import rank from "./rank.ts";
+import stdev from "./stdev.ts";
+import mod from "./mod.ts";
+import roundup from "./roundup.ts";
+import rounddown from "./rounddown.ts";
+import ceiling from "./ceiling.ts";
+import floor from "./floor.ts";
+import mround from "./mround.ts";
+import len from "./len.ts";
+import mid from "./mid.ts";
+import upper from "./upper.ts";
+import lower from "./lower.ts";
+import proper from "./proper.ts";
+import trim from "./trim.ts";
+import substitute from "./substitute.ts";
+import search from "./search.ts";
+import textjoin from "./textjoin.ts";
+import isnumber from "./isnumber.ts";
+import networkdays from "./networkdays.ts";
+import workday from "./workday.ts";
+import isoweeknum from "./isoweeknum.ts";
+import eomonth from "./eomonth.ts";
 import type { FormulaFunction } from "../function.ts";
 
 const ALL: readonly FormulaFunction[] = [
@@ -71,6 +102,37 @@ const ALL: readonly FormulaFunction[] = [
   text,
   xlookup,
   row,
+  sumifs,
+  countifs,
+  averageifs,
+  maxifs,
+  minifs,
+  sumproduct,
+  median,
+  large,
+  small,
+  rank,
+  stdev,
+  mod,
+  roundup,
+  rounddown,
+  ceiling,
+  floor,
+  mround,
+  len,
+  mid,
+  upper,
+  lower,
+  proper,
+  trim,
+  substitute,
+  search,
+  textjoin,
+  isnumber,
+  networkdays,
+  workday,
+  isoweeknum,
+  eomonth,
 ];
 
 /** The built-in functions by name */

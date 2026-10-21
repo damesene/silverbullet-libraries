@@ -131,7 +131,7 @@ describe("custom functions", () => {
   it("helps with a name that has digits but is no cell", () => {
     defineCustomFunctions([only([{ name: "ROUND2", syntax: "ROUND2(x)", description: "Two places.", call: () => 1 }])]);
     expect(functionChoices("=ROUND2", 7, 7)!.names).toEqual(["ROUND2"]);
-    expect(functionChoices("=ROUND", 6, 6)!.names).toEqual(["ROUND", "ROUND2"]);
+    expect(functionChoices("=ROUND", 6, 6)!.names).toEqual(["ROUND", "ROUND2", "ROUNDDOWN", "ROUNDUP"]);
     // A cell is no function's start
     expect(functionChoices("=A1", 3, 3)).toBeUndefined();
   });

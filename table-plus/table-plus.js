@@ -839,8 +839,8 @@ function deleteRow(table, row) {
     table.rows.filter((_, i) => i !== row)
   );
 }
-function reorderRows(table, order) {
-  const body = order.map((i) => table.rows[i]).filter((r) => !!r);
+function reorderRows(table, order2) {
+  const body = order2.map((i) => table.rows[i]).filter((r) => !!r);
   if (body.length !== table.rows.length - 1) return table;
   return withRows(table, [table.rows[0], ...body]);
 }
@@ -2604,6 +2604,26 @@ function dateArithmetic(op, left, right) {
   if (days === void 0) return new FormulaError("#VALUE!", `"${typeof other === "string" ? other : String(other)}" is not a number of days or a time to add to a date`);
   return formatDate(addUnits(a ?? b, op === "-" ? -days : days, "d"));
 }
+function dayNumber(date) {
+  return Math.floor(date.ms / DAY);
+}
+function dayDate(day) {
+  return formatDate({ ms: day * DAY, time: false });
+}
+function weekdayOf(day) {
+  return ((day + 4) % 7 + 7) % 7;
+}
+function holidayDays(value) {
+  const days = /* @__PURE__ */ new Set();
+  if (value === void 0 || value === null) return days;
+  for (const item of isRange(value) ? value : [value]) {
+    if (item === null || typeof item === "string" && item.trim() === "") continue;
+    const date = toDate(item);
+    if (isError(date)) return date;
+    days.add(dayNumber(date));
+  }
+  return days;
+}
 function partOf(date, part) {
   const d = new Date(date.ms);
   switch (part) {
@@ -3411,6 +3431,16 @@ function booleans(args) {
   }
   return result;
 }
+function tidy(n, like = n) {
+  if (!Number.isFinite(n) || n === 0) return n;
+  const decimals = 14 - Math.floor(Math.log10(Math.abs(like || n)));
+  const result = decimals >= 0 && decimals <= 100 ? Number(n.toFixed(decimals)) : Number(n.toPrecision(15));
+  return result === 0 ? 0 : result;
+}
+function toWhole(value) {
+  const n = toNumber(value);
+  return isError(n) ? n : Math.trunc(n);
+}
 
 // table-plus/src/formulas/builtin/sum.ts
 var sum_default = {
@@ -3745,11 +3775,86 @@ function parseFormat(format) {
     return before === "h" || before === "[h]" || after === "s" || after === "[s]" ? { code: "min", length: part.length } : part;
   });
 }
+function piecesOf(format) {
+  const pieces = [];
+  for (let i = 0; i < format.length; i++) {
+    const c = format[i];
+    if (c === '"') {
+      const close = format.indexOf('"', i + 1);
+      if (close < 0) return void 0;
+      pieces.push({ text: format.slice(i + 1, close) });
+      i = close;
+    } else if (c === "\\") pieces.push({ text: format[++i] ?? "" });
+    else pieces.push({ code: c });
+  }
+  return pieces;
+}
+var isDigit = (p) => p?.code === "0" || p?.code === "#";
+function numberSection(pieces, format) {
+  const text = (from, to) => pieces.slice(from, to).map((p) => p.text ?? p.code).join("");
+  const first = pieces.findIndex(isDigit);
+  if (first < 0) return () => text(0, pieces.length);
+  const inNumber = (p) => isDigit(p) || p?.code === "," || p?.code === ".";
+  let start = first;
+  while (inNumber(pieces[start - 1])) start--;
+  let end = first;
+  while (inNumber(pieces[end + 1])) end++;
+  if (pieces.some((p, at) => isDigit(p) && (at < start || at > end))) {
+    return new FormulaError("#VALUE!", `"${format}" has more than one number: TEXT writes one`);
+  }
+  const fullSpec = pieces.slice(start, end + 1).map((p) => p.code).join("");
+  const spec = fullSpec.replace(/,+$/, "");
+  const [wholeSpec = "", decimals, extra] = spec.split(".");
+  if (extra !== void 0) return new FormulaError("#VALUE!", `"${format}" has more than one decimal point`);
+  const whole = wholeSpec.replace(/,+$/, "");
+  const thousands = fullSpec.length - spec.length + wholeSpec.length - whole.length;
+  const minWhole = whole.split("0").length - 1;
+  const grouped = whole.includes(",");
+  const minDecimals = (decimals ?? "").split("0").length - 1;
+  const maxDecimals = (decimals ?? "").replace(/,/g, "").length;
+  const percent = pieces.filter((p) => p.code === "%").length;
+  const before = text(0, start);
+  const after = text(end + 1, pieces.length);
+  return (n) => {
+    const value = Math.abs(n) * 100 ** percent / 1e3 ** thousands;
+    const scale = 10 ** maxDecimals;
+    const rounded = Math.round(tidy(value * scale)) / scale;
+    let [int = "", dec = ""] = rounded.toFixed(maxDecimals).split(".");
+    dec = dec.replace(/0+$/, "").padEnd(minDecimals, "0");
+    if (int === "0" && minWhole === 0) int = "";
+    int = int.padStart(minWhole, "0");
+    if (grouped) int = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return `${before}${decimals === void 0 ? int : `${int}.${dec}`}${after}`;
+  };
+}
+function numberFormat2(format) {
+  const pieces = piecesOf(format);
+  if (!pieces?.some(isDigit)) return void 0;
+  const sections = [[]];
+  for (const piece of pieces) {
+    if (piece.code === ";") sections.push([]);
+    else sections.at(-1).push(piece);
+  }
+  if (sections.length > 3) return new FormulaError("#VALUE!", `"${format}" has more than three sections`);
+  const writers = [];
+  for (const section of sections) {
+    const writer = numberSection(section, format);
+    if (isError(writer)) return writer;
+    writers.push(writer);
+  }
+  const [positive, negative, zero] = writers;
+  return (n) => {
+    if (n < 0 && negative) return negative(n);
+    if (n === 0 && zero) return zero(n);
+    const written = positive(n);
+    return n < 0 && /[1-9]/.test(written) ? `-${written}` : written;
+  };
+}
 var pad = (n, length) => String(n).padStart(Math.min(length, 2), "0");
 var text_default = {
   name: "TEXT",
   syntax: "TEXT(value, format)",
-  description: 'A date or a time as text in a format: TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is.',
+  description: 'A number, a date or a time as text in a format: TEXT(A1, "#,##0.00"), TEXT(A1, "0%"), TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Number codes: 0 (a digit), # (a digit where it counts), , (thousands), . (decimals), %, and ; between formats of positive;negative;zero numbers ("0.00;(0.00)"); date codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is.',
   category: "text",
   example: '=TEXT([@due], "dd.mm.yyyy")',
   minArgs: 2,
@@ -3759,10 +3864,16 @@ var text_default = {
     const f = toText(format);
     if (isError(v)) return v;
     if (isError(f)) return f;
+    const number = numberFormat2(f);
+    if (number !== void 0) {
+      if (isError(number)) return number;
+      const n = toNumber(v);
+      return isError(n) ? n : number(n);
+    }
     const parts = parseFormat(f);
     if (isError(parts)) return parts;
     if (!parts.some((part) => "code" in part)) {
-      return new FormulaError("#VALUE!", `"${f}" has no date or time code: yyyy, mm, dd, hh, mm, ss, [h], [m] or [s]`);
+      return new FormulaError("#VALUE!", `"${f}" has no number, date or time code: 0, #, yyyy, mm, dd, hh, mm, ss, [h], [m] or [s]`);
     }
     const date = typeof v === "string" ? parseDate(v) : void 0;
     const time = date ? void 0 : asTime(v);
@@ -3818,27 +3929,167 @@ var text_default = {
   }
 };
 
+// table-plus/src/formulas/criteria.ts
+function wildcardRegExp(pattern, whole) {
+  const literal = (c) => c.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  let source = "";
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === "~" && (pattern[i + 1] === "*" || pattern[i + 1] === "?" || pattern[i + 1] === "~")) source += literal(pattern[++i]);
+    else if (c === "*") source += "[\\s\\S]*";
+    else if (c === "?") source += "[\\s\\S]";
+    else source += literal(c);
+  }
+  return new RegExp(whole ? `^${source}$` : source, "iu");
+}
+function numberOf2(cell) {
+  if (typeof cell === "number") return cell;
+  if (cell instanceof TimeValue) return cell.seconds / DAY_SECONDS;
+  if (typeof cell !== "string") return void 0;
+  const n = asNumber(cell);
+  if (n !== void 0) return n;
+  const time = asTime(cell);
+  return time ? time.seconds / DAY_SECONDS : void 0;
+}
+var isEmpty = (cell) => cell === null || typeof cell === "string" && cell.trim() === "";
+var ORDER = {
+  "=": (o) => o === 0,
+  "<>": (o) => o !== 0,
+  "<": (o) => o < 0,
+  ">": (o) => o > 0,
+  "<=": (o) => o <= 0,
+  ">=": (o) => o >= 0
+};
+function criterion(value) {
+  if (typeof value !== "string") return (cell) => !isError(cell) && sameValue(value, cell);
+  const m = /^(<=|>=|<>|<|>|=)?([\s\S]*)$/.exec(value);
+  const op = m[1] ?? "=";
+  const rest = m[2];
+  const order2 = ORDER[op];
+  if (rest === "") return op === "<>" ? (cell) => !isEmpty(cell) : op === "=" ? isEmpty : () => false;
+  const date = parseDate(rest);
+  if (date) {
+    return (cell) => {
+      const d = typeof cell === "string" ? parseDate(cell) : void 0;
+      return d ? order2(d.ms - date.ms) : op === "<>";
+    };
+  }
+  const n = numberOf2(rest);
+  if (n !== void 0) {
+    return (cell) => {
+      const c = isError(cell) || typeof cell === "boolean" ? void 0 : numberOf2(cell);
+      return c !== void 0 ? order2(c - n) : op === "<>";
+    };
+  }
+  if (op === "=" || op === "<>") {
+    const re = wildcardRegExp(rest, true);
+    const text = (cell) => typeof cell === "boolean" ? cell ? "TRUE" : "FALSE" : typeof cell === "string" && !isEmpty(cell) ? cell.trim() : void 0;
+    return (cell) => {
+      const t = isError(cell) ? void 0 : text(cell);
+      const matches = t !== void 0 && re.test(t);
+      return op === "=" ? matches : !matches;
+    };
+  }
+  const lower = rest.toLowerCase();
+  return (cell) => {
+    if (typeof cell !== "string" || isEmpty(cell) || numberOf2(cell) !== void 0) return false;
+    const t = cell.trim().toLowerCase();
+    return order2(t < lower ? -1 : t > lower ? 1 : 0);
+  };
+}
+function cellsOf(value) {
+  return isRange(value) ? value : [value];
+}
+function matchingPlaces(pairs, size) {
+  if (pairs.length === 0 || pairs.length % 2 !== 0) {
+    return new FormulaError("#VALUE!", "the conditions come in pairs: a range, then its condition");
+  }
+  const ranges = [];
+  const tests = [];
+  for (let i = 0; i < pairs.length; i += 2) {
+    if (isError(pairs[i])) return pairs[i];
+    const cells = cellsOf(pairs[i]);
+    const condition = single(pairs[i + 1]);
+    if (isError(condition)) return condition;
+    const expected = size ?? ranges[0]?.length ?? cells.length;
+    if (cells.length !== expected) {
+      return new FormulaError("#VALUE!", `the ranges are not the same size (${expected} and ${cells.length} cells)`);
+    }
+    ranges.push(cells);
+    tests.push(criterion(condition));
+  }
+  const places = [];
+  for (let at = 0; at < ranges[0].length; at++) {
+    if (ranges.every((cells, i) => tests[i](cells[at]))) places.push(at);
+  }
+  return places;
+}
+function matchingCells(values, pairs) {
+  if (isError(values)) return values;
+  const cells = cellsOf(values);
+  const places = matchingPlaces(pairs, cells.length);
+  return isError(places) ? places : places.map((at) => cells[at]);
+}
+
 // table-plus/src/formulas/builtin/xlookup.ts
+function order(key, value) {
+  if (key === null || isError(key) || typeof key === "boolean" || typeof value === "boolean") return void 0;
+  if (typeof key === "string" && key.trim() === "") return void 0;
+  const dk = typeof key === "string" ? parseDate(key) : void 0;
+  const dv = typeof value === "string" ? parseDate(value) : void 0;
+  if (dk || dv) return dk && dv ? dk.ms - dv.ms : void 0;
+  const nk = toNumber(key);
+  const nv = toNumber(value);
+  if (!isError(nk) || !isError(nv)) return !isError(nk) && !isError(nv) ? nk - nv : void 0;
+  const tk = toText(key).toLowerCase();
+  const tv = toText(value).toLowerCase();
+  return tk < tv ? -1 : tk > tv ? 1 : 0;
+}
+function find(value, keys, places, mode) {
+  if (mode === 2) {
+    const re = wildcardRegExp(toText(value), true);
+    return places.find((at) => typeof keys[at] === "string" && re.test(keys[at].trim())) ?? -1;
+  }
+  const exact = places.find((at) => sameValue(value, keys[at]));
+  if (exact !== void 0 || mode === 0) return exact ?? -1;
+  let best = -1;
+  for (const at of places) {
+    const o = order(keys[at], value);
+    if (o === void 0 || (mode < 0 ? o > 0 : o < 0)) continue;
+    if (best < 0 || (mode < 0 ? order(keys[at], keys[best]) > 0 : order(keys[at], keys[best]) < 0)) best = at;
+  }
+  return best;
+}
 var xlookup_default = {
   name: "XLOOKUP",
-  syntax: "XLOOKUP(value, lookup_range, result_range, [if_not_found])",
-  description: 'Finds the value in one range or column and gives the value in the same place of another, e.g. XLOOKUP("Pear", prices![Name], prices![Price]); text is found ignoring case. Not found: if_not_found, else #N/A.',
+  syntax: "XLOOKUP(value, lookup_range, result_range, [if_not_found], [match_mode], [search_mode])",
+  description: 'Finds the value in one range or column and gives the value in the same place of another, e.g. XLOOKUP("Pear", prices![Name], prices![Price]); text is found ignoring case. Not found: if_not_found, else #N/A. match_mode: 0 the same value (the default), -1 or else the next smaller, 1 or else the next larger, 2 with wildcards (* any text, ? one character). search_mode: 1 from the first (the default), -1 from the last.',
   category: "lookup",
   example: "=XLOOKUP([@fruit], prices![name], prices![price])",
   minArgs: 3,
-  maxArgs: 4,
-  call: ([value, lookIn, results, notFound]) => {
+  maxArgs: 6,
+  call: ([value, lookIn, results, notFound, matchMode, searchMode]) => {
     const v = single(value);
     if (isError(v)) return v;
     if (isError(lookIn)) return lookIn;
     if (isError(results)) return results;
+    const mode = matchMode === void 0 || matchMode === null ? 0 : toNumber(matchMode);
+    const search = searchMode === void 0 || searchMode === null ? 1 : toNumber(searchMode);
+    if (isError(mode)) return mode;
+    if (isError(search)) return search;
+    if (![0, -1, 1, 2].includes(mode)) return new FormulaError("#VALUE!", `${mode} is not a match_mode: 0, -1, 1 or 2`);
+    if (![1, -1, 2, -2].includes(search)) return new FormulaError("#VALUE!", `${search} is not a search_mode: 1 or -1`);
     const keys = isRange(lookIn) ? lookIn : [lookIn];
     const found = isRange(results) ? results : [results];
     if (keys.length !== found.length) {
       return new FormulaError("#VALUE!", `the ranges are not the same size (${keys.length} and ${found.length} cells)`);
     }
-    const index = keys.findIndex((key) => sameValue(v, key));
-    if (index < 0) return notFound === void 0 ? new FormulaError("#N/A", `"${toText(v)}" is not in the range`) : single(notFound);
+    const places = keys.map((_, at) => at);
+    if (search < 0) places.reverse();
+    const index = find(v, keys, places, mode);
+    if (index < 0) {
+      return notFound === void 0 || notFound === null ? new FormulaError("#N/A", `"${toText(v)}" is not in the range`) : single(notFound);
+    }
     return found[index] ?? null;
   }
 };
@@ -3864,10 +4115,16 @@ var dateadd_default = {
 };
 
 // table-plus/src/formulas/builtin/datedif.ts
+var DAY2 = 864e5;
+function partial(a, b, unit) {
+  if (unit === "ym") return unitsBetween(a, b, "m") % 12;
+  const months = unit === "md" ? unitsBetween(a, b, "m") : unitsBetween(a, b, "y") * 12;
+  return Math.floor((b.ms - addUnits(a, months, "m").ms) / DAY2);
+}
 var datedif_default = {
   name: "DATEDIF",
   syntax: "DATEDIF(start, end, unit)",
-  description: 'How many whole units lie from one date to another, in "s", "min", "h", "d", "w", "m" (months) or "y"; negative when the end is earlier. For days with a fraction, subtract the dates: end - start.',
+  description: 'How many whole units lie from one date to another, in "s", "min", "h", "d", "w", "m" (months) or "y"; negative when the end is earlier. "md", "ym" and "yd" leave out the larger units: the days past the whole months, the months past the whole years, the days past the whole years. For days with a fraction, subtract the dates: end - start.',
   category: "date",
   example: '=DATEDIF([@born], TODAY(), "y")',
   minArgs: 3,
@@ -3875,11 +4132,15 @@ var datedif_default = {
   call: ([start, end, unit]) => {
     const a = toDate(start);
     const b = toDate(end);
-    const u = toUnit(unit);
     if (isError(a)) return a;
     if (isError(b)) return b;
-    if (isError(u)) return u;
-    return unitsBetween(a, b, u);
+    const u = single(unit);
+    const name = typeof u === "string" ? u.trim().toLowerCase() : void 0;
+    if (name === "md" || name === "ym" || name === "yd") {
+      return b.ms < a.ms ? new FormulaError("#NUM!", `"${name}" needs the end after the start`) : partial(a, b, name);
+    }
+    const whole = toUnit(unit);
+    return isError(whole) ? whole : unitsBetween(a, b, whole);
   }
 };
 
@@ -3977,7 +4238,7 @@ var second_default = {
 var weekday_default = {
   name: "WEEKDAY",
   syntax: "WEEKDAY(date, [type])",
-  description: "The day of the week as a number: Sunday 1 to Saturday 7 (type 1, the default), or Monday 1 to Sunday 7 (type 2).",
+  description: "The day of the week as a number: Sunday 1 to Saturday 7 (type 1, the default, and 17), Monday 1 to Sunday 7 (type 2 and 11), Monday 0 to Sunday 6 (type 3), or 1 from Tuesday (12), Wednesday (13), Thursday (14), Friday (15) or Saturday (16).",
   category: "date",
   example: "=WEEKDAY([@date], 2)",
   minArgs: 1,
@@ -3990,7 +4251,9 @@ var weekday_default = {
     const day = partOf(d, "weekday");
     if (t === 1) return day + 1;
     if (t === 2) return day === 0 ? 7 : day;
-    return new FormulaError("#NUM!", `${t} is not a type of WEEKDAY: 1 or 2`);
+    if (t === 3) return (day + 6) % 7;
+    if (Number.isInteger(t) && t >= 11 && t <= 17) return (day - (t - 10) + 7) % 7 + 1;
+    return new FormulaError("#NUM!", `${t} is not a type of WEEKDAY: 1, 2, 3 or 11 to 17`);
   }
 };
 
@@ -4004,6 +4267,596 @@ var row_default = {
   minArgs: 0,
   maxArgs: 0,
   call: (_args, { row }) => row
+};
+
+// table-plus/src/formulas/builtin/sumifs.ts
+var sumifs_default = {
+  name: "SUMIFS",
+  syntax: "SUMIFS(sum_range, criteria_range1, criteria1, [criteria_range2, criteria2], \u2026)",
+  description: 'Adds the cells of sum_range in the places whose cells meet every condition: a value, ">10", "<>done", "app*" (* any text, ? one character), "" (empty) or "<>" (not empty).',
+  category: "math",
+  example: '=SUMIFS([amount], [status], "open", [due], "<"&TODAY())',
+  minArgs: 3,
+  call: ([values, ...conditions]) => {
+    const cells = matchingCells(values, conditions);
+    return isError(cells) ? cells : sum_default.call([cells]);
+  }
+};
+
+// table-plus/src/formulas/builtin/countifs.ts
+var countifs_default = {
+  name: "COUNTIFS",
+  syntax: "COUNTIFS(criteria_range1, criteria1, [criteria_range2, criteria2], \u2026)",
+  description: 'How many places of the ranges have cells that meet every condition: a value, ">10", "<>done", "app*" (* any text, ? one character), "" (empty) or "<>" (not empty).',
+  category: "math",
+  example: '=COUNTIFS([status], "open", [qty], ">10")',
+  minArgs: 2,
+  call: (conditions) => {
+    const places = matchingPlaces(conditions, void 0);
+    return isError(places) ? places : places.length;
+  }
+};
+
+// table-plus/src/formulas/builtin/averageifs.ts
+var averageifs_default = {
+  name: "AVERAGEIFS",
+  syntax: "AVERAGEIFS(average_range, criteria_range1, criteria1, [criteria_range2, criteria2], \u2026)",
+  description: 'The arithmetic mean of the cells of average_range in the places whose cells meet every condition: a value, ">10", "<>done", "app*" (* any text, ? one character), "" (empty) or "<>" (not empty). None: #DIV/0!.',
+  category: "math",
+  example: '=AVERAGEIFS([price], [fruit], "app*")',
+  minArgs: 3,
+  call: ([values, ...conditions]) => {
+    const cells = matchingCells(values, conditions);
+    return isError(cells) ? cells : average_default.call([cells]);
+  }
+};
+
+// table-plus/src/formulas/builtin/maxifs.ts
+var maxifs_default = {
+  name: "MAXIFS",
+  syntax: "MAXIFS(max_range, criteria_range1, criteria1, [criteria_range2, criteria2], \u2026)",
+  description: 'The largest of the cells of max_range in the places whose cells meet every condition: a value, ">10", "<>done", "app*" (* any text, ? one character), "" (empty) or "<>" (not empty). None: 0.',
+  category: "math",
+  example: '=MAXIFS([score], [team], "red")',
+  minArgs: 3,
+  call: ([values, ...conditions]) => {
+    const cells = matchingCells(values, conditions);
+    return isError(cells) ? cells : max_default.call([cells]);
+  }
+};
+
+// table-plus/src/formulas/builtin/minifs.ts
+var minifs_default = {
+  name: "MINIFS",
+  syntax: "MINIFS(min_range, criteria_range1, criteria1, [criteria_range2, criteria2], \u2026)",
+  description: 'The smallest of the cells of min_range in the places whose cells meet every condition: a value, ">10", "<>done", "app*" (* any text, ? one character), "" (empty) or "<>" (not empty). None: 0.',
+  category: "math",
+  example: '=MINIFS([price], [stock], ">0")',
+  minArgs: 3,
+  call: ([values, ...conditions]) => {
+    const cells = matchingCells(values, conditions);
+    return isError(cells) ? cells : min_default.call([cells]);
+  }
+};
+
+// table-plus/src/formulas/builtin/sumproduct.ts
+var sumproduct_default = {
+  name: "SUMPRODUCT",
+  syntax: "SUMPRODUCT(array1, [array2], \u2026)",
+  description: "Multiplies the ranges' cells in the same places and adds the products; a cell that is not a number counts as 0.",
+  category: "math",
+  example: "=SUMPRODUCT([qty], [price])",
+  minArgs: 1,
+  call: (args) => {
+    const error = firstError(args);
+    if (error) return error;
+    const arrays = args.map(cellsOf);
+    const size = arrays[0].length;
+    const other = arrays.find((cells) => cells.length !== size);
+    if (other) return new FormulaError("#VALUE!", `the ranges are not the same size (${size} and ${other.length} cells)`);
+    let total = 0;
+    for (let at = 0; at < size; at++) {
+      total += arrays.reduce((product, cells) => product * (numbers([[cells[at]]])[0] ?? 0), 1);
+    }
+    return total;
+  }
+};
+
+// table-plus/src/formulas/builtin/median.ts
+var median_default = {
+  name: "MEDIAN",
+  syntax: "MEDIAN(number1, [number2], \u2026)",
+  description: "The middle of the numbers (or of the times) in order; of an even count, the mean of the two in the middle.",
+  category: "math",
+  example: "=MEDIAN([price])",
+  minArgs: 1,
+  call: (args) => withNumbers(
+    args,
+    (ns) => {
+      if (!ns.length) return new FormulaError("#NUM!", "no numbers");
+      const sorted = [...ns].sort((a, b) => a - b);
+      const mid = sorted.length >> 1;
+      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    },
+    true
+  )
+};
+
+// table-plus/src/formulas/builtin/large.ts
+var large_default = {
+  name: "LARGE",
+  syntax: "LARGE(array, k)",
+  description: "The k-th largest of the numbers (or of the times): LARGE(A1:A9, 1) is the largest.",
+  category: "math",
+  example: "=LARGE([score], 2)",
+  minArgs: 2,
+  maxArgs: 2,
+  call: ([array, k]) => {
+    const at = toWhole(k);
+    if (isError(at)) return at;
+    return withNumbers(
+      [array],
+      (ns) => at >= 1 && at <= ns.length ? [...ns].sort((a, b) => b - a)[at - 1] : new FormulaError("#NUM!", `k is ${at}, not 1 to ${ns.length} (how many numbers there are)`),
+      true
+    );
+  }
+};
+
+// table-plus/src/formulas/builtin/small.ts
+var small_default = {
+  name: "SMALL",
+  syntax: "SMALL(array, k)",
+  description: "The k-th smallest of the numbers (or of the times): SMALL(A1:A9, 1) is the smallest.",
+  category: "math",
+  example: "=SMALL([time], 1)",
+  minArgs: 2,
+  maxArgs: 2,
+  call: ([array, k]) => {
+    const at = toWhole(k);
+    if (isError(at)) return at;
+    return withNumbers(
+      [array],
+      (ns) => at >= 1 && at <= ns.length ? [...ns].sort((a, b) => a - b)[at - 1] : new FormulaError("#NUM!", `k is ${at}, not 1 to ${ns.length} (how many numbers there are)`),
+      true
+    );
+  }
+};
+
+// table-plus/src/formulas/builtin/rank.ts
+var rank_default = {
+  name: "RANK",
+  syntax: "RANK(number, ref, [order])",
+  description: "The number's place among the numbers of ref: 1 for the largest (order 0, the default), or for the smallest (order 1); equal numbers share a place.",
+  category: "math",
+  example: "=RANK([@score], [score])",
+  minArgs: 2,
+  maxArgs: 3,
+  call: ([number, ref, order2 = 0]) => {
+    const n = toNumber(number);
+    const ns = numbers([ref]);
+    const ascending = toNumber(order2);
+    if (isError(n)) return n;
+    if (isError(ns)) return ns;
+    if (isError(ascending)) return ascending;
+    if (!ns.includes(n)) return new FormulaError("#N/A", `${formatNumber2(n)} is not among the numbers ranked`);
+    return 1 + ns.filter((x) => ascending ? x < n : x > n).length;
+  }
+};
+
+// table-plus/src/formulas/builtin/stdev.ts
+var stdev_default = {
+  name: "STDEV",
+  syntax: "STDEV(number1, [number2], \u2026)",
+  description: "The standard deviation of the numbers as a sample (divided by their count less one); of times, a time.",
+  category: "math",
+  example: "=STDEV([score])",
+  minArgs: 1,
+  call: (args) => withNumbers(args, (ns) => {
+    if (ns.length < 2) return new FormulaError("#DIV/0!", "a standard deviation needs two numbers at least");
+    const mean = ns.reduce((a, b) => a + b, 0) / ns.length;
+    return Math.sqrt(ns.reduce((sum, x) => sum + (x - mean) ** 2, 0) / (ns.length - 1));
+  }, true)
+};
+
+// table-plus/src/formulas/builtin/mod.ts
+var mod_default = {
+  name: "MOD",
+  syntax: "MOD(number, divisor)",
+  description: "The remainder after dividing the number by the divisor, with the divisor's sign. Of a time, a time: MOD([@end] - [@start], 1) is the length of a shift past midnight.",
+  category: "math",
+  example: "=MOD(ROW(), 2)",
+  minArgs: 2,
+  maxArgs: 2,
+  call: ([number, divisor]) => {
+    const n = toNumber(number);
+    const d = toNumber(divisor);
+    if (isError(n)) return n;
+    if (isError(d)) return d;
+    if (d === 0) return new FormulaError("#DIV/0!", "division by zero");
+    if (Math.abs(n / d) >= 2 ** 53) return new FormulaError("#NUM!", "the number is too large for the divisor");
+    const result = tidy(n - d * Math.floor(tidy(n / d)), n);
+    return asTime(single(number)) ? new TimeValue(Math.round(result * DAY_SECONDS)) : result;
+  }
+};
+
+// table-plus/src/formulas/builtin/roundup.ts
+var roundup_default = {
+  name: "ROUNDUP",
+  syntax: "ROUNDUP(number, [digits])",
+  description: "Rounds away from zero to the given number of decimal places (default 0; negative: tens, hundreds\u2026).",
+  category: "math",
+  example: "=ROUNDUP([@hours], 0)",
+  minArgs: 1,
+  maxArgs: 2,
+  call: ([number, digits = 0]) => {
+    const n = toNumber(number);
+    const d = toNumber(digits);
+    if (isError(n)) return n;
+    if (isError(d)) return d;
+    const factor = 10 ** Math.trunc(d);
+    return tidy(Math.sign(n) * Math.ceil(tidy(Math.abs(n) * factor)) / factor);
+  }
+};
+
+// table-plus/src/formulas/builtin/rounddown.ts
+var rounddown_default = {
+  name: "ROUNDDOWN",
+  syntax: "ROUNDDOWN(number, [digits])",
+  description: "Rounds toward zero to the given number of decimal places (default 0; negative: tens, hundreds\u2026).",
+  category: "math",
+  example: "=ROUNDDOWN([@price] * 0.85, 2)",
+  minArgs: 1,
+  maxArgs: 2,
+  call: ([number, digits = 0]) => {
+    const n = toNumber(number);
+    const d = toNumber(digits);
+    if (isError(n)) return n;
+    if (isError(d)) return d;
+    const factor = 10 ** Math.trunc(d);
+    return tidy(Math.sign(n) * Math.floor(tidy(Math.abs(n) * factor)) / factor);
+  }
+};
+
+// table-plus/src/formulas/builtin/ceiling.ts
+var ceiling_default = {
+  name: "CEILING",
+  syntax: "CEILING(number, [significance])",
+  description: 'Rounds up to a multiple of the significance (default 1). Of a time, a time: CEILING("9:07", "0:15") is 09:15.',
+  category: "math",
+  example: "=CEILING([@price], 0.05)",
+  minArgs: 1,
+  maxArgs: 2,
+  call: ([number, significance = 1]) => {
+    const n = toNumber(number);
+    const s = toNumber(significance);
+    if (isError(n)) return n;
+    if (isError(s)) return s;
+    const step = Math.abs(s);
+    const result = step === 0 ? 0 : tidy(Math.ceil(tidy(n / step)) * step);
+    return asTime(single(number)) ? new TimeValue(Math.round(result * DAY_SECONDS)) : result;
+  }
+};
+
+// table-plus/src/formulas/builtin/floor.ts
+var floor_default = {
+  name: "FLOOR",
+  syntax: "FLOOR(number, [significance])",
+  description: 'Rounds down to a multiple of the significance (default 1). Of a time, a time: FLOOR("9:07", "0:15") is 09:00.',
+  category: "math",
+  example: '=FLOOR([@start], "0:15")',
+  minArgs: 1,
+  maxArgs: 2,
+  call: ([number, significance = 1]) => {
+    const n = toNumber(number);
+    const s = toNumber(significance);
+    if (isError(n)) return n;
+    if (isError(s)) return s;
+    const step = Math.abs(s);
+    const result = step === 0 ? 0 : tidy(Math.floor(tidy(n / step)) * step);
+    return asTime(single(number)) ? new TimeValue(Math.round(result * DAY_SECONDS)) : result;
+  }
+};
+
+// table-plus/src/formulas/builtin/mround.ts
+var mround_default = {
+  name: "MROUND",
+  syntax: "MROUND(number, multiple)",
+  description: 'Rounds to the nearest multiple, halves away from zero. Of a time, a time: MROUND("9:08", "0:15") is 09:15.',
+  category: "math",
+  example: "=MROUND([@price], 0.05)",
+  minArgs: 2,
+  maxArgs: 2,
+  call: ([number, multiple]) => {
+    const n = toNumber(number);
+    const m = toNumber(multiple);
+    if (isError(n)) return n;
+    if (isError(m)) return m;
+    if (n * m < 0) return new FormulaError("#NUM!", "the number and the multiple have different signs");
+    const q = m === 0 ? 0 : tidy(n / m);
+    const result = tidy(Math.sign(q) * Math.round(Math.abs(q)) * m);
+    return asTime(single(number)) ? new TimeValue(Math.round(result * DAY_SECONDS)) : result;
+  }
+};
+
+// table-plus/src/formulas/builtin/len.ts
+var len_default = {
+  name: "LEN",
+  syntax: "LEN(text)",
+  description: "How many characters the text has.",
+  category: "text",
+  example: "=LEN([@code])",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([text]) => {
+    const t = toText(text);
+    return isError(t) ? t : t.length;
+  }
+};
+
+// table-plus/src/formulas/builtin/mid.ts
+var mid_default = {
+  name: "MID",
+  syntax: "MID(text, start, count)",
+  description: "The given count of characters of the text, from the start (1 is the first character).",
+  category: "text",
+  example: "=MID([@code], 4, 2)",
+  minArgs: 3,
+  maxArgs: 3,
+  call: ([text, start, count]) => {
+    const t = toText(text);
+    const s = toWhole(start);
+    const c = toWhole(count);
+    if (isError(t)) return t;
+    if (isError(s)) return s;
+    if (isError(c)) return c;
+    if (s < 1) return new FormulaError("#VALUE!", `the start is ${s}: the first character is 1`);
+    if (c < 0) return new FormulaError("#VALUE!", "the count is less than 0");
+    return t.substr(s - 1, c);
+  }
+};
+
+// table-plus/src/formulas/builtin/upper.ts
+var upper_default = {
+  name: "UPPER",
+  syntax: "UPPER(text)",
+  description: "The text in capital letters.",
+  category: "text",
+  example: "=UPPER([@code])",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([text]) => {
+    const t = toText(text);
+    return isError(t) ? t : t.toUpperCase();
+  }
+};
+
+// table-plus/src/formulas/builtin/lower.ts
+var lower_default = {
+  name: "LOWER",
+  syntax: "LOWER(text)",
+  description: "The text in small letters.",
+  category: "text",
+  example: "=LOWER([@email])",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([text]) => {
+    const t = toText(text);
+    return isError(t) ? t : t.toLowerCase();
+  }
+};
+
+// table-plus/src/formulas/builtin/proper.ts
+var proper_default = {
+  name: "PROPER",
+  syntax: "PROPER(text)",
+  description: "The text with each word's first letter capital and the others small.",
+  category: "text",
+  example: "=PROPER([@name])",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([text]) => {
+    const t = toText(text);
+    return isError(t) ? t : t.replace(/\p{L}+/gu, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+  }
+};
+
+// table-plus/src/formulas/builtin/trim.ts
+var trim_default = {
+  name: "TRIM",
+  syntax: "TRIM(text)",
+  description: "The text without spaces at its start and end, and with one space where there were several.",
+  category: "text",
+  example: "=TRIM([@name])",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([text]) => {
+    const t = toText(text);
+    return isError(t) ? t : t.replace(/^ +| +$/g, "").replace(/ {2,}/g, " ");
+  }
+};
+
+// table-plus/src/formulas/builtin/substitute.ts
+var substitute_default = {
+  name: "SUBSTITUTE",
+  syntax: "SUBSTITUTE(text, old_text, new_text, [instance])",
+  description: "The text with old_text (matching case) replaced by new_text: everywhere, or only its instance-th occurrence.",
+  category: "text",
+  example: '=SUBSTITUTE([@phone], " ", "")',
+  minArgs: 3,
+  maxArgs: 4,
+  call: ([text, oldText, newText, instance]) => {
+    const t = toText(text);
+    const from = toText(oldText);
+    const to = toText(newText);
+    if (isError(t)) return t;
+    if (isError(from)) return from;
+    if (isError(to)) return to;
+    if (instance === void 0 || instance === null) return from === "" ? t : t.split(from).join(to);
+    const n = toWhole(instance);
+    if (isError(n)) return n;
+    if (n < 1) return new FormulaError("#VALUE!", `the instance is ${n}: the first is 1`);
+    if (from === "") return t;
+    let at = -1;
+    for (let i = 0; i < n; i++) {
+      at = t.indexOf(from, at + (i ? from.length : 1));
+      if (at < 0) return t;
+    }
+    return t.slice(0, at) + to + t.slice(at + from.length);
+  }
+};
+
+// table-plus/src/formulas/builtin/search.ts
+var search_default = {
+  name: "SEARCH",
+  syntax: "SEARCH(find_text, within_text, [start])",
+  description: "Where find_text first is in within_text, from the start (default 1, the first character), ignoring case; * any text, ? one character, ~ before either for itself. Not found: #VALUE!.",
+  category: "text",
+  example: '=SEARCH("-", [@code])',
+  minArgs: 2,
+  maxArgs: 3,
+  call: ([find2, within, start = 1]) => {
+    const f = toText(find2);
+    const w = toText(within);
+    const s = toWhole(start);
+    if (isError(f)) return f;
+    if (isError(w)) return w;
+    if (isError(s)) return s;
+    if (s < 1 || s > w.length + 1) return new FormulaError("#VALUE!", `the start is ${s}: the text has ${w.length} characters`);
+    const m = wildcardRegExp(f, false).exec(w.slice(s - 1));
+    return m ? s + m.index : new FormulaError("#VALUE!", `"${f}" is not in "${w}"`);
+  }
+};
+
+// table-plus/src/formulas/builtin/textjoin.ts
+var textjoin_default = {
+  name: "TEXTJOIN",
+  syntax: "TEXTJOIN(delimiter, ignore_empty, text1, [text2], \u2026)",
+  description: 'Joins the values (ranges too) into one text with the delimiter between them; with ignore_empty TRUE, empty ones are left out: TEXTJOIN(", ", TRUE, [name]).',
+  category: "text",
+  example: '=TEXTJOIN(", ", TRUE, [tag])',
+  minArgs: 3,
+  call: ([delimiter, ignoreEmpty, ...texts]) => {
+    const error = firstError(texts);
+    if (error) return error;
+    const d = toText(delimiter);
+    const ignore = toBoolean(ignoreEmpty);
+    if (isError(d)) return d;
+    if (isError(ignore)) return ignore;
+    return flatten(texts).map((v) => toText(v)).filter((t) => !ignore || t !== "").join(d);
+  }
+};
+
+// table-plus/src/formulas/builtin/isnumber.ts
+var isnumber_default = {
+  name: "ISNUMBER",
+  syntax: "ISNUMBER(value)",
+  description: "TRUE if the value is a number, a time or text that reads as a number (12.5, 12,99 \u20AC, 15 %), as COUNT counts them; FALSE otherwise.",
+  category: "logic",
+  example: '=IF(ISNUMBER([@qty]), [@qty] * [@price], "")',
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([value]) => {
+    const v = single(value);
+    if (v === null || isError(v) || typeof v === "boolean" || typeof v === "string" && v.trim() === "") return false;
+    return !isError(toNumber(v));
+  }
+};
+
+// table-plus/src/formulas/builtin/networkdays.ts
+var isWorkday = (day) => weekdayOf(day) !== 0 && weekdayOf(day) !== 6;
+var networkdays_default = {
+  name: "NETWORKDAYS",
+  syntax: "NETWORKDAYS(start, end, [holidays])",
+  description: "How many working days (Monday to Friday) there are from the start to the end, both counted, without the holidays (dates, a range of them); negative when the end is earlier.",
+  category: "date",
+  example: "=NETWORKDAYS([@start], [@end], holidays![date])",
+  minArgs: 2,
+  maxArgs: 3,
+  call: ([start, end, holidays]) => {
+    const a = toDate(start);
+    const b = toDate(end);
+    const off = holidayDays(holidays);
+    if (isError(a)) return a;
+    if (isError(b)) return b;
+    if (isError(off)) return off;
+    const from = Math.min(dayNumber(a), dayNumber(b));
+    const to = Math.max(dayNumber(a), dayNumber(b));
+    const weeks = Math.floor((to - from + 1) / 7);
+    let count = weeks * 5;
+    for (let day = from + weeks * 7; day <= to; day++) if (isWorkday(day)) count++;
+    for (const day of off) if (day >= from && day <= to && isWorkday(day)) count--;
+    return dayNumber(a) <= dayNumber(b) ? count : -count;
+  }
+};
+
+// table-plus/src/formulas/builtin/workday.ts
+var MOST_DAYS = 27e5;
+var workday_default = {
+  name: "WORKDAY",
+  syntax: "WORKDAY(start, days, [holidays])",
+  description: "The date the given count of working days (Monday to Friday) after the start, leaving out the holidays (dates, a range of them); a negative count goes back.",
+  category: "date",
+  example: "=WORKDAY([@ordered], 5, holidays![date])",
+  minArgs: 2,
+  maxArgs: 3,
+  call: ([start, days, holidays]) => {
+    const a = toDate(start);
+    const n = toWhole(days);
+    const off = holidayDays(holidays);
+    if (isError(a)) return a;
+    if (isError(n)) return n;
+    if (isError(off)) return off;
+    if (Math.abs(n) > MOST_DAYS) return new FormulaError("#NUM!", "the date is not in the years 0 to 9999");
+    const step = Math.sign(n);
+    let day = dayNumber(a);
+    for (let left = Math.abs(n); left > 0; ) {
+      day += step;
+      if (weekdayOf(day) !== 0 && weekdayOf(day) !== 6 && !off.has(day)) left--;
+    }
+    return dayDate(day);
+  }
+};
+
+// table-plus/src/formulas/builtin/isoweeknum.ts
+var isoweeknum_default = {
+  name: "ISOWEEKNUM",
+  syntax: "ISOWEEKNUM(date)",
+  description: "The week of the year by ISO 8601, 1 to 53: weeks start on Monday, and week 1 is the one with the year's first Thursday.",
+  category: "date",
+  example: "=ISOWEEKNUM([@date])",
+  minArgs: 1,
+  maxArgs: 1,
+  call: ([date]) => {
+    const d = toDate(date);
+    if (isError(d)) return d;
+    const day = dayNumber(d);
+    const thursday = day + 3 - (weekdayOf(day) + 6) % 7;
+    const yearStart = new Date(thursday * 864e5);
+    yearStart.setUTCMonth(0, 1);
+    return Math.floor((thursday - Math.floor(yearStart.getTime() / 864e5)) / 7) + 1;
+  }
+};
+
+// table-plus/src/formulas/builtin/eomonth.ts
+var eomonth_default = {
+  name: "EOMONTH",
+  syntax: "EOMONTH(start, months)",
+  description: "The last day of the month the given count of months after the start's (0: its own month; negative: before).",
+  category: "date",
+  example: "=EOMONTH([@invoiced], 1)",
+  minArgs: 2,
+  maxArgs: 2,
+  call: ([start, months]) => {
+    const d = toDate(start);
+    const n = toWhole(months);
+    if (isError(d)) return d;
+    if (isError(n)) return n;
+    const first = new Date(dayNumber(d) * 864e5);
+    first.setUTCDate(1);
+    const moved2 = new Date(addUnits({ ms: first.getTime(), time: false }, n + 1, "m").ms);
+    moved2.setUTCDate(0);
+    return formatDate({ ms: moved2.getTime(), time: false });
+  }
 };
 
 // table-plus/src/formulas/builtin/index.ts
@@ -4039,7 +4892,38 @@ var ALL = [
   int_default,
   text_default,
   xlookup_default,
-  row_default
+  row_default,
+  sumifs_default,
+  countifs_default,
+  averageifs_default,
+  maxifs_default,
+  minifs_default,
+  sumproduct_default,
+  median_default,
+  large_default,
+  small_default,
+  rank_default,
+  stdev_default,
+  mod_default,
+  roundup_default,
+  rounddown_default,
+  ceiling_default,
+  floor_default,
+  mround_default,
+  len_default,
+  mid_default,
+  upper_default,
+  lower_default,
+  proper_default,
+  trim_default,
+  substitute_default,
+  search_default,
+  textjoin_default,
+  isnumber_default,
+  networkdays_default,
+  workday_default,
+  isoweeknum_default,
+  eomonth_default
 ];
 var BUILT_IN_FUNCTIONS = Object.fromEntries(ALL.map((f) => [f.name, f]));
 
@@ -4409,7 +5293,7 @@ var Parser = class {
       if (this.peekOp(")")) this.at++;
       else {
         for (; ; ) {
-          args.push(this.comparison());
+          args.push(this.peekOp(",", ";") ? { kind: "literal", value: null } : this.comparison());
           if (this.peekOp(",", ";")) {
             this.at++;
             continue;
@@ -10556,14 +11440,14 @@ var Controller = class {
     const values = rows.map((tr) => Array.from(tr.cells).map(cellValue));
     const { top, bottom } = info.pins;
     const middle = visibleRows(values, withPins(view, info.pins));
-    const order = [
+    const order2 = [
       ...rows.slice(0, top).map((_, i) => i + 1),
       ...middle.map((i) => i + 1),
       ...rows.slice(rows.length - bottom).map((_, i) => rows.length - bottom + i + 1)
     ];
     this.views.set(info.key, withoutSort(view));
-    const position = new Map(order.map((row, i) => [row, i + 1]));
-    await this.write(widget, (t) => withMetaSort(reorderRows(t, order), void 0), {
+    const position = new Map(order2.map((row, i) => [row, i + 1]));
+    await this.write(widget, (t) => withMetaSort(reorderRows(t, order2), void 0), {
       rowMap: (r) => r === 0 ? 0 : position.get(r)
     });
     this.focusEditor(widget);
@@ -10991,12 +11875,12 @@ var Controller = class {
    * The rows shown (indexes of the body rows), with the held row of this table
    * shown beside its anchors, whether the sorting and filters would show it there or not
    */
-  withHeldRow(info, order, count) {
+  withHeldRow(info, order2, count) {
     const held = this.held;
     const { top, bottom } = info.pins;
-    if (held?.key !== info.key || held.row - 1 < top || held.row - 1 >= count - bottom) return order;
+    if (held?.key !== info.key || held.row - 1 < top || held.row - 1 >= count - bottom) return order2;
     const index = held.row - 1;
-    const rest = order.filter((i) => i !== index);
+    const rest = order2.filter((i) => i !== index);
     const after = held.after === void 0 ? -1 : rest.indexOf(held.after - 1);
     const before = held.before === void 0 ? -1 : rest.indexOf(held.before - 1);
     const at = after >= 0 ? after + 1 : before >= 0 ? before : rest.length;
@@ -11077,8 +11961,8 @@ var Controller = class {
     const values = rows.map((tr) => Array.from(tr.cells).map((cell) => this.cellValue(cell)));
     const hidden = /* @__PURE__ */ new Set();
     for (const feature of this.features) for (const i of feature.hiddenRows?.(info, values) ?? []) hidden.add(i);
-    const order = this.withHeldRow(info, visibleRows(values, withPins(view, info.pins), hidden), rows.length);
-    const shown = new Set(order);
+    const order2 = this.withHeldRow(info, visibleRows(values, withPins(view, info.pins), hidden), rows.length);
+    const shown = new Set(order2);
     const body = info.table.tBodies[0] ?? info.table;
     rows.forEach((tr, i) => {
       const pinned = i < top || i >= rows.length - bottom;
@@ -11087,13 +11971,13 @@ var Controller = class {
     const metaRow2 = info.table.querySelector("tr.tp-meta-row");
     const middle = rows.filter((_, i) => i >= top && i < rows.length - bottom);
     const bodyRows = [
-      ...order.map((i) => rows[i]),
+      ...order2.map((i) => rows[i]),
       ...middle.filter((tr) => tr.classList.contains("tp-hidden")),
       ...metaRow2 ? [metaRow2] : []
     ];
     const editing = this.cellEditor.active?.widget === widget ? this.cellEditor.active : void 0;
     const selection = editing && [editing.field.selectionStart, editing.field.selectionEnd];
-    const shownBody = order.map((i) => rows[i]);
+    const shownBody = order2.map((i) => rows[i]);
     this.shownOrder.set(info.table, [info.table.rows[0], ...rows.slice(0, top), ...shownBody, ...rows.slice(rows.length - bottom)]);
     this.movingRows = true;
     try {

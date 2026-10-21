@@ -282,33 +282,68 @@ The *Functions* dialog shows them all: **Functions…** (fx) under a formula bei
 | `PRODUCT(number1, [number2], …)` | Multiplies the numbers. |
 | `COUNT(value1, [value2], …)` | How many of the values are numbers. |
 | `COUNTA(value1, [value2], …)` | How many of the values are not empty. |
+| `SUMIFS(sum_range, criteria_range1, criteria1, [criteria_range2, criteria2], …)` | Adds the cells of sum_range in the places whose cells meet every condition: a value, ">10", "<>done", "app*" (* any text, ? one character), "" (empty) or "<>" (not empty). |
+| `COUNTIFS(criteria_range1, criteria1, [criteria_range2, criteria2], …)` | How many places of the ranges have cells that meet every condition: a value, ">10", "<>done", "app*" (* any text, ? one character), "" (empty) or "<>" (not empty). |
+| `AVERAGEIFS(average_range, criteria_range1, criteria1, [criteria_range2, criteria2], …)` | The arithmetic mean of the cells of average_range in the places whose cells meet every condition: a value, ">10", "<>done", "app*" (* any text, ? one character), "" (empty) or "<>" (not empty). None: #DIV/0!. |
+| `MAXIFS(max_range, criteria_range1, criteria1, [criteria_range2, criteria2], …)` | The largest of the cells of max_range in the places whose cells meet every condition: a value, ">10", "<>done", "app*" (* any text, ? one character), "" (empty) or "<>" (not empty). None: 0. |
+| `MINIFS(min_range, criteria_range1, criteria1, [criteria_range2, criteria2], …)` | The smallest of the cells of min_range in the places whose cells meet every condition: a value, ">10", "<>done", "app*" (* any text, ? one character), "" (empty) or "<>" (not empty). None: 0. |
+| `SUMPRODUCT(array1, [array2], …)` | Multiplies the ranges' cells in the same places and adds the products; a cell that is not a number counts as 0. |
+| `MEDIAN(number1, [number2], …)` | The middle of the numbers (or of the times) in order; of an even count, the mean of the two in the middle. |
+| `LARGE(array, k)` | The k-th largest of the numbers (or of the times): LARGE(A1:A9, 1) is the largest. |
+| `SMALL(array, k)` | The k-th smallest of the numbers (or of the times): SMALL(A1:A9, 1) is the smallest. |
+| `RANK(number, ref, [order])` | The number's place among the numbers of ref: 1 for the largest (order 0, the default), or for the smallest (order 1); equal numbers share a place. |
+| `STDEV(number1, [number2], …)` | The standard deviation of the numbers as a sample (divided by their count less one); of times, a time. |
 | `INT(number)` | The number rounded down to a whole number; for a time, its whole days (INT(SUM(A1:A2)) of 14:00 and 20:00 is 1). |
 | `ROUND(number, [digits])` | Rounds to the given number of decimal places (default 0), halves away from zero. |
+| `ROUNDUP(number, [digits])` | Rounds away from zero to the given number of decimal places (default 0; negative: tens, hundreds…). |
+| `ROUNDDOWN(number, [digits])` | Rounds toward zero to the given number of decimal places (default 0; negative: tens, hundreds…). |
+| `MROUND(number, multiple)` | Rounds to the nearest multiple, halves away from zero. Of a time, a time: MROUND("9:08", "0:15") is 09:15. |
+| `CEILING(number, [significance])` | Rounds up to a multiple of the significance (default 1). Of a time, a time: CEILING("9:07", "0:15") is 09:15. |
+| `FLOOR(number, [significance])` | Rounds down to a multiple of the significance (default 1). Of a time, a time: FLOOR("9:07", "0:15") is 09:00. |
+| `MOD(number, divisor)` | The remainder after dividing the number by the divisor, with the divisor's sign. Of a time, a time: MOD([@end] - [@start], 1) is the length of a shift past midnight. |
 | `ABS(number)` | The number without its sign. |
 | `IF(condition, value_if_true, [value_if_false])` | One value if the condition is true, another if it is false (default FALSE). |
 | `IFERROR(value, value_if_error)` | The value, or the second value if the first is an error. |
 | `AND(logical1, [logical2], …)` | TRUE if all of the values are true. |
 | `OR(logical1, [logical2], …)` | TRUE if any of the values is true. |
 | `NOT(logical)` | TRUE if the value is false, FALSE if it is true. |
+| `ISNUMBER(value)` | TRUE if the value is a number, a time or text that reads as a number (12.5, 12,99 €, 15 %), as COUNT counts them; FALSE otherwise. |
 | `CONCAT(text1, [text2], …)` | Joins the values into one text. |
+| `TEXTJOIN(delimiter, ignore_empty, text1, [text2], …)` | Joins the values (ranges too) into one text with the delimiter between them; with ignore_empty TRUE, empty ones are left out: TEXTJOIN(", ", TRUE, [name]). |
+| `LEN(text)` | How many characters the text has. |
+| `MID(text, start, count)` | The given count of characters of the text, from the start (1 is the first character). |
+| `SEARCH(find_text, within_text, [start])` | Where find_text first is in within_text, from the start (default 1, the first character), ignoring case; * any text, ? one character, ~ before either for itself. Not found: #VALUE!. |
+| `SUBSTITUTE(text, old_text, new_text, [instance])` | The text with old_text (matching case) replaced by new_text: everywhere, or only its instance-th occurrence. |
+| `UPPER(text)` | The text in capital letters. |
+| `LOWER(text)` | The text in small letters. |
+| `PROPER(text)` | The text with each word's first letter capital and the others small. |
+| `TRIM(text)` | The text without spaces at its start and end, and with one space where there were several. |
 | `ROW()` | The row of the cell the formula is in, counted in the table as written: 1 is the first row under the header. =ROW() in every row of a column numbers the rows. |
-| `XLOOKUP(value, lookup_range, result_range, [if_not_found])` | Finds the value in one range or column and gives the value in the same place of another, e.g. XLOOKUP("Pear", prices![Name], prices![Price]); text is found ignoring case. Not found: if_not_found, else #N/A. |
-| `TEXT(value, format)` | A date or a time as text in a format: TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is. |
+| `XLOOKUP(value, lookup_range, result_range, [if_not_found], [match_mode], [search_mode])` | Finds the value in one range or column and gives the value in the same place of another, e.g. XLOOKUP("Pear", prices![Name], prices![Price]); text is found ignoring case. Not found: if_not_found, else #N/A. match_mode: 0 the same value (the default), -1 or else the next smaller, 1 or else the next larger, 2 with wildcards (* any text, ? one character). search_mode: 1 from the first (the default), -1 from the last. |
+| `TEXT(value, format)` | A number, a date or a time as text in a format: TEXT(A1, "#,##0.00"), TEXT(A1, "0%"), TEXT(A1, "dd.mm.yyyy hh:mm"), TEXT(A1, "[h]:mm") for all the hours of a length of time. Number codes: 0 (a digit), # (a digit where it counts), , (thousands), . (decimals), %, and ; between formats of positive;negative;zero numbers ("0.00;(0.00)"); date codes: yyyy, yy, m, mm, d, dd, h, hh, m, mm (minutes), s, ss, [h], [m], [s]; text in quotes as it is. |
 | `TODAY()` | Today's date, e.g. 2025-11-06. The result is written when the table is calculated: the next day, Recalculate updates it. |
 | `NOW()` | The date and time now, e.g. 2025-11-06 14:30:15. The result is written when the table is calculated: Recalculate updates it. |
 | `DATE(year, month, day)` | The date of a year, month and day; a month or day past its end carries over (DATE(2025, 13, 1) is 2026-01-01). |
 | `TIME(hour, [minute], [second])` | A time of day, e.g. 14:30; past midnight it starts again (TIME(25, 0) is 01:00). Added to a date it gives the date with that time: DATE(2025, 11, 6) + TIME(14, 30) is 2025-11-06 14:30. |
 | `DATEADD(date, amount, unit)` | The date plus an amount of a unit: "s", "min", "h", "d", "w", "m" (months) or "y" (or their names, "hours"). A negative amount goes back. Months and years keep the day or take the month's last. |
-| `DATEDIF(start, end, unit)` | How many whole units lie from one date to another, in "s", "min", "h", "d", "w", "m" (months) or "y"; negative when the end is earlier. For days with a fraction, subtract the dates: end - start. |
+| `DATEDIF(start, end, unit)` | How many whole units lie from one date to another, in "s", "min", "h", "d", "w", "m" (months) or "y"; negative when the end is earlier. "md", "ym" and "yd" leave out the larger units: the days past the whole months, the months past the whole years, the days past the whole years. For days with a fraction, subtract the dates: end - start. |
 | `YEAR(date)` | The year of a date. |
 | `MONTH(date)` | The month of a date, 1 to 12. |
 | `DAY(date)` | The day of a date's month, 1 to 31. |
 | `HOUR(time)` | The hour of a time, or of a date's time, 0 to 23 (0 for a date without a time). |
 | `MINUTE(time)` | The minute of a time, or of a date's time, 0 to 59. |
 | `SECOND(time)` | The second of a time, or of a date's time, 0 to 59. |
-| `WEEKDAY(date, [type])` | The day of the week as a number: Sunday 1 to Saturday 7 (type 1, the default), or Monday 1 to Sunday 7 (type 2). |
+| `WEEKDAY(date, [type])` | The day of the week as a number: Sunday 1 to Saturday 7 (type 1, the default, and 17), Monday 1 to Sunday 7 (type 2 and 11), Monday 0 to Sunday 6 (type 3), or 1 from Tuesday (12), Wednesday (13), Thursday (14), Friday (15) or Saturday (16). |
+| `ISOWEEKNUM(date)` | The week of the year by ISO 8601, 1 to 53: weeks start on Monday, and week 1 is the one with the year's first Thursday. |
+| `EOMONTH(start, months)` | The last day of the month the given count of months after the start's (0: its own month; negative: before). |
+| `NETWORKDAYS(start, end, [holidays])` | How many working days (Monday to Friday) there are from the start to the end, both counted, without the holidays (dates, a range of them); negative when the end is earlier. |
+| `WORKDAY(start, days, [holidays])` | The date the given count of working days (Monday to Friday) after the start, leaving out the holidays (dates, a range of them); a negative count goes back. |
 
 In ranges, empty cells and text that is not a number are skipped by the number functions.
+
+Conditions of `SUMIFS`, `COUNTIFS`, `AVERAGEIFS`, `MAXIFS` and `MINIFS` are written as in spreadsheets, in quotes: `"open"` (the same text, ignoring case), `">10"`, `"<=2025-12-31"`, `"<>done"`, `"app*"` (`*` any text, `?` one character, `~*` a star), `""` (an empty cell), `"<>"` (a cell that is not empty), or joined with a value: `">"&[@limit]`, `"<"&TODAY()`. They are not the filter row's syntax.
+
+An optional argument can be left out between others: `XLOOKUP([@score], [min], [grade], , -1)`.
 
 ### Custom functions
 
@@ -358,8 +393,8 @@ Then `=VAT([@price])` works in every table, and typing it shows its syntax and d
 | `#NAME?` | An unknown function, or a name no cell on the page (or on the page named) has |
 | `#VALUE!` | A value of the wrong kind (text where a number is needed), or a wrong number of arguments |
 | `#DIV/0!` | Division by zero, or an average of no numbers |
-| `#NUM!` | A result that is not a finite number |
-| `#N/A` | `XLOOKUP` did not find the value |
+| `#NUM!` | A result that is not a finite number, or a number a function cannot take (`LARGE` with k past the count, `WEEKDAY` with an unknown type) |
+| `#N/A` | `XLOOKUP` did not find the value, or `RANK` the number |
 | `#CYCLE!` | The formula depends on its own result |
 | `#ERROR!` | The formula cannot be read (e.g. a missing `)`) |
 

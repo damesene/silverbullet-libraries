@@ -96,6 +96,30 @@ describe("formulas in cells", () => {
 });
 
 describe("evaluation", () => {
+  it("counts and adds by conditions on the table's columns", () => {
+    expect(evaluate(FRUIT, '=SUMIFS([qty], [price], ">5")')).toBe("3");
+    expect(evaluate(FRUIT, '=COUNTIFS([name], "*e*")')).toBe("2");
+    // The total row (this formula's) is not in [price]
+    expect(evaluate(FRUIT, '=COUNTIFS([price], "")')).toBe("1");
+    expect(evaluate(FRUIT, '=COUNTIFS([price], "<>")')).toBe("2");
+    expect(evaluate(FRUIT, '=AVERAGEIFS([qty], [name], "<>fig")')).toBe("6,5");
+    expect(evaluate(FRUIT, '=SUMIFS([qty], [qty], ">"&B1)')).toBe("10");
+    expect(evaluate(FRUIT, "=SUMPRODUCT([qty], [price])")).toBe("82,5");
+    expect(evaluate(FRUIT, "=RANK(B2, [qty])")).toBe("1");
+    // Cells that read as numbers join as numbers, as with CONCAT
+    expect(evaluate(FRUIT, '=TEXTJOIN(", ", TRUE, [price])')).toBe("12.5, 4.5");
+  });
+
+  it("takes an argument left out as not given", () => {
+    const GRADES = ["| Min | Grade | Result |", "|---|---|---|", "| 0 | F | |", "| 50 | C | |", "| 70 | B | |", "| 90 | A | 75 |"].join("\n");
+    const at = { row: 1, column: 2 };
+    expect(evaluate(GRADES, "=XLOOKUP(C4, A1:A4, B1:B4, , -1)", at)).toBe("B");
+    expect(evaluate(GRADES, "=XLOOKUP(5, A1:A4, B1:B4, , 1)", at)).toBe("C");
+    expect(evaluate(GRADES, "=XLOOKUP(95, A1:A4, B1:B4, , 1)", at)).toBe("#N/A");
+    expect(evaluate(GRADES, "=XLOOKUP(95, A1:A4, B1:B4, C3, 1)", at)).toBe("");
+    expect(evaluate(GRADES, '=CONCAT("a", , "b")', at)).toBe("ab");
+  });
+
   it("computes with times and lengths of time, and writes them as times", () => {
     const SHIFTS = ["| From | To | Hours |", "|---|---|---|", "| 9:00 | 17:30 | 14:00 |", "| 22:15 | 23:00 | 20:00 |", "| | | |", ""].join("\n");
     const last = { row: 3, column: 2 };
@@ -389,9 +413,9 @@ describe("calculated columns", () => {
 
 describe("functionChoices", () => {
   it("offers the functions a name typed may be, the one of that whole name first", () => {
-    expect(functionChoices("=AVE", 4, 4)).toEqual({ from: 1, to: 4, names: ["AVERAGE"] });
-    expect(functionChoices("=sum(A1)+rou", 12, 12)).toEqual({ from: 9, to: 12, names: ["ROUND"] });
-    expect(functionChoices("=A", 2, 2)!.names).toEqual(["ABS", "AND", "AVERAGE"]);
+    expect(functionChoices("=AVE", 4, 4)).toEqual({ from: 1, to: 4, names: ["AVERAGE", "AVERAGEIFS"] });
+    expect(functionChoices("=sum(A1)+rou", 12, 12)).toEqual({ from: 9, to: 12, names: ["ROUND", "ROUNDDOWN", "ROUNDUP"] });
+    expect(functionChoices("=A", 2, 2)!.names).toEqual(["ABS", "AND", "AVERAGE", "AVERAGEIFS"]);
     expect(functionChoices("=IF", 3, 3)!.names).toEqual(["IF", "IFERROR"]);
   });
 
@@ -509,17 +533,18 @@ describe("findFunctions", () => {
   it("finds functions by their names first, then by what they do", () => {
     expect(names("sum")[0]).toBe("SUM");
     // A name starting so, then one containing it, then the descriptions
-    expect(names("count")).toEqual(["COUNT", "COUNTA", "ROW"]); // ROW: "counted in the table"
+    expect(names("count").slice(0, 3)).toEqual(["COUNT", "COUNTA", "COUNTIFS"]);
+    expect(names("count")).toContain("ROW"); // "counted in the table"
     expect(names("date").slice(0, 3)).toEqual(["DATE", "DATEADD", "DATEDIF"]);
     expect(names("date")).toContain("TODAY"); // "Today's date"
     // Every word, in any order and case
-    expect(names("ROUNDS decimal")).toEqual(["ROUND"]);
+    expect(names("ROUNDS decimal")).toEqual(["ROUND", "ROUNDDOWN", "ROUNDUP"]);
     expect(names("nothing like this")).toEqual([]);
     expect(names("").length).toBeGreaterThan(30);
   });
 
   it("finds them in a group", () => {
-    expect(names("", "logic")).toEqual(["AND", "IF", "IFERROR", "NOT", "OR"]);
+    expect(names("", "logic")).toEqual(["AND", "IF", "IFERROR", "ISNUMBER", "NOT", "OR"]);
     expect(names("", "lookup")).toEqual(["ROW", "XLOOKUP"]);
     expect(names("", "custom")).toEqual([]);
   });
