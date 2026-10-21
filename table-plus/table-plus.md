@@ -1304,6 +1304,14 @@ end
 .sb-table-widget.tp-table td {
   cursor: text;
 }
+/* Select mode (Edit mode off): a click selects a cell, so the default pointer;
+   on the cell selected alone the next click edits it, so the text cursor */
+html[data-tp-select-mode] .sb-table-widget.tp-table td {
+  cursor: default;
+}
+html[data-tp-select-mode] .sb-table-widget.tp-table td.tp-selected-alone {
+  cursor: text;
+}
 /* An empty row is as tall as a row with text (zero-width space, not in the text) */
 .sb-table-widget.tp-table td:not(.tp-editing)::before {
   content: "\200b";
@@ -3506,7 +3514,7 @@ body.tp-filling * {
 }
 /* AutoFill to…: the next click on a cell fills to it */
 .sb-table-widget.tp-table.tp-fill-picking td {
-  cursor: crosshair;
+  cursor: crosshair !important;
 }
 .tp-formula-functions:hover {
   opacity: 1;

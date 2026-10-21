@@ -12190,6 +12190,7 @@ var Selection = class {
   // The handles at the selection's first and last cell, shown by CSS after a touch (html[data-tp-pointer="touch"])
   handles;
   start() {
+    this.showMode();
     this.host.doc.defaultView.addEventListener("copy", this.onCopy, true);
     this.host.doc.defaultView.addEventListener("pointerdown", this.onTouch, true);
   }
@@ -12199,6 +12200,13 @@ var Selection = class {
     this.stopTap?.();
     this.stopSelecting?.();
     for (const handle of this.handles) handle.remove();
+    delete this.host.doc.documentElement.dataset.tpSelectMode;
+  }
+  /** Select mode on the page's root, for CSS: a click selects (the default pointer), on a cell selected alone it edits (the text cursor) */
+  showMode() {
+    const root = this.host.doc.documentElement;
+    if (this.editMode) delete root.dataset.tpSelectMode;
+    else root.dataset.tpSelectMode = "";
   }
   owns(node) {
     return this.handles.some((handle) => handle.contains(node));
@@ -12247,6 +12255,7 @@ var Selection = class {
         run: () => {
           this.editMode = !this.editMode;
           writeEditMode(this.editMode);
+          this.showMode();
           this.host.toolbarChanged();
         }
       }
@@ -12543,6 +12552,7 @@ var Selection = class {
     this.unmark();
     const cells = this.cells() ?? [];
     for (const row of cells) for (const cell of row) cell.classList.add("tp-selected");
+    if (cells.length === 1 && cells[0].length === 1) cells[0][0].classList.add("tp-selected-alone");
     this.placeHandles(cells);
     this.host.selectionChanged();
   }
@@ -12680,7 +12690,7 @@ var Selection = class {
     this.host.selectionChanged();
   }
   unmark() {
-    for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
+    for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected", "tp-selected-alone");
     for (const handle of this.handles) handle.remove();
   }
   /** The selected cells as references, rows as shown (the header first), columns left to right */

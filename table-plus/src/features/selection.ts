@@ -85,6 +85,7 @@ export class Selection implements Feature {
   }
 
   start(): void {
+    this.showMode();
     this.host.doc.defaultView!.addEventListener("copy", this.onCopy, true);
     this.host.doc.defaultView!.addEventListener("pointerdown", this.onTouch, true);
   }
@@ -95,6 +96,14 @@ export class Selection implements Feature {
     this.stopTap?.();
     this.stopSelecting?.();
     for (const handle of this.handles) handle.remove();
+    delete this.host.doc.documentElement.dataset.tpSelectMode;
+  }
+
+  /** Select mode on the page's root, for CSS: a click selects (the default pointer), on a cell selected alone it edits (the text cursor) */
+  private showMode(): void {
+    const root = this.host.doc.documentElement;
+    if (this.editMode) delete root.dataset.tpSelectMode;
+    else root.dataset.tpSelectMode = "";
   }
 
   owns(node: Node): boolean {
@@ -151,6 +160,7 @@ export class Selection implements Feature {
         run: () => {
           this.editMode = !this.editMode;
           writeEditMode(this.editMode);
+          this.showMode();
           this.host.toolbarChanged();
         },
       },
@@ -487,6 +497,8 @@ export class Selection implements Feature {
     this.unmark();
     const cells = this.cells() ?? [];
     for (const row of cells) for (const cell of row) cell.classList.add("tp-selected");
+    // A cell selected alone: the next click edits it
+    if (cells.length === 1 && cells[0]!.length === 1) cells[0]![0]!.classList.add("tp-selected-alone");
     this.placeHandles(cells);
     this.host.selectionChanged();
   }
@@ -631,7 +643,7 @@ export class Selection implements Feature {
   }
 
   private unmark(): void {
-    for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected");
+    for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected", "tp-selected-alone");
     for (const handle of this.handles) handle.remove();
   }
 

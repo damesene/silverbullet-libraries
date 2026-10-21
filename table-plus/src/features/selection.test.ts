@@ -331,4 +331,17 @@ describe("Selecting cells", () => {
     expect(text).toBe(PAGE);
     vi.restoreAllMocks();
   });
+
+  it("marks select mode on the page and the cell selected alone, for the pointer (the next click edits only that cell)", async () => {
+    localStorage.removeItem("tablePlus.editMode");
+    await setup(PAGE);
+    expect(document.documentElement.dataset.tpSelectMode).toBe("");
+    clickOn(cell(1, 0));
+    expect(cell(1, 0).classList.contains("tp-selected-alone")).toBe(true);
+    clickOn(cell(2, 1));
+    press(cell(1, 0), "mousedown", { shiftKey: true });
+    expect(editor.querySelectorAll(".tp-selected-alone").length).toBe(0);
+    controller.stop();
+    expect(document.documentElement.dataset.tpSelectMode).toBeUndefined();
+  });
 });
