@@ -37,8 +37,9 @@ function inCase(word: string, as: string): string {
 
 /**
  * Words of a list, one or more of the same list a step apart: they go on round
- * the list (Fri, Sat → Sun, Mon). Written as the first is: its case, and
- * without diacritics when the words are typed without them (Po, Ut → St, Ct).
+ * the list (Fri, Sat → Sun, Mon). Typed as the list writes them, they are
+ * written so (iPhone → iPad, L → XL); else as the first is: its case (mon →
+ * tue), and without diacritics when typed without them (Po, Ut → St, Ct).
  */
 export function listSeries(name: string, lists: readonly FillList[]): Series {
   return {
@@ -56,9 +57,10 @@ export function listSeries(name: string, lists: readonly FillList[]): Series {
         // Typed without diacritics where the list has them: written without
         const bare = values.every((v) => plain(v) === v) && values.some((_, i) => plain(list[indexes[i]!]!) !== list[indexes[i]!]);
         const first = values[0]!.trim();
+        const asListed = values.every((v, i) => v.trim() === list[indexes[i]!]);
         return (i) => {
           const word = list[(((indexes[0]! + i * step) % n) + n) % n]!;
-          return inCase(bare ? plain(word) : word, first);
+          return asListed ? word : inCase(bare ? plain(word) : word, first);
         };
       }
       return undefined;

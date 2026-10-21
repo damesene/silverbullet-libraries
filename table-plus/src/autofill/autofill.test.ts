@@ -121,6 +121,23 @@ describe("custom series", () => {
     expect(after(["doing"], 1)).toEqual(["doing"]);
   });
 
+  it("writes the words as the list does when typed so, else in the case of the first", () => {
+    defineCustomSeries(
+      customSeries([
+        { name: "devices", words: ["iPhone", "iPad", "macOS"] },
+        { name: "sizes", words: ["S", "M", "L", "XL"] },
+        { name: "steps", words: ["To Do", "In Progress", "Done"] },
+      ]).series,
+    );
+    expect(after(["iPhone"], 2)).toEqual(["iPad", "macOS"]);
+    expect(after(["L"], 2)).toEqual(["XL", "S"]);
+    expect(after(["To Do"], 1)).toEqual(["In Progress"]);
+    expect(after(["to do"], 1)).toEqual(["in progress"]);
+    // Built-in lists too: typed as listed, or in their own case
+    expect(after(["Mon"], 1)).toEqual(["Tue"]);
+    expect(after(["MON"], 1)).toEqual(["TUE"]);
+  });
+
   it("goes on with a series' generator, a mistake in it no match or the value repeated", () => {
     defineCustomSeries(
       customSeries([
@@ -136,7 +153,7 @@ describe("custom series", () => {
   });
 
   it("replaces a built-in series of its name, in its place, and anew once Space Lua loads again", () => {
-    defineCustomSeries(customSeries([{ name: "lists", words: ["red", "green", "blue"] }]).series);
+    defineCustomSeries(customSeries([{ name: "Lists", words: ["red", "green", "blue"] }]).series);
     expect(after(["Mon"], 1)).toEqual(["Mon"]);
     expect(after(["green"], 1)).toEqual(["blue"]);
     expect(allSeries().map((s) => s.name)).toEqual(["dates", "times", "numbers", "lists", "numbered text"]);

@@ -53,52 +53,61 @@ function customOne(definition: unknown): Series | string {
   if (!isObject(definition)) return "not an object";
   const { name, words, alone, match } = definition;
   if (typeof name !== "string" || !NAME_RE.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and spaces starting with a letter`;
+  // Any case: a built-in series' name replaces it whatever case it is written in
+  const lower = name.toLowerCase();
   if ((words === undefined) === (match === undefined)) return `${name}: it has words (a list to go round) or match (a series), one of them`;
   if (words !== undefined) {
     if (!Array.isArray(words) || words.length < 2 || !words.every((w) => typeof w === "string" && w.trim() !== "")) return `${name}: its words are not a list of two or more texts`;
     const keys = words.map(key);
     if (new Set(keys).size < keys.length) return `${name}: a word is in its words twice (case and diacritics aside)`;
     if (alone !== undefined && typeof alone !== "boolean") return `${name}: alone is not true or false`;
-    return listSeries(name, [{ words: words.map((w: string) => w.trim()), alone: alone ?? true }]);
+    return listSeries(lower, [{ words: words.map((w: string) => w.trim()), alone: alone ?? true }]);
   }
   if (typeof match !== "function") return `${name}: match is not a function`;
-  return { name, match: (values: readonly string[]) => checkedGenerator(name, values, match as (values: readonly string[]) => unknown) };
+  return { name: lower, match: (values: readonly string[]) => checkedGenerator(name, values, match as (values: readonly string[]) => unknown) };
 }
 
 /**
  * The series' generator for the values, if it gives one: a function giving a
  * text (or a number) for every index. A match that throws or gives something
  * else is no match; a generator that does for an index gives that cell the
- * value it would have repeated (logged once, for the one who wrote it).
+ * value it would have repeated (logged once, for the one who wrote it: a drag
+ * matches again as the pointer moves).
  */
 function checkedGenerator(name: string, values: readonly string[], match: (values: readonly string[]) => unknown): Generator | undefined {
   let next: unknown;
   try {
     next = match(values);
   } catch (e) {
-    console.warn(`Table Plus: the series ${name} failed: ${message(e)}`);
+    warn(`the series ${name} failed: ${message(e)}`);
     return undefined;
   }
   if (next === undefined || next === null) return undefined;
   if (typeof next !== "function") {
-    console.warn(`Table Plus: the series ${name}: match gave ${kindOf(next)}, not a function of the index (or nothing)`);
+    warn(`the series ${name}: match gave ${kindOf(next)}, not a function of the index (or nothing)`);
     return undefined;
   }
   const k = values.length;
-  let warned = false;
   return (i) => {
     let text: unknown;
     try {
       text = (next as (index: number) => unknown)(i);
       if (typeof text === "number" && Number.isFinite(text)) return String(text);
       if (typeof text === "string") return text;
-      throw new Error(`it gave ${kindOf(text)} for index ${i}: a text or a number`);
+      throw new Error(`it gave ${kindOf(text)}: a text or a number`);
     } catch (e) {
-      if (!warned) console.warn(`Table Plus: the series ${name}: ${message(e)}`);
-      warned = true;
+      warn(`the series ${name}: ${message(e)}`);
       return values[((i % k) + k) % k] ?? "";
     }
   };
+}
+
+// What was logged: each mistake once
+const warned = new Set<string>();
+function warn(text: string): void {
+  if (warned.has(text)) return;
+  warned.add(text);
+  console.warn(`Table Plus: ${text}`);
 }
 
 function kindOf(value: unknown): string {

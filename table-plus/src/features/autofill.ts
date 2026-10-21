@@ -45,6 +45,8 @@ export class AutoFill implements Feature {
   // The outline of what a drag fills: a piece in each cell on its edge
   private edges: HTMLElement[] = [];
   private outlined = "";
+  // The extent the tip's value is for, in the drag going on
+  private tipFor = "";
   // Ends the drag (Esc: without filling)
   private endDrag: ((apply: boolean) => void) | undefined;
 
@@ -287,6 +289,7 @@ export class AutoFill implements Feature {
     const win = this.host.doc.defaultView!;
     const table = this.host.tableOf(selected.info);
     let extent: Extent | undefined;
+    this.tipFor = "";
     this.host.doc.body.classList.add("tp-filling");
     const move = (ev: PointerEvent) => {
       extent = this.extentAt(selected, ev.clientX, ev.clientY);
@@ -323,11 +326,16 @@ export class AutoFill implements Feature {
       this.tip.classList.remove("tp-visible");
       return;
     }
-    const lines = this.lines(selected, extent);
-    const cells = lines[0] ? fillLine(table, lines[0], this.fillCells(selected.info)) : [];
-    const value = cells.length ? cellValue(cells[cells.length - 1]!) : "";
-    const count = lines.reduce((n, l) => n + l.targets.length, 0);
-    this.tip.textContent = value || `${count} ${count === 1 ? "cell" : "cells"}`;
+    // Worked out again only when the pointer reaches another row or column (a series matches its values each time)
+    const key = `${extent.axis} ${extent.to}`;
+    if (key !== this.tipFor) {
+      this.tipFor = key;
+      const lines = this.lines(selected, extent);
+      const cells = lines[0] ? fillLine(table, lines[0], this.fillCells(selected.info)) : [];
+      const value = cells.length ? cellValue(cells[cells.length - 1]!) : "";
+      const count = lines.reduce((n, l) => n + l.targets.length, 0);
+      this.tip.textContent = value || `${count} ${count === 1 ? "cell" : "cells"}`;
+    }
     this.host.place(this.tip, x + 14, y + 14);
   }
 

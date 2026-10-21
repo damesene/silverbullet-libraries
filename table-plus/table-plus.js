@@ -953,9 +953,10 @@ function listSeries(name, lists) {
         if (step === 0 || !indexes.every((index, i) => index === ((indexes[0] + i * step) % n + n) % n)) continue;
         const bare2 = values.every((v) => plain(v) === v) && values.some((_, i) => plain(list[indexes[i]]) !== list[indexes[i]]);
         const first = values[0].trim();
+        const asListed = values.every((v, i) => v.trim() === list[indexes[i]]);
         return (i) => {
           const word = list[((indexes[0] + i * step) % n + n) % n];
-          return inCase(bare2 ? plain(word) : word, first);
+          return asListed ? word : inCase(bare2 ? plain(word) : word, first);
         };
       }
       return void 0;
@@ -1131,45 +1132,50 @@ function customOne(definition) {
   if (!isObject(definition)) return "not an object";
   const { name, words, alone, match } = definition;
   if (typeof name !== "string" || !NAME_RE.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and spaces starting with a letter`;
+  const lower = name.toLowerCase();
   if (words === void 0 === (match === void 0)) return `${name}: it has words (a list to go round) or match (a series), one of them`;
   if (words !== void 0) {
     if (!Array.isArray(words) || words.length < 2 || !words.every((w) => typeof w === "string" && w.trim() !== "")) return `${name}: its words are not a list of two or more texts`;
     const keys = words.map(key);
     if (new Set(keys).size < keys.length) return `${name}: a word is in its words twice (case and diacritics aside)`;
     if (alone !== void 0 && typeof alone !== "boolean") return `${name}: alone is not true or false`;
-    return listSeries(name, [{ words: words.map((w) => w.trim()), alone: alone ?? true }]);
+    return listSeries(lower, [{ words: words.map((w) => w.trim()), alone: alone ?? true }]);
   }
   if (typeof match !== "function") return `${name}: match is not a function`;
-  return { name, match: (values) => checkedGenerator(name, values, match) };
+  return { name: lower, match: (values) => checkedGenerator(name, values, match) };
 }
 function checkedGenerator(name, values, match) {
   let next;
   try {
     next = match(values);
   } catch (e) {
-    console.warn(`Table Plus: the series ${name} failed: ${message(e)}`);
+    warn(`the series ${name} failed: ${message(e)}`);
     return void 0;
   }
   if (next === void 0 || next === null) return void 0;
   if (typeof next !== "function") {
-    console.warn(`Table Plus: the series ${name}: match gave ${kindOf(next)}, not a function of the index (or nothing)`);
+    warn(`the series ${name}: match gave ${kindOf(next)}, not a function of the index (or nothing)`);
     return void 0;
   }
   const k = values.length;
-  let warned = false;
   return (i) => {
     let text;
     try {
       text = next(i);
       if (typeof text === "number" && Number.isFinite(text)) return String(text);
       if (typeof text === "string") return text;
-      throw new Error(`it gave ${kindOf(text)} for index ${i}: a text or a number`);
+      throw new Error(`it gave ${kindOf(text)}: a text or a number`);
     } catch (e) {
-      if (!warned) console.warn(`Table Plus: the series ${name}: ${message(e)}`);
-      warned = true;
+      warn(`the series ${name}: ${message(e)}`);
       return values[(i % k + k) % k] ?? "";
     }
   };
+}
+var warned = /* @__PURE__ */ new Set();
+function warn(text) {
+  if (warned.has(text)) return;
+  warned.add(text);
+  console.warn(`Table Plus: ${text}`);
 }
 function kindOf(value) {
   if (isObject(value) && typeof value.then === "function") return "a promise";
@@ -12212,6 +12218,8 @@ var AutoFill = class {
   // The outline of what a drag fills: a piece in each cell on its edge
   edges = [];
   outlined = "";
+  // The extent the tip's value is for, in the drag going on
+  tipFor = "";
   // Ends the drag (Esc: without filling)
   endDrag;
   stop() {
@@ -12415,6 +12423,7 @@ var AutoFill = class {
     const win = this.host.doc.defaultView;
     const table = this.host.tableOf(selected.info);
     let extent;
+    this.tipFor = "";
     this.host.doc.body.classList.add("tp-filling");
     const move = (ev) => {
       extent = this.extentAt(selected, ev.clientX, ev.clientY);
@@ -12449,11 +12458,15 @@ var AutoFill = class {
       this.tip.classList.remove("tp-visible");
       return;
     }
-    const lines = this.lines(selected, extent);
-    const cells = lines[0] ? fillLine(table, lines[0], this.fillCells(selected.info)) : [];
-    const value = cells.length ? cellValue(cells[cells.length - 1]) : "";
-    const count = lines.reduce((n, l) => n + l.targets.length, 0);
-    this.tip.textContent = value || `${count} ${count === 1 ? "cell" : "cells"}`;
+    const key2 = `${extent.axis} ${extent.to}`;
+    if (key2 !== this.tipFor) {
+      this.tipFor = key2;
+      const lines = this.lines(selected, extent);
+      const cells = lines[0] ? fillLine(table, lines[0], this.fillCells(selected.info)) : [];
+      const value = cells.length ? cellValue(cells[cells.length - 1]) : "";
+      const count = lines.reduce((n, l) => n + l.targets.length, 0);
+      this.tip.textContent = value || `${count} ${count === 1 ? "cell" : "cells"}`;
+    }
     this.host.place(this.tip, x + 14, y + 14);
   }
   /** Double click: down as far as the column beside the selection (left, else right) has values */

@@ -136,12 +136,12 @@ export default () => [
   { name: "status", words: ["todo", "doing", "review", "done"], alone: false },
   {
     name: "fiscal weeks",
-    // FW52 → FW1: the year's weeks round
+    // FW52 → FW1: the year's weeks round, by the step between the weeks selected
     match: (values) => {
-      const weeks = values.map((v) => /^FW(\d+)$/.exec(v)?.[1]);
-      if (!weeks.every(Boolean)) return undefined;
-      const first = Number(weeks[0]);
-      return (i) => `FW${((((first - 1 + i) % 52) + 52) % 52) + 1}`;
+      const weeks = values.map((v) => Number(/^FW(\d+)$/.exec(v)?.[1]));
+      if (!weeks.every((w) => w >= 1 && w <= 52)) return undefined;
+      const step = weeks.length > 1 ? weeks[1] - weeks[0] : 1;
+      return (i) => `FW${((((weeks[0] - 1 + i * step) % 52) + 52) % 52) + 1}`;
     },
   },
 ];
@@ -156,9 +156,9 @@ tablePlus.defineSeries(js.importFromSpace("Library/me/series.js"))
 Then `Q3` filled down gives `Q4`, `Q1`, `Q2` (not `Q5`), and `todo`, `doing` gives `review`, `done`.
 
 * The file's default export is the list of series, or a function that gets Table Plus' helpers (below) and returns the list. Each has a `name` (letters, digits, `_` and spaces, starting with a letter) and either:
-  * `words`: a list of two or more words to go round, matched as the built-in days and months are (any case, with or without diacritics, written in the case of the first selected; several selected a step apart go on by that step). One word selected starts the series too, unless `alone: false`: then two are needed, and one is copied (for words also used otherwise, as `ne`, `po` are in Czech);
+  * `words`: a list of two or more words to go round, matched as the built-in days and months are (any case, with or without diacritics; several selected a step apart go on by that step). Typed as your list writes them, the words are written so (`iPhone` → `iPad`, `L` → `XL`); typed otherwise, in the case of the first selected (`to do` → `in progress`). One word selected starts the series too, unless `alone: false`: then two are needed, and one is copied (for words also used otherwise, as `ne`, `po` are in Czech);
   * or `match(values)`: given the selected cells' texts (in their order, empty cells `""`), a function giving the text of each cell filled, or nothing when the values are not the series'. The function gets the cell's index: `0` to one less than the number of values are the values themselves, the cells after them (filling down or right) are counted on, those before them (up or left) are `-1`, `-2` … A number it gives is written as text.
-* Your series are tried before the built-in ones (`dates`, `times`, `numbers`, `lists`, `numbered text`, in this order), so they can take values a built-in one would. One with a built-in series' name replaces it, in its place (`lists`: your words instead of the days and months). Of two series of one name, the last defined counts.
+* Your series are tried before the built-in ones (`dates`, `times`, `numbers`, `lists`, `numbered text`, in this order), so they can take values a built-in one would. One with a built-in series' name (in any case) replaces it, in its place (`lists`: your words instead of the days and months). Of two series of one name, the last defined counts.
 * They must give their results at once. A `match` that throws, or gives something else, is no match (the next series is tried); a result that is not a text or a number gives that cell the value repeated. Both are logged in the browser's console.
 * The helpers are `parseDate` (a date written as `2025-11-06` as `{ ms, time }`) and `formatDate` (written back).
 * Series are defined again whenever SilverBullet loads Space Lua again; a change of the file shows after reloading the page. A mistake in a definition is shown in a notification; the other series are defined.
