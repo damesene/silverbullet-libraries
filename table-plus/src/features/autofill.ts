@@ -6,17 +6,20 @@
 // While dragging, what is filled is outlined, the handle goes to its corner and
 // the value the last cell will get shows by the pointer; the cells are written
 // as the drag ends, in one edit; Esc cancels. A double click fills down as far
-// as the column beside has values. Within the table only (no rows or columns
-// are added), and within the zone of pinned rows or columns the selection is
-// in. Not while the table is sorted or filtered, where the rows shown are not
-// where the cells would go.
+// as the column beside has values. AutoFill to… in the cell menu does the
+// same without dragging (a touch screen, where the corner selects, or a long
+// way): a click (a tap) on a cell then fills to it. Within the table only (no
+// rows or columns are added), and within the zone of pinned rows or columns
+// the selection is in. Not while the table is sorted or filtered, where the
+// rows shown are not where the cells would go.
 //
 // The handle and the outline are elements in the cells, out of their text's
 // line as the pin mark is, placed by CSS: they move with the table as it
 // scrolls and go under its held header, with nothing measured.
 import { cellValue, type Cell, type FillLine, filled, fillLine } from "../autofill/index.ts";
-import type { CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import type { CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import { OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
+import { ICONS } from "../icons.ts";
 
 /** The cells selected: their table, their rows as shown (body rows, top to bottom) and columns */
 type Selected = {
@@ -32,6 +35,10 @@ type Selected = {
   readonly rowZone: readonly [number, number];
   readonly columnZone: readonly [number, number];
 };
+
+// A touch shorter than this, moved no further, is a tap (else it scrolls: picking goes on)
+const TAP_MS = 500;
+const TAP_MOVE = 10;
 
 /** Rows as shown (body rows) and columns, from the first to the last */
 type Area = { readonly top: number; readonly bottom: number; readonly left: number; readonly right: number };
@@ -49,6 +56,10 @@ export class AutoFill implements Feature {
   private tipFor = "";
   // Ends the drag (Esc: without filling)
   private endDrag: ((apply: boolean) => void) | undefined;
+  // AutoFill to…: the table whose cells selected fill to the cell clicked next
+  private picking: string | undefined;
+  // A touch while picking, until it is a tap or not
+  private stopTap: (() => void) | undefined;
 
   constructor(private readonly host: TableHost) {
     this.handle = host.doc.createElement("div");
@@ -64,8 +75,15 @@ export class AutoFill implements Feature {
     });
   }
 
+  start(): void {
+    this.host.doc.defaultView!.addEventListener("pointerdown", this.onTouch, true);
+  }
+
   stop(): void {
+    this.host.doc.defaultView!.removeEventListener("pointerdown", this.onTouch, true);
+    this.stopTap?.();
     this.endDrag?.(false);
+    this.endPicking();
     this.handle.remove();
     this.tip.remove();
   }
@@ -74,8 +92,14 @@ export class AutoFill implements Feature {
     return this.handle.contains(node) || this.tip.contains(node);
   }
 
-  /** A press on the handle is the handle's, not its cell's: a drag, or with a double click a fill down */
+  /**
+   * A press on the handle is the handle's, not its cell's: a drag, or with a
+   * double click a fill down. While picking where to fill to, a press on a
+   * cell of the table fills to it (before the selection ends: the press is
+   * taken), a press elsewhere ends picking.
+   */
   mouseDown(e: MouseEvent): boolean {
+    if (this.picking) return this.picked(e);
     if (!(e.target instanceof Node) || !this.handle.contains(e.target)) return false;
     e.preventDefault();
     e.stopPropagation();
@@ -86,17 +110,59 @@ export class AutoFill implements Feature {
     return true;
   }
 
-  // Esc while dragging cancels the fill (before the selection module takes Esc: the cells stay selected)
+  // Esc while dragging or picking cancels the fill (before the selection module takes Esc: the cells stay selected)
   keyDown(e: KeyboardEvent): boolean {
-    if (e.key !== "Escape" || !this.endDrag) return false;
+    if (e.key !== "Escape" || (!this.endDrag && !this.picking)) return false;
     e.preventDefault();
     e.stopPropagation();
-    this.endDrag(false);
+    this.endDrag?.(false);
+    this.endPicking();
     return true;
   }
 
+  // Other cells selected: what was picking for them is over
   selectionChanged(): void {
+    this.endPicking();
     this.placeHandle();
+  }
+
+  /** AutoFill to… in the menu of the cells selected (body cells: a header is no value to go on from) */
+  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
+    if (cells.some((ref) => ref.row === 0)) return undefined;
+    const label = "AutoFill to…";
+    if (this.host.rearranged(info)) {
+      const disabled = "Not while the table is sorted or filtered: the rows shown are not where the cells would go";
+      return { order: 1.5, entries: [{ kind: "item", label, icon: ICONS.autofill, disabled, run: () => {} }] };
+    }
+    const selected = this.selection();
+    if (!selected || selected.info.key !== info.key) return undefined;
+    const press = this.host.pressedWith === "touch" ? "tap" : "click";
+    return {
+      // After copying and clearing: it changes the cells selected too
+      order: 1.5,
+      entries: [
+        {
+          kind: "item",
+          label,
+          icon: ICONS.autofill,
+          hint: `Then ${press} the last cell to fill: the cells up to it go on from these, as dragging the fill handle fills them`,
+          run: () => this.startPicking(info, press),
+        },
+      ],
+    };
+  }
+
+  // While picking, the cells a click would fill are outlined
+  cellHovered(_widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void {
+    if (this.picking !== info.key) return;
+    const selected = this.selection();
+    const ref = this.host.cellRef(info, cell);
+    const extent = selected && ref ? this.extentTo(selected, ref) : undefined;
+    if (selected) this.outline(selected, extent && this.areaOf(selected, extent));
+  }
+
+  hoverEnded(): void {
+    if (this.picking) this.clearOutline();
   }
 
   // A table rendered anew (the selection shown again), sorted or filtered, or rows back in the document
@@ -113,7 +179,81 @@ export class AutoFill implements Feature {
   }
 
   editorOpened(): void {
+    this.endPicking();
     this.handle.remove();
+  }
+
+  private startPicking(info: WidgetInfo, press: string): void {
+    this.picking = info.key;
+    this.host.doc.body.classList.add("tp-fill-picking");
+    void this.host.bridge.flash(`Table Plus: ${press} the last cell to fill to; Esc cancels`, "info");
+  }
+
+  private endPicking(): void {
+    if (!this.picking) return;
+    this.picking = undefined;
+    this.host.doc.body.classList.remove("tp-fill-picking");
+    this.clearOutline();
+  }
+
+  /** A press while picking: on a cell of the table, the fill to it (taken); elsewhere, picking ends and the press goes on */
+  private picked(e: MouseEvent): boolean {
+    if (e.button !== 0) {
+      this.endPicking();
+      return false;
+    }
+    const taken = this.pick(e.target);
+    if (taken) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    return taken;
+  }
+
+  /**
+   * A touch while picking: a tap is a press (told by its pointer events: a
+   * browser may fire no mouse events for a tap after scrolling); a touch that
+   * moves scrolls the page, picking goes on
+   */
+  private onTouch = (e: PointerEvent): void => {
+    this.stopTap?.();
+    if (!this.picking || e.pointerType !== "touch" || e.button !== 0) return;
+    const { clientX: x, clientY: y, target } = e;
+    const at = Date.now();
+    const win = this.host.doc.defaultView!;
+    const move = (ev: PointerEvent) => {
+      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE) stop();
+    };
+    const up = () => {
+      stop();
+      // Its mouse events would select the cell tapped: the fill selects what it filled
+      if (Date.now() - at < TAP_MS && this.pick(target)) this.host.takeTouch();
+    };
+    const stop = () => {
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", up, true);
+      win.removeEventListener("pointercancel", stop, true);
+      this.stopTap = undefined;
+    };
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", up, true);
+    win.addEventListener("pointercancel", stop, true);
+    this.stopTap = stop;
+  };
+
+  /** Picking ends; on a cell of the table, the fill to it (true: the press is taken) */
+  private pick(target: EventTarget | null): boolean {
+    const key = this.picking;
+    this.endPicking();
+    const hit = this.host.enhancedWidgetOf(target);
+    const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], target) : undefined;
+    const ref = hit && cell ? this.host.cellRef(hit[1], cell) : undefined;
+    if (!ref) return false;
+    const selected = this.selection();
+    const extent = selected && selected.info.key === key ? this.extentTo(selected, ref) : undefined;
+    if (selected && extent) void this.apply(selected, extent);
+    else void this.host.bridge.flash("Table Plus: nothing to fill there: pick a cell below, above or beside the cells selected", "info");
+    return true;
   }
 
   /** The cells selected in a table shown, if they are body cells of a table shown as written */
@@ -198,9 +338,8 @@ export class AutoFill implements Feature {
   private outline(selected: Selected, area: Area | undefined): void {
     const key = area ? `${area.top},${area.bottom},${area.left},${area.right}` : "";
     if (key === this.outlined) return;
+    this.clearOutline();
     this.outlined = key;
-    for (const edge of this.edges) edge.remove();
-    this.edges = [];
     if (!area) return;
     const piece = (shown: number, column: number) => {
       const cell = this.cellOf(selected, shown, column);
@@ -225,6 +364,12 @@ export class AutoFill implements Feature {
     }
   }
 
+  private clearOutline(): void {
+    for (const edge of this.edges) edge.remove();
+    this.edges = [];
+    this.outlined = "";
+  }
+
   /**
    * How far the pointer at x, y fills: along the axis it went further out of
    * the selection on, to the row or column under it, within the selection's zone
@@ -240,6 +385,20 @@ export class AutoFill implements Feature {
     const cells = Array.from(selected.rows[selected.bottom]?.cells ?? []).map((c) => c.getBoundingClientRect());
     let column = cells.findIndex((r) => x >= r.left && x < r.right);
     if (column < 0) column = cells.length && x < cells[0]!.left ? 0 : cells.length - 1;
+    return this.extentFor(selected, row, column);
+  }
+
+  /** How far a fill to a cell goes (none for a header cell, nor one in the selection) */
+  private extentTo(selected: Selected, ref: CellRef): Extent | undefined {
+    const row = selected.rows.findIndex((tr) => Number(tr.dataset.tpRow) === ref.row);
+    return row < 0 ? undefined : this.extentFor(selected, row, ref.column);
+  }
+
+  /**
+   * How far a fill to a row (as shown) and column goes: along the axis it is
+   * further out of the selection on, within the selection's zone
+   */
+  private extentFor(selected: Selected, row: number, column: number): Extent | undefined {
     const down = row > selected.bottom ? row - selected.bottom : row < selected.top ? selected.top - row : 0;
     const across = column > selected.right ? column - selected.right : column < selected.left ? selected.left - column : 0;
     if (down === 0 && across === 0) return undefined;

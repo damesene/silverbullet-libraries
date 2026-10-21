@@ -1562,6 +1562,8 @@ var ICONS = {
   selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
   arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  // AutoFill: a cell, its fill handle, and the way it fills
+  autofill: svg('<rect x="3" y="3" width="11" height="9" rx="1"/><rect x="12" y="10" width="4" height="4" fill="currentColor"/><path d="M14 16v5M11.5 18.5l2.5 2.5 2.5-2.5"/>'),
   arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
   arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
   trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
@@ -12364,6 +12366,8 @@ var Selection = class {
 };
 
 // table-plus/src/features/autofill.ts
+var TAP_MS2 = 500;
+var TAP_MOVE2 = 10;
 var AutoFill = class {
   constructor(host) {
     this.host = host;
@@ -12388,16 +12392,32 @@ var AutoFill = class {
   tipFor = "";
   // Ends the drag (Esc: without filling)
   endDrag;
+  // AutoFill to…: the table whose cells selected fill to the cell clicked next
+  picking;
+  // A touch while picking, until it is a tap or not
+  stopTap;
+  start() {
+    this.host.doc.defaultView.addEventListener("pointerdown", this.onTouch, true);
+  }
   stop() {
+    this.host.doc.defaultView.removeEventListener("pointerdown", this.onTouch, true);
+    this.stopTap?.();
     this.endDrag?.(false);
+    this.endPicking();
     this.handle.remove();
     this.tip.remove();
   }
   owns(node) {
     return this.handle.contains(node) || this.tip.contains(node);
   }
-  /** A press on the handle is the handle's, not its cell's: a drag, or with a double click a fill down */
+  /**
+   * A press on the handle is the handle's, not its cell's: a drag, or with a
+   * double click a fill down. While picking where to fill to, a press on a
+   * cell of the table fills to it (before the selection ends: the press is
+   * taken), a press elsewhere ends picking.
+   */
   mouseDown(e) {
+    if (this.picking) return this.picked(e);
     if (!(e.target instanceof Node) || !this.handle.contains(e.target)) return false;
     e.preventDefault();
     e.stopPropagation();
@@ -12406,16 +12426,56 @@ var AutoFill = class {
     else if (e.detail < 2) this.drag();
     return true;
   }
-  // Esc while dragging cancels the fill (before the selection module takes Esc: the cells stay selected)
+  // Esc while dragging or picking cancels the fill (before the selection module takes Esc: the cells stay selected)
   keyDown(e) {
-    if (e.key !== "Escape" || !this.endDrag) return false;
+    if (e.key !== "Escape" || !this.endDrag && !this.picking) return false;
     e.preventDefault();
     e.stopPropagation();
-    this.endDrag(false);
+    this.endDrag?.(false);
+    this.endPicking();
     return true;
   }
+  // Other cells selected: what was picking for them is over
   selectionChanged() {
+    this.endPicking();
     this.placeHandle();
+  }
+  /** AutoFill to… in the menu of the cells selected (body cells: a header is no value to go on from) */
+  cellMenuEntries(_widget, info, cells) {
+    if (cells.some((ref) => ref.row === 0)) return void 0;
+    const label = "AutoFill to\u2026";
+    if (this.host.rearranged(info)) {
+      const disabled = "Not while the table is sorted or filtered: the rows shown are not where the cells would go";
+      return { order: 1.5, entries: [{ kind: "item", label, icon: ICONS.autofill, disabled, run: () => {
+      } }] };
+    }
+    const selected = this.selection();
+    if (!selected || selected.info.key !== info.key) return void 0;
+    const press = this.host.pressedWith === "touch" ? "tap" : "click";
+    return {
+      // After copying and clearing: it changes the cells selected too
+      order: 1.5,
+      entries: [
+        {
+          kind: "item",
+          label,
+          icon: ICONS.autofill,
+          hint: `Then ${press} the last cell to fill: the cells up to it go on from these, as dragging the fill handle fills them`,
+          run: () => this.startPicking(info, press)
+        }
+      ]
+    };
+  }
+  // While picking, the cells a click would fill are outlined
+  cellHovered(_widget, info, cell) {
+    if (this.picking !== info.key) return;
+    const selected = this.selection();
+    const ref = this.host.cellRef(info, cell);
+    const extent = selected && ref ? this.extentTo(selected, ref) : void 0;
+    if (selected) this.outline(selected, extent && this.areaOf(selected, extent));
+  }
+  hoverEnded() {
+    if (this.picking) this.clearOutline();
   }
   // A table rendered anew (the selection shown again), sorted or filtered, or rows back in the document
   enhanced() {
@@ -12428,7 +12488,75 @@ var AutoFill = class {
     this.placeHandle();
   }
   editorOpened() {
+    this.endPicking();
     this.handle.remove();
+  }
+  startPicking(info, press) {
+    this.picking = info.key;
+    this.host.doc.body.classList.add("tp-fill-picking");
+    void this.host.bridge.flash(`Table Plus: ${press} the last cell to fill to; Esc cancels`, "info");
+  }
+  endPicking() {
+    if (!this.picking) return;
+    this.picking = void 0;
+    this.host.doc.body.classList.remove("tp-fill-picking");
+    this.clearOutline();
+  }
+  /** A press while picking: on a cell of the table, the fill to it (taken); elsewhere, picking ends and the press goes on */
+  picked(e) {
+    if (e.button !== 0) {
+      this.endPicking();
+      return false;
+    }
+    const taken = this.pick(e.target);
+    if (taken) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    return taken;
+  }
+  /**
+   * A touch while picking: a tap is a press (told by its pointer events: a
+   * browser may fire no mouse events for a tap after scrolling); a touch that
+   * moves scrolls the page, picking goes on
+   */
+  onTouch = (e) => {
+    this.stopTap?.();
+    if (!this.picking || e.pointerType !== "touch" || e.button !== 0) return;
+    const { clientX: x, clientY: y, target } = e;
+    const at = Date.now();
+    const win = this.host.doc.defaultView;
+    const move = (ev) => {
+      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE2) stop();
+    };
+    const up = () => {
+      stop();
+      if (Date.now() - at < TAP_MS2 && this.pick(target)) this.host.takeTouch();
+    };
+    const stop = () => {
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", up, true);
+      win.removeEventListener("pointercancel", stop, true);
+      this.stopTap = void 0;
+    };
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", up, true);
+    win.addEventListener("pointercancel", stop, true);
+    this.stopTap = stop;
+  };
+  /** Picking ends; on a cell of the table, the fill to it (true: the press is taken) */
+  pick(target) {
+    const key2 = this.picking;
+    this.endPicking();
+    const hit = this.host.enhancedWidgetOf(target);
+    const cell = hit && hit[1].key === key2 ? this.host.tableCellOf(hit[1], target) : void 0;
+    const ref = hit && cell ? this.host.cellRef(hit[1], cell) : void 0;
+    if (!ref) return false;
+    const selected = this.selection();
+    const extent = selected && selected.info.key === key2 ? this.extentTo(selected, ref) : void 0;
+    if (selected && extent) void this.apply(selected, extent);
+    else void this.host.bridge.flash("Table Plus: nothing to fill there: pick a cell below, above or beside the cells selected", "info");
+    return true;
   }
   /** The cells selected in a table shown, if they are body cells of a table shown as written */
   selection() {
@@ -12502,9 +12630,8 @@ var AutoFill = class {
   outline(selected, area) {
     const key2 = area ? `${area.top},${area.bottom},${area.left},${area.right}` : "";
     if (key2 === this.outlined) return;
+    this.clearOutline();
     this.outlined = key2;
-    for (const edge of this.edges) edge.remove();
-    this.edges = [];
     if (!area) return;
     const piece = (shown, column) => {
       const cell = this.cellOf(selected, shown, column);
@@ -12528,6 +12655,11 @@ var AutoFill = class {
       }
     }
   }
+  clearOutline() {
+    for (const edge of this.edges) edge.remove();
+    this.edges = [];
+    this.outlined = "";
+  }
   /**
    * How far the pointer at x, y fills: along the axis it went further out of
    * the selection on, to the row or column under it, within the selection's zone
@@ -12543,6 +12675,18 @@ var AutoFill = class {
     const cells = Array.from(selected.rows[selected.bottom]?.cells ?? []).map((c) => c.getBoundingClientRect());
     let column = cells.findIndex((r) => x >= r.left && x < r.right);
     if (column < 0) column = cells.length && x < cells[0].left ? 0 : cells.length - 1;
+    return this.extentFor(selected, row, column);
+  }
+  /** How far a fill to a cell goes (none for a header cell, nor one in the selection) */
+  extentTo(selected, ref) {
+    const row = selected.rows.findIndex((tr) => Number(tr.dataset.tpRow) === ref.row);
+    return row < 0 ? void 0 : this.extentFor(selected, row, ref.column);
+  }
+  /**
+   * How far a fill to a row (as shown) and column goes: along the axis it is
+   * further out of the selection on, within the selection's zone
+   */
+  extentFor(selected, row, column) {
     const down = row > selected.bottom ? row - selected.bottom : row < selected.top ? selected.top - row : 0;
     const across = column > selected.right ? column - selected.right : column < selected.left ? selected.left - column : 0;
     if (down === 0 && across === 0) return void 0;
@@ -12872,8 +13016,8 @@ var Controller = class {
   // The toolbar's open ⋯ menu
   // The open menu of a table's toolbar (⋯, at its button) or of cells (at the pointer)
   tableMenu;
-  // When a touch last opened a cell menu (a long press, a tap on cells selected): the mouse events after it are no click on the cell
-  touchMenuAt = 0;
+  // When a touch was last taken (a cell menu it opened, a feature's: takeTouch): the mouse events after it are no click on the cell
+  touchTakenAt = 0;
   stopLongPress;
   metadata;
   // Each table's rows as SilverBullet rendered them (the header first), whether
@@ -13482,6 +13626,9 @@ var Controller = class {
   get editing() {
     return this.cellEditor.active;
   }
+  takeTouch() {
+    this.touchTakenAt = Date.now();
+  }
   get pressedWith() {
     return this.doc.documentElement.dataset.tpPointer ?? "";
   }
@@ -13792,7 +13939,7 @@ var Controller = class {
   onMouseDown = (e) => {
     this.dropAnchor();
     this.insertPressAt = 0;
-    if (Date.now() - this.touchMenuAt < 1e3) {
+    if (Date.now() - this.touchTakenAt < 1e3) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -14783,7 +14930,7 @@ var Controller = class {
     const groups = this.features.flatMap((f) => [f.cellMenuEntries?.(widget, info, cells) ?? []].flat()).filter((group) => group.entries.length > 0).sort((a, b) => a.order - b.order);
     if (groups.length === 0) return false;
     const entries = groups.flatMap((group, i) => [...i ? [{ kind: "separator" }] : [], ...group.entries]);
-    if (this.pressedWith === "touch") this.touchMenuAt = Date.now();
+    if (this.pressedWith === "touch") this.takeTouch();
     const header = cellText(info.table.rows[0].cells[at.column]) || `column ${at.column + 1}`;
     const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? `Header: ${header}` : `Cell: ${header}, row ${at.row}`;
     this.showMenu(widget, title, entries, { kind: "cell", point });
@@ -14800,7 +14947,7 @@ var Controller = class {
   /** Right click (Shift+right click: the browser's menu) */
   onContextMenu = (e) => {
     if (e.shiftKey) return;
-    if (Date.now() - this.touchMenuAt < 1e3) {
+    if (Date.now() - this.touchTakenAt < 1e3) {
       e.preventDefault();
       return;
     }
@@ -14815,7 +14962,7 @@ var Controller = class {
     this.stopLongPress?.();
     const root = this.doc.documentElement;
     if (e.pointerType && root.dataset.tpPointer !== e.pointerType) root.dataset.tpPointer = e.pointerType;
-    this.touchMenuAt = 0;
+    this.touchTakenAt = 0;
     if (e.pointerType !== "touch" || e.target instanceof Node && this.isFloating(e.target)) return;
     const hit = this.cellOfEvent(e);
     if (!hit) return;

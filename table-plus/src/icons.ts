@@ -45,6 +45,8 @@ export const ICONS = {
   selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
   arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  // AutoFill: a cell, its fill handle, and the way it fills
+  autofill: svg('<rect x="3" y="3" width="11" height="9" rx="1"/><rect x="12" y="10" width="4" height="4" fill="currentColor"/><path d="M14 16v5M11.5 18.5l2.5 2.5 2.5-2.5"/>'),
   arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
   arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
   trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),

@@ -109,6 +109,8 @@ config.set("tablePlus.modules.excel.functions", {
 
 Select cells and drag the small square at the bottom right corner of the selection (the fill handle) down, up, right or left: the cells you drag over go on from the selected ones, as in a spreadsheet. While you drag, the cells are outlined and the value the last one will get shows by the pointer; let go to fill them (one edit, one Ctrl+Z), Esc cancels. Double-click the square to fill down as far as the column beside the selection (left, else right) has values.
 
+Without dragging (on a touch screen, or for a long way): **AutoFill to…** in the menu of the cells selected (right-click them; on a touch screen tap them, see [[#Touch screens]]), then click (tap) the last cell to fill: the cells up to it are filled as dragging there would fill them, written over whatever they hold. Meanwhile the page and the table scroll as usual (swipe on a touch screen, the wheel), so the last cell can be far away. Hovering a cell first outlines what a click fills; Esc, or a press outside the table, cancels.
+
 | Selected | Goes on with |
 |---|---|
 | `1`, `2` | `3`, `4`, `5` … (the step between them; several uneven numbers: their trend; written as they are: `1,5`, `2,5` → `3,5`, `001`, `002` → `003`) |
@@ -597,7 +599,7 @@ On a phone or a tablet:
 * **Selecting more cells**: tap a cell, then drag one of the dots at the selection's corners (top left, bottom right) across other cells; near the edge of the screen the page scrolls along. Tap a row's or column's handle to select the whole row (column), then drag a dot to select more rows (columns): they stay whole.
 * **Tap a cell of a selection** of several cells for their menu (copy, clear, delete the rows or columns), as in a spreadsheet's app.
 * Press and hold a cell for its menu (copy, clear, filter by its value, name it).
-* The fill handle of [[#AutoFill]] does not show after a touch: the corner's dot selects.
+* **AutoFill**: select the cells to go on from, tap them for their menu, *AutoFill to…*, then tap the last cell to fill, see [[#AutoFill]]. The fill handle does not show after a touch: the corner's dot selects.
 * Not on touch screens: the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
 
 ## Lazy saving
@@ -3454,6 +3456,10 @@ html[data-tp-pointer="touch"] .tp-fill-handle {
 body.tp-filling,
 body.tp-filling * {
   cursor: crosshair !important;
+}
+/* AutoFill to…: the next click on a cell fills to it */
+body.tp-fill-picking .sb-table-widget.tp-table td {
+  cursor: crosshair;
 }
 .tp-formula-functions:hover {
   opacity: 1;

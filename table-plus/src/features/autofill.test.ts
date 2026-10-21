@@ -97,6 +97,58 @@ describe("AutoFill", () => {
     expect(text).toBe("| N | Day |\n|---|---|\n| 1 | Mon |\n| 2 | Tue |\n| 3 | Wed |\n| | |\n");
   });
 
+  it("fills to the cell clicked after AutoFill to… in the cell menu, also across, and outlines it on hover first", async () => {
+    await setup(PAGE);
+    const menuItem = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label);
+    const openMenu = (at: Element) => at.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    select({ row: 1, column: 1 }, { row: 2, column: 1 });
+    openMenu(cell(1, 1));
+    clickOn(menuItem("AutoFill to…")!);
+    // Hovering a cell outlines what a click fills
+    cell(5, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(document.querySelectorAll(".tp-fill-edge").length).toBe(5);
+    clickOn(cell(5, 1));
+    await flush();
+    await controller.scan();
+    expect(rows().map((r) => r.split("|")[2]!.trim())).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri"]);
+    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
+    // Across from one cell; a click in the selection fills nothing, Esc ends picking
+    select({ row: 1, column: 0 }, { row: 1, column: 0 });
+    openMenu(cell(1, 0));
+    clickOn(menuItem("AutoFill to…")!);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    clickOn(cell(1, 2));
+    await flush();
+    expect(rows()[0]).toBe("| 1 | Mon | a |");
+    select({ row: 1, column: 0 }, { row: 1, column: 0 });
+    openMenu(cell(1, 0));
+    clickOn(menuItem("AutoFill to…")!);
+    clickOn(cell(1, 2));
+    await flush();
+    expect(rows()[0]).toBe("| 1 | 1 | 1 |");
+  });
+
+  it("fills to the cell tapped after AutoFill to…, a touch that moves scrolling with picking going on", async () => {
+    await setup(PAGE);
+    const touch = (target: EventTarget, type: string, x = 0, y = 0) =>
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerType: "touch", clientX: x, clientY: y }));
+    select({ row: 1, column: 1 }, { row: 2, column: 1 });
+    cell(1, 1).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    clickOn(Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "AutoFill to…")!);
+    // A swipe (the page scrolls): nothing filled, still picking
+    touch(cell(3, 1), "pointerdown", 150, 70);
+    touch(window, "pointermove", 150, 20);
+    touch(window, "pointerup", 150, 20);
+    expect(document.body.classList.contains("tp-fill-picking")).toBe(true);
+    // A tap, without the mouse events a browser may leave out after scrolling
+    touch(cell(4, 1), "pointerdown", 150, 90);
+    touch(window, "pointerup", 150, 90);
+    await flush();
+    await controller.scan();
+    expect(rows().map((r) => r.split("|")[2]!.trim())).toEqual(["Mon", "Tue", "Wed", "Thu", ""]);
+    expect(document.body.classList.contains("tp-fill-picking")).toBe(false);
+  });
+
   it("copies a formula with its references moved", async () => {
     await setup("| N | Twice |\n|---|---|\n| 1 | 2 <meta f=\"=A1*2\"> |\n| 5 | |\n| 7 | |\n", { "tablePlus.metadata": true });
     select({ row: 1, column: 1 }, { row: 1, column: 1 });

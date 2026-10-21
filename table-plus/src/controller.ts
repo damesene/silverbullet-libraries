@@ -242,8 +242,8 @@ export class Controller implements TableHost {
   private tableMenu:
     | { element: HTMLElement; widget: HTMLElement; kind: "table" | "cell"; anchor?: HTMLElement; point?: { x: number; y: number } }
     | undefined;
-  // When a touch last opened a cell menu (a long press, a tap on cells selected): the mouse events after it are no click on the cell
-  private touchMenuAt = 0;
+  // When a touch was last taken (a cell menu it opened, a feature's: takeTouch): the mouse events after it are no click on the cell
+  private touchTakenAt = 0;
   private stopLongPress: (() => void) | undefined;
   private readonly metadata: Metadata;
   // Each table's rows as SilverBullet rendered them (the header first), whether
@@ -977,6 +977,10 @@ export class Controller implements TableHost {
     return this.cellEditor.active;
   }
 
+  takeTouch(): void {
+    this.touchTakenAt = Date.now();
+  }
+
   get pressedWith(): string {
     return this.doc.documentElement.dataset.tpPointer ?? "";
   }
@@ -1351,8 +1355,8 @@ export class Controller implements TableHost {
     this.dropAnchor();
     // Only the press that inserted has its end swallowed
     this.insertPressAt = 0;
-    // The mouse events a touch screen fires after a touch that opened a cell menu (they would close it, or edit the cell)
-    if (Date.now() - this.touchMenuAt < 1000) {
+    // The mouse events a touch screen fires after a touch taken (they would close the menu it opened, or select or edit the cell)
+    if (Date.now() - this.touchTakenAt < 1000) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -2549,7 +2553,7 @@ export class Controller implements TableHost {
       .sort((a, b) => a.order - b.order);
     if (groups.length === 0) return false;
     const entries = groups.flatMap((group, i): MenuEntry[] => [...(i ? [{ kind: "separator" as const }] : []), ...group.entries]);
-    if (this.pressedWith === "touch") this.touchMenuAt = Date.now();
+    if (this.pressedWith === "touch") this.takeTouch();
     const header = cellText(info.table.rows[0]!.cells[at.column]!) || `column ${at.column + 1}`;
     const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? `Header: ${header}` : `Cell: ${header}, row ${at.row}`;
     this.showMenu(widget, title, entries, { kind: "cell", point });
@@ -2569,7 +2573,7 @@ export class Controller implements TableHost {
   private onContextMenu = (e: MouseEvent): void => {
     if (e.shiftKey) return;
     // A long press opened it already (Android fires this too)
-    if (Date.now() - this.touchMenuAt < 1000) {
+    if (Date.now() - this.touchTakenAt < 1000) {
       e.preventDefault();
       return;
     }
@@ -2586,8 +2590,8 @@ export class Controller implements TableHost {
     // What pressed, for CSS (set only when it changes: the page's style is worked out again)
     const root = this.doc.documentElement;
     if (e.pointerType && root.dataset.tpPointer !== e.pointerType) root.dataset.tpPointer = e.pointerType;
-    // A new press: the mouse events of the touch that opened a cell menu are over
-    this.touchMenuAt = 0;
+    // A new press: the mouse events of the touch taken are over
+    this.touchTakenAt = 0;
     // A feature's own element in a cell (the fill handle) is no long press on the cell
     if (e.pointerType !== "touch" || (e.target instanceof Node && this.isFloating(e.target))) return;
     const hit = this.cellOfEvent(e);

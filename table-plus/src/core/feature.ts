@@ -172,6 +172,12 @@ export interface TableHost {
    * controls for it (handles to drag with a finger, a fill handle for a mouse).
    */
   readonly pressedWith: string;
+  /**
+   * The touch going on is the feature's (told by its pointer events: a tap):
+   * the mouse events a browser fires after it are swallowed, as they would
+   * select or edit the cell. A cell menu a touch opens takes it so.
+   */
+  takeTouch(): void;
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
   openCellMenu(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean;
   /** A floating element (position: fixed) in the page, kept out of the editor's way */
