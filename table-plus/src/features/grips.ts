@@ -5,23 +5,25 @@
 // selects from that row to the one under the pointer, until a click in the table.
 import type { Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import {
+  columnBlockTo,
   deleteColumnsAt,
   deleteRowsAt,
   duplicateRowAt,
   insertColumnWith,
   insertRowWith,
   MOVE_BLOCKED,
-  moveColumnTo,
-  moveRowTo,
+  moveColumnsTo,
+  moveRowsTo,
   pinColumnAt,
   pinRowAt,
+  rowBlockTo,
 } from "../core/structure.ts";
 import { cellText } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import { type Align, parseTable, type Table } from "../markdown.ts";
 import { focusMenu, type MenuEntry, renderMenu } from "../menu.ts";
 import { setAlign } from "../ops.ts";
-import { clampColumnMove, clampRowMove, columnZone, insertColumnAt, insertRowAt, rowZone } from "../pins.ts";
+import { columnZone, insertColumnAt, insertRowAt, rowZone } from "../pins.ts";
 import { type ViewState, withoutSort, withSort } from "../view.ts";
 
 type Axis = "row" | "column";
@@ -229,7 +231,7 @@ export class Grips implements Feature {
       if (!drag) {
         if (!canDrag || Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
         this.closeMenu(false);
-        drag = this.beginDrag(target, axis);
+        drag = this.beginDrag(target, axis, axis === "row" ? startY : startX);
       }
       drag.move(ev);
     };
@@ -378,6 +380,31 @@ export class Grips implements Feature {
     };
   }
 
+  /**
+   * The lines a grip moves: the rows (columns) selected whole, when they hold
+   * its line and follow each other in the markdown; else just its line
+   */
+  private blockOf(info: WidgetInfo, axis: Axis, line: number): { first: number; last: number } {
+    const lines = this.wholeLinesSelected(info, axis);
+    const first = Math.min(...lines);
+    const last = Math.max(...lines);
+    return lines.length > 1 && lines.includes(line) && last - first + 1 === lines.length ? { first, last } : { first: line, last: line };
+  }
+
+  /** Where a block asked to start at `asked` goes (its first line's place; `first`: it stays) */
+  private blockTo(info: WidgetInfo, axis: Axis, block: { first: number; last: number }, asked: number): number {
+    return axis === "row" ? rowBlockTo(info, block.first, block.last, asked) : columnBlockTo(info, block.first, block.last, asked);
+  }
+
+  /** Moves a block of rows (columns) to start at `asked`, as one edit; several stay selected where they go */
+  private moveBlock(widget: HTMLElement, info: WidgetInfo, axis: Axis, block: { first: number; last: number }, asked: number): void {
+    const to = this.blockTo(info, axis, block, asked);
+    if (to === block.first) return;
+    // Selected where they go before the write: the table rendered anew shows the selection again
+    if (block.last > block.first) this.selectLines(info, axis, to, to + block.last - block.first);
+    void (axis === "row" ? moveRowsTo : moveColumnsTo)(this.host, widget, info, block.first, block.last, to);
+  }
+
   /** The rows (columns) selected, when the selection holds this one; else just it */
   private selectedLines(info: WidgetInfo, axis: Axis, line: number): number[] {
     const cells = this.host.selectedCells(info);
@@ -385,10 +412,13 @@ export class Grips implements Feature {
     return lines.includes(line) ? lines : [line];
   }
 
-  private beginDrag(target: HandleTarget, axis: Axis): { move: (e: PointerEvent) => void; finish: (commit: boolean) => void } {
+  private beginDrag(target: HandleTarget, axis: Axis, pressedAt: number): { move: (e: PointerEvent) => void; finish: (commit: boolean) => void } {
     const { widget, info } = target;
     const { doc } = this.host;
-    const from = axis === "row" ? target.row! : target.column;
+    // The rows (columns) selected whole move together when the grip is on one of them
+    const block = this.blockOf(info, axis, axis === "row" ? target.row! : target.column);
+    const from = block.first;
+    const count = block.last - block.first + 1;
     const table = info.table;
     const header = table.rows[0]!;
     const rows = [header, ...this.host.bodyRows(info)];
@@ -398,13 +428,13 @@ export class Grips implements Feature {
         ? rows.slice(1).map((tr) => Array.from(tr.cells))
         : Array.from(header.cells).map((_, c) => rows.flatMap((tr) => tr.cells[c] ?? []));
     const index = axis === "row" ? from - 1 : from;
-    const carried = items[index] ?? [];
-    // The dragged row stays in the document while the table scrolls (a large table keeps only the rows in view there)
-    const carriedRow = axis === "row" ? (carried[0]?.parentElement as HTMLTableRowElement | undefined) : undefined;
-    if (carriedRow) {
-      this.host.rowNeeded(info, carriedRow);
-      this.host.holdInDocument(info, carriedRow);
-    }
+    const lines = items.slice(index, index + count);
+    const carried = lines.flat();
+    // The dragged rows are in the document (a large table keeps only the rows in view there); the first stays while the table scrolls
+    const carriedRows = axis === "row" ? lines.map((cells) => cells[0]?.parentElement as HTMLTableRowElement | undefined) : [];
+    for (const tr of carriedRows) if (tr) this.host.rowNeeded(info, tr);
+    const carriedRow = carriedRows[0];
+    if (carriedRow) this.host.holdInDocument(info, carriedRow);
     // Where each row (column) was, in the table's own coordinates: the page or
     // the table's box may scroll while dragging. Rows out of the document (a
     // large table's) are where rows of their size would be, after those in it.
@@ -430,30 +460,34 @@ export class Grips implements Feature {
       const last = measured[lastKnown]!;
       return { start: last.start + last.size + (i - lastKnown - 1) * typical, size: typical };
     });
-    const carriedSize = places[index]?.size ?? 0;
-    const ghost = this.ghostOf(axis, carried);
+    const carriedSize = places.slice(index, index + count).reduce((sum, p) => sum + p.size, 0);
+    // The first line's size: where the block goes is told by the first line's middle, as for one line
+    const firstSize = places[index]?.size ?? 0;
+    const ghost = this.ghostOf(axis, lines);
     const start = carried[0]!.getBoundingClientRect();
     carried.forEach((el) => el.classList.add("tp-dragged"));
     doc.body.classList.add("tp-dragging");
     this.tint(undefined);
     this.dragging = true;
     let to = from;
-    let grab: number | undefined;
+    // Where the press was on the block: the copy keeps that point under the pointer (taken at the press, not after the drag's threshold)
+    const grab = pressedAt - (axis === "row" ? start.top : start.left);
 
     const move = (ev: PointerEvent) => {
       const pointer = axis === "row" ? ev.clientY : ev.clientX;
-      grab ??= pointer - (axis === "row" ? start.top : start.left);
       if (axis === "row") this.host.place(ghost, start.left, pointer - grab);
       else this.host.place(ghost, pointer - grab, start.top);
-      // The slot the copy's middle is over, in the places the rows (columns) had (in the table, as it is scrolled now)
-      const middle = pointer - grab + carriedSize / 2 - tableAt();
+      // The slot the copy's first line's middle is over, in the places the rows (columns) had (in the table, as it is scrolled now)
+      const middle = pointer - grab + firstSize / 2 - tableAt();
       let slot = 0;
       for (let i = 0; i < places.length; i++) if (middle >= places[i]!.start + places[i]!.size / 2) slot = i;
       const asked = axis === "row" ? slot + 1 : slot;
-      to = axis === "row" ? clampRowMove(info.pins, info.rows, from, asked) : clampColumnMove(info.pins, info.columns, from, asked);
+      to = this.blockTo(info, axis, block, asked);
       const target = axis === "row" ? to - 1 : to;
+      const end = index + count - 1;
       items.forEach((cells, i) => {
-        const shift = i > index && i <= target ? -carriedSize : i < index && i >= target ? carriedSize : 0;
+        // Those the block passes over make room for it: up (left) when it goes down (right), else down
+        const shift = i > end && i <= target + count - 1 ? -carriedSize : i < index && i >= target ? carriedSize : 0;
         for (const cell of cells) cell.style.transform = shift ? (axis === "row" ? `translateY(${shift}px)` : `translateX(${shift}px)`) : "";
       });
       this.autoscroll(widget, ev);
@@ -467,17 +501,16 @@ export class Grips implements Feature {
       if (carriedRow) this.host.holdInDocument(info, undefined);
       this.hideGrips();
       if (!commit || to === from) return;
-      if (axis === "row") void moveRowTo(this.host, widget, info, from, to);
-      else void moveColumnTo(this.host, widget, info, from, to);
+      this.moveBlock(widget, info, axis, block, to);
     };
     return { move, finish };
   }
 
   /**
-   * The copy that follows the pointer: the row's (column's) cells cloned with
+   * The copy that follows the pointer: the rows' (columns') cells cloned with
    * their sizes and looks, as it is outside the table that styles them
    */
-  private ghostOf(axis: Axis, cells: readonly HTMLTableCellElement[]): HTMLElement {
+  private ghostOf(axis: Axis, lines: readonly (readonly HTMLTableCellElement[])[]): HTMLElement {
     const { doc } = this.host;
     const ghost = this.host.floating("div", "tp-drag-ghost tp-visible");
     const table = doc.createElement("table");
@@ -493,13 +526,17 @@ export class Grips implements Feature {
       return copy;
     };
     if (axis === "row") {
-      const tr = doc.createElement("tr");
-      tr.append(...cells.map(look));
-      table.append(tr);
-    } else {
-      for (const cell of cells) {
+      for (const cells of lines) {
         const tr = doc.createElement("tr");
-        tr.append(look(cell));
+        tr.append(...cells.map(look));
+        table.append(tr);
+      }
+    } else {
+      // A column's cells run down: each row of the copy takes one from each column
+      const height = Math.max(...lines.map((cells) => cells.length));
+      for (let r = 0; r < height; r++) {
+        const tr = doc.createElement("tr");
+        tr.append(...lines.flatMap((cells) => (cells[r] ? [look(cells[r]!)] : [])));
         table.append(tr);
       }
     }
@@ -619,10 +656,13 @@ export class Grips implements Feature {
     const rearranged = host.rearranged(info);
     const zone = rowZone(info.pins, info.rows, row);
     const act = (run: () => unknown) => this.runAndClose(() => void run());
-    const moveBlocked = (to: number) =>
+    // The rows selected whole move together when they hold this one
+    const block = this.blockOf(info, "row", row);
+    const rows = block.last - block.first + 1;
+    const moveBlocked = (asked: number) =>
       rearranged
         ? MOVE_BLOCKED
-        : clampRowMove(info.pins, info.rows, row, to) === row
+        : this.blockTo(info, "row", block, asked) === block.first
           ? zone
             ? "Pinned rows stay with the other pinned rows"
             : "Already at the edge"
@@ -656,17 +696,17 @@ export class Grips implements Feature {
       { kind: "separator" },
       {
         kind: "item",
-        label: "Move up",
+        label: rows > 1 ? `Move ${rows} rows up` : "Move up",
         icon: ICONS.arrowUp,
-        run: act(() => moveRowTo(host, widget, info, row, row - 1)),
-        disabled: moveBlocked(row - 1),
+        run: act(() => this.moveBlock(widget, info, "row", block, block.first - 1)),
+        disabled: moveBlocked(block.first - 1),
       },
       {
         kind: "item",
-        label: "Move down",
+        label: rows > 1 ? `Move ${rows} rows down` : "Move down",
         icon: ICONS.arrowDown,
-        run: act(() => moveRowTo(host, widget, info, row, row + 1)),
-        disabled: moveBlocked(row + 1),
+        run: act(() => this.moveBlock(widget, info, "row", block, block.first + 1)),
+        disabled: moveBlocked(block.first + 1),
       },
       { kind: "separator" },
       {
@@ -747,8 +787,11 @@ export class Grips implements Feature {
     const alignTo = (target: Align) => edit((t) => setAlign(t, column, align === target ? "" : target));
     const act = (run: () => unknown) => this.runAndClose(() => void run());
     const zone = columnZone(info.pins, info.columns, column);
-    const columnMoveBlocked = (to: number) =>
-      clampColumnMove(info.pins, info.columns, column, to) === column
+    // The columns selected whole move together when they hold this one
+    const block = this.blockOf(info, "column", column);
+    const columns = block.last - block.first + 1;
+    const columnMoveBlocked = (asked: number) =>
+      this.blockTo(info, "column", block, asked) === block.first
         ? zone
           ? "Pinned columns stay with the other pinned columns"
           : "Already at the edge"
@@ -810,17 +853,17 @@ export class Grips implements Feature {
       },
       {
         kind: "item",
-        label: "Move left",
+        label: columns > 1 ? `Move ${columns} columns left` : "Move left",
         icon: ICONS.arrowLeft,
-        run: act(() => moveColumnTo(host, widget, info, column, column - 1)),
-        disabled: columnMoveBlocked(column - 1),
+        run: act(() => this.moveBlock(widget, info, "column", block, block.first - 1)),
+        disabled: columnMoveBlocked(block.first - 1),
       },
       {
         kind: "item",
-        label: "Move right",
+        label: columns > 1 ? `Move ${columns} columns right` : "Move right",
         icon: ICONS.arrowRight,
-        run: act(() => moveColumnTo(host, widget, info, column, column + 1)),
-        disabled: columnMoveBlocked(column + 1),
+        run: act(() => this.moveBlock(widget, info, "column", block, block.first + 1)),
+        disabled: columnMoveBlocked(block.first + 1),
       },
       // The features' (a numbered column), closing the menu when run
       ...host.columnMenuInsertEntries(widget, info, column).map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry)),

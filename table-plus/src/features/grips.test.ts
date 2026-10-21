@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PAGE, bodyTexts, cell, clickOn, controller, editor, flush, key, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Row and column grips", () => {
@@ -262,5 +262,53 @@ describe("Row and column grips", () => {
     moveUp.click();
     await flush();
     expect(text).toBe(PAGE);
+  });
+
+  describe("moving the rows (columns) selected together", () => {
+    const LETTERS = "| N | M |\n|---|---|\n| a | 1 |\n| b | 2 |\n| c | 3 |\n| d | 4 |\n";
+    const body = () => text.split("\n").slice(2, 6);
+    const info = () => controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!;
+    const rowGrip = () => document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+
+    it("moves them from the grip's menu", async () => {
+      await setup(LETTERS);
+      controller.selectCells(info(), { row: 1, column: 0 }, { row: 2, column: 1 });
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+      const item = Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Move 2 rows down")!;
+      expect(item.getAttribute("aria-disabled")).toBeNull();
+      item.click();
+      await flush();
+      expect(body()).toEqual(["| c | 3 |", "| a | 1 |", "| b | 2 |", "| d | 4 |"]);
+      // They stay selected where they went
+      await controller.scan();
+      expect(Array.from(editor.querySelectorAll(".tp-selected")).map((td) => td.textContent!.trim())).toEqual(["a", "1", "b", "2"]);
+    });
+
+    it("drags them by the grip of one of them", async () => {
+      await setup(LETTERS);
+      // Rows 20 px high, the header at 0
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        const rect = (left: number, top: number, width: number, height: number) =>
+          ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top }) as DOMRect;
+        if (this instanceof HTMLTableCellElement) return rect(this.cellIndex * 100, (this.parentElement as HTMLTableRowElement).rowIndex * 20, 100, 20);
+        if (this instanceof HTMLTableRowElement) return rect(0, this.rowIndex * 20, 200, 20);
+        return rect(0, 0, 200, 100);
+      });
+      try {
+        controller.selectCells(info(), { row: 1, column: 0 }, { row: 2, column: 1 });
+        cell(2, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 5, clientY: 50 }));
+        // Pressed on b's grip (y 50: 30 px into the block), moved one row (20 px) down: the block one row down
+        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 58 }));
+        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 70 }));
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, clientX: 5, clientY: 70 }));
+        await flush();
+        expect(body()).toEqual(["| c | 3 |", "| a | 1 |", "| b | 2 |", "| d | 4 |"]);
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
   });
 });

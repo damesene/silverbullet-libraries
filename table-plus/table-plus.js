@@ -1837,11 +1837,6 @@ function deleteRowsAt(host, widget, info, rows) {
     rowMap: (r) => doomed.includes(r) ? void 0 : r - doomed.filter((d) => d < r).length
   });
 }
-function moveRowTo(host, widget, info, from, asked) {
-  const to = clampRowMove(info.pins, info.rows, from, asked);
-  if (to === from) return Promise.resolve("unchanged");
-  return host.write(widget, (t) => moveRow(t, from, to), { rowMap: (r) => columnAfterMove(r, from, to) });
-}
 function blockTo(clamp, first, last, asked) {
   const min = clamp(first, -Infinity);
   const max = clamp(last, Infinity);
@@ -1891,11 +1886,6 @@ async function deleteColumnsAt(host, widget, info, columns) {
     columnMap: (c) => doomed.includes(c) ? void 0 : c - doomed.filter((d) => d < c).length,
     pins
   });
-}
-function moveColumnTo(host, widget, info, from, asked) {
-  const to = clampColumnMove(info.pins, info.columns, from, asked);
-  if (to === from) return Promise.resolve("unchanged");
-  return host.write(widget, (t) => moveColumn(t, from, to), { columnMap: (c) => columnAfterMove(c, from, to) });
 }
 async function pinRowAt(host, widget, info, row, pin) {
   if (pin && !await host.setting("metadata")) return;
@@ -9477,7 +9467,7 @@ var Grips = class {
       if (!drag) {
         if (!canDrag || Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
         this.closeMenu(false);
-        drag = this.beginDrag(target, axis);
+        drag = this.beginDrag(target, axis, axis === "row" ? startY : startX);
       }
       drag.move(ev);
     };
@@ -9609,27 +9599,50 @@ var Grips = class {
       run: this.runAndClose(() => this.startPicking(info, axis, line))
     };
   }
+  /**
+   * The lines a grip moves: the rows (columns) selected whole, when they hold
+   * its line and follow each other in the markdown; else just its line
+   */
+  blockOf(info, axis, line) {
+    const lines = this.wholeLinesSelected(info, axis);
+    const first = Math.min(...lines);
+    const last = Math.max(...lines);
+    return lines.length > 1 && lines.includes(line) && last - first + 1 === lines.length ? { first, last } : { first: line, last: line };
+  }
+  /** Where a block asked to start at `asked` goes (its first line's place; `first`: it stays) */
+  blockTo(info, axis, block, asked) {
+    return axis === "row" ? rowBlockTo(info, block.first, block.last, asked) : columnBlockTo(info, block.first, block.last, asked);
+  }
+  /** Moves a block of rows (columns) to start at `asked`, as one edit; several stay selected where they go */
+  moveBlock(widget, info, axis, block, asked) {
+    const to = this.blockTo(info, axis, block, asked);
+    if (to === block.first) return;
+    if (block.last > block.first) this.selectLines(info, axis, to, to + block.last - block.first);
+    void (axis === "row" ? moveRowsTo : moveColumnsTo)(this.host, widget, info, block.first, block.last, to);
+  }
   /** The rows (columns) selected, when the selection holds this one; else just it */
   selectedLines(info, axis, line) {
     const cells = this.host.selectedCells(info);
     const lines = [...new Set(cells.map((ref) => axis === "row" ? ref.row : ref.column))].filter((l) => axis === "column" || l > 0);
     return lines.includes(line) ? lines : [line];
   }
-  beginDrag(target, axis) {
+  beginDrag(target, axis, pressedAt) {
     const { widget, info } = target;
     const { doc } = this.host;
-    const from = axis === "row" ? target.row : target.column;
+    const block = this.blockOf(info, axis, axis === "row" ? target.row : target.column);
+    const from = block.first;
+    const count = block.last - block.first + 1;
     const table = info.table;
     const header = table.rows[0];
     const rows = [header, ...this.host.bodyRows(info)];
     const items = axis === "row" ? rows.slice(1).map((tr) => Array.from(tr.cells)) : Array.from(header.cells).map((_, c) => rows.flatMap((tr) => tr.cells[c] ?? []));
     const index = axis === "row" ? from - 1 : from;
-    const carried = items[index] ?? [];
-    const carriedRow = axis === "row" ? carried[0]?.parentElement : void 0;
-    if (carriedRow) {
-      this.host.rowNeeded(info, carriedRow);
-      this.host.holdInDocument(info, carriedRow);
-    }
+    const lines = items.slice(index, index + count);
+    const carried = lines.flat();
+    const carriedRows = axis === "row" ? lines.map((cells) => cells[0]?.parentElement) : [];
+    for (const tr of carriedRows) if (tr) this.host.rowNeeded(info, tr);
+    const carriedRow = carriedRows[0];
+    if (carriedRow) this.host.holdInDocument(info, carriedRow);
     const tableAt = () => {
       const r = table.getBoundingClientRect();
       return axis === "row" ? r.top : r.left;
@@ -9652,28 +9665,29 @@ var Grips = class {
       const last = measured[lastKnown];
       return { start: last.start + last.size + (i - lastKnown - 1) * typical, size: typical };
     });
-    const carriedSize = places[index]?.size ?? 0;
-    const ghost = this.ghostOf(axis, carried);
+    const carriedSize = places.slice(index, index + count).reduce((sum, p) => sum + p.size, 0);
+    const firstSize = places[index]?.size ?? 0;
+    const ghost = this.ghostOf(axis, lines);
     const start = carried[0].getBoundingClientRect();
     carried.forEach((el) => el.classList.add("tp-dragged"));
     doc.body.classList.add("tp-dragging");
     this.tint(void 0);
     this.dragging = true;
     let to = from;
-    let grab;
+    const grab = pressedAt - (axis === "row" ? start.top : start.left);
     const move = (ev) => {
       const pointer = axis === "row" ? ev.clientY : ev.clientX;
-      grab ??= pointer - (axis === "row" ? start.top : start.left);
       if (axis === "row") this.host.place(ghost, start.left, pointer - grab);
       else this.host.place(ghost, pointer - grab, start.top);
-      const middle = pointer - grab + carriedSize / 2 - tableAt();
+      const middle = pointer - grab + firstSize / 2 - tableAt();
       let slot = 0;
       for (let i = 0; i < places.length; i++) if (middle >= places[i].start + places[i].size / 2) slot = i;
       const asked = axis === "row" ? slot + 1 : slot;
-      to = axis === "row" ? clampRowMove(info.pins, info.rows, from, asked) : clampColumnMove(info.pins, info.columns, from, asked);
+      to = this.blockTo(info, axis, block, asked);
       const target2 = axis === "row" ? to - 1 : to;
+      const end = index + count - 1;
       items.forEach((cells, i) => {
-        const shift = i > index && i <= target2 ? -carriedSize : i < index && i >= target2 ? carriedSize : 0;
+        const shift = i > end && i <= target2 + count - 1 ? -carriedSize : i < index && i >= target2 ? carriedSize : 0;
         for (const cell of cells) cell.style.transform = shift ? axis === "row" ? `translateY(${shift}px)` : `translateX(${shift}px)` : "";
       });
       this.autoscroll(widget, ev);
@@ -9687,16 +9701,15 @@ var Grips = class {
       if (carriedRow) this.host.holdInDocument(info, void 0);
       this.hideGrips();
       if (!commit || to === from) return;
-      if (axis === "row") void moveRowTo(this.host, widget, info, from, to);
-      else void moveColumnTo(this.host, widget, info, from, to);
+      this.moveBlock(widget, info, axis, block, to);
     };
     return { move, finish };
   }
   /**
-   * The copy that follows the pointer: the row's (column's) cells cloned with
+   * The copy that follows the pointer: the rows' (columns') cells cloned with
    * their sizes and looks, as it is outside the table that styles them
    */
-  ghostOf(axis, cells) {
+  ghostOf(axis, lines) {
     const { doc } = this.host;
     const ghost = this.host.floating("div", "tp-drag-ghost tp-visible");
     const table = doc.createElement("table");
@@ -9712,13 +9725,16 @@ var Grips = class {
       return copy;
     };
     if (axis === "row") {
-      const tr = doc.createElement("tr");
-      tr.append(...cells.map(look));
-      table.append(tr);
-    } else {
-      for (const cell of cells) {
+      for (const cells of lines) {
         const tr = doc.createElement("tr");
-        tr.append(look(cell));
+        tr.append(...cells.map(look));
+        table.append(tr);
+      }
+    } else {
+      const height = Math.max(...lines.map((cells) => cells.length));
+      for (let r = 0; r < height; r++) {
+        const tr = doc.createElement("tr");
+        tr.append(...lines.flatMap((cells) => cells[r] ? [look(cells[r])] : []));
         table.append(tr);
       }
     }
@@ -9825,7 +9841,9 @@ var Grips = class {
     const rearranged = host.rearranged(info);
     const zone = rowZone(info.pins, info.rows, row);
     const act = (run) => this.runAndClose(() => void run());
-    const moveBlocked = (to) => rearranged ? MOVE_BLOCKED : clampRowMove(info.pins, info.rows, row, to) === row ? zone ? "Pinned rows stay with the other pinned rows" : "Already at the edge" : void 0;
+    const block = this.blockOf(info, "row", row);
+    const rows = block.last - block.first + 1;
+    const moveBlocked = (asked) => rearranged ? MOVE_BLOCKED : this.blockTo(info, "row", block, asked) === block.first ? zone ? "Pinned rows stay with the other pinned rows" : "Already at the edge" : void 0;
     const pinBlocked = (to) => host.metadataEnabled || zone === to ? void 0 : PIN_NEEDS_METADATA;
     const insertBlocked = (at) => insertRowAt(info.pins, info.rows, at).at === at ? void 0 : zone === "top" ? "Rows pinned to the top stay at the top" : "Rows pinned to the bottom stay at the bottom";
     return [
@@ -9848,17 +9866,17 @@ var Grips = class {
       { kind: "separator" },
       {
         kind: "item",
-        label: "Move up",
+        label: rows > 1 ? `Move ${rows} rows up` : "Move up",
         icon: ICONS.arrowUp,
-        run: act(() => moveRowTo(host, widget, info, row, row - 1)),
-        disabled: moveBlocked(row - 1)
+        run: act(() => this.moveBlock(widget, info, "row", block, block.first - 1)),
+        disabled: moveBlocked(block.first - 1)
       },
       {
         kind: "item",
-        label: "Move down",
+        label: rows > 1 ? `Move ${rows} rows down` : "Move down",
         icon: ICONS.arrowDown,
-        run: act(() => moveRowTo(host, widget, info, row, row + 1)),
-        disabled: moveBlocked(row + 1)
+        run: act(() => this.moveBlock(widget, info, "row", block, block.first + 1)),
+        disabled: moveBlocked(block.first + 1)
       },
       { kind: "separator" },
       {
@@ -9933,7 +9951,9 @@ var Grips = class {
     const alignTo = (target) => edit((t) => setAlign(t, column, align === target ? "" : target));
     const act = (run) => this.runAndClose(() => void run());
     const zone = columnZone(info.pins, info.columns, column);
-    const columnMoveBlocked = (to) => clampColumnMove(info.pins, info.columns, column, to) === column ? zone ? "Pinned columns stay with the other pinned columns" : "Already at the edge" : void 0;
+    const block = this.blockOf(info, "column", column);
+    const columns = block.last - block.first + 1;
+    const columnMoveBlocked = (asked) => this.blockTo(info, "column", block, asked) === block.first ? zone ? "Pinned columns stay with the other pinned columns" : "Already at the edge" : void 0;
     const pinBlocked = (to) => host.metadataEnabled || zone === to ? void 0 : PIN_NEEDS_METADATA;
     const insertBlocked = (at) => insertColumnAt(info.pins, info.columns, at).at === at ? void 0 : zone === "left" ? "Columns pinned to the left stay at the left" : "Columns pinned to the right stay at the right";
     const entries = [
@@ -9985,17 +10005,17 @@ var Grips = class {
       },
       {
         kind: "item",
-        label: "Move left",
+        label: columns > 1 ? `Move ${columns} columns left` : "Move left",
         icon: ICONS.arrowLeft,
-        run: act(() => moveColumnTo(host, widget, info, column, column - 1)),
-        disabled: columnMoveBlocked(column - 1)
+        run: act(() => this.moveBlock(widget, info, "column", block, block.first - 1)),
+        disabled: columnMoveBlocked(block.first - 1)
       },
       {
         kind: "item",
-        label: "Move right",
+        label: columns > 1 ? `Move ${columns} columns right` : "Move right",
         icon: ICONS.arrowRight,
-        run: act(() => moveColumnTo(host, widget, info, column, column + 1)),
-        disabled: columnMoveBlocked(column + 1)
+        run: act(() => this.moveBlock(widget, info, "column", block, block.first + 1)),
+        disabled: columnMoveBlocked(block.first + 1)
       },
       ...host.columnMenuInsertEntries(widget, info, column).map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry),
       { kind: "separator" },
