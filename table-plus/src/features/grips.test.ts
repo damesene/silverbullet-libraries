@@ -42,6 +42,33 @@ describe("Row and column grips", () => {
     expect(document.querySelector(".tp-menu")).toBeNull();
   });
 
+  it("in select mode selects with a grip's first click and opens its menu with the second; a right click opens it at once", async () => {
+    localStorage.removeItem("tablePlus.editMode");
+    await setup(PAGE);
+    const grip = () => document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+    const click = () => {
+      grip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    };
+    cell(2, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    expect(grip().classList.contains("tp-line-selected")).toBe(false);
+    click();
+    expect(editor.querySelectorAll(".tp-selected").length).toBe(2);
+    expect(document.querySelector(".tp-menu")).toBeNull();
+    // Selected: its grip says a click opens the menu (the context-menu pointer)
+    expect(grip().classList.contains("tp-line-selected")).toBe(true);
+    click();
+    expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 2");
+    // Again: closed
+    click();
+    expect(document.querySelector(".tp-menu")).toBeNull();
+    // Another row's grip, right-clicked: selected and its menu open at once
+    cell(3, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    grip().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 3");
+    expect(editor.querySelectorAll(".tp-selected").length).toBe(2);
+  });
+
   it("tints what a hovered grip acts on, and selects it when clicked", async () => {
     await setup(PAGE);
     const tinted = () => Array.from(editor.querySelectorAll(".tp-handle-hover"));
@@ -308,9 +335,8 @@ describe("Row and column grips", () => {
       expect(labels).not.toContain("Move 2 rows up");
     });
 
-    it("drops a block where the rows it passes make room, whatever their heights", async () => {
-      await setup(LETTERS);
-      // a and b 20 px high, c and d 100 px: the header 0..20, a 20..40, b 40..60, c 60..160, d 160..260
+    // a and b 20 px high, c and d 100 px: the header 0..20, a 20..40, b 40..60, c 60..160, d 160..260
+    const unevenRows = () => {
       const tops = [0, 20, 40, 60, 160];
       const heights = [20, 20, 20, 100, 100];
       vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
@@ -320,28 +346,32 @@ describe("Row and column grips", () => {
         if (row >= 0) return rect(this instanceof HTMLTableCellElement ? this.cellIndex * 100 : 0, tops[row]!, this instanceof HTMLTableCellElement ? 100 : 200, heights[row]!);
         return rect(0, 0, 200, 260);
       });
-      try {
-        controller.selectCells(info(), { row: 1, column: 0 }, { row: 2, column: 1 });
-        cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-        rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 5, clientY: 30 }));
-        // 40 px down: the block's end (100) is not past c's middle (110), so it stays
-        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 40 }));
-        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 70 }));
-        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-        await flush();
-        expect(body()).toEqual(["| a | 1 |", "| b | 2 |", "| c | 3 |", "| d | 4 |"]);
-        await controller.scan();
-        // 60 px down: its end (120) past c's middle: below c
-        controller.selectCells(info(), { row: 1, column: 0 }, { row: 2, column: 1 });
-        cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-        rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 5, clientY: 30 }));
-        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 40 }));
-        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 90 }));
-        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-        await vi.waitFor(() => expect(body()).toEqual(["| c | 3 |", "| a | 1 |", "| b | 2 |", "| d | 4 |"]));
-      } finally {
-        vi.restoreAllMocks();
-      }
+    };
+    // a and b selected, dragged by a's grip (pressed at y 30) to y
+    const dragBlock = (y: number) => {
+      controller.selectCells(info(), { row: 1, column: 0 }, { row: 2, column: 1 });
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 5, clientY: 30 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: 40 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 5, clientY: y }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    };
+
+    it("keeps a block dragged short of the middle of a taller row after it", async () => {
+      await setup(LETTERS);
+      unevenRows();
+      // 40 px down: the block's end (100) is not past c's middle (110), so it stays
+      dragBlock(70);
+      await flush();
+      expect(body()).toEqual(["| a | 1 |", "| b | 2 |", "| c | 3 |", "| d | 4 |"]);
+    });
+
+    it("drops a block below a taller row once its end is past that row's middle", async () => {
+      await setup(LETTERS);
+      unevenRows();
+      // 60 px down: its end (120) past c's middle: below c
+      dragBlock(90);
+      await vi.waitFor(() => expect(body()).toEqual(["| c | 3 |", "| a | 1 |", "| b | 2 |", "| d | 4 |"]), { timeout: 3000 });
     });
 
     it("drags them by the grip of one of them", async () => {

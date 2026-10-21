@@ -895,6 +895,10 @@ export class Controller implements TableHost {
     return keepTags(value, from, new Set(this.features.flatMap((f) => f.takesTags?.() ?? [])));
   }
 
+  clickSelects(): boolean {
+    return this.features.some((f) => f.clickSelects?.());
+  }
+
   headerRenamed(name: string, original: string): string {
     for (const feature of this.features) {
       const kept = feature.headerRenamed?.(name, original);

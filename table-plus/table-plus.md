@@ -593,7 +593,7 @@ Then `| Outside #temp |` and `| Oven #temp-f |` show their cells so, the *Type* 
 
 Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; moving the pointer along the left of the table (above it) takes them from row to row (column to column). Hovering a grip tints its row or column. While a cell is edited, they stay with it.
 
-* **Click a grip**: the row (column) is selected, for Ctrl+C or Delete, and its menu opens:
+* **Click a grip**: the row (column) is selected, for Ctrl+C or Delete, as a click selects a cell; **click it again** (the pointer shows a menu on the grip of a row selected), or **right-click** it, for its menu. With *Edit mode* on, as a click edits a cell at once, the first click opens the menu too. On a touch screen: tap to select, tap again or press and hold for the menu.
   * Row: insert above or below, duplicate, move up or down, select rows, delete.
   * Column: sort, filter, type (see [[#Column types]]), align (left, center, right), insert left or right, move, select columns, delete.
 * **Select rows** (*Select columns*) in the menu: from that row, the rows up to the one under the pointer are selected as you move it; a click anywhere in the table ends the selection there (without editing the cell). Esc keeps just the first row. **Shift+click on a grip** does the same without the menu: from the first of the rows already selected, else from that row. A click on the grip of a selected row then opens its menu with *Delete N rows*.
@@ -622,7 +622,7 @@ With the *Store table metadata* setting on, the row menu has *Pin to top* and *P
 
 On a phone or a tablet:
 
-* Tap a cell to select it, tap it again to edit it (with *Edit mode* on, the first tap edits). The handles of its row and column show next to it: tap one for the row's or column's menu (insert rows and columns there), or drag it to move the row or column. A pen that hovers (such as the S Pen) also gets the **+** on the borders, as a mouse does.
+* Tap a cell to select it, tap it again to edit it (with *Edit mode* on, the first tap edits). The handles of its row and column show next to it: tap one to select the row or column, tap it again (or press and hold it) for its menu (insert rows and columns there), or drag it to move the row or column. A pen that hovers (such as the S Pen) also gets the **+** on the borders, as a mouse does.
 * The sort buttons in the header are always shown (there is no hover to show them on). The toolbar (the filter icon, the ⋯ menu) shows while a cell of the table is edited.
 * Swiping scrolls a wide table sideways and the page up and down, as usual.
 * **Selecting more cells**: tap a cell, then drag one of the dots at the selection's corners (top left, bottom right) across other cells; near the edge of the screen the page scrolls along. Tap a row's or column's handle to select the whole row (column), then drag a dot to select more rows (columns): they stay whole.
@@ -2848,6 +2848,10 @@ html[data-theme="dark"] .tp-excel-error {
   border-radius: 4px;
   cursor: grab;
   touch-action: none;
+}
+/* The grip of a line selected: its click opens the line's menu */
+.tp-handle.tp-line-selected {
+  cursor: context-menu;
 }
 .tp-handle:hover,
 .tp-handle.tp-active {

@@ -138,6 +138,10 @@ export class Selection implements Feature {
     delete this.host.doc.documentElement.dataset.tpSelectMode;
   }
 
+  clickSelects(): boolean {
+    return !this.editMode;
+  }
+
   /** Select mode on the page's root, for CSS: a click selects (the default pointer), on a cell selected alone it edits (the text cursor) */
   private showMode(): void {
     const root = this.host.doc.documentElement;

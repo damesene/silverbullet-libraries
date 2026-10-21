@@ -181,6 +181,8 @@ export interface TableHost {
   takePress(): void;
   /** Whether the press going on was taken (another feature does nothing more with it) */
   pressTaken(): boolean;
+  /** Whether a click selects first (a feature's select mode), so that a second one acts: a cell's editor, a grip's menu */
+  clickSelects(): boolean;
   /** A header given a new name (escaped markdown) other than by its editor: with what features keep in it (Feature.headerRenamed) */
   headerRenamed(name: string, original: string): string;
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
@@ -484,6 +486,8 @@ export interface Feature {
   editorKeyDown?(e: KeyboardEvent, editor: CellEditor): boolean;
   /** The markdown to save for what was typed; undefined: the text */
   editorValue?(editor: CellEditor, typed: string): string | undefined;
+  /** A click selects first (select mode: the selection module's), a second click acts; false: a click acts at once */
+  clickSelects?(): boolean;
   /** A header given a new name other than by its editor (a paste): what it becomes (the column type's hashtag kept); undefined: as given */
   headerRenamed?(name: string, original: string): string | undefined;
   /**

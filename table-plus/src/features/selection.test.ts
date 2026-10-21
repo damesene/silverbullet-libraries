@@ -313,8 +313,11 @@ describe("Selecting cells", () => {
       target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, pointerType: "touch" }));
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     const grip = document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
-    grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
-    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    // Select mode: a first click on the grip selects the row, a second opens its menu
+    for (let i = 0; i < 2; i++) {
+      grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    }
     expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 1");
     touch(cell(1, 1), "pointerdown");
     touch(window, "pointerup");
