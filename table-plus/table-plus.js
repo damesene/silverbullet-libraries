@@ -1142,7 +1142,6 @@ function customOne(definition) {
     return listSeries(lower, [{ words: words.map((w) => w.trim()), alone: alone ?? true }]);
   }
   if (typeof match !== "function") return `${name}: match is not a function`;
-  if (alone !== void 0) return `${name}: alone is for words; match decides itself (values.length)`;
   return { name: lower, match: (values) => checkedGenerator(name, values, match) };
 }
 function checkedGenerator(name, values, match) {
