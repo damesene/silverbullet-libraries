@@ -5670,21 +5670,22 @@ var Sheet = class {
           { row: row + 1, column: column + 1 }
         );
       }
-      case "unary": {
-        const arg = this.evaluate(node.arg, row, column);
-        const time = isRange(arg) ? void 0 : asTime(arg);
-        if (time && node.op !== "%") return node.op === "-" ? new TimeValue(-time.seconds) : time;
-        const n = toNumber(arg);
-        if (isError(n)) return n;
-        return node.op === "-" ? -n : node.op === "%" ? n / 100 : n;
+      case "unary":
+        return cellByCell([this.evaluate(node.arg, row, column)], ([arg]) => this.unary(node.op, arg));
+      case "binary": {
+        const operands = [this.evaluate(node.left, row, column), this.evaluate(node.right, row, column)];
+        return cellByCell(operands, ([left, right]) => this.binary(node.op, left, right));
       }
-      case "binary":
-        return this.binary(node.op, this.evaluate(node.left, row, column), this.evaluate(node.right, row, column));
     }
   }
-  binary(op, leftValue, rightValue) {
-    const left = single(leftValue);
-    const right = single(rightValue);
+  unary(op, arg) {
+    const time = asTime(arg);
+    if (time && op !== "%") return op === "-" ? new TimeValue(-time.seconds) : time;
+    const n = toNumber(arg);
+    if (isError(n)) return n;
+    return op === "-" ? -n : op === "%" ? n / 100 : n;
+  }
+  binary(op, left, right) {
     if (isError(left)) return left;
     if (isError(right)) return right;
     if (op === "&") return toText(left) + toText(right);
@@ -5712,6 +5713,14 @@ var Sheet = class {
     }
   }
 };
+function cellByCell(operands, f) {
+  const ranges = operands.filter((v) => isRange(v) && v.length !== 1);
+  if (ranges.length === 0) return f(operands.map(single));
+  const size = ranges[0].length;
+  const other = ranges.find((r) => r.length !== size);
+  if (other) return new FormulaError("#VALUE!", `the ranges are not the same size (${size} and ${other.length} cells)`);
+  return Array.from({ length: size }, (_, at) => f(operands.map((v) => isRange(v) && v.length !== 1 ? v[at] : single(v))));
+}
 var COMPARISONS = {
   "=": (o) => o === 0,
   "<>": (o) => o !== 0,

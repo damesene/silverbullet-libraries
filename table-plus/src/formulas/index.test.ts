@@ -110,6 +110,21 @@ describe("evaluation", () => {
     expect(evaluate(FRUIT, '=TEXTJOIN(", ", TRUE, [price])')).toBe("12.5, 4.5");
   });
 
+  it("applies operators on ranges cell by cell, for functions to take on", () => {
+    // The Total row is in [name]: the formula refers to no whole column of its own (Price)
+    expect(evaluate(FRUIT, '=TEXTJOIN(", ", TRUE, "**" & [name] & "**")')).toBe("**Pear**, **Apple**, **Fig**, **Total**");
+    expect(evaluate(FRUIT, '=TEXTJOIN(", ", TRUE, "[[" & A1:A2 & "]]")')).toBe("[[Pear]], [[Apple]]");
+    expect(evaluate(FRUIT, "=SUM([qty] * [price])")).toBe("82,5");
+    expect(evaluate(FRUIT, "=SUM(-[qty])")).toBe("-15");
+    expect(evaluate(FRUIT, "=SUMPRODUCT(([qty] > 2) * [qty])")).toBe("13");
+    // A one-cell reference is its value; ranges must be the same size
+    expect(evaluate(FRUIT, '=TEXTJOIN("+", TRUE, [qty] * B1)')).toBe("9+30+6+0");
+    expect(evaluate(FRUIT, "=SUM(B1:B3 * C1:C2)")).toBe("#VALUE!");
+    // A cell shows one value: a range left as the result is #VALUE!
+    expect(evaluate(FRUIT, "=[qty] * 2")).toBe("#VALUE!");
+    expect(evaluate(FRUIT, "=B1 * 2")).toBe("6");
+  });
+
   it("takes an argument left out as not given", () => {
     const GRADES = ["| Min | Grade | Result |", "|---|---|---|", "| 0 | F | |", "| 50 | C | |", "| 70 | B | |", "| 90 | A | 75 |"].join("\n");
     const at = { row: 1, column: 2 };

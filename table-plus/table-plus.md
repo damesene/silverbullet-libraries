@@ -341,6 +341,8 @@ The *Functions* dialog shows them all: **Functions…** (fx) under a formula bei
 
 In ranges, empty cells and text that is not a number are skipped by the number functions.
 
+Operators work on a range cell by cell, for a function to take the result: `TEXTJOIN(", ", TRUE, "**" & [name] & "**")` joins the names in bold, `SUM([qty] * [price])` adds the products of each row, `SUMPRODUCT(([status] = "open") * [qty])` the quantities of open rows. Two ranges must be the same size. A cell shows one value, so `=[qty] * 2` alone is `#VALUE!`. Number functions skip TRUE and FALSE in a range: count with `COUNTIFS`, or multiply the comparison (`* 1`) first.
+
 Conditions of `SUMIFS`, `COUNTIFS`, `AVERAGEIFS`, `MAXIFS` and `MINIFS` are written as in spreadsheets, in quotes: `"open"` (the same text, ignoring case), `">10"`, `"<=2025-12-31"`, `"<>done"`, `"app*"` (`*` any text, `?` one character, `~*` a star), `""` (an empty cell), `"<>"` (a cell that is not empty), or joined with a value: `">"&[@limit]`, `"<"&TODAY()`. They are not the filter row's syntax.
 
 An optional argument can be left out between others: `XLOOKUP([@score], [min], [grade], , -1)`.

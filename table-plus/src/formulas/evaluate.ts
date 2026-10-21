@@ -305,22 +305,24 @@ class Sheet {
           { row: row + 1, column: column + 1 },
         );
       }
-      case "unary": {
-        const arg = this.evaluate(node.arg, row, column);
-        const time = isRange(arg) ? undefined : asTime(arg);
-        if (time && node.op !== "%") return node.op === "-" ? new TimeValue(-time.seconds) : time;
-        const n = toNumber(arg);
-        if (isError(n)) return n;
-        return node.op === "-" ? -n : node.op === "%" ? n / 100 : n;
+      case "unary":
+        return cellByCell([this.evaluate(node.arg, row, column)], ([arg]) => this.unary(node.op, arg!));
+      case "binary": {
+        const operands = [this.evaluate(node.left, row, column), this.evaluate(node.right, row, column)];
+        return cellByCell(operands, ([left, right]) => this.binary(node.op, left!, right!));
       }
-      case "binary":
-        return this.binary(node.op, this.evaluate(node.left, row, column), this.evaluate(node.right, row, column));
     }
   }
 
-  private binary(op: string, leftValue: Value, rightValue: Value): Scalar {
-    const left = single(leftValue);
-    const right = single(rightValue);
+  private unary(op: string, arg: Scalar): Scalar {
+    const time = asTime(arg);
+    if (time && op !== "%") return op === "-" ? new TimeValue(-time.seconds) : time;
+    const n = toNumber(arg);
+    if (isError(n)) return n;
+    return op === "-" ? -n : op === "%" ? n / 100 : n;
+  }
+
+  private binary(op: string, left: Scalar, right: Scalar): Scalar {
     if (isError(left)) return left;
     if (isError(right)) return right;
     if (op === "&") return (toText(left) as string) + (toText(right) as string);
@@ -349,6 +351,22 @@ class Sheet {
         return a ** b;
     }
   }
+}
+
+/**
+ * An operator on ranges works cell by cell, as in spreadsheets: a range and a
+ * value give a range ("**" & [name]), two ranges of the same size the range of
+ * their pairs ([qty] * [price]). A function takes it on (TEXTJOIN, SUM); a
+ * cell's result is one value, so a range left there is #VALUE!. A range of one
+ * cell (A1) is that cell's value.
+ */
+function cellByCell(operands: readonly Value[], f: (values: Scalar[]) => Scalar): Value {
+  const ranges = operands.filter((v): v is readonly Scalar[] => isRange(v) && v.length !== 1);
+  if (ranges.length === 0) return f(operands.map(single));
+  const size = ranges[0]!.length;
+  const other = ranges.find((r) => r.length !== size);
+  if (other) return new FormulaError("#VALUE!", `the ranges are not the same size (${size} and ${other.length} cells)`);
+  return Array.from({ length: size }, (_, at) => f(operands.map((v) => (isRange(v) && v.length !== 1 ? v[at]! : single(v)))));
 }
 
 const COMPARISONS: Readonly<Record<string, (order: number) => boolean>> = {
