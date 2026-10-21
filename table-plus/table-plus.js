@@ -7616,8 +7616,10 @@ ${error}` : stored.formula;
     const list = hint.querySelector(".tp-formula-choices");
     const picked = list?.querySelector('[aria-selected="true"]');
     if (list && picked) list.scrollTop = Math.max(0, picked.offsetTop + picked.offsetHeight - list.clientHeight);
-    const viewHeight = doc.defaultView.innerHeight;
-    if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {
+    const view = this.host.viewBounds(active.widget);
+    const below = view.bottom - (rect.bottom + 4);
+    const above = rect.top - 4 - view.top;
+    if (hint.offsetHeight > below && above > below) {
       hint.classList.add("tp-above");
       this.host.place(hint, rect.left, rect.top - 4 - hint.offsetHeight);
     }
@@ -12808,6 +12810,7 @@ var Controller = class {
   }
   place(element, left, top) {
     const win = this.doc.defaultView;
+    element.style.left = "0px";
     const maxLeft = Math.max(4, win.innerWidth - element.offsetWidth - 4);
     element.style.left = `${Math.round(Math.max(4, Math.min(left, maxLeft)))}px`;
     element.style.top = `${Math.round(top)}px`;

@@ -2208,6 +2208,9 @@ export class Controller implements TableHost {
 
   place(element: HTMLElement, left: number, top: number): void {
     const win = this.doc.defaultView!;
+    // Measured at the window's left edge: placed further right, a box of no set width is as narrow as the room
+    // left of it, and placing it again by that width would move it left and widen it on every call
+    element.style.left = "0px";
     const maxLeft = Math.max(4, win.innerWidth - element.offsetWidth - 4);
     element.style.left = `${Math.round(Math.max(4, Math.min(left, maxLeft)))}px`;
     element.style.top = `${Math.round(top)}px`;

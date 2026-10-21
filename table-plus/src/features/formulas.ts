@@ -700,8 +700,11 @@ export class Formulas implements Feature {
     const list = hint.querySelector<HTMLElement>(".tp-formula-choices");
     const picked = list?.querySelector<HTMLElement>('[aria-selected="true"]');
     if (list && picked) list.scrollTop = Math.max(0, picked.offsetTop + picked.offsetHeight - list.clientHeight);
-    const viewHeight = doc.defaultView!.innerHeight;
-    if (rect.bottom + 4 + hint.offsetHeight > viewHeight && rect.top - 4 - hint.offsetHeight >= 0) {
+    // The page in view, cut to what an on-screen keyboard leaves: not fitting below the cell, above it where there is more room
+    const view = this.host.viewBounds(active.widget);
+    const below = view.bottom - (rect.bottom + 4);
+    const above = rect.top - 4 - view.top;
+    if (hint.offsetHeight > below && above > below) {
       // Above the cell: fx at its bottom, by the cell again
       hint.classList.add("tp-above");
       this.host.place(hint, rect.left, rect.top - 4 - hint.offsetHeight);

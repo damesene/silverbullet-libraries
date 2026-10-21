@@ -838,6 +838,33 @@ describe("Formulas", () => {
       expect(marks().map((m) => [m.style.top, m.style.height])).toEqual([["30px", "50px"]]);
     });
 
+    it("keeps the formula's help where it was placed, and above the cell when an on-screen keyboard covers the room below", async () => {
+      const visual = { width: 300, height: 120, offsetTop: 0, offsetLeft: 0, addEventListener: () => {}, removeEventListener: () => {} };
+      Object.defineProperty(window, "visualViewport", { configurable: true, value: visual });
+      const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 300 });
+      try {
+        await setup(TOTAL);
+        const hint = document.querySelector<HTMLElement>(".tp-formula-hint")!;
+        // A box of no set width: as narrow as the room right of where it is (at most 400 px)
+        Object.defineProperty(hint, "offsetWidth", { configurable: true, get: () => Math.min(400, 300 - (parseFloat(hint.style.left) || 0)) });
+        Object.defineProperty(hint, "offsetHeight", { configurable: true, value: 50 });
+        clickOn(cell(3, 1));
+        field().value = "=";
+        field().dispatchEvent(new Event("input"));
+        const left = hint.style.left;
+        for (let i = 0; i < 3; i++) field().dispatchEvent(new Event("input"));
+        expect(hint.style.left).toBe(left);
+        expect(left).toBe("4px");
+        // The cell at y 60–80, the keyboard from y 120 up: 36 px below, 56 above
+        expect(hint.classList.contains("tp-above")).toBe(true);
+        expect(hint.style.top).toBe("6px");
+      } finally {
+        delete (window as { visualViewport?: unknown }).visualViewport;
+        if (width) Object.defineProperty(window, "innerWidth", width);
+      }
+    });
+
     it("moves a reference by dragging its outline, and resizes a range by its corner", async () => {
       await setup(TOTAL);
       clickOn(cell(3, 1));
