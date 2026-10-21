@@ -135,9 +135,10 @@ describe("Row and column grips", () => {
       // The click the browser fires after the second tap, where the finger was: an item of the menu now
       const click = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
       first.dispatchEvent(click);
+      // Checked now: later jsdom, which lays nothing out, takes the table for scrolled out of view (its menu closes)
+      expect(document.querySelector(".tp-menu")).not.toBeNull();
       await flush();
       expect(copied).toBe("");
-      expect(document.querySelector(".tp-menu")).not.toBeNull();
     } finally {
       delete (navigator as { clipboard?: unknown }).clipboard;
     }

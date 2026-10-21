@@ -450,6 +450,23 @@ export class Selection implements Feature {
     return this.selection?.key === info.key ? this.refs(info) : undefined;
   }
 
+  /** Clear in the menu of rows (columns): their cells (a column's header keeps its name), after the clipboard's entries */
+  lineMenuEntries(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+    const rows = axis === "row" ? lines : this.host.bodyRows(info).map((tr) => Number(tr.dataset.tpRow));
+    const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : lines;
+    const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
+    const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis}${lines.length > 1 ? "s" : ""}`;
+    return [
+      {
+        kind: "item",
+        label: `Clear ${name}`,
+        icon: ICONS.clear,
+        hint: axis === "row" ? "Empty the cells, formulas included, as Delete does" : "Empty the cells under the header (it keeps its name), as Delete does",
+        run: () => void this.empty(widget, info, cells),
+      },
+    ];
+  }
+
   /** Clear in the menu of a cell or of the cells selected (Copy, Cut and Paste are the paste module's; Copy here when it is off) */
   cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup[] {
     const body = cells.filter((ref) => ref.row > 0).length;

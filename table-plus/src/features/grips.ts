@@ -71,6 +71,8 @@ export class Grips implements Feature {
         widget: HTMLElement;
         line: number;
         anchor: { readonly cell: HTMLElement; readonly dx: number; readonly dy: number; readonly width: number; readonly height: number };
+        // Opened at a point in a cell, not by the grip: the grip is not marked as the menu's
+        byPoint?: boolean;
       }
     | undefined;
   private dragging = false;
@@ -229,8 +231,8 @@ export class Grips implements Feature {
     }
     // A grip shows it has the menu open only on the menu's row (column)
     const menu = this.menu;
-    this.rowGrip.classList.toggle("tp-active", menu?.axis === "row" && menu.line === ref.row);
-    this.columnGrip.classList.toggle("tp-active", menu?.axis === "column" && menu.line === ref.column);
+    this.rowGrip.classList.toggle("tp-active", !menu?.byPoint && menu?.axis === "row" && menu.line === ref.row);
+    this.columnGrip.classList.toggle("tp-active", !menu?.byPoint && menu?.axis === "column" && menu.line === ref.column);
     this.markGrips();
     this.positionMenu();
   }
@@ -701,7 +703,7 @@ export class Grips implements Feature {
     if (at) {
       // By the point pressed, following its cell as the page scrolls
       const c = at.cell.getBoundingClientRect();
-      this.menu = { element, axis, widget, line, anchor: { cell: at.cell, dx: at.x - c.left, dy: at.y - c.top, width: 0, height: 0 } };
+      this.menu = { element, axis, widget, line, anchor: { cell: at.cell, dx: at.x - c.left, dy: at.y - c.top, width: 0, height: 0 }, byPoint: true };
     } else {
       const g = grip.getBoundingClientRect();
       const cell = this.cellsOf(target, axis)[0] ?? grip;

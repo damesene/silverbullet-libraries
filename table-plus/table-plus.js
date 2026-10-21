@@ -9630,8 +9630,8 @@ var Grips = class {
       this.host.place(this.columnGrip, center - length / 2, h.top - GRIP_THICKNESS / 2);
     }
     const menu = this.menu;
-    this.rowGrip.classList.toggle("tp-active", menu?.axis === "row" && menu.line === ref.row);
-    this.columnGrip.classList.toggle("tp-active", menu?.axis === "column" && menu.line === ref.column);
+    this.rowGrip.classList.toggle("tp-active", !menu?.byPoint && menu?.axis === "row" && menu.line === ref.row);
+    this.columnGrip.classList.toggle("tp-active", !menu?.byPoint && menu?.axis === "column" && menu.line === ref.column);
     this.markGrips();
     this.positionMenu();
   }
@@ -10037,7 +10037,7 @@ var Grips = class {
     doc.body.append(element);
     if (at) {
       const c = at.cell.getBoundingClientRect();
-      this.menu = { element, axis, widget, line, anchor: { cell: at.cell, dx: at.x - c.left, dy: at.y - c.top, width: 0, height: 0 } };
+      this.menu = { element, axis, widget, line, anchor: { cell: at.cell, dx: at.x - c.left, dy: at.y - c.top, width: 0, height: 0 }, byPoint: true };
     } else {
       const g = grip.getBoundingClientRect();
       const cell = this.cellsOf(target, axis)[0] ?? grip;
@@ -12019,6 +12019,7 @@ var Paste = class {
     const clipboard = this.host.doc.defaultView.navigator.clipboard;
     const disabled = this.host.rearranged(info) ? PASTE_BLOCKED : cut ? void 0 : !clipboard?.readText ? NO_CLIPBOARD : this.clipboard === "empty" ? "The clipboard holds no text to paste" : void 0;
     const header = cells.some((ref) => ref.row === 0);
+    const rowsCut = cut && this.cutRows(info, cut);
     return {
       // Before clearing: copy, cut and paste first
       order: 0.9,
@@ -12052,7 +12053,7 @@ var Paste = class {
           icon: ICONS.paste,
           hint: "Paste the clipboard's rows as new rows at this row, as Ctrl+Shift+V does",
           run: () => void this.pasteFromMenu(widget, info, at, true),
-          ...!clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}
+          ...rowsCut ? this.host.rearranged(info) ? { disabled: PASTE_BLOCKED } : {} : !clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}
         }
       ]
     };
@@ -12071,13 +12072,13 @@ var Paste = class {
     const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
     const body = cells.filter((ref) => ref.row > 0);
     const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis === "row" ? "row" : "column"}${lines.length > 1 ? "s" : ""}`;
-    const at = axis === "row" ? { row: first, column: 0 } : { row: this.cutFor(info) ? 1 : 0, column: first };
+    const at = axis === "row" ? { row: first, column: 0 } : { row: 0, column: first };
     const group = this.cellMenuEntries(widget, info, cells, at);
     const [copy, cut, paste, asRows] = group.entries.filter((e) => e.kind === "item");
     return [
       { ...copy, label: `Copy ${name}`, run: () => void this.copy(info, cells, false) },
       { ...cut, label: `Cut ${name}`, run: () => void this.copy(info, body, true), ...body.length ? { disabled: void 0 } : { disabled: "No cells under the header to cut" } },
-      paste,
+      { ...paste, run: () => void this.pasteFromMenu(widget, info, at, false, axis === "column") },
       ...axis === "row" ? [asRows] : []
     ];
   }
@@ -12221,9 +12222,22 @@ var Paste = class {
     this.unmarkCut();
   }
   /** The clipboard read (the browser may ask, or show its own Paste button), pasted from the cell; cells cut move there */
-  async pasteFromMenu(shownWidget, shownInfo, at, insert) {
+  /** The markdown rows `first`..`last` the cells cut are, when they are whole rows following each other; else nothing */
+  cutRows(info, cut) {
+    const rows = cut.cells.map((row) => row[0]?.row ?? 0);
+    const whole = cut.cells.every((row) => row.length === info.columns && row.every((ref, j) => ref.column === j));
+    const first = Math.min(...rows);
+    const last = Math.max(...rows);
+    return whole && rows.length > 0 && last - first + 1 === rows.length ? { first, last } : void 0;
+  }
+  /**
+   * `fromHeader`: pasted from a column's menu, at its header: a column copied
+   * with its header (what Copy column copies) goes there and names it; other
+   * text (a spreadsheet's cells, cells cut) goes under it, the name kept
+   */
+  async pasteFromMenu(shownWidget, shownInfo, at, insert, fromHeader = false) {
     const clipboard = this.host.doc.defaultView.navigator.clipboard;
-    const cutBefore = insert ? void 0 : this.cutFor(shownInfo);
+    const cutBefore = this.cutFor(shownInfo);
     let text;
     if (clipboard?.readText) {
       try {
@@ -12237,9 +12251,17 @@ var Paste = class {
     }
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     const info = this.host.infoOf(widget) ?? shownInfo;
-    const cut = insert ? void 0 : this.cutFor(info, text);
-    if (cut) {
-      await this.paste(widget, info, at, cut.held.map((row) => row.map(() => "")), false, false, cut);
+    const cut = this.cutFor(info, text);
+    const rows = cut && insert ? this.cutRows(info, cut) : void 0;
+    if (rows) {
+      const count = rows.last - rows.first + 1;
+      const to = at.row > rows.last ? at.row - count : Math.max(1, at.row);
+      this.endCut();
+      if (to !== rows.first) await moveRowsTo(this.host, widget, info, rows.first, rows.last, to);
+      return;
+    }
+    if (cut && !insert) {
+      await this.paste(widget, info, fromHeader && at.row === 0 ? { ...at, row: 1 } : at, cut.held.map((row) => row.map(() => "")), false, false, cut);
       return;
     }
     if (!text) {
@@ -12248,7 +12270,8 @@ var Paste = class {
       return;
     }
     const data = parseClipboardCells(text) ?? [[text.replace(/\r?\n$/, "")]];
-    await this.paste(widget, info, at, data, insert);
+    const named2 = this.cut?.cells[0]?.[0]?.row === 0 && sameText(text) === this.cut.text;
+    await this.paste(widget, info, fromHeader && at.row === 0 && !named2 ? { ...at, row: 1 } : at, data, insert);
   }
   /**
    * Pastes the cells from a cell, as one edit: over the cells there (insert
@@ -12659,6 +12682,22 @@ var Selection = class {
   }
   selected(info) {
     return this.selection?.key === info.key ? this.refs(info) : void 0;
+  }
+  /** Clear in the menu of rows (columns): their cells (a column's header keeps its name), after the clipboard's entries */
+  lineMenuEntries(widget, info, axis, lines) {
+    const rows = axis === "row" ? lines : this.host.bodyRows(info).map((tr) => Number(tr.dataset.tpRow));
+    const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : lines;
+    const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
+    const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis}${lines.length > 1 ? "s" : ""}`;
+    return [
+      {
+        kind: "item",
+        label: `Clear ${name}`,
+        icon: ICONS.clear,
+        hint: axis === "row" ? "Empty the cells, formulas included, as Delete does" : "Empty the cells under the header (it keeps its name), as Delete does",
+        run: () => void this.empty(widget, info, cells)
+      }
+    ];
   }
   /** Clear in the menu of a cell or of the cells selected (Copy, Cut and Paste are the paste module's; Copy here when it is off) */
   cellMenuEntries(widget, info, cells) {
@@ -15781,7 +15820,9 @@ var Controller = class {
    * False when none offers anything: the browser's menu stays.
    */
   openCellMenu(widget, info, at, point) {
-    if (this.features.some((f) => f.cellMenu?.(widget, info, at, point))) {
+    const taker = this.features.find((f) => f.cellMenu?.(widget, info, at, point));
+    if (taker) {
+      for (const feature of this.features) if (feature !== taker) feature.cellMenuOpened?.();
       if (this.pressedWith === "touch") this.takePress();
       return true;
     }

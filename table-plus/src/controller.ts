@@ -2572,8 +2572,10 @@ export class Controller implements TableHost {
    * False when none offers anything: the browser's menu stays.
    */
   openCellMenu(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean {
-    // A feature's own menu there instead (rows selected whole: theirs)
-    if (this.features.some((f) => f.cellMenu?.(widget, info, at, point))) {
+    // A feature's own menu there instead (rows selected whole: theirs); the others' menus and picking end, as for the cell menu
+    const taker = this.features.find((f) => f.cellMenu?.(widget, info, at, point));
+    if (taker) {
+      for (const feature of this.features) if (feature !== taker) feature.cellMenuOpened?.();
       if (this.pressedWith === "touch") this.takePress();
       return true;
     }

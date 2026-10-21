@@ -13,7 +13,7 @@ import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from ".
 import type { CellEditor, CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
 import type { MenuEntry } from "../menu.ts";
 import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
-import { cellMoveRules } from "../core/structure.ts";
+import { cellMoveRules, moveRowsTo } from "../core/structure.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import { moveCells, parseClipboardCells, pasteCells, planPaste } from "../paste.ts";
@@ -172,6 +172,8 @@ export class Paste implements Feature {
             ? "The clipboard holds no text to paste"
             : undefined;
     const header = cells.some((ref) => ref.row === 0);
+    // Rows cut whole move as new rows (where the clipboard cannot be read too); other cells cut paste as a copy
+    const rowsCut = cut && this.cutRows(info, cut);
     return {
       // Before clearing: copy, cut and paste first
       order: 0.9,
@@ -205,7 +207,7 @@ export class Paste implements Feature {
           icon: ICONS.paste,
           hint: "Paste the clipboard's rows as new rows at this row, as Ctrl+Shift+V does",
           run: () => void this.pasteFromMenu(widget, info, at, true),
-          ...(!clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}),
+          ...(rowsCut ? (this.host.rearranged(info) ? { disabled: PASTE_BLOCKED } : {}) : !clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}),
         },
       ],
     };
@@ -225,15 +227,15 @@ export class Paste implements Feature {
     const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
     const body = cells.filter((ref) => ref.row > 0);
     const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis === "row" ? "row" : "column"}${lines.length > 1 ? "s" : ""}`;
-    // A column's from its header (a column copied names it), cells cut under it (they move under the header)
-    const at = axis === "row" ? { row: first, column: 0 } : { row: this.cutFor(info) ? 1 : 0, column: first };
+    // A column's from its header: a column copied with it names it, anything else goes under it (pasteFromMenu)
+    const at = axis === "row" ? { row: first, column: 0 } : { row: 0, column: first };
     const group = this.cellMenuEntries(widget, info, cells, at);
     type Item = Extract<MenuEntry, { kind: "item" }>;
     const [copy, cut, paste, asRows] = group.entries.filter((e): e is Item => e.kind === "item") as [Item, Item, Item, Item];
     return [
       { ...copy, label: `Copy ${name}`, run: () => void this.copy(info, cells, false) },
       { ...cut, label: `Cut ${name}`, run: () => void this.copy(info, body, true), ...(body.length ? { disabled: undefined } : { disabled: "No cells under the header to cut" }) },
-      paste,
+      { ...paste, run: () => void this.pasteFromMenu(widget, info, at, false, axis === "column") },
       ...(axis === "row" ? [asRows] : []),
     ];
   }
@@ -392,9 +394,23 @@ export class Paste implements Feature {
   }
 
   /** The clipboard read (the browser may ask, or show its own Paste button), pasted from the cell; cells cut move there */
-  private async pasteFromMenu(shownWidget: HTMLElement, shownInfo: WidgetInfo, at: CellRef, insert: boolean): Promise<void> {
+  /** The markdown rows `first`..`last` the cells cut are, when they are whole rows following each other; else nothing */
+  private cutRows(info: WidgetInfo, cut: Cut): { first: number; last: number } | undefined {
+    const rows = cut.cells.map((row) => row[0]?.row ?? 0);
+    const whole = cut.cells.every((row) => row.length === info.columns && row.every((ref, j) => ref.column === j));
+    const first = Math.min(...rows);
+    const last = Math.max(...rows);
+    return whole && rows.length > 0 && last - first + 1 === rows.length ? { first, last } : undefined;
+  }
+
+  /**
+   * `fromHeader`: pasted from a column's menu, at its header: a column copied
+   * with its header (what Copy column copies) goes there and names it; other
+   * text (a spreadsheet's cells, cells cut) goes under it, the name kept
+   */
+  private async pasteFromMenu(shownWidget: HTMLElement, shownInfo: WidgetInfo, at: CellRef, insert: boolean, fromHeader = false): Promise<void> {
     const clipboard = this.host.doc.defaultView!.navigator.clipboard;
-    const cutBefore = insert ? undefined : this.cutFor(shownInfo);
+    const cutBefore = this.cutFor(shownInfo);
     let text: string | undefined;
     if (clipboard?.readText) {
       try {
@@ -410,9 +426,18 @@ export class Paste implements Feature {
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
     const info = this.host.infoOf(widget) ?? shownInfo;
     // What the clipboard holds now decides: the cells cut, if it is still their text (or the clipboard cannot be read)
-    const cut = insert ? undefined : this.cutFor(info, text);
-    if (cut) {
-      await this.paste(widget, info, at, cut.held.map((row) => row.map(() => "")), false, false, cut);
+    const cut = this.cutFor(info, text);
+    const rows = cut && insert ? this.cutRows(info, cut) : undefined;
+    if (rows) {
+      // Rows cut whole, pasted as new rows: moved there (a spreadsheet's Insert cut cells), as one edit
+      const count = rows.last - rows.first + 1;
+      const to = at.row > rows.last ? at.row - count : Math.max(1, at.row);
+      this.endCut();
+      if (to !== rows.first) await moveRowsTo(this.host, widget, info, rows.first, rows.last, to);
+      return;
+    }
+    if (cut && !insert) {
+      await this.paste(widget, info, fromHeader && at.row === 0 ? { ...at, row: 1 } : at, cut.held.map((row) => row.map(() => "")), false, false, cut);
       return;
     }
     if (!text) {
@@ -423,7 +448,9 @@ export class Paste implements Feature {
     }
     // A single value (a line break at its end, as a spreadsheet copies one cell, left out) is one cell
     const data = parseClipboardCells(text) ?? [[text.replace(/\r?\n$/, "")]];
-    await this.paste(widget, info, at, data, insert);
+    // At a column's header only a column copied with its header (this page's copy, from its first cell, the header)
+    const named = this.cut?.cells[0]?.[0]?.row === 0 && sameText(text) === this.cut.text;
+    await this.paste(widget, info, fromHeader && at.row === 0 && !named ? { ...at, row: 1 } : at, data, insert);
   }
 
   /**

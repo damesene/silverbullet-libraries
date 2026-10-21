@@ -339,4 +339,57 @@ describe("Pasting from a spreadsheet", () => {
       delete (navigator as { clipboard?: unknown }).clipboard;
     }
   });
+
+  it("moves rows cut with Paste as new rows, pastes cells not copied with a header under a column's header, and clears from a row's menu", async () => {
+    let clip = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (t: string) => void (clip = t), readText: async () => clip },
+    });
+    try {
+      await setup("| N | Q |\n|---|---|\n| a | 1 |\n| b | 2 |\n| c | 3 |\n");
+      const gripMenu = (row: number, axis: "row" | "column", column = 0) => {
+        if (document.querySelector(".tp-menu")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+        cell(row, column).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        const grip = document.querySelector<HTMLElement>(axis === "row" ? ".tp-grip:not(.tp-grip-column)" : ".tp-grip-column")!;
+        grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+      };
+      const item = (label: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label)!;
+      const settle = async () => {
+        await flush();
+        await flush();
+        await controller.scan();
+      };
+      // Row a cut, pasted as new rows at c: moved before c
+      gripMenu(1, "row");
+      item("Cut row").click();
+      await settle();
+      gripMenu(3, "row");
+      item("Paste as new rows").click();
+      await settle();
+      expect(text).toBe("| N | Q |\n|---|---|\n| b | 2 |\n| a | 1 |\n| c | 3 |\n");
+      // Cells from a spreadsheet (no header) pasted from a column's menu: under its header, its name kept
+      clip = "x\ny\n";
+      gripMenu(1, "column", 1);
+      item("Paste").click();
+      await settle();
+      expect(text).toBe("| N | Q |\n|---|---|\n| b | x |\n| a | y |\n| c | 3 |\n");
+      // A column copied with its header: from the header, naming the column
+      gripMenu(1, "column", 0);
+      item("Copy column").click();
+      await settle();
+      gripMenu(1, "column", 1);
+      item("Paste").click();
+      await settle();
+      expect(text).toBe("| N | N |\n|---|---|\n| b | b |\n| a | a |\n| c | c |\n");
+      // Clear from a row's menu
+      gripMenu(2, "row");
+      item("Clear row").click();
+      await settle();
+      expect(text).toBe("| N | N |\n|---|---|\n| b | b |\n| | |\n| c | c |\n");
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
 });
