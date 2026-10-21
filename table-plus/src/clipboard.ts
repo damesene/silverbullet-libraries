@@ -11,16 +11,33 @@
 export async function writeClipboard(doc: Document, text: string, html?: string): Promise<void> {
   const win = doc.defaultView as (Window & { ClipboardItem?: typeof ClipboardItem }) | null;
   const clipboard = win?.navigator.clipboard;
-  if (clipboard && html !== undefined && win?.ClipboardItem && clipboard.write) {
-    const blob = (type: string, value: string) => new Blob([value], { type });
-    await clipboard.write([new win.ClipboardItem({ "text/plain": blob("text/plain", text), "text/html": blob("text/html", html) })]);
+  if (!clipboard?.writeText) {
+    copyCommand(doc, text, html);
     return;
   }
-  if (clipboard?.writeText) {
-    await clipboard.writeText(text);
-    return;
+  try {
+    if (html !== undefined && win?.ClipboardItem && clipboard.write) {
+      const blob = (type: string, value: string) => new Blob([value], { type });
+      await clipboard.write([new win.ClipboardItem({ "text/plain": blob("text/plain", text), "text/html": blob("text/html", html) })]);
+    } else {
+      await clipboard.writeText(text);
+    }
+  } catch (e) {
+    // Refused (the document not focused, a permission): the copy command may still copy; else the refusal is what to show
+    try {
+      copyCommand(doc, text, html);
+    } catch {
+      throw e;
+    }
   }
-  copyCommand(doc, text, html);
+}
+
+// The copy command running: the copy event it fires is this module's (another copy listener leaves it)
+let copying = false;
+
+/** Whether a copy event now is the one writeClipboard fires (a listener putting cells on the clipboard leaves it) */
+export function copyingFromMenu(): boolean {
+  return copying;
 }
 
 /**
@@ -47,9 +64,11 @@ function copyCommand(doc: Document, text: string, html: string | undefined): voi
   field.select();
   field.setSelectionRange(0, text.length);
   let copied = false;
+  copying = true;
   try {
     copied = typeof doc.execCommand === "function" && doc.execCommand("copy");
   } finally {
+    copying = false;
     field.remove();
     if (before instanceof HTMLElement) before.focus({ preventScroll: true });
   }

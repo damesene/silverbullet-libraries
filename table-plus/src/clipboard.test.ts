@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { writeClipboard } from "./clipboard.ts";
+import { copyingFromMenu, writeClipboard } from "./clipboard.ts";
 
 describe("writeClipboard", () => {
   afterEach(() => {
@@ -33,6 +33,17 @@ describe("writeClipboard", () => {
     expect(data).toEqual({ "text/plain": "a\tb", "text/html": "<table></table>" });
     expect(document.activeElement).toBe(button);
     expect(document.querySelector("textarea")).toBeNull();
+    // An empty text (nothing selected in the field): still this copy's, whatever else listens
+    const other = vi.fn();
+    window.addEventListener("copy", (e) => !copyingFromMenu() && other(e), true);
+    await writeClipboard(document, "");
+    expect(data["text/plain"]).toBe("");
+    expect(other).not.toHaveBeenCalled();
+    // The Clipboard API refusing: the copy command instead
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => Promise.reject(new Error("not focused")) } });
+    await writeClipboard(document, "c");
+    expect(data["text/plain"]).toBe("c");
+    delete (navigator as { clipboard?: unknown }).clipboard;
     // The browser refusing: an error to show
     Object.defineProperty(document, "execCommand", { configurable: true, value: () => false });
     await expect(writeClipboard(document, "x")).rejects.toThrow("the browser did not copy");

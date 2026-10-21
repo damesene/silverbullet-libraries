@@ -3504,16 +3504,28 @@ ${shown}` : shown;
 async function writeClipboard(doc, text, html) {
   const win = doc.defaultView;
   const clipboard = win?.navigator.clipboard;
-  if (clipboard && html !== void 0 && win?.ClipboardItem && clipboard.write) {
-    const blob = (type, value) => new Blob([value], { type });
-    await clipboard.write([new win.ClipboardItem({ "text/plain": blob("text/plain", text), "text/html": blob("text/html", html) })]);
+  if (!clipboard?.writeText) {
+    copyCommand(doc, text, html);
     return;
   }
-  if (clipboard?.writeText) {
-    await clipboard.writeText(text);
-    return;
+  try {
+    if (html !== void 0 && win?.ClipboardItem && clipboard.write) {
+      const blob = (type, value) => new Blob([value], { type });
+      await clipboard.write([new win.ClipboardItem({ "text/plain": blob("text/plain", text), "text/html": blob("text/html", html) })]);
+    } else {
+      await clipboard.writeText(text);
+    }
+  } catch (e) {
+    try {
+      copyCommand(doc, text, html);
+    } catch {
+      throw e;
+    }
   }
-  copyCommand(doc, text, html);
+}
+var copying = false;
+function copyingFromMenu() {
+  return copying;
 }
 function copyCommand(doc, text, html) {
   const field = doc.createElement("textarea");
@@ -3533,9 +3545,11 @@ function copyCommand(doc, text, html) {
   field.select();
   field.setSelectionRange(0, text.length);
   let copied = false;
+  copying = true;
   try {
     copied = typeof doc.execCommand === "function" && doc.execCommand("copy");
   } finally {
+    copying = false;
     field.remove();
     if (before instanceof HTMLElement) before.focus({ preventScroll: true });
   }
@@ -12386,6 +12400,7 @@ var Selection = class {
    * show (a formula's result, a link's text), a typed cell its value.
    */
   onCopy = (e) => {
+    if (copyingFromMenu()) return;
     const cells = this.selection && this.cells();
     const active = this.host.doc.activeElement;
     if (!cells || !e.clipboardData || (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd) return;

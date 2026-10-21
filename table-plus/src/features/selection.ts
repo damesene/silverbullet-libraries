@@ -10,7 +10,7 @@
 // dragged to select more (whole rows and columns stay whole), and a tap on a
 // selection of several cells opens their menu.
 import type { CellMenuGroup, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { writeClipboard } from "../clipboard.ts";
+import { copyingFromMenu, writeClipboard } from "../clipboard.ts";
 import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
 import { PAGE_ROWS } from "../core/editor.ts";
 import { columnBlockTo, deleteColumnsAt, deleteRowsAt, MOVE_BLOCKED, moveColumnsTo, moveRowsTo, rowBlockTo } from "../core/structure.ts";
@@ -716,6 +716,8 @@ export class Selection implements Feature {
    * show (a formula's result, a link's text), a typed cell its value.
    */
   private onCopy = (e: ClipboardEvent): void => {
+    // A copy from a menu (Copy, Copy as CSV) puts its own text there
+    if (copyingFromMenu()) return;
     const cells = this.selection && this.cells();
     const active = this.host.doc.activeElement;
     if (!cells || !e.clipboardData || ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd)) return;
