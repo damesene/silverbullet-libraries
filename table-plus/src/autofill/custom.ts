@@ -64,6 +64,8 @@ function customOne(definition: unknown): Series | string {
     return listSeries(lower, [{ words: words.map((w: string) => w.trim()), alone: alone ?? true }]);
   }
   if (typeof match !== "function") return `${name}: match is not a function`;
+  // match decides itself how many values it takes: alone would be silently left out
+  if (alone !== undefined) return `${name}: alone is for words; match decides itself (values.length)`;
   return { name: lower, match: (values: readonly string[]) => checkedGenerator(name, values, match as (values: readonly string[]) => unknown) };
 }
 

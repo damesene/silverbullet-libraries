@@ -170,6 +170,7 @@ describe("custom series", () => {
       { name: "both", words: ["a", "b"], match: () => undefined },
       { name: "short", words: ["a"] },
       { name: "twice", words: ["Út", "ut"] },
+      { name: "own", match: () => undefined, alone: false },
     ]);
     expect(series.map((s) => s.name)).toEqual(["ok"]);
     expect(problems).toEqual([
@@ -177,6 +178,7 @@ describe("custom series", () => {
       "series 3: both: it has words (a list to go round) or match (a series), one of them",
       "series 4: short: its words are not a list of two or more texts",
       "series 5: twice: a word is in its words twice (case and diacritics aside)",
+      "series 6: own: alone is for words; match decides itself (values.length)",
     ]);
     expect(customSeries("x").problems).toEqual(["the definitions are not a list of series (or a function returning one)"]);
   });
