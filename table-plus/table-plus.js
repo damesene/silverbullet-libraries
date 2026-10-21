@@ -1349,8 +1349,13 @@ var CellEditing = class {
     field.style.height = "auto";
     field.style.height = `${field.scrollHeight}px`;
     const left = Math.max(view.left + 8, Math.min(rect.left, view.right - width - 8));
-    const top = Math.max(view.top + 4, Math.min(rect.top, view.bottom - panel.offsetHeight - 4));
+    const top = Math.min(rect.top, view.bottom - panel.offsetHeight - 4);
     this.host.place(panel, left, top);
+    const info = this.host.infoOf(active.widget);
+    const part = info && (rect.width > 0 || rect.height > 0) ? this.host.shownPart(active.widget, info, active.cell) : rect;
+    const cutTop = part && part.top > rect.top ? part.top - top : 0;
+    const cutLeft = part && part.left > rect.left ? part.left - left : 0;
+    panel.style.clipPath = !part ? "inset(50%)" : cutTop > 0 || cutLeft > 0 ? `inset(${Math.round(cutTop)}px 0 0 ${Math.round(cutLeft)}px)` : "";
   }
   /** Puts the rendered cell back; returns what was being edited. `reopening`: it opens again at once (in its popup), its table not left */
   close(reopening = false) {
@@ -7610,6 +7615,12 @@ ${error}` : stored.formula;
       const help = formulaHelp(formula, active.field.selectionStart ?? formula.length);
       if (help) body.append(this.helpLine(help));
     }
+    const info = this.host.infoOf(active.widget);
+    const cell = active.cell.getBoundingClientRect();
+    if (info && (cell.width > 0 || cell.height > 0) && !this.host.shownPart(active.widget, info, active.cell)) {
+      hint.classList.remove("tp-visible");
+      return;
+    }
     const rect = editorRect(active);
     hint.classList.remove("tp-above");
     this.host.place(hint, rect.left, rect.bottom + 4);
@@ -12282,6 +12293,21 @@ var Controller = class {
     } else this.endHover(true);
     if (this.insertAt || this.inInsertBand) this.insertUnderPointer();
     if (this.navigating) this.markNavigating();
+  }
+  shownPart(widget, info, cell) {
+    if (!cell.isConnected) return void 0;
+    const rect = cell.getBoundingClientRect();
+    const shown = this.shownRect(widget, info);
+    const view = this.viewBounds(widget);
+    const held = cell.closest("tbody") ? this.heldBounds(info) : void 0;
+    const pinned = cell.classList.contains("tp-pin-left") || cell.classList.contains("tp-pin-right");
+    const part = {
+      left: Math.max(rect.left, shown.left, view.left, held && !pinned ? held.left : -Infinity),
+      right: Math.min(rect.right, shown.right, view.right, held && !pinned ? held.right : Infinity),
+      top: Math.max(rect.top, shown.top, view.top, held ? held.top : -Infinity),
+      bottom: Math.min(rect.bottom, shown.bottom, view.bottom, held ? held.bottom : Infinity)
+    };
+    return part.right > part.left && part.bottom > part.top ? part : void 0;
   }
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
   isShown(widget, info, element) {

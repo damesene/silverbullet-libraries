@@ -1549,6 +1549,23 @@ export class Controller implements TableHost {
     if (this.navigating) this.markNavigating();
   }
 
+  shownPart(widget: HTMLElement, info: WidgetInfo, cell: HTMLElement): { left: number; right: number; top: number; bottom: number } | undefined {
+    if (!cell.isConnected) return undefined;
+    const rect = cell.getBoundingClientRect();
+    const shown = this.shownRect(widget, info);
+    const view = this.viewBounds(widget);
+    // A body cell scrolls under what is held over the body; a pinned column's cell is itself held
+    const held = cell.closest("tbody") ? this.heldBounds(info) : undefined;
+    const pinned = cell.classList.contains("tp-pin-left") || cell.classList.contains("tp-pin-right");
+    const part = {
+      left: Math.max(rect.left, shown.left, view.left, held && !pinned ? held.left : -Infinity),
+      right: Math.min(rect.right, shown.right, view.right, held && !pinned ? held.right : Infinity),
+      top: Math.max(rect.top, shown.top, view.top, held ? held.top : -Infinity),
+      bottom: Math.min(rect.bottom, shown.bottom, view.bottom, held ? held.bottom : Infinity),
+    };
+    return part.right > part.left && part.bottom > part.top ? part : undefined;
+  }
+
   /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
   private isShown(widget: HTMLElement, info: WidgetInfo, element: Element): boolean {
     // Out of the document while its table is in it (a large table's row out of view)

@@ -135,6 +135,33 @@ describe("Long text in cells and the cell's popup", () => {
     expect(expand().classList.contains("tp-visible")).toBe(true);
   });
 
+  it("cuts the popup as its cell is cut: under the held header, gone when the cell is out of view", async () => {
+    await setup(PAGE);
+    clickOn(cell(1, 1));
+    key(inlineField()!, "F2");
+    const panel = popup()!;
+    const set = (el: Element, rect: DOMRect) => Object.defineProperty(el, "getBoundingClientRect", { configurable: true, value: () => rect });
+    set(editor.querySelector(".sb-table-widget")!, new DOMRect(100, 50, 600, 400));
+    set(editor.querySelector("table")!, new DOMRect(100, 50, 600, 400));
+    set(cell(1, 1), new DOMRect(100, 120, 200, 30));
+    const scrolled = async (headerBottom: number) => {
+      set(document.querySelector("thead")!, new DOMRect(100, 50, 600, headerBottom - 50));
+      window.dispatchEvent(new Event("scroll"));
+      for (let i = 0; i < 2; i++) await new Promise((resolve) => requestAnimationFrame(resolve));
+    };
+    // The header held over the cell's top 20 px
+    await scrolled(140);
+    expect(panel.style.top).toBe("120px");
+    expect(panel.style.clipPath).toBe("inset(20px 0 0 0px)");
+    // The cell all under it: nothing of the popup shows, the field still edited
+    await scrolled(200);
+    expect(panel.style.clipPath).toBe("inset(50%)");
+    expect(document.activeElement).toBe(popupField());
+    // In view again: whole
+    await scrolled(90);
+    expect(panel.style.clipPath).toBe("");
+  });
+
   it("leaves Ctrl+arrows and Ctrl+Alt+arrows in the popup to the text; in the cell they still move", async () => {
     await setup(PAGE, { "tablePlus.editor.enterKey": "save", "tablePlus.editor.ctrlEnterAddsRow": true });
     clickOn(cell(1, 1));

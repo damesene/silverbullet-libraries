@@ -693,6 +693,13 @@ export class Formulas implements Feature {
       const help = formulaHelp(formula, active.field.selectionStart ?? formula.length);
       if (help) body.append(this.helpLine(help));
     }
+    // Its cell scrolled out of view (the field with it, or the popup cut so): no help either
+    const info = this.host.infoOf(active.widget);
+    const cell = active.cell.getBoundingClientRect();
+    if (info && (cell.width > 0 || cell.height > 0) && !this.host.shownPart(active.widget, info, active.cell)) {
+      hint.classList.remove("tp-visible");
+      return;
+    }
     const rect = editorRect(active);
     hint.classList.remove("tp-above");
     this.host.place(hint, rect.left, rect.bottom + 4);

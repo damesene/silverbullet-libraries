@@ -274,6 +274,12 @@ export interface TableHost {
    * window, cut to what an on-screen keyboard leaves visible
    */
   viewBounds(element: HTMLElement): { left: number; right: number; top: number; bottom: number };
+  /**
+   * The part of a cell in view: cut to the table's box, the page in view and,
+   * for a body cell, what is held over the body (the header, pinned rows and
+   * columns); undefined when none of it is
+   */
+  shownPart(widget: HTMLElement, info: WidgetInfo, cell: HTMLElement): { left: number; right: number; top: number; bottom: number } | undefined;
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
   shownRect(widget: HTMLElement, info: WidgetInfo): { left: number; right: number; top: number; bottom: number };
   /** The body rows as rendered, in the order of the markdown, hidden ones included */

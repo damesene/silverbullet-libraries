@@ -267,9 +267,16 @@ export class CellEditing {
     field.style.height = "auto";
     field.style.height = `${field.scrollHeight}px`;
     const left = Math.max(view.left + 8, Math.min(rect.left, view.right - width - 8));
-    // Over the cell, as far as the view (above an on-screen keyboard) has room; at its top if not
-    const top = Math.max(view.top + 4, Math.min(rect.top, view.bottom - panel.offsetHeight - 4));
+    // Over the cell, moved up as far as the view (above an on-screen keyboard) needs to show it whole
+    const top = Math.min(rect.top, view.bottom - panel.offsetHeight - 4);
     this.host.place(panel, left, top);
+    // Cut as its cell is (scrolled under the held header, out of the table's box or the page's view), as the
+    // field in the cell would be; not laid out (in tests): whole
+    const info = this.host.infoOf(active.widget);
+    const part = info && (rect.width > 0 || rect.height > 0) ? this.host.shownPart(active.widget, info, active.cell) : rect;
+    const cutTop = part && part.top > rect.top ? part.top - top : 0;
+    const cutLeft = part && part.left > rect.left ? part.left - left : 0;
+    panel.style.clipPath = !part ? "inset(50%)" : cutTop > 0 || cutLeft > 0 ? `inset(${Math.round(cutTop)}px 0 0 ${Math.round(cutLeft)}px)` : "";
   }
 
   /** Puts the rendered cell back; returns what was being edited. `reopening`: it opens again at once (in its popup), its table not left */

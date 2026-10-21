@@ -798,7 +798,7 @@ describe("Formulas", () => {
           return rect(this.cellIndex * 100, row * 20, 100, 20);
         }
         if (this instanceof HTMLTableRowElement) return rect(0, this.rowIndex * 20, 1000, 20);
-        if (this.classList.contains("sb-table-widget")) return rect(0, 0, 1000, 1000);
+        if (this instanceof HTMLTableElement || this.classList.contains("sb-table-widget")) return rect(0, 0, 1000, 1000);
         return rect(0, 0, 0, 0);
       });
     });
@@ -836,6 +836,22 @@ describe("Formulas", () => {
       field().dispatchEvent(new Event("input"));
       // The column's body (y 20–80) from under the header down
       expect(marks().map((m) => [m.style.top, m.style.height])).toEqual([["30px", "50px"]]);
+    });
+
+    it("shows no help for a cell scrolled out of view", async () => {
+      await setup(TOTAL);
+      clickOn(cell(3, 1));
+      field().value = "=SUM(";
+      field().dispatchEvent(new Event("input"));
+      const hint = document.querySelector<HTMLElement>(".tp-formula-hint")!;
+      expect(hint.classList.contains("tp-visible")).toBe(true);
+      // The header held over the cell (y 60–80) as the page scrolls
+      Object.defineProperty(document.querySelector("thead")!, "getBoundingClientRect", {
+        configurable: true,
+        value: () => ({ left: 0, top: 0, width: 1000, height: 90, right: 1000, bottom: 90, x: 0, y: 0 }) as DOMRect,
+      });
+      field().dispatchEvent(new Event("input"));
+      expect(hint.classList.contains("tp-visible")).toBe(false);
     });
 
     it("keeps the formula's help where it was placed, and above the cell when an on-screen keyboard covers the room below", async () => {
