@@ -12303,8 +12303,8 @@ var Controller = class {
     const run = () => {
       this.stickyQueued = false;
       if (this.stopped) return;
-      for (const feature of this.features) feature.layoutChanged?.();
       this.cellEditor.placePopup();
+      for (const feature of this.features) feature.layoutChanged?.();
       this.showQuietMarks();
       this.followScroll();
     };

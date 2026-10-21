@@ -1575,9 +1575,9 @@ export class Controller implements TableHost {
     const run = () => {
       this.stickyQueued = false;
       if (this.stopped) return;
-      for (const feature of this.features) feature.layoutChanged?.();
-      // The cell's popup stays over its cell
+      // The cell's popup stays over its cell, before what is placed by it (a formula's help)
       this.cellEditor.placePopup();
+      for (const feature of this.features) feature.layoutChanged?.();
       this.showQuietMarks();
       // After the header has moved: controls that point at it follow
       this.followScroll();
