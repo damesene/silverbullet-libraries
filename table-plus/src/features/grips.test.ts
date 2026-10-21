@@ -93,6 +93,30 @@ describe("Row and column grips", () => {
     expect(title()).toBe("Cell: Name, row 3");
   });
 
+  it("keeps a grip's menu a press opened (Ctrl+click on a Mac, a held finger) open when the press ends or the finger moves a little", async () => {
+    localStorage.removeItem("tablePlus.editMode");
+    await setup(PAGE);
+    const grip = () => document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+    cell(2, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    // Ctrl+click: a left press, the context menu, the press's end
+    grip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    grip().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 0 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 2");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    // A finger held on the grip: the menu, kept as the finger moves 6 px lifting
+    vi.useFakeTimers();
+    cell(3, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    grip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "touch", clientX: 5, clientY: 50 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "touch", clientX: 5, clientY: 56 }));
+    vi.advanceTimersByTime(600);
+    expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 3");
+    window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "touch", clientX: 5, clientY: 62 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, pointerType: "touch" }));
+    expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Row 3");
+    vi.useRealTimers();
+  });
+
   it("tints what a hovered grip acts on, and selects it when clicked", async () => {
     await setup(PAGE);
     const tinted = () => Array.from(editor.querySelectorAll(".tp-handle-hover"));

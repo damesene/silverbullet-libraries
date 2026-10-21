@@ -38,6 +38,8 @@ type HandleTarget = {
 
 // Pointer travel that turns a press on a grip into a drag instead of a click
 const DRAG_THRESHOLD = 4;
+// A finger moves a little while it holds still: a touch starts a drag (and ends a long press) only past this
+const TOUCH_DRAG_THRESHOLD = 10;
 
 // A grip's thickness, and its length at most (centred on its row or column)
 const GRIP_THICKNESS = 12;
@@ -76,6 +78,10 @@ export class Grips implements Feature {
   private picking: { readonly key: string; readonly axis: Axis; readonly from: number } | undefined;
   // The grips select lines themselves (their menu stays for them)
   private selectingLines = false;
+  // The press on a grip going on opened its menu otherwise (a right click: macOS's Ctrl+click, Android's long press): its end does nothing
+  private pressOpenedMenu = false;
+  // The lines selected whole, by table and axis, worked out once per selection (a grip is marked on every hover)
+  private linesSelected: { readonly key: string; readonly row: ReadonlySet<number>; readonly column: ReadonlySet<number> } | undefined;
 
   constructor(private readonly host: TableHost) {
     this.rowGrip = this.gripButton("tp-handle tp-grip", "Row: click for actions, drag to move");
@@ -92,11 +98,19 @@ export class Grips implements Feature {
     if (!target) return;
     const selects = this.host.clickSelects();
     const rearranged = this.host.rearranged(target.info);
+    if (this.linesSelected?.key !== target.info.key) {
+      this.linesSelected = {
+        key: target.info.key,
+        row: new Set(this.wholeLinesSelected(target.info, "row")),
+        column: new Set(this.wholeLinesSelected(target.info, "column")),
+      };
+    }
     for (const axis of ["row", "column"] as const) {
       const grip = axis === "row" ? this.rowGrip : this.columnGrip;
       const line = axis === "row" ? target.row : target.column;
-      const selected = line !== undefined && this.wholeLinesSelected(target.info, axis).includes(line);
-      grip.classList.toggle("tp-line-selected", selected);
+      const selected = line !== undefined && this.linesSelected[axis].has(line);
+      // The menu pointer where a click opens the menu instead of selecting: in select mode (in edit mode every click does, the hand stays)
+      grip.classList.toggle("tp-line-selected", selects && selected);
       const name = axis === "row" ? "Row" : "Column";
       const click = selects && !selected ? "click to select, again (or right-click) for actions" : "click for actions";
       const drag = axis === "row" && rearranged ? ` (${MOVE_BLOCKED.toLowerCase()})` : ", drag to move";
@@ -251,6 +265,7 @@ export class Grips implements Feature {
     e.preventDefault();
     e.stopPropagation();
     if (!target || (axis === "row" && target.row === undefined)) return;
+    this.pressOpenedMenu = true;
     this.openMenu(target, axis);
   }
 
@@ -268,6 +283,8 @@ export class Grips implements Feature {
     e.preventDefault();
     const grip = axis === "row" ? this.rowGrip : this.columnGrip;
     const line = axis === "row" ? target.row! : target.column;
+    this.pressOpenedMenu = false;
+    const threshold = e.pointerType === "touch" ? TOUCH_DRAG_THRESHOLD : DRAG_THRESHOLD;
     // Selected before this press: in select mode its click opens the menu (else it selects only)
     const wasSelected = this.wholeLinesSelected(target.info, axis).includes(line);
     // A long press on a touch screen: the menu at once (iOS fires no contextmenu)
@@ -288,7 +305,9 @@ export class Grips implements Feature {
 
     const move = (ev: PointerEvent) => {
       if (!drag) {
-        if (!canDrag || Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
+        // A menu opened by holding still: the finger lifting moves it a little, no drag
+        if (pressedLong || this.pressOpenedMenu) return;
+        if (!canDrag || Math.hypot(ev.clientX - startX, ev.clientY - startY) < threshold) return;
         clearTimeout(longPress);
         this.closeMenu(false);
         drag = this.beginDrag(target, axis, axis === "row" ? startY : startX);
@@ -311,7 +330,7 @@ export class Grips implements Feature {
     const up = () => {
       cleanup();
       if (drag) drag.finish(true);
-      else if (pressedLong) return;
+      else if (pressedLong || this.pressOpenedMenu) return;
       else if (extend) {
         // Shift+click: rows (columns) selected as with Select rows, on from those selected
         this.closeMenu(false, false);
@@ -414,6 +433,7 @@ export class Grips implements Feature {
 
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged(): void {
+    this.linesSelected = undefined;
     if (!this.selectingLines && this.menu) this.closeMenu(false, false);
     this.markGrips();
   }

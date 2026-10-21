@@ -9476,6 +9476,7 @@ function focusMenu(menu) {
 
 // table-plus/src/features/grips.ts
 var DRAG_THRESHOLD = 4;
+var TOUCH_DRAG_THRESHOLD = 10;
 var GRIP_THICKNESS = 12;
 var ROW_GRIP_LENGTH = 32;
 var COLUMN_GRIP_LENGTH = 44;
@@ -9504,6 +9505,10 @@ var Grips = class {
   picking;
   // The grips select lines themselves (their menu stays for them)
   selectingLines = false;
+  // The press on a grip going on opened its menu otherwise (a right click: macOS's Ctrl+click, Android's long press): its end does nothing
+  pressOpenedMenu = false;
+  // The lines selected whole, by table and axis, worked out once per selection (a grip is marked on every hover)
+  linesSelected;
   /**
    * A grip of a line selected (whole) is marked: its click opens the menu
    * (CSS: the context-menu pointer); in select mode a grip's first click only
@@ -9514,11 +9519,18 @@ var Grips = class {
     if (!target) return;
     const selects = this.host.clickSelects();
     const rearranged = this.host.rearranged(target.info);
+    if (this.linesSelected?.key !== target.info.key) {
+      this.linesSelected = {
+        key: target.info.key,
+        row: new Set(this.wholeLinesSelected(target.info, "row")),
+        column: new Set(this.wholeLinesSelected(target.info, "column"))
+      };
+    }
     for (const axis of ["row", "column"]) {
       const grip = axis === "row" ? this.rowGrip : this.columnGrip;
       const line = axis === "row" ? target.row : target.column;
-      const selected = line !== void 0 && this.wholeLinesSelected(target.info, axis).includes(line);
-      grip.classList.toggle("tp-line-selected", selected);
+      const selected = line !== void 0 && this.linesSelected[axis].has(line);
+      grip.classList.toggle("tp-line-selected", selects && selected);
       const name = axis === "row" ? "Row" : "Column";
       const click = selects && !selected ? "click to select, again (or right-click) for actions" : "click for actions";
       const drag = axis === "row" && rearranged ? ` (${MOVE_BLOCKED.toLowerCase()})` : ", drag to move";
@@ -9649,6 +9661,7 @@ var Grips = class {
     e.preventDefault();
     e.stopPropagation();
     if (!target || axis === "row" && target.row === void 0) return;
+    this.pressOpenedMenu = true;
     this.openMenu(target, axis);
   }
   /** The line selected (the lines selected stay when they hold it) and its menu open, not closed when it is already */
@@ -9664,6 +9677,8 @@ var Grips = class {
     e.preventDefault();
     const grip = axis === "row" ? this.rowGrip : this.columnGrip;
     const line = axis === "row" ? target.row : target.column;
+    this.pressOpenedMenu = false;
+    const threshold = e.pointerType === "touch" ? TOUCH_DRAG_THRESHOLD : DRAG_THRESHOLD;
     const wasSelected = this.wholeLinesSelected(target.info, axis).includes(line);
     let pressedLong = false;
     const longPress = e.pointerType === "touch" ? setTimeout(() => {
@@ -9678,7 +9693,8 @@ var Grips = class {
     let drag;
     const move = (ev) => {
       if (!drag) {
-        if (!canDrag || Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
+        if (pressedLong || this.pressOpenedMenu) return;
+        if (!canDrag || Math.hypot(ev.clientX - startX, ev.clientY - startY) < threshold) return;
         clearTimeout(longPress);
         this.closeMenu(false);
         drag = this.beginDrag(target, axis, axis === "row" ? startY : startX);
@@ -9700,7 +9716,7 @@ var Grips = class {
     const up = () => {
       cleanup();
       if (drag) drag.finish(true);
-      else if (pressedLong) return;
+      else if (pressedLong || this.pressOpenedMenu) return;
       else if (extend) {
         this.closeMenu(false, false);
         this.pickFrom(target, axis);
@@ -9792,6 +9808,7 @@ var Grips = class {
   }
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged() {
+    this.linesSelected = void 0;
     if (!this.selectingLines && this.menu) this.closeMenu(false, false);
     this.markGrips();
   }
