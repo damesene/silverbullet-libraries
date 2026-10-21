@@ -19,6 +19,7 @@ import {
   autofixFormula,
   callsCustomFunctions,
   columnRefText,
+  cycleFixed,
   formulaCell,
   formulaCount,
   formulaErrors,
@@ -245,6 +246,8 @@ export class Formulas implements Feature {
       this.openFunctions(editor);
       return true;
     }
+    // F4: the reference the caret is in cycles its $ (A1, $A$1, A$1, $A1)
+    if (e.key === "F4" && !e.shiftKey && editor.row > 0 && this.allowed(editor)) return this.cycleFixed(editor);
     const choices = this.choicesNow(editor);
     if (!choices || !this.choosing) return false;
     const { index } = this.choosing;
@@ -574,6 +577,19 @@ export class Formulas implements Feature {
     win.addEventListener("keydown", end, true);
     win.addEventListener("blur", end);
     this.stopPointing = end;
+    return true;
+  }
+
+  /** F4 in a formula: the $ of the reference at the caret cycled, the caret after it */
+  private cycleFixed(active: CellEditor): boolean {
+    const field = active.field;
+    const caret = field.selectionEnd ?? field.value.length;
+    const cycled = cycleFixed(field.value, caret);
+    if (!cycled) return false;
+    // Replaced as typing would (Ctrl+Z in the field undoes it)
+    this.replaceInField(field, cycled.from, cycled.to, cycled.text);
+    field.setSelectionRange(cycled.from + cycled.text.length, cycled.from + cycled.text.length);
+    this.updateFormulaUi();
     return true;
   }
 

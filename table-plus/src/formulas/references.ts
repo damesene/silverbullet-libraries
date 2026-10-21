@@ -3,7 +3,7 @@
 // tables and pages; what a table's formulas refer to.
 import { type ColumnId, columnIdOf, columnKey, findColumn } from "../columns.ts";
 import type { Table } from "../markdown.ts";
-import { CELL_RE, namedCells } from "../names.ts";
+import { namedCells } from "../names.ts";
 import { forFormulas } from "./cell.ts";
 import { isBuiltInFunction, isCustomFunction } from "./registry.ts";
 import { type Token, tokenize } from "./tokens.ts";
@@ -22,20 +22,46 @@ function columnIndex(letters: string): number {
   return n - 1;
 }
 
-/** A cell's A1 name: body row 0 is row 1 */
-export function cellName(row: number, column: number): string {
-  return `${columnLetters(column)}${row + 1}`;
+/** A cell's A1 name: body row 0 is row 1; with `fixed`, its column or row written with $ ($A$1, A$1, $A1) */
+export function cellName(row: number, column: number, fixed?: { readonly column: boolean; readonly row: boolean }): string {
+  return `${fixed?.column ? "$" : ""}${columnLetters(column)}${fixed?.row ? "$" : ""}${row + 1}`;
 }
 
 export type Area = { readonly top: number; readonly left: number; readonly bottom: number; readonly right: number };
 
+/**
+ * Which edges of a reference are written with $ ($A$1:B$3): kept where they
+ * are when a formula is filled into other cells, as in a spreadsheet. Edits of
+ * the table (rows and columns inserted, deleted, moved) move them all the same.
+ */
+export type Fixed = { readonly left: boolean; readonly top: boolean; readonly right: boolean; readonly bottom: boolean };
+
+/** An area and its fixed edges from the cells written at its two ends (the same cell for one) */
+export function areaOf(start: CellAddress, end: CellAddress = start): { area: Area; fixed?: Fixed } {
+  const area = {
+    top: Math.min(start.row, end.row),
+    left: Math.min(start.column, end.column),
+    bottom: Math.max(start.row, end.row),
+    right: Math.max(start.column, end.column),
+  };
+  // Each edge fixed as the end that gives it is written (B3:$A$1 is $A$1:B3)
+  const fixed = {
+    left: (start.column <= end.column ? start : end).fixedColumn,
+    top: (start.row <= end.row ? start : end).fixedRow,
+    right: (start.column <= end.column ? end : start).fixedColumn,
+    bottom: (start.row <= end.row ? end : start).fixedRow,
+  };
+  return Object.values(fixed).some(Boolean) ? { area, fixed } : { area };
+}
+
 /** The table a reference is to, when it is not the formula's own: by its name, on a page (none: this one) */
 export type TableRef = { readonly name: string; readonly page?: string };
 
-/** A1 or A1:B3 for an area of body rows and columns */
-export function areaText(area: Area): string {
-  const start = cellName(area.top, area.left);
-  return area.top === area.bottom && area.left === area.right ? start : `${start}:${cellName(area.bottom, area.right)}`;
+/** A1 or A1:B3 for an area of body rows and columns, its fixed edges with $ */
+export function areaText(area: Area, fixed?: Fixed): string {
+  const start = cellName(area.top, area.left, fixed && { column: fixed.left, row: fixed.top });
+  const end = cellName(area.bottom, area.right, fixed && { column: fixed.right, row: fixed.bottom });
+  return start === end ? start : `${start}:${end}`;
 }
 
 /**
@@ -78,9 +104,15 @@ export function referencedColumn(headers: readonly string[], written: string): n
   return findColumn(headers, referencedColumnId(headers, written));
 }
 
-export function parseCellName(text: string): { row: number; column: number } | undefined {
-  const m = CELL_RE.exec(text);
-  return m ? { row: Number(m[2]) - 1, column: columnIndex(m[1]!) } : undefined;
+/** A cell as a reference writes it: where it is, and whether its column or row is fixed with $ */
+export type CellAddress = { readonly row: number; readonly column: number; readonly fixedColumn: boolean; readonly fixedRow: boolean };
+
+// A1, $A$1, A$1 or $A1 (names.ts' CELL_RE without the $, which names cannot have)
+const CELL_REFERENCE_RE = /^(\$?)([A-Za-z]{1,3})(\$?)([1-9]\d*)$/;
+
+export function parseCellName(text: string): CellAddress | undefined {
+  const m = CELL_REFERENCE_RE.exec(text);
+  return m ? { row: Number(m[4]) - 1, column: columnIndex(m[2]!), fixedColumn: m[1] === "$", fixedRow: m[3] === "$" } : undefined;
 }
 
 export type Reference = {
@@ -90,7 +122,7 @@ export type Reference = {
   // Another table's: prices!B2 (from..to is B2)
   readonly table?: TableRef;
 } & (
-  | { readonly kind: "area"; readonly area: Area }
+  | { readonly kind: "area"; readonly area: Area; readonly fixed?: Fixed }
   // With `row`, the named row's cell in that column: pear[price]
   | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly row?: string }
 );
@@ -118,15 +150,7 @@ export function references(formula: string): Reference[] {
     const colon = tokens[i + 1];
     const endToken = tokens[i + 2];
     const end = colon?.kind === "op" && colon.text === ":" && endToken?.kind === "name" ? parseCellName(endToken.text) : undefined;
-    const area = end
-      ? {
-          top: Math.min(start.row, end.row),
-          left: Math.min(start.column, end.column),
-          bottom: Math.max(start.row, end.row),
-          right: Math.max(start.column, end.column),
-        }
-      : { top: start.row, left: start.column, bottom: start.row, right: start.column };
-    result.push({ kind: "area", area, from: token.from, to: end ? endToken!.to : token.to, ...table });
+    result.push({ kind: "area", ...areaOf(start, end), from: token.from, to: end ? endToken!.to : token.to, ...table });
     if (end) i += 2;
   }
   return result;

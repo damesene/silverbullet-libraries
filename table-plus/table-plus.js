@@ -4902,6 +4902,12 @@ function tokenize(formula) {
       i = to;
       continue;
     }
+    const fixedCell = /^\$?[A-Za-z]{1,3}\$?[1-9]\d*(?![A-Za-z0-9_.$])/.exec(formula.slice(i));
+    if (fixedCell && fixedCell[0].includes("$")) {
+      tokens.push({ kind: "name", text: fixedCell[0], from: i, to: i + fixedCell[0].length });
+      i += fixedCell[0].length;
+      continue;
+    }
     const table = /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(i));
     if (table) {
       tokens.push({ kind: "table", name: table[1], from: i, to: i + table[0].length });
@@ -4964,12 +4970,28 @@ function columnIndex(letters) {
   for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
   return n - 1;
 }
-function cellName(row, column) {
-  return `${columnLetters(column)}${row + 1}`;
+function cellName(row, column, fixed) {
+  return `${fixed?.column ? "$" : ""}${columnLetters(column)}${fixed?.row ? "$" : ""}${row + 1}`;
 }
-function areaText(area) {
-  const start = cellName(area.top, area.left);
-  return area.top === area.bottom && area.left === area.right ? start : `${start}:${cellName(area.bottom, area.right)}`;
+function areaOf(start, end = start) {
+  const area = {
+    top: Math.min(start.row, end.row),
+    left: Math.min(start.column, end.column),
+    bottom: Math.max(start.row, end.row),
+    right: Math.max(start.column, end.column)
+  };
+  const fixed = {
+    left: (start.column <= end.column ? start : end).fixedColumn,
+    top: (start.row <= end.row ? start : end).fixedRow,
+    right: (start.column <= end.column ? end : start).fixedColumn,
+    bottom: (start.row <= end.row ? end : start).fixedRow
+  };
+  return Object.values(fixed).some(Boolean) ? { area, fixed } : { area };
+}
+function areaText(area, fixed) {
+  const start = cellName(area.top, area.left, fixed && { column: fixed.left, row: fixed.top });
+  const end = cellName(area.bottom, area.right, fixed && { column: fixed.right, row: fixed.bottom });
+  return start === end ? start : `${start}:${end}`;
 }
 function columnRefText(id, thisRow) {
   const name = id && columnKey(id.name);
@@ -4995,9 +5017,10 @@ function referencedColumnId(headers, written) {
 function referencedColumn(headers, written) {
   return findColumn(headers, referencedColumnId(headers, written));
 }
+var CELL_REFERENCE_RE = /^(\$?)([A-Za-z]{1,3})(\$?)([1-9]\d*)$/;
 function parseCellName(text) {
-  const m = CELL_RE.exec(text);
-  return m ? { row: Number(m[2]) - 1, column: columnIndex(m[1]) } : void 0;
+  const m = CELL_REFERENCE_RE.exec(text);
+  return m ? { row: Number(m[4]) - 1, column: columnIndex(m[2]), fixedColumn: m[1] === "$", fixedRow: m[3] === "$" } : void 0;
 }
 function references(formula) {
   const { tokens } = tokenize(formula);
@@ -5020,13 +5043,7 @@ function references(formula) {
     const colon = tokens[i + 1];
     const endToken = tokens[i + 2];
     const end = colon?.kind === "op" && colon.text === ":" && endToken?.kind === "name" ? parseCellName(endToken.text) : void 0;
-    const area = end ? {
-      top: Math.min(start.row, end.row),
-      left: Math.min(start.column, end.column),
-      bottom: Math.max(start.row, end.row),
-      right: Math.max(start.column, end.column)
-    } : { top: start.row, left: start.column, bottom: start.row, right: start.column };
-    result.push({ kind: "area", area, from: token.from, to: end ? endToken.to : token.to, ...table });
+    result.push({ kind: "area", ...areaOf(start, end), from: token.from, to: end ? endToken.to : token.to, ...table });
     if (end) i += 2;
   }
   return result;
@@ -5230,23 +5247,12 @@ var Parser = class {
     const start = parseCellName(text);
     if (isRowName(this.tokens, this.at - 1)) return this.rowCell(text);
     if (!start) return { kind: "named", name: text };
-    if (!this.peekOp(":")) {
-      return { kind: "area", area: { top: start.row, left: start.column, bottom: start.row, right: start.column }, range: false };
-    }
+    if (!this.peekOp(":")) return { kind: "area", ...areaOf(start), range: false };
     this.at++;
     const endToken = this.tokens[this.at++];
     const end = endToken?.kind === "name" ? parseCellName(endToken.text) : void 0;
     if (!end) throw new FormulaError("#ERROR!", `${text}: must be followed by a cell, as in ${text}:B3`);
-    return {
-      kind: "area",
-      area: {
-        top: Math.min(start.row, end.row),
-        left: Math.min(start.column, end.column),
-        bottom: Math.max(start.row, end.row),
-        right: Math.max(start.column, end.column)
-      },
-      range: true
-    };
+    return { kind: "area", ...areaOf(start, end), range: true };
   }
 };
 var parsed2 = /* @__PURE__ */ new Map();
@@ -5762,7 +5768,9 @@ function followedReference(formula, ref, edit) {
     const rows = mapSpan(ref.area.top, ref.area.bottom, bodyMap);
     const cols = mapSpan(ref.area.left, ref.area.right, columnMap ?? ((c) => c));
     const written = formula.slice(ref.from, ref.to);
-    const text = rows && cols ? written.includes(":") ? `${cellName(rows[0], cols[0])}:${cellName(rows[1], cols[1])}` : cellName(rows[0], cols[0]) : REF_ERROR;
+    const start = rows && cols && cellName(rows[0], cols[0], ref.fixed && { column: ref.fixed.left, row: ref.fixed.top });
+    const end = rows && cols && cellName(rows[1], cols[1], ref.fixed && { column: ref.fixed.right, row: ref.fixed.bottom });
+    const text = start && end ? written.includes(":") ? `${start}:${end}` : start : REF_ERROR;
     return text === written.toUpperCase() ? void 0 : text;
   }
   const headersBefore = edit.before.rows[0]?.cells ?? [];
@@ -5829,8 +5837,8 @@ function followTable(table, before, after, rowMap, columnMap) {
 
 // table-plus/src/formulas/help.ts
 var REFERENCE_HELP = {
-  syntax: "A1 \xB7 A1:B3 \xB7 [Column] \xB7 [@Column] \xB7 table!A1 \xB7 table![Column] \xB7 cell_name",
-  description: "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell. Click or drag in the table to insert one, click a header for its column."
+  syntax: "A1 \xB7 A1:B3 \xB7 $A$1 \xB7 [Column] \xB7 [@Column] \xB7 table!A1 \xB7 table![Column] \xB7 cell_name",
+  description: "A cell (A1 is the first row under the header), a range, a cell with its column or row kept where it is when the formula is filled into other cells (F4 cycles them), a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell. Click or drag in the table to insert one, click a header for its column."
 };
 var BEFORE_OPERAND = /* @__PURE__ */ new Set(["=", "(", ",", ";", "+", "-", "*", "/", "^", "&", "<", ">"]);
 function referenceSlot(formula, start, end, pointed) {
@@ -5859,7 +5867,8 @@ function nameTyped(text, start, end) {
   if (start !== end || !text.trimStart().startsWith("=")) return void 0;
   const before = text.slice(0, start);
   const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
-  if (!typing || CELL_RE.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return void 0;
+  if (!typing || CELL_RE.test(typing) || text[start] === "(" || /[A-Za-z0-9_.$]/.test(text[start] ?? "")) return void 0;
+  if (before[start - typing.length - 1] === "$") return void 0;
   if (tokenize(before).error) return void 0;
   return { from: start - typing.length, to: start };
 }
@@ -5918,6 +5927,18 @@ function findFunctions(query, category) {
     const text = `${f.name} ${f.description}`.toLowerCase();
     return words.every((word) => text.includes(word));
   }).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+function cycleFixed(formula, caret) {
+  const ref = references(formula).find((r) => r.kind === "area" && r.from <= caret && caret <= r.to);
+  if (!ref || ref.kind !== "area") return void 0;
+  const now2 = ref.fixed;
+  const [column, row] = !now2?.left && !now2?.top ? [true, true] : now2.left && now2.top ? [false, true] : !now2.left && now2.top ? [true, false] : [false, false];
+  const fixed = { column, row };
+  const written = formula.slice(ref.from, ref.to);
+  const { area } = ref;
+  const start = cellName(area.top, area.left, fixed);
+  const text = written.includes(":") ? `${start}:${cellName(area.bottom, area.right, fixed)}` : start;
+  return { from: ref.from, to: ref.to, text };
 }
 
 // table-plus/src/formulas/function.ts
@@ -6357,8 +6378,8 @@ var NotInExcel = class {
   }
   reason;
 };
-function excelCell(row, column) {
-  return `${columnLetters(column)}${row + 2}`;
+function excelCell(row, column, fixed) {
+  return `${fixed?.column ? "$" : ""}${columnLetters(column)}${fixed?.row ? "$" : ""}${row + 2}`;
 }
 function excelFormula(formula, table, row, column, templates = {}) {
   const tree = parse(formula);
@@ -6384,7 +6405,10 @@ function excelFormula(formula, table, row, column, templates = {}) {
         const { top, left, bottom, right } = node.area;
         if (bottom >= bodyRows || right >= headers.length) return { text: "#REF!", range: false };
         const one = top === bottom && left === right;
-        return { text: one ? excelCell(top, left) : `${excelCell(top, left)}:${excelCell(bottom, right)}`, range: node.range && !one };
+        const fixed = node.fixed;
+        const start = excelCell(top, left, fixed && { column: fixed.left, row: fixed.top });
+        const end = excelCell(bottom, right, fixed && { column: fixed.right, row: fixed.bottom });
+        return { text: one && start === end ? start : `${start}:${end}`, range: node.range && !one };
       }
       case "column": {
         if (node.table) throw new NotInExcel(`it refers to the table ${node.table.name}`);
@@ -8005,6 +8029,7 @@ var Formulas = class {
       this.openFunctions(editor);
       return true;
     }
+    if (e.key === "F4" && !e.shiftKey && editor.row > 0 && this.allowed(editor)) return this.cycleFixed(editor);
     const choices = this.choicesNow(editor);
     if (!choices || !this.choosing) return false;
     const { index } = this.choosing;
@@ -8302,6 +8327,17 @@ ${error}` : stored.formula;
     win.addEventListener("keydown", end, true);
     win.addEventListener("blur", end);
     this.stopPointing = end;
+    return true;
+  }
+  /** F4 in a formula: the $ of the reference at the caret cycled, the caret after it */
+  cycleFixed(active) {
+    const field = active.field;
+    const caret = field.selectionEnd ?? field.value.length;
+    const cycled = cycleFixed(field.value, caret);
+    if (!cycled) return false;
+    this.replaceInField(field, cycled.from, cycled.to, cycled.text);
+    field.setSelectionRange(cycled.from + cycled.text.length, cycled.from + cycled.text.length);
+    this.updateFormulaUi();
     return true;
   }
   /**

@@ -32,8 +32,8 @@ class NotInExcel {
 }
 
 /** A body cell (rows from 0) as Excel names it, the header being row 1 */
-export function excelCell(row: number, column: number): string {
-  return `${columnLetters(column)}${row + 2}`;
+export function excelCell(row: number, column: number, fixed?: { readonly column: boolean; readonly row: boolean }): string {
+  return `${fixed?.column ? "$" : ""}${columnLetters(column)}${fixed?.row ? "$" : ""}${row + 2}`;
 }
 
 type Written = { readonly text: string; readonly range: boolean };
@@ -65,7 +65,10 @@ export function excelFormula(formula: string, table: Table, row: number, column:
         const { top, left, bottom, right } = node.area;
         if (bottom >= bodyRows || right >= headers.length) return { text: "#REF!", range: false };
         const one = top === bottom && left === right;
-        return { text: one ? excelCell(top, left) : `${excelCell(top, left)}:${excelCell(bottom, right)}`, range: node.range && !one };
+        const fixed = node.fixed;
+        const start = excelCell(top, left, fixed && { column: fixed.left, row: fixed.top });
+        const end = excelCell(bottom, right, fixed && { column: fixed.right, row: fixed.bottom });
+        return { text: one && start === end ? start : `${start}:${end}`, range: node.range && !one };
       }
       case "column": {
         if (node.table) throw new NotInExcel(`it refers to the table ${node.table.name}`);

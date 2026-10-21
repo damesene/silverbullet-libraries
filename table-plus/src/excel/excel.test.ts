@@ -35,6 +35,8 @@ describe("Excel's formulas", () => {
     expect(write("=pear[price] * vat")).toBe("C2*C3");
     // A reference outside the table
     expect(write("=B9")).toBe("#REF!");
+    // Its $ kept
+    expect(write("=$A$1*SUM($B1:C$2)")).toBe("$A$2*SUM($B2:C$3)");
   });
 
   it("keeps the order of operations, literals as Excel writes them", () => {

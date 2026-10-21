@@ -5,6 +5,7 @@
 import { CELL_RE } from "../names.ts";
 import type { FormulaFunction, FunctionCategory } from "./function.ts";
 import { functionNamed, functionNames } from "./registry.ts";
+import { cellName, references } from "./references.ts";
 import { tokenize } from "./tokens.ts";
 
 /** What a formula's help says: a function's syntax and what it does, with the argument the caret is in (its span in `syntax`) */
@@ -15,9 +16,9 @@ export type FormulaHelp = {
 };
 
 export const REFERENCE_HELP: FormulaHelp = {
-  syntax: "A1 · A1:B3 · [Column] · [@Column] · table!A1 · table![Column] · cell_name",
+  syntax: "A1 · A1:B3 · $A$1 · [Column] · [@Column] · table!A1 · table![Column] · cell_name",
   description:
-    "A cell (A1 is the first row under the header), a range, a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell. Click or drag in the table to insert one, click a header for its column.",
+    "A cell (A1 is the first row under the header), a range, a cell with its column or row kept where it is when the formula is filled into other cells (F4 cycles them), a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell. Click or drag in the table to insert one, click a header for its column.",
 };
 
 // After these a reference can follow: clicking the table inserts one there
@@ -91,7 +92,9 @@ export function nameTyped(text: string, start: number, end: number): { from: num
   if (start !== end || !text.trimStart().startsWith("=")) return undefined;
   const before = text.slice(0, start);
   const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
-  if (!typing || CELL_RE.test(typing) || text[start] === "(" || /[A-Za-z0-9_.]/.test(text[start] ?? "")) return undefined;
+  if (!typing || CELL_RE.test(typing) || text[start] === "(" || /[A-Za-z0-9_.$]/.test(text[start] ?? "")) return undefined;
+  // $A, A$: a cell being typed
+  if (before[start - typing.length - 1] === "$") return undefined;
   if (tokenize(before).error) return undefined;
   return { from: start - typing.length, to: start };
 }
@@ -176,4 +179,23 @@ export function findFunctions(query: string, category?: FunctionCategory | "cust
       return words.every((word) => text.includes(word));
     })
     .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+
+/**
+ * F4 on the cell or range reference the caret is in (or right after): its $
+ * cycled as a spreadsheet does, A1 → $A$1 → A$1 → $A1 → A1, a range's ends
+ * alike. The reference's span and its new text (the caret goes after it), or
+ * undefined where there is no such reference.
+ */
+export function cycleFixed(formula: string, caret: number): { from: number; to: number; text: string } | undefined {
+  const ref = references(formula).find((r) => r.kind === "area" && r.from <= caret && caret <= r.to);
+  if (!ref || ref.kind !== "area") return undefined;
+  const now = ref.fixed;
+  const [column, row] = !now?.left && !now?.top ? [true, true] : now.left && now.top ? [false, true] : !now.left && now.top ? [true, false] : [false, false];
+  const fixed = { column, row };
+  const written = formula.slice(ref.from, ref.to);
+  const { area } = ref;
+  const start = cellName(area.top, area.left, fixed);
+  const text = written.includes(":") ? `${start}:${cellName(area.bottom, area.right, fixed)}` : start;
+  return { from: ref.from, to: ref.to, text };
 }

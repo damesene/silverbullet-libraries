@@ -191,6 +191,26 @@ describe("Formulas", () => {
     });
   });
 
+  it("cycles the $ of the reference at the caret with F4, and saves the formula with it", async () => {
+    await setup(TOTAL);
+    clickOn(cell(3, 1));
+    field().value = "=SUM(B1:B2)*2";
+    field().setSelectionRange(10, 10);
+    field().dispatchEvent(new Event("input"));
+    key(field(), "F4");
+    expect(field().value).toBe("=SUM($B$1:$B$2)*2");
+    expect(field().selectionStart).toBe(14);
+    key(field(), "F4");
+    expect(field().value).toBe("=SUM(B$1:B$2)*2");
+    // Off a reference F4 does nothing of its own
+    field().setSelectionRange(1, 1);
+    expect(key(field(), "F4")).toBe(true);
+    expect(field().value).toBe("=SUM(B$1:B$2)*2");
+    key(field(), "Enter");
+    await flush();
+    expect(text).toContain('| Total | 26 <meta f="=SUM(B$1:B$2)*2"> |');
+  });
+
   describe("the Functions dialog", () => {
     const dialog = () => document.querySelector<HTMLElement>(".tp-functions-dialog");
     const search = () => dialog()!.querySelector<HTMLInputElement>(".tp-functions-search")!;

@@ -54,6 +54,13 @@ export function tokenize(formula: string): { tokens: Token[]; error?: FormulaErr
       i = to;
       continue;
     }
+    // A cell with $ ($A$1, A$1, $A1: one token, as A1 is); a name cannot have a $
+    const fixedCell = /^\$?[A-Za-z]{1,3}\$?[1-9]\d*(?![A-Za-z0-9_.$])/.exec(formula.slice(i));
+    if (fixedCell && fixedCell[0].includes("$")) {
+      tokens.push({ kind: "name", text: fixedCell[0], from: i, to: i + fixedCell[0].length });
+      i += fixedCell[0].length;
+      continue;
+    }
     const table = /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(formula.slice(i));
     if (table) {
       tokens.push({ kind: "table", name: table[1]!, from: i, to: i + table[0].length });

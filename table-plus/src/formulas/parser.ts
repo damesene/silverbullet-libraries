@@ -1,11 +1,11 @@
 // A formula's syntax tree, parsed once per formula text.
-import { type Area, isRowName, parseCellName, type TableRef, tableRefOf } from "./references.ts";
+import { type Area, areaOf, type Fixed, isRowName, parseCellName, type TableRef, tableRefOf } from "./references.ts";
 import { type Token, tokenize } from "./tokens.ts";
 import { FormulaError, type Scalar } from "./values.ts";
 
 export type Node =
   | { readonly kind: "literal"; readonly value: Scalar }
-  | { readonly kind: "area"; readonly area: Area; readonly range: boolean; readonly table?: TableRef }
+  | { readonly kind: "area"; readonly area: Area; readonly range: boolean; readonly table?: TableRef; readonly fixed?: Fixed }
   | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly table?: TableRef }
   | { readonly kind: "call"; readonly name: string; readonly args: readonly Node[] }
   // A named cell (names.ts): vat, or [[Page]]vat on another page
@@ -154,23 +154,12 @@ class Parser {
     // A name before a [column] is a row's (pear[price]); any other a named cell's
     if (isRowName(this.tokens, this.at - 1)) return this.rowCell(text);
     if (!start) return { kind: "named", name: text };
-    if (!this.peekOp(":")) {
-      return { kind: "area", area: { top: start.row, left: start.column, bottom: start.row, right: start.column }, range: false };
-    }
+    if (!this.peekOp(":")) return { kind: "area", ...areaOf(start), range: false };
     this.at++;
     const endToken = this.tokens[this.at++];
     const end = endToken?.kind === "name" ? parseCellName(endToken.text) : undefined;
     if (!end) throw new FormulaError("#ERROR!", `${text}: must be followed by a cell, as in ${text}:B3`);
-    return {
-      kind: "area",
-      area: {
-        top: Math.min(start.row, end.row),
-        left: Math.min(start.column, end.column),
-        bottom: Math.max(start.row, end.row),
-        right: Math.max(start.column, end.column),
-      },
-      range: true,
-    };
+    return { kind: "area", ...areaOf(start, end), range: true };
   }
 }
 

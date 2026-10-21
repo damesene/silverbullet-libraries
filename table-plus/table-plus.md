@@ -42,6 +42,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Enter | Save, edit the cell below (with the `save` setting: only save) |
 | Ctrl+Enter | Save, add a row below, edit it |
 | Esc | Cancel; the cell stays selected (marked) for the keys of [[#Copying cells]], a second Esc ends that |
+| F4 | In a formula: the cell or range reference at the cursor cycles its `$`: `A1`, `$A$1`, `A$1`, `$A1`, see [[#References]] |
 | Shift+F3 | In a formula: the *Functions* dialog, to find a function and insert it, see [[#Functions]] |
 | F2 | Go on in the cell's popup: the whole text wrapped (a long text or formula), see [[#Long text in cells (`tablePlus.modules.longText`)]]. In the popup Ctrl+arrows, Ctrl+Home / End and Ctrl+Alt+arrows work in the text only (by words, to its start or end), not on the table; Ctrl+Enter saves as Enter does. |
 | Tab | Save, edit the next cell |
@@ -202,6 +203,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 |---|---|
 | `B1` | Column B, the first row under the header |
 | `A1:B3` | The range from A1 to B3 |
+| `$A$1`, `A$1`, `$A1` | A1 with its column, its row or both kept where they are when the formula is filled into other cells (in ranges too: `$A$1:B3`); F4 in a formula cycles them |
 | `[qty]` | The whole column named Qty (written by its key, see below), without the table's total rows: rows with a cell whose formula refers to its own whole column (a total or an average under it) |
 | `[qty:2]` | The second column named Qty, when several share the name |
 | `[@qty]` | The Qty cell in the formula's own row, e.g. `=[@price]*[@qty]` |
@@ -210,7 +212,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * Edits made in the markdown do not change references. `[qty]` and `[@qty]` are not affected by added or moved rows at all, so they are the safest choice for totals.
 * `A1` counts rows in the markdown, not as a sorting or filter shows them.
 * Column names match as SilverBullet's queries name columns: in lower case, with every run of other characters than `A-Z`, `a-z` and `0-9` as one `_`. So `[Unit price]`, `[unit price]` and `[unit_price]` are the same column, the one a query reads as `unit_price`. Letters with diacritics count as other characters there too (`Množství` is `mno_stv_`), so names that differ only in them are the same name; `[Name:2]` tells them apart. Table Plus writes column references by that key, as a query names the column: a formula saved as `=[@Unit price]*2` is stored as `=[@unit_price]*2`, and clicking a header inserts `[unit_price]`. References to a column the table does not have stay as typed (and show `#REF!`).
-* Not supported: absolute references (`$A$1`) and references to other tables.
+* A `$` only matters where a formula is filled into other cells: edits made with Table Plus move `$A$1` with its cell as they move `A1`, as a spreadsheet does.
 * **Point instead of typing**: where the formula expects a reference (after `=`, `(`, `,` or an operator, not inside a text in quotes), the pointer over the table becomes a move cursor: click a cell to insert it, drag across cells for a range, or click a column's header for `[Name]`. Pointing again right away replaces that reference, Shift+click extends its range. After a typed reference or another complete operand, a click ends editing as usual.
 * While you edit a formula, each reference is outlined in the table in its own color. Drag an outline's edge to move the reference, a range's corner to resize it; Esc while dragging puts it back.
 * Under the cell, the formula shows with its references in the same colors, and help for the function the cursor is in: its syntax, with the argument being typed underlined (`ROUND(number, `**`[digits]`**`)` after `=ROUND(A1, `), and what it does.

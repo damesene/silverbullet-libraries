@@ -148,8 +148,10 @@ function followedReference(formula: string, ref: Reference, edit: TableEdit): st
     const rows = mapSpan(ref.area.top, ref.area.bottom, bodyMap);
     const cols = mapSpan(ref.area.left, ref.area.right, columnMap ?? ((c) => c));
     const written = formula.slice(ref.from, ref.to);
-    const text =
-      rows && cols ? (written.includes(":") ? `${cellName(rows[0], cols[0])}:${cellName(rows[1], cols[1])}` : cellName(rows[0], cols[0])) : REF_ERROR;
+    // Its $ kept: an edit moves fixed references with their cells too, as in a spreadsheet
+    const start = rows && cols && cellName(rows[0], cols[0], ref.fixed && { column: ref.fixed.left, row: ref.fixed.top });
+    const end = rows && cols && cellName(rows[1], cols[1], ref.fixed && { column: ref.fixed.right, row: ref.fixed.bottom });
+    const text = start && end ? (written.includes(":") ? `${start}:${end}` : start) : REF_ERROR;
     return text === written.toUpperCase() ? undefined : text;
   }
   const headersBefore = edit.before.rows[0]?.cells ?? [];

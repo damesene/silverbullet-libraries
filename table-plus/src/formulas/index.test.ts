@@ -6,6 +6,7 @@ import {
   cellNamesOf,
   columnLetters,
   argumentSpan,
+  cycleFixed,
   findFunctions,
   needsOperator,
   followTable,
@@ -358,6 +359,15 @@ describe("shiftReferences", () => {
     expect(shifted((t) => setCell(t, 0, 0, "Qty"))).toEqual(["=SUM(B1:B3)+B1", "=SUM([qty:2])"]);
   });
 
+  it("moves references with $ with their cells too, their $ kept", () => {
+    const fixed = TABLE.replace('=SUM(B1:B3)+B1', '=SUM($B$1:B$3)+$B1');
+    const before = parseTable(fixed);
+    const inserted = shiftReferences(before, insertRow(before, 1), (r) => (r >= 1 ? r + 1 : r));
+    expect(formulas(inserted)[0]).toBe("=SUM($B$2:B$4)+$B2");
+    const toFront = (c: number) => (c === 1 ? 0 : c === 0 ? 1 : c);
+    expect(formulas(shiftReferences(before, moveColumn(before, 1, 0), undefined, toFront))[0]).toBe("=SUM($A$1:A$3)+$A1");
+  });
+
   it("evaluates a reference to deleted cells as #REF!", () => {
     expect(evaluate(FRUIT, "=SUM(#REF!)")).toBe("#REF!");
   });
@@ -372,6 +382,19 @@ describe("references", () => {
       { kind: "column", name: "Qty", thisRow: false, from: 18, to: 23 },
       { kind: "column", name: "Price", thisRow: true, from: 26, to: 34 },
     ]);
+  });
+
+  it("reads $ in cells and ranges: the edges kept when a formula is filled", () => {
+    const [cell, range, mixed, other] = references("=$A$1 + SUM(A$1:$B3) + B3:$A$1 + prices!$B$2");
+    expect(cell).toEqual({ kind: "area", area: { top: 0, left: 0, bottom: 0, right: 0 }, fixed: { left: true, top: true, right: true, bottom: true }, from: 1, to: 5 });
+    expect(range).toMatchObject({ area: { top: 0, left: 0, bottom: 2, right: 1 }, fixed: { left: false, top: true, right: true, bottom: false } });
+    // Each edge as the end that gives it is written
+    expect(mixed).toMatchObject({ area: { top: 0, left: 0, bottom: 2, right: 1 }, fixed: { left: true, top: true, right: false, bottom: false } });
+    expect(other).toMatchObject({ table: { name: "prices" }, fixed: { left: true, top: true } });
+    // Without $, no fixed edges
+    expect(references("=A1")[0]).not.toHaveProperty("fixed");
+    // A $ that makes no cell is a mistake, as any other character there
+    expect(references("=$X")).toEqual([]);
   });
 
   it("does not take a function name for a cell", () => {
@@ -562,6 +585,34 @@ describe("findFunctions", () => {
     expect(names("", "logic")).toEqual(["AND", "IF", "IFERROR", "ISNUMBER", "NOT", "OR"]);
     expect(names("", "lookup")).toEqual(["ROW", "XLOOKUP"]);
     expect(names("", "custom")).toEqual([]);
+  });
+});
+
+describe("cells with $", () => {
+  it("are calculated as the same cells without", () => {
+    expect(evaluate(FRUIT, "=$B$1+B$2")).toBe("13");
+    expect(evaluate(FRUIT, "=SUM($B$1:$B3)")).toBe("15");
+  });
+
+  it("cycle with F4: A1, $A$1, A$1, $A1, A1, a range's ends alike, the caret in or right after it", () => {
+    const f4 = (formula: string, caret = formula.length) => {
+      const cycled = cycleFixed(formula, caret);
+      return cycled && formula.slice(0, cycled.from) + cycled.text + formula.slice(cycled.to);
+    };
+    expect(f4("=A1")).toBe("=$A$1");
+    expect(f4("=$A$1")).toBe("=A$1");
+    expect(f4("=A$1")).toBe("=$A1");
+    expect(f4("=$A1")).toBe("=A1");
+    expect(f4("=SUM(B1:C3)", 7)).toBe("=SUM($B$1:$C$3)");
+    expect(f4("=prices!B2*2", 9)).toBe("=prices!$B$2*2");
+    // Not on a reference: nothing
+    expect(f4("=SUM(1)")).toBeUndefined();
+    expect(f4("=[qty]")).toBeUndefined();
+  });
+
+  it("are not taken for a function's name while typed", () => {
+    expect(functionChoices("=$A", 3, 3)).toBeUndefined();
+    expect(functionChoices("=A$", 3, 3)).toBeUndefined();
   });
 });
 
