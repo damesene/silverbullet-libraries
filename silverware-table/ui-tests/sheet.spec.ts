@@ -425,6 +425,40 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-sheet-board")).toHaveCount(1);
   });
 
+  test("under one table and right of another: the nearer one grows; keys on a cell nothing can grow reach no page", async ({ page }) => {
+    await page
+      .locator("#source")
+      .fill(
+        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 25 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n\n| Item | Total |\n|---|---|\n| Pear | 24 |\n| <meta name='totals' sheet='Plan' at='D1'> |\n",
+      );
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
+    await openSheet(page);
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    await expect(drawn).toHaveCount(2);
+    const letter = (text: string) => page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: new RegExp(`^${text}$`) });
+    const second = (await drawn.nth(1).boundingBox())!;
+    const rowHeight = (await drawn.nth(1).locator("tr[data-swt-row='1'] > td").first().boundingBox())!.height;
+    const d = (await letter("D").boundingBox())!;
+    // D3: right of prices (two columns on, into totals) and right under totals: totals grows
+    await page.mouse.click(d.x + d.width / 2, second.y + second.height + rowHeight / 2);
+    await page.keyboard.type("Kiwi");
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
+    expect(await markdown(page)).toMatch(/\| Pear +\| 24 +\|\n\| Kiwi +\| +\|\n\| <meta name='totals'/);
+    // Enter went on to the cell under Kiwi: Esc leaves it selected, a second Esc unselects it
+    await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    // F9: no table grows there; what is typed goes nowhere
+    const before = await markdown(page);
+    const f = (await letter("F").boundingBox())!;
+    await page.mouse.click(f.x + f.width / 2, second.y + 8 * rowHeight + rowHeight / 2);
+    await page.keyboard.type("lost");
+    await page.waitForTimeout(200);
+    expect(await markdown(page)).toBe(before);
+    await expect(page.locator(".swt-sheet-board")).toBeFocused();
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");

@@ -1886,6 +1886,9 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   background: var(--root-background-color, #fff);
   color: var(--root-color, #333);
 }
+.swt-sheet-board:focus {
+  outline: none;
+}
 .swt-sheet-content {
   position: relative;
   cursor: cell;

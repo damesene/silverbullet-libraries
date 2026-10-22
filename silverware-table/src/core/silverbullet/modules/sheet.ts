@@ -155,6 +155,8 @@ export class Sheet implements AdapterFeature {
     const doc = this.host.doc;
     const box = doc.createElement("div");
     box.className = "swt-sheet-board";
+    // The focus the board's (keys typed with nothing selected reach no page under it)
+    box.tabIndex = -1;
     const content = doc.createElement("div");
     content.className = "swt-sheet-content";
     content.append(this.columnLines);
@@ -164,6 +166,7 @@ export class Sheet implements AdapterFeature {
     claimWindow(doc, this);
     box.addEventListener("scroll", () => this.queuePlace());
     doc.body.append(box);
+    box.focus({ preventScroll: true });
     this.watching = new MutationObserver((records) => {
       if (records.some((r) => !box.contains(r.target) && !this.host.isFloating(r.target))) this.queueRefresh();
     });
@@ -367,8 +370,9 @@ export class Sheet implements AdapterFeature {
         return true;
       }
       if (typing || paste || e.key === "Enter" || e.key === "F2") {
-        if (!typing && !paste) e.preventDefault();
         this.edit(at);
+        // The key goes into the editor opened (typed, pasted); no editor: nowhere (not into the page under the board)
+        if (!this.host.editing || (!typing && !paste)) e.preventDefault();
         return true;
       }
     }
@@ -422,8 +426,11 @@ export class Sheet implements AdapterFeature {
       if (!(e.target instanceof Node && this.host.isFloating(e.target))) this.unselect();
       return;
     }
-    // The board is no table the core keeps the press from: the browser would take the focus from the editor opened
+    // The board is no table the core keeps the press from: the browser would take the focus from the editor
+    // opened; the board takes it unless a field has it
     e.preventDefault();
+    const active = this.host.doc.activeElement;
+    if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) this.board?.box.focus({ preventScroll: true });
     if (this.host.editing) {
       this.pendingPress = { x: e.clientX, y: e.clientY };
       void this.host.saveEditing().then(() => this.queuePlace());
@@ -453,7 +460,13 @@ export class Sheet implements AdapterFeature {
     if (!this.cell || editor.cell !== this.cell.element) return;
     this.chosen = undefined;
     this.dropCell();
-    // Nothing written (Esc, nothing typed): on at once, as the cells are now
+    // Esc: the cell stays selected now, so a second Esc unselects it (not the board's Esc, which closes it)
+    if (this.after?.key === "Escape") {
+      const at = this.after.at;
+      this.after = undefined;
+      this.select(at);
+    }
+    // Nothing written (nothing typed): on at once, as the cells are now
     if (this.after && !this.after.grown) this.after.ready = true;
     this.queuePlace();
   }
@@ -551,26 +564,34 @@ export class Sheet implements AdapterFeature {
   }
 
   /**
-   * The table an empty cell grows, and the cell in it: the nearest table left
-   * of it in its row (the cell in that table's rows), else the nearest above
-   * it in its column (in its columns)
+   * The tables an empty cell can grow, nearest first, with the cell in each:
+   * the nearest table left of it in its row (the cell in that table's rows)
+   * and the nearest above it in its column (in its columns); of the two the
+   * one fewer cells away, the left one where they are as far
    */
-  private ownerOf(at: SheetCell): { key: string; info: WidgetInfo; cell: CellRef } | undefined {
+  private ownersOf(at: SheetCell): { key: string; info: WidgetInfo; cell: CellRef }[] {
     const board = this.board;
-    if (!board) return undefined;
+    if (!board) return [];
     const tables = [...board.tables.values()].map((placed) => ({ placed, box: this.extent(placed) }));
+    const owners: { key: string; info: WidgetInfo; cell: CellRef; gap: number }[] = [];
     const left = tables.filter(({ box }) => at.row >= box.top && at.row <= box.bottom && at.column > box.right).sort((a, b) => b.box.right - a.box.right)[0];
-    if (left) {
-      const info = this.infoOfKey(left.placed.key);
-      const order = info && this.shownOrder(info);
-      if (info && order) return { key: left.placed.key, info, cell: { row: order[at.row - left.box.top]!, column: at.column - left.box.left } };
+    const leftInfo = left && this.infoOfKey(left.placed.key);
+    if (left && leftInfo) {
+      const order = this.shownOrder(leftInfo);
+      owners.push({ key: left.placed.key, info: leftInfo, cell: { row: order[at.row - left.box.top]!, column: at.column - left.box.left }, gap: at.column - left.box.right });
     }
     const above = tables.filter(({ box }) => at.column >= box.left && at.column <= box.right && at.row > box.bottom).sort((a, b) => b.box.bottom - a.box.bottom)[0];
-    if (above) {
-      const info = this.infoOfKey(above.placed.key);
-      if (info) return { key: above.placed.key, info, cell: { row: info.rows + (at.row - above.box.bottom - 1), column: at.column - above.box.left } };
+    const aboveInfo = above && this.infoOfKey(above.placed.key);
+    if (above && aboveInfo) {
+      const cell = { row: aboveInfo.rows + (at.row - above.box.bottom - 1), column: at.column - above.box.left };
+      owners.push({ key: above.placed.key, info: aboveInfo, cell, gap: at.row - above.box.bottom });
     }
-    return undefined;
+    return owners.sort((a, b) => a.gap - b.gap);
+  }
+
+  /** The table an empty cell grows (ownersOf), the nearest whose growth reaches into no other table */
+  private ownerOf(at: SheetCell): { key: string; info: WidgetInfo; cell: CellRef } | undefined {
+    return this.ownersOf(at).find((owner) => !this.wouldOverlap(owner.key, owner.cell));
   }
 
   /** The table a table grown to hold a cell would reach into, if any */
@@ -655,14 +676,16 @@ export class Sheet implements AdapterFeature {
 
   /** Opens the cell editor in an empty cell (TableHost.editBeyond) for the table it grows, in the module's td over it */
   private edit(at: SheetCell): void {
-    const owner = this.ownerOf(at);
+    const owners = this.ownersOf(at);
+    const owner = owners.find((o) => !this.wouldOverlap(o.key, o.cell));
     if (!owner) {
-      void this.host.bridge.flash("Silverware Table: a cell right of a table or below it grows that table; a new table elsewhere is to come", "info");
-      return;
-    }
-    const overlap = this.wouldOverlap(owner.key, owner.cell);
-    if (overlap) {
-      void this.host.bridge.flash(`Silverware Table: the table would grow into ${overlap} (moving tables is to come)`, "info");
+      const into = owners[0] && this.wouldOverlap(owners[0].key, owners[0].cell);
+      void this.host.bridge.flash(
+        into
+          ? `Silverware Table: the table would grow into ${into} (moving tables is to come)`
+          : "Silverware Table: a cell right of a table or below it grows that table; a new table elsewhere is to come",
+        "info",
+      );
       return;
     }
     const cell = this.showCell(at);
