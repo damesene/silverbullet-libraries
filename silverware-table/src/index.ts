@@ -38,6 +38,15 @@ export function removeAllMetadata(): void {
 }
 
 /**
+ * What a notification says of definitions refused: which, why, and how to find
+ * the script that gave them (the definitions do not say where they come from)
+ */
+function notDefined(what: string, api: string, problems: readonly string[]): string | undefined {
+  if (!problems.length) return undefined;
+  return `Silverware Table: ${what} not defined: ${problems.join("; ")}. Search the space for ${api} to find the space-lua block giving them.`;
+}
+
+/**
  * `silverware.table.defineFunctions` (the library page's Space Lua): custom functions
  * for formulas, a list (or a function given the helpers that
  * returns one), usually a JS module of the space. The others defined, what is
@@ -48,7 +57,7 @@ export function defineFunctions(definitions: unknown): string | undefined {
   const { functions, problems } = customFunctions(definitions);
   defineCustomFunctions(functions);
   definitionsChanged();
-  return problems.length ? `Silverware Table: custom functions not defined: ${problems.join("; ")}` : undefined;
+  return notDefined("custom functions", "defineFunctions", problems);
 }
 
 /**
@@ -60,7 +69,7 @@ export function defineTypes(definitions: unknown): string | undefined {
   const { types, problems } = customTypes(definitions);
   defineCustomTypes(types);
   definitionsChanged();
-  return problems.length ? `Silverware Table: custom column types not defined: ${problems.join("; ")}` : undefined;
+  return notDefined("custom column types", "defineTypes", problems);
 }
 
 /**
@@ -72,7 +81,7 @@ export function defineTypes(definitions: unknown): string | undefined {
 export function defineSeries(definitions: unknown): string | undefined {
   const { series, problems } = customSeries(definitions);
   defineCustomSeries(series);
-  return problems.length ? `Silverware Table: custom series not defined: ${problems.join("; ")}` : undefined;
+  return notDefined("custom series", "defineSeries", problems);
 }
 
 /** Space Lua is loaded (again): the custom definitions are made anew, replacing those of before */

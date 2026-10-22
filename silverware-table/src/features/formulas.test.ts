@@ -465,7 +465,9 @@ describe("Formulas", () => {
     });
 
     it("says what is wrong with definitions, and defines the others", () => {
-      expect(defineFunctions([{ name: "OK", call: () => 1 }, { name: "NOCALL" }])).toBe("Silverware Table: custom functions not defined: function 2: NOCALL has no call function");
+      expect(defineFunctions([{ name: "OK", call: () => 1 }, { name: "NOCALL" }])).toBe(
+        "Silverware Table: custom functions not defined: function 2: NOCALL has no call function. Search the space for defineFunctions to find the space-lua block giving them.",
+      );
       expect(defineFunctions([{ name: "OKAY", call: () => 1 }])).toBeUndefined();
       expect(functionNamed("OK")).toBeDefined();
     });
