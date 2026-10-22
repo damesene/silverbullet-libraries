@@ -5,7 +5,7 @@ import { UI_CLASS, WIDGET_SELECTOR } from "../../dom.ts";
 import { EVERYWHERE, heldBounds, innerBox, intersect, isEmpty, scrollNearEdge, shownPart, shownRect, viewBounds } from "../geometry.ts";
 import { dragLines } from "./linedrag.ts";
 import { Overlays } from "./overlays.ts";
-import { parseMetaRow, type TableMeta } from "../../markdown.ts";
+import type { TableMeta } from "../../markdown.ts";
 import type { TableAdapter } from "../adapter.ts";
 import type { CellRef, HandlePlace, HeaderRow, LineDrag, PointerTarget, Rect, Side, TableLook, TablePreview, WidgetInfo } from "../feature.ts";
 import { type MergedLooks, refKey } from "../looks.ts";
@@ -30,12 +30,18 @@ const dataName = (name: string) => `swt${name[0]!.toUpperCase()}${name.slice(1)}
 
 /**
  * The metadata row of a table SilverBullet just rendered, before it is laid
- * out: the attributes of its <meta> (SilverBullet keeps them, verified), its last row's
+ * out: the attributes of its <meta> (SilverBullet keeps them, verified), its
+ * last row's. Read as attributes: serialized again, a value with ">" (a stored
+ * filter) would end the tag where the markdown's reader ends it.
  */
 export function renderedMeta(rows: readonly HTMLTableRowElement[]): TableMeta | undefined {
   const meta = rows[rows.length - 1]?.querySelector("meta");
   if (!meta) return undefined;
-  return parseMetaRow(`| ${meta.outerHTML} |`);
+  const read: Record<string, string> = {};
+  for (const attribute of Array.from(meta.attributes)) read[attribute.name] = attribute.value;
+  // A formula cell with an empty result, or an empty named cell, not the table's metadata (as parseMetaRow)
+  if ("f" in read || "n" in read || "cn" in read) return undefined;
+  return read;
 }
 
 /** What the adapter needs to know of the core: which tables it enhanced, and a row taken out of the document put back (largeTables) */
