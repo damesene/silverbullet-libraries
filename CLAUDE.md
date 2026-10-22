@@ -43,7 +43,7 @@ npm run deploy -- <space folder>   # copy the library into a local space
 ```
 silverware-table/
   silverware-table.md        library page: user docs, settings (config.define), the Space Lua that loads the JS, the CSS (space-style)
-  silverware-table.js        built bundle (committed)
+  silverware-table.js        built bundle (committed, minified: 361 kB instead of 677; its exports keep their names, which the library page's Lua calls; nothing in src/ relies on a function's or class's name)
   ui-tests/            Playwright tests of interactions (playwright.config.ts at the root finds every plugin's): playground.ts the shared part (the `page` fixture opens the playground, an error in the page fails the test; tables, cells, the markdown from #source, drag, long press, tap), one spec per area; touch.spec.ts runs as a phone (the "touch" project). What a write does is checked on the table rendered anew (`rendersAnew`: the <table> marked before is gone), that nothing was written once it would have been (`settled`, the table still the one marked), state in the markdown as well as on screen
   src/
     index.ts           entry: init(bridge), pageIndexed(name), removeAllMetadata(); defineFunctions / defineTypes / defineSeries / resetDefinitions (the library page's `silverware.table.defineFunctions` / `defineTypes` / `defineSeries`, before init)

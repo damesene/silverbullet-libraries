@@ -15,6 +15,8 @@ for (const name of libraries) {
     bundle: true,
     format: "esm",
     target: "es2022",
+    // SilverBullet downloads the bundle as committed: as small as it can be (the playground and tests use src/)
+    minify: true,
     legalComments: "inline",
     logLevel: check ? "warning" : "info",
   };
