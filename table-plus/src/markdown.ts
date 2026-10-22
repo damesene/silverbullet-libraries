@@ -209,11 +209,11 @@ function parseTableText(text: string): Table {
     while (cells.length < align.length) cells.push("");
     return { cells, source: line, sourceCells: cells };
   });
-  // As shown: hidden tags take no room (serializeTable pads so)
-  const widths = lines.map((l) => shownLength(l));
+  // As shown (hidden tags take no room: serializeTable pads so), or as written (another tool, an older Table Plus)
+  const even = (widths: number[]) => widths.every((w) => w === widths[0]);
   const padded =
     lines.length > 2 &&
-    widths.every((w) => w === widths[0]) &&
+    (even(lines.map((l) => shownLength(l))) || even(lines.map((l) => charLength(l)))) &&
     lines.some((l) => /\S {2,}\|/.test(l));
   return {
     indent: /^\s*/.exec(header)![0],

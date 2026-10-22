@@ -141,8 +141,8 @@ function parseTableText(text) {
     while (cells.length < align.length) cells.push("");
     return { cells, source: line, sourceCells: cells };
   });
-  const widths = lines.map((l) => shownLength(l));
-  const padded3 = lines.length > 2 && widths.every((w) => w === widths[0]) && lines.some((l) => /\S {2,}\|/.test(l));
+  const even = (widths) => widths.every((w) => w === widths[0]);
+  const padded3 = lines.length > 2 && (even(lines.map((l) => shownLength(l))) || even(lines.map((l) => charLength(l)))) && lines.some((l) => /\S {2,}\|/.test(l));
   return {
     indent: /^\s*/.exec(header)[0],
     align,
@@ -9894,8 +9894,8 @@ var Grips = class {
   }
   /**
    * Shift+click on a grip: the rows (columns) from the one a click selected
-   * (the anchor, while still selected), else from the first of those selected
-   * whole, else from the cells selected, to this one
+   * (the anchor, while still selected), else from the end of those selected
+   * (whole, else the cells' lines) farther from this one, to this one
    */
   extendTo(target, axis) {
     const { info } = target;
@@ -9903,8 +9903,14 @@ var Grips = class {
     const lines = this.wholeLinesSelected(info, axis);
     const anchor = this.lineAnchor;
     const cells = this.host.selectedCells(info);
-    const fromCell = cells[0] && (axis === "row" ? cells[0].row > 0 ? cells[0].row : void 0 : cells[0].column);
-    const from = anchor && anchor.key === info.key && anchor.axis === axis && lines.includes(anchor.line) ? anchor.line : lines.length > 0 ? lines[0] : fromCell ?? line;
+    const cellLines = cells.map((ref) => axis === "row" ? ref.row : ref.column).filter((l) => axis === "column" || l > 0);
+    const ends = lines.length > 0 ? lines : cellLines;
+    const shown = axis === "row" ? this.host.shownRows(info).map((tr) => Number(tr.dataset.tpRow)) : [];
+    const place = (l) => axis === "row" ? shown.indexOf(l) : l;
+    const first = ends[0];
+    const last = ends[ends.length - 1];
+    const farther = first === void 0 || last === void 0 ? line : Math.abs(place(first) - place(line)) >= Math.abs(place(last) - place(line)) ? first : last;
+    const from = anchor && anchor.key === info.key && anchor.axis === axis && lines.includes(anchor.line) ? anchor.line : farther;
     this.endPicking();
     this.selectLines(info, axis, from, line);
     this.lineAnchor = { key: info.key, axis, line: from };
@@ -9974,6 +9980,7 @@ var Grips = class {
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged() {
     this.linesSelected = void 0;
+    if (!this.selectingLines) this.lineAnchor = void 0;
     if (!this.selectingLines && this.menu && !this.menuAgain()) this.closeMenu(false, false);
     this.markGrips();
   }
@@ -12553,6 +12560,8 @@ var Selection = class {
   tip;
   // Move to…: the table whose cells selected move to the cell pressed next
   moving;
+  // Where Move to… outlined the cells last
+  moveAt;
   // Edit mode: a click edits a cell; off (select mode, the default) a click selects it. Kept in this browser.
   editMode = readEditMode();
   // The handles at the selection's first and last cell, shown by CSS after a touch (html[data-tp-pointer="touch"])
@@ -12938,6 +12947,7 @@ var Selection = class {
   // A cell's editor opened (also from a + or a menu, which leave the selection): the selection ends
   editorOpened() {
     if (this.selection) this.clear();
+    if (this.moving) this.endMoving();
   }
   // A table rendered again (after a write) shows the selection again
   enhanced(_widget, info) {
@@ -13311,20 +13321,33 @@ var Selection = class {
   }
   endMoving() {
     this.moving = void 0;
+    this.moveAt = void 0;
     this.host.doc.body.classList.remove("tp-move-picking");
     this.host.doc.defaultView.removeEventListener("mousemove", this.showMoveTarget, true);
     for (const edge of this.targetEdges) edge.remove();
     this.targetEdges = [];
     this.tip.classList.remove("tp-visible");
   }
-  /** While Move to… waits: the cells where the block would go with its first cell under the pointer, outlined */
+  /**
+   * While Move to… waits: the cells where the block would go with its first
+   * cell under the pointer, outlined (again only when that place changes: the
+   * outline in the cells lays the table out anew); the cells no longer selected
+   * as a block, Move to… ends
+   */
   showMoveTarget = (e) => {
     const block = this.block();
-    if (!block || block.info.key !== this.moving) return;
+    if (!block || block.info.key !== this.moving) {
+      this.endMoving();
+      return;
+    }
     const hit = this.host.enhancedWidgetOf(e.target);
     const cell = hit && hit[1].key === block.info.key ? this.host.tableCellOf(hit[1], e.target) : void 0;
     const row = cell ? block.shown.indexOf(cell.parentElement) : -1;
-    this.showTarget(block, cell && row >= 1 ? this.placeOf(block, row, cell.cellIndex) : void 0, false, e.clientX, e.clientY);
+    const at = cell && row >= 1 ? this.placeOf(block, row, cell.cellIndex) : void 0;
+    const same = at && this.moveAt && at.row === this.moveAt.row && at.column === this.moveAt.column && this.targetEdges.every((edge) => edge.isConnected);
+    this.moveAt = at;
+    if (same) this.host.place(this.tip, e.clientX + 14, e.clientY + 14);
+    else this.showTarget(block, at, false, e.clientX, e.clientY);
   };
   /** A press while Move to… waits: on a body cell of the table the cells move there (the press taken); elsewhere it ends and goes on */
   movedBy(e) {

@@ -392,8 +392,8 @@ export class Grips implements Feature {
 
   /**
    * Shift+click on a grip: the rows (columns) from the one a click selected
-   * (the anchor, while still selected), else from the first of those selected
-   * whole, else from the cells selected, to this one
+   * (the anchor, while still selected), else from the end of those selected
+   * (whole, else the cells' lines) farther from this one, to this one
    */
   private extendTo(target: HandleTarget, axis: Axis): void {
     const { info } = target;
@@ -401,13 +401,15 @@ export class Grips implements Feature {
     const lines = this.wholeLinesSelected(info, axis);
     const anchor = this.lineAnchor;
     const cells = this.host.selectedCells(info);
-    const fromCell = cells[0] && (axis === "row" ? (cells[0].row > 0 ? cells[0].row : undefined) : cells[0].column);
-    const from =
-      anchor && anchor.key === info.key && anchor.axis === axis && lines.includes(anchor.line)
-        ? anchor.line
-        : lines.length > 0
-          ? lines[0]!
-          : (fromCell ?? line);
+    const cellLines = cells.map((ref) => (axis === "row" ? ref.row : ref.column)).filter((l) => axis === "column" || l > 0);
+    const ends = lines.length > 0 ? lines : cellLines;
+    // Rows by where they show (sorted), columns by their place
+    const shown = axis === "row" ? this.host.shownRows(info).map((tr) => Number(tr.dataset.tpRow)) : [];
+    const place = (l: number) => (axis === "row" ? shown.indexOf(l) : l);
+    const first = ends[0];
+    const last = ends[ends.length - 1];
+    const farther = first === undefined || last === undefined ? line : Math.abs(place(first) - place(line)) >= Math.abs(place(last) - place(line)) ? first : last;
+    const from = anchor && anchor.key === info.key && anchor.axis === axis && lines.includes(anchor.line) ? anchor.line : farther;
     this.endPicking();
     this.selectLines(info, axis, from, line);
     this.lineAnchor = { key: info.key, axis, line: from };
@@ -486,6 +488,8 @@ export class Grips implements Feature {
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged(): void {
     this.linesSelected = undefined;
+    // Selected otherwise (keys, a drag, a move): a grip's anchor is no longer where it was
+    if (!this.selectingLines) this.lineAnchor = undefined;
     if (!this.selectingLines && this.menu && !this.menuAgain()) this.closeMenu(false, false);
     this.markGrips();
   }

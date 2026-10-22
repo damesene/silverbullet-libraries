@@ -400,6 +400,19 @@ describe("Selecting cells", () => {
       press(cell(4, 1), "mousedown");
       expect(outlined()).toEqual([]);
       await flush();
+      // The cells no longer selected (an editor opened by typing) while it waits: Move to… ends, nothing stays outlined
+      await controller.scan();
+      controller.selectCells(info(), { row: 1, column: 1 }, { row: 2, column: 1 });
+      cell(1, 1).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 2, pointerType: "mouse" }));
+      cell(1, 1).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+      Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === "Move 2 cells to…")!.click();
+      cell(3, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      expect(outlined().length).toBeGreaterThan(0);
+      controller.editCell(info(), { row: 1, column: 0 }, "select");
+      cell(3, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      expect(outlined()).toEqual([]);
+      expect(document.querySelector(".tp-move-tip.tp-visible")).toBeNull();
+      await flush();
       expect(text).toBe('| A | B |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| | 4 |\n| <meta n="five"> | 3 |\n| | 5 |\n');
     });
   });

@@ -104,6 +104,8 @@ export class Selection implements Feature {
   private readonly tip: HTMLElement;
   // Move to…: the table whose cells selected move to the cell pressed next
   private moving: string | undefined;
+  // Where Move to… outlined the cells last
+  private moveAt: { row: number; column: number } | undefined;
   // Edit mode: a click edits a cell; off (select mode, the default) a click selects it. Kept in this browser.
   private editMode = readEditMode();
 
@@ -551,6 +553,7 @@ export class Selection implements Feature {
   // A cell's editor opened (also from a + or a menu, which leave the selection): the selection ends
   editorOpened(): void {
     if (this.selection) this.clear();
+    if (this.moving) this.endMoving();
   }
 
   // A table rendered again (after a write) shows the selection again
@@ -951,6 +954,7 @@ export class Selection implements Feature {
 
   private endMoving(): void {
     this.moving = undefined;
+    this.moveAt = undefined;
     this.host.doc.body.classList.remove("tp-move-picking");
     this.host.doc.defaultView!.removeEventListener("mousemove", this.showMoveTarget, true);
     for (const edge of this.targetEdges) edge.remove();
@@ -958,14 +962,26 @@ export class Selection implements Feature {
     this.tip.classList.remove("tp-visible");
   }
 
-  /** While Move to… waits: the cells where the block would go with its first cell under the pointer, outlined */
+  /**
+   * While Move to… waits: the cells where the block would go with its first
+   * cell under the pointer, outlined (again only when that place changes: the
+   * outline in the cells lays the table out anew); the cells no longer selected
+   * as a block, Move to… ends
+   */
   private showMoveTarget = (e: MouseEvent): void => {
     const block = this.block();
-    if (!block || block.info.key !== this.moving) return;
+    if (!block || block.info.key !== this.moving) {
+      this.endMoving();
+      return;
+    }
     const hit = this.host.enhancedWidgetOf(e.target);
     const cell = hit && hit[1].key === block.info.key ? this.host.tableCellOf(hit[1], e.target) : undefined;
     const row = cell ? block.shown.indexOf(cell.parentElement as HTMLTableRowElement) : -1;
-    this.showTarget(block, cell && row >= 1 ? this.placeOf(block, row, cell.cellIndex) : undefined, false, e.clientX, e.clientY);
+    const at = cell && row >= 1 ? this.placeOf(block, row, cell.cellIndex) : undefined;
+    const same = at && this.moveAt && at.row === this.moveAt.row && at.column === this.moveAt.column && this.targetEdges.every((edge) => edge.isConnected);
+    this.moveAt = at;
+    if (same) this.host.place(this.tip, e.clientX + 14, e.clientY + 14);
+    else this.showTarget(block, at, false, e.clientX, e.clientY);
   };
 
   /** A press while Move to… waits: on a body cell of the table the cells move there (the press taken); elsewhere it ends and goes on */

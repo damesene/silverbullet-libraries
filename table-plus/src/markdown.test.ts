@@ -123,6 +123,8 @@ describe("parseTable / serializeTable", () => {
     expect(serializeTable(table)).toBe(['| A   | B   |', '| --- | --- |', '| 1 <meta f="=2-1">  | x   |', '| 10  | y   |'].join("\n"));
     // Read again, it is a formatted table
     expect(parseTable(serializeTable(table)).padded).toBe(true);
+    // Padded by its text as written (another tool), it is one too
+    expect(parseTable(['| A                 | B   |', '| ----------------- | --- |', '| 1 <meta f="=2-1"> | x   |', '| 10                | y   |'].join("\n")).padded).toBe(true);
   });
 
   it("keeps an aligned table aligned", () => {
