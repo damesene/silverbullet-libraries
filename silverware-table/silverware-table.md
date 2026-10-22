@@ -1341,6 +1341,12 @@ if js and js.window then
     confirm = editor.confirm,
     readPage = space.readPage,
     writePage = space.writePage,
+    -- Tables Silverware Table draws itself (the sheet): cells rendered as SilverBullet's
+    -- tables render them, `${…}` evaluated; their links followed by SilverBullet
+    markdownToHtml = function(text)
+      return markdown.markdownToHtml(text, { expand = true })
+    end,
+    navigate = editor.navigate,
     -- The settings dialog: saved as SilverBullet's Configuration Manager saves
     -- (the CONFIG page, indexed, the configuration loaded again)
     saveConfigPage = function(text)

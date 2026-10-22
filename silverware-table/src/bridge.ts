@@ -32,6 +32,11 @@ export type Bridge = {
   readonly saveSettings?: (values: Readonly<Record<string, unknown>>) => unknown;
   // Optional: reloads the page, for modules turned on or off (else the browser reloads it)
   readonly reloadUI?: () => unknown;
+  // Optional, for tables Silverware Table draws itself (the sheet): markdown rendered as
+  // SilverBullet renders its tables' cells, `${…}` evaluated (markdown.markdownToHtml with expand)
+  readonly markdownToHtml?: (markdown: string) => string | Promise<string>;
+  // Optional, for links in those tables: SilverBullet's navigation to a ref (a page, a hashtag's page)
+  readonly navigate?: (ref: string) => unknown;
 };
 
 type Setting<T> = {

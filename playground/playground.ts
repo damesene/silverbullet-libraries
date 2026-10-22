@@ -379,6 +379,15 @@ const bridge: Bridge = {
     settingsChanged();
   },
   reloadUI: () => location.reload(),
+  // As SilverBullet's markdown.markdownToHtml renders a table (its cells as the page's tables show them)
+  markdownToHtml: (markdown) => {
+    const model = parseTable(markdown);
+    const row = (cells: readonly string[]) => `<tr>${cells.map((cell) => `<td>${inline(cell.trim())}</td>`).join("")}</tr>`;
+    const [header, ...body] = model.rows;
+    return `<table><thead>${header ? row(header.cells) : ""}</thead><tbody>${body.map((r) => row(r.cells)).join("")}</tbody></table>`;
+  },
+  // No pages to go to here: said so
+  navigate: (ref) => flash(`Playground: would open ${ref}`),
 };
 
 source.value = text;
