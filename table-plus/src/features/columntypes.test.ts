@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cellText } from "../dom.ts";
-import { ICONS } from "../icons.ts";
 import { typeNamed } from "../columntypes/index.ts";
 import { clearCustomTypes } from "../columntypes/registry.ts";
 import { defineTypes } from "../index.ts";
@@ -191,7 +190,7 @@ describe("Column types", () => {
         document.querySelector(".tp-grip-column")!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
         window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
         const item = (text: string) => Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent?.startsWith(text))!;
-        item("Type").click();
+        document.querySelector<HTMLElement>('.tp-menu .tp-segments[aria-label^="Type"] .tp-segment')!.click();
         item(label).click();
         await flush();
         await controller.scan();
@@ -214,9 +213,15 @@ describe("Column types", () => {
     const item = (label: string) =>
       Array.from(document.querySelectorAll<HTMLElement>(".tp-menu-item")).find((b) => b.textContent === label)!;
     const title = () => document.querySelector(".tp-menu-title")!.textContent;
+    // As Filter: the type's name after Type, its icon opening the list, a × removing it (greyed out without a type)
+    const typeRow = () => document.querySelector<HTMLElement>('.tp-menu .tp-segments[aria-label^="Type"]')!;
+    const types = () => typeRow().querySelectorAll<HTMLElement>(".tp-segment")[0]!;
+    const remove = () => typeRow().querySelectorAll<HTMLElement>(".tp-segment")[1]!;
     openColumnMenu();
+    expect(typeRow().getAttribute("aria-label")).toBe("Type");
+    expect(remove().getAttribute("aria-disabled")).toBe("true");
     // The types show in the same dropdown; Back shows the column's menu again
-    item("Type").click();
+    types().click();
     expect(title()).toBe("Column type");
     // A type's detail shows in a bubble beside the menu while it is hovered
     item("Unit").dispatchEvent(new MouseEvent("mouseenter"));
@@ -234,7 +239,7 @@ describe("Column types", () => {
     // The arrow before the title goes back
     document.querySelector<HTMLElement>(".tp-menu-title .tp-menu-back")!.click();
     expect(title()).toBe("Column: Rating #todo");
-    item("Type").click();
+    types().click();
     item("Stars").click();
     await flush();
     await controller.scan();
@@ -244,10 +249,23 @@ describe("Column types", () => {
     expect(cell(0, 1).querySelector(".tp-type-icon")!.innerHTML).toBe(iconHtml("stars"));
 
     openColumnMenu();
-    // The item keeps its icon; the type's icon goes before the type's name
-    expect(item("Type: Stars").querySelector(".tp-icon")!.innerHTML).toBe(asRendered(ICONS.columnType));
-    expect(item("Type: Stars").querySelector(".tp-menu-value-icon")!.innerHTML).toBe(iconHtml("stars"));
-    item("Type: Stars").click();
+    // The type's name after Type, its icon on the button opening the list; the × removes it
+    expect(typeRow().getAttribute("aria-label")).toBe("Type: Stars");
+    expect(types().querySelector("svg")!.outerHTML).toBe(iconHtml("stars"));
+    expect(remove().hasAttribute("aria-disabled")).toBe(false);
+    remove().click();
+    await flush();
+    expect(text).toBe("| Item | Rating #todo |\n|---|---|\n| Pear | 4 |\n");
+    expect(document.querySelector(".tp-menu")).toBeNull();
+    // No type from the list too
+    await controller.scan();
+    openColumnMenu();
+    types().click();
+    item("Stars").click();
+    await flush();
+    await controller.scan();
+    openColumnMenu();
+    types().click();
     item("No type").click();
     await flush();
     expect(text).toBe("| Item | Rating #todo |\n|---|---|\n| Pear | 4 |\n");

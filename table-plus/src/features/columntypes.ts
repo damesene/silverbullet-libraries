@@ -142,15 +142,24 @@ export class ColumnTypes implements Feature {
         };
       }),
     ];
+    // As Filter: the type's name after Type, its icon opening the list of types, a × removing it
     return [
       {
-        kind: "item",
-        // The same icon whatever the type, so the item is easy to find; the type's own after its name
-        label: "Type",
-        icon: ICONS.columnType,
-        ...(current ? { value: { text: typeLabel(current.type.name), icon: iconOf(current.type) } } : {}),
-        ...(current ? { detail: typeDetail(current.type, current.tag) } : { hint: "How the column's cells show" }),
-        run: () => open("Column type", choices),
+        kind: "segmented",
+        label: current ? `Type: ${typeLabel(current.type.name)}` : "Type",
+        options: [
+          {
+            icon: current ? iconOf(current.type) : ICONS.columnType,
+            title: current ? `Change the column's type (${typeLabel(current.type.name)})` : "Choose how the column's cells show",
+            run: () => open("Column type", choices),
+          },
+          {
+            icon: ICONS.clear,
+            title: "Remove the column's type",
+            run: setType(undefined),
+            ...(current ? {} : { disabled: "The column has no type" }),
+          },
+        ],
       },
     ];
   }
