@@ -1,11 +1,11 @@
 // The adapter to SilverBullet's rendered tables (core/adapter.ts): what the
 // core asks of the rendering, done on the DOM SilverBullet renders tables to.
 // Everything assumed about that DOM is in ../../dom.ts and in this folder.
-import { WIDGET_SELECTOR } from "../../dom.ts";
+import { UI_CLASS, WIDGET_SELECTOR } from "../../dom.ts";
 import { shownPart } from "../geometry.ts";
 import { parseMetaRow, type TableMeta } from "../../markdown.ts";
 import type { TableAdapter } from "../adapter.ts";
-import type { CellRef, Rect, TableLook, TablePreview, WidgetInfo } from "../feature.ts";
+import type { CellRef, HeaderRow, Rect, TableLook, TablePreview, WidgetInfo } from "../feature.ts";
 import { type MergedLooks, refKey } from "../looks.ts";
 import type { TableRows } from "../rows.ts";
 import { applyCellLook, applyHeaderLook, renderedText } from "./looks.ts";
@@ -39,6 +39,10 @@ export function renderedMeta(rows: readonly HTMLTableRowElement[]): TableMeta | 
 export class SilverBulletAdapter implements TableAdapter {
   // The styles hiding hashtags in headers, by who asked
   private readonly tagStyles = new Map<string, HTMLStyleElement>();
+  // The cells each mark is on, by table as rendered
+  private readonly marked = new WeakMap<HTMLTableElement, Map<string, HTMLTableCellElement[]>>();
+  // The rows of features' own UI under each table's header, by their place among them
+  private readonly headerRows = new WeakMap<HTMLTableElement, (HTMLTableRowElement | undefined)[]>();
 
   constructor(
     private readonly doc: Document,
@@ -99,6 +103,48 @@ export class SilverBulletAdapter implements TableAdapter {
   stop(): void {
     for (const style of this.tagStyles.values()) style.remove();
     this.tagStyles.clear();
+  }
+
+  markCells(info: WidgetInfo, mark: string, cells: readonly CellRef[]): void {
+    let marks = this.marked.get(info.table);
+    if (!marks) this.marked.set(info.table, (marks = new Map()));
+    const name = `swt-${mark}`;
+    const next = cells.flatMap((ref) => this.rows.cellAt(info, ref, true) ?? []);
+    const now = new Set(next);
+    for (const cell of marks.get(mark) ?? []) if (!now.has(cell)) cell.classList.remove(name);
+    for (const cell of next) cell.classList.add(name);
+    marks.set(mark, next);
+  }
+
+  /**
+   * Each feature's row right under the header (and the others before), in a
+   * row of its own (UI_CLASS: no table row, events in it are its elements'); an
+   * element already in its cell is not moved, so a field keeps its focus
+   */
+  placeHeaderRows(info: WidgetInfo, rows: readonly (HeaderRow | undefined)[]): void {
+    const placed = this.headerRows.get(info.table) ?? [];
+    let after: HTMLTableRowElement = info.table.rows[0]!;
+    rows.forEach((spec, i) => {
+      let tr = placed[i];
+      if (!spec) {
+        tr?.remove();
+        placed[i] = undefined;
+        return;
+      }
+      if (!tr) {
+        tr = this.doc.createElement("tr");
+        placed[i] = tr;
+      }
+      tr.className = `${UI_CLASS} ${spec.className}`;
+      spec.cells.forEach((element, column) => {
+        const td = tr!.cells[column] ?? tr!.insertCell();
+        if (td.firstChild !== element || td.childNodes.length !== 1) td.replaceChildren(element);
+      });
+      while (tr.cells.length > spec.cells.length) tr.deleteCell(-1);
+      if (after.nextSibling !== tr) after.after(tr);
+      after = tr;
+    });
+    this.headerRows.set(info.table, placed);
   }
 
   /** A table in SilverBullet's widget's form (the page's tables' CSS applies), not one of the page's: in a floating element, the core leaves it */

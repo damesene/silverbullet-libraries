@@ -154,10 +154,31 @@ export function editorRect(editor: CellEditor): DOMRect {
 export type PanelAnchor =
   | { readonly kind: "editor" }
   | { readonly kind: "cell"; readonly key: string; readonly row: number; readonly column: number }
-  | { readonly kind: "point"; readonly x: number; readonly y: number };
+  | { readonly kind: "point"; readonly x: number; readonly y: number }
+  // An element of the feature's own UI (a field of its header row)
+  | { readonly kind: "element"; readonly element: HTMLElement };
 
-/** Where a panel goes: below its anchor (else above, where there is no room below), at least as wide as it (`minWidth: "anchor"`) */
-export type PanelOptions = { readonly place?: "below" | "above"; readonly minWidth?: "anchor"; readonly gap?: number };
+/**
+ * Where a panel goes: below its anchor (else above, where there is no room
+ * below), `gap` away, `offsetX` from its left edge, at least as wide as it
+ * (`minWidth: "anchor"`)
+ */
+export type PanelOptions = { readonly place?: "below" | "above"; readonly minWidth?: "anchor"; readonly gap?: number; readonly offsetX?: number };
+
+/**
+ * A mark some cells of tables have (TableHost.markLayer: cells selected, the
+ * headers of the columns filtering), kept by table and cell: a table rendered
+ * anew shows it again. The adapter shows it (class swt-<mark>).
+ */
+export interface MarkLayer {
+  /** The cells of a table that have the mark; its other cells lose it */
+  set(key: string, cells: readonly CellRef[]): void;
+  /** No cell of any table has it */
+  clear(): void;
+}
+
+/** A row of a feature's own UI under a table's header (the filter row): its element for each column, in a cell of the row */
+export type HeaderRow = { readonly className: string; readonly cells: readonly HTMLElement[] };
 
 /**
  * A floating container of a feature's own UI (a list of choices, a formula's
@@ -306,6 +327,8 @@ export interface TableHost {
   focusPage(): void;
   /** A floating container for a feature's own UI, placed by what it is anchored to (Panel) */
   panel(className: string): Panel;
+  /** A mark of cells, kept by table and cell (MarkLayer) */
+  markLayer(mark: string): MarkLayer;
   /**
    * Hashtags in headers not shown, by name (a column type's): hidden from the
    * moment a table is rendered (before its looks apply); given again, they replace those of `owner`
@@ -425,6 +448,8 @@ export interface TableHost {
    * anew, the row being edited placed with the others and held there
    */
   viewChanged(widget: HTMLElement, info: WidgetInfo): void;
+  /** The same for the table with `key`, as it is shown now */
+  viewChangedFor(key: string): void;
   /**
    * A cell's new markdown with the hidden tags the cell had, but those the
    * features that manage them take (Feature.takesTags): editing, pasting or
@@ -651,6 +676,12 @@ export interface Feature {
   hidesRows?(info: WidgetInfo): boolean;
   /** The table's view was applied: rows sorted and hidden, the header marked */
   viewApplied?(widget: HTMLElement, info: WidgetInfo): void;
+  /**
+   * A row of the feature's own UI under the table's header, asked each time
+   * the view is applied (undefined: none): the same elements given again stay
+   * where they are (a field typed in keeps its focus)
+   */
+  headerRow?(info: WidgetInfo): HeaderRow | undefined;
   /**
    * SilverBullet put a table into the page, before the browser lays it out:
    * its rows as rendered (the header first). A feature may take rows out of

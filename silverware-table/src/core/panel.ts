@@ -60,14 +60,15 @@ class FloatingPanel implements Panel {
       return;
     }
     const gap = at.options.gap ?? GAP;
+    const left = rect.left + (at.options.offsetX ?? 0);
     if (at.options.minWidth === "anchor") this.element.style.minWidth = `${Math.round(rect.right - rect.left)}px`;
     const below = rect.bottom + gap;
-    this.context.place(this.element, rect.left, below);
+    this.context.place(this.element, left, below);
     const height = this.element.offsetHeight;
     const above = rect.top - gap - height;
     const viewHeight = this.context.doc.defaultView!.innerHeight;
-    const wantsAbove = at.options.place === "above" ? above >= 0 : below + height > viewHeight && above >= 0;
-    if (wantsAbove) this.context.place(this.element, rect.left, above);
+    const wantsAbove = at.options.place === "above" ? above >= 0 : below + height > viewHeight - 4 && above >= 4;
+    if (wantsAbove) this.context.place(this.element, left, above);
   }
 }
 

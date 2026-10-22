@@ -8,7 +8,7 @@
 //
 // Being moved here step by step from the controller (docs/silverware-table-isolation.md):
 // what is not here yet is still the controller's own DOM code.
-import type { CellRef, Rect, TableLook, TablePreview, WidgetInfo } from "./feature.ts";
+import type { CellRef, HeaderRow, Rect, TableLook, TablePreview, WidgetInfo } from "./feature.ts";
 import type { MergedLooks } from "./looks.ts";
 
 export interface TableAdapter {
@@ -24,6 +24,10 @@ export interface TableAdapter {
   cellRect(info: WidgetInfo, ref: CellRef): Rect | undefined;
   /** Hashtags in headers not shown from the moment a table is rendered, by name (exact, or starting so); `owner`'s replaced */
   hideHeaderTags(owner: string, tags: { readonly exact: readonly string[]; readonly prefixes: readonly string[] }): void;
+  /** The cells of a table that have a mark (MarkLayer); the cells that had it before and are not among them lose it */
+  markCells(info: WidgetInfo, mark: string, cells: readonly CellRef[]): void;
+  /** The rows of features' own UI under the table's header, in this order (undefined: that feature has none); elements in place stay */
+  placeHeaderRows(info: WidgetInfo, rows: readonly (HeaderRow | undefined)[]): void;
   /** Silverware Table stops: what the adapter added to the page goes */
   stop(): void;
 }

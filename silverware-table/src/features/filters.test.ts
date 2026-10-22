@@ -124,7 +124,7 @@ describe("Filters", () => {
     field.focus();
     typeInto(field, "a");
     expect(bodyTexts()).toEqual(["Pear", "apple"]);
-    expect(field.closest("td")!.classList.contains("swt-filter-active")).toBe(true);
+    expect(field.closest(".swt-filter-field")!.classList.contains("swt-filter-active")).toBe(true);
     field.blur();
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     toggle().click();

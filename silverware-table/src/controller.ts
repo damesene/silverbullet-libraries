@@ -2,7 +2,7 @@
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
 import { type Bridge, type FeatureName, moduleOnByDefault, SETTINGS, type SettingValue } from "./bridge.ts";
-import { type CellEditor, type CellHit, type CellRef, editorRect, type Feature, type Panel, type PanelAnchor, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
+import { type CellEditor, type CellHit, type CellRef, editorRect, type Feature, type MarkLayer, type Panel, type PanelAnchor, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
 import { type Dialog, type DialogOptions, Dialogs } from "./core/dialog.ts";
 import { ViewAnchor } from "./core/anchor.ts";
 import { placeAtEnd, TableRows } from "./core/rows.ts";
@@ -164,6 +164,8 @@ export class Controller implements TableHost {
   private readonly adapter: TableAdapter;
   // The features' panels (TableHost.panel)
   private readonly panels: Panels;
+  // The marks of cells (TableHost.markLayer), by mark: the cells of each table that have it
+  private readonly markLayers = new Map<string, Map<string, readonly CellRef[]>>();
   // Steps every write goes through after the edit, in this order
   private readonly writeSteps: readonly WriteStep[] = [metadataAfterEdit];
 
@@ -732,6 +734,7 @@ export class Controller implements TableHost {
     for (const feature of this.features) feature.decorate?.(widget, info);
     this.adapter.applyTableLook(info, this.tableLook(parseTable(info.source).meta));
     this.applyLooks(info);
+    this.marksAgain(info);
     // Last: the header's name on one line with the icons the features added
     for (const cell of Array.from(rows[0]!.cells)) layOutHeaderCell(cell);
   }
@@ -788,6 +791,12 @@ export class Controller implements TableHost {
 
   viewChanged(widget: HTMLElement, info: WidgetInfo): void {
     this.setView(widget, info, this.viewOf(info));
+  }
+
+  viewChangedFor(key: string): void {
+    const widget = this.widgetForKey(key);
+    const info = widget && this.infos.get(widget);
+    if (widget && info) this.viewChanged(widget, info);
   }
 
   setView(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
@@ -917,9 +926,38 @@ export class Controller implements TableHost {
     this.adapter.hideHeaderTags(owner, tags);
   }
 
+  markLayer(mark: string): MarkLayer {
+    const tables = new Map<string, readonly CellRef[]>();
+    this.markLayers.set(mark, tables);
+    const show = (key: string, cells: readonly CellRef[]) => {
+      const info = this.tableFor(key);
+      if (info) this.adapter.markCells(info, mark, cells);
+    };
+    return {
+      set: (key, cells) => {
+        if (cells.length) tables.set(key, cells);
+        else tables.delete(key);
+        show(key, cells);
+      },
+      clear: () => {
+        for (const key of [...tables.keys()]) show(key, []);
+        tables.clear();
+      },
+    };
+  }
+
+  /** A table rendered anew: the marks its cells had show again */
+  private marksAgain(info: WidgetInfo): void {
+    for (const [mark, tables] of this.markLayers) {
+      const cells = tables.get(info.key);
+      if (cells) this.adapter.markCells(info, mark, cells);
+    }
+  }
+
   /** Where a panel's anchor is in the window, while it is in view */
   private anchorRect(anchor: PanelAnchor): Rect | undefined {
     if (anchor.kind === "point") return { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y };
+    if (anchor.kind === "element") return anchor.element.isConnected ? anchor.element.getBoundingClientRect() : undefined;
     if (anchor.kind === "cell") {
       const info = this.tableFor(anchor.key);
       return info && this.adapter.cellRect(info, anchor);
@@ -1261,6 +1299,8 @@ export class Controller implements TableHost {
     });
 
     for (const feature of this.features) feature.viewApplied?.(widget, info);
+    // The features' rows of their own UI under the header (the filter row)
+    if (this.features.some((f) => f.headerRow)) this.adapter.placeHeaderRows(info, this.features.flatMap((f) => (f.headerRow ? [f.headerRow(info)] : [])));
     this.pinColumns(info);
     widget.classList.toggle("swt-rearranged", this.rearranged(info));
     // A taller table scrolls inside its own box (the table box already has overflow: auto)

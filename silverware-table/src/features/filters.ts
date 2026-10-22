@@ -13,8 +13,20 @@
 // filters were typed that are not stored (yet, or the setting is off): so an
 // undo of the metadata (Ctrl+Z after Remove metadata, after a store) shows
 // what the markdown has again.
-import type { CellEditor, CellRef, Feature, TableHost, TableLooks, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { cellText, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
+import type {
+  CellEditor,
+  CellRef,
+  Feature,
+  HeaderRow,
+  MarkLayer,
+  Panel,
+  PanelAnchor,
+  PanelOptions,
+  TableHost,
+  TableLooks,
+  ToolbarButton,
+  WidgetInfo,
+} from "../core/feature.ts";
 import { type FilterOptions, normalizeForFilter, parseFilter } from "../filter.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
@@ -41,6 +53,13 @@ const TEXT_HINTS: readonly Hint[] = [
   { code: "a|b", text: "either", apply: (v) => (v === "" || v.endsWith("|") ? v : `${v}|`) },
   { code: "/^a.*z$/", text: "regular expression", apply: (v) => (v.startsWith("/") ? v : `/${bare(v)}/`) },
 ];
+
+/** A field of the filter row: the element in the row's cell, its input */
+type RowField = { readonly element: HTMLElement; readonly input: HTMLInputElement };
+
+// The bubble under a field of the filter row (from the field's box), under a header on its own
+const BUBBLE_PLACE: PanelOptions = { gap: 6, offsetX: -6 };
+const POPOVER_PLACE: PanelOptions = { gap: 6 };
 
 /** A column's different values (as filters see them), each with what it shows and how many cells have it */
 type ColumnValue = { readonly value: string; readonly label: string; readonly count: number };
@@ -79,25 +98,32 @@ export class Filters implements Feature {
   private readonly stored = new Map<string, { readonly source: string; readonly filters: readonly string[] }>();
   // Tables whose filter row is shown
   private readonly shown = new Set<string>();
+  // By table key: the filter row's fields, one per column (made once, given to the core each time the view applies)
+  private readonly rows = new Map<string, readonly RowField[]>();
   private readonly storeTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Tables whose filters are stored once the cell editor in them closes, or
   // they are rendered again (a write renders a table anew)
   private readonly storesWaiting = new Set<string>();
   private options: FilterOptions = { smart: true };
+  // The headers of the columns filtering
+  private readonly filtering: MarkLayer;
   // The bubble under the field being typed in, or (popover) a column's filter on its own
+  private readonly panel: Panel;
   private bubble:
     | {
-        readonly element: HTMLElement;
         readonly body: HTMLElement;
         readonly input: HTMLInputElement;
         readonly key: string;
         readonly column: number;
-        readonly anchor: () => HTMLElement | undefined;
+        readonly anchor: PanelAnchor;
         readonly popover: boolean;
       }
     | undefined;
 
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: TableHost) {
+    this.filtering = host.markLayer("filtered");
+    this.panel = host.panel("swt-filter-bubble");
+  }
 
   start(): void {
     void this.readOptions();
@@ -106,11 +132,8 @@ export class Filters implements Feature {
   stop(): void {
     for (const timer of this.storeTimers.values()) clearTimeout(timer);
     this.hideBubble();
-  }
-
-  /** Whether a node is the bubble's */
-  owns(node: Node): boolean {
-    return !!this.bubble?.element.contains(node);
+    this.panel.remove();
+    this.filtering.clear();
   }
 
   /** The smart filters setting; when it changed, every table shown is filtered anew */
@@ -118,17 +141,7 @@ export class Filters implements Feature {
     const smart = (await this.host.setting("smartFilters")) === true;
     if (smart === this.options.smart) return;
     this.options = { smart };
-    for (const widget of Array.from(this.host.doc.querySelectorAll<HTMLElement>(WIDGET_SELECTOR))) {
-      const info = this.host.infoOf(widget);
-      if (info) this.host.viewChanged(widget, info);
-    }
-  }
-
-  /** The table with `key` as rendered now: a write renders a table anew */
-  private table(key: string): [HTMLElement, WidgetInfo] | undefined {
-    const widget = this.host.widgetForKey(key);
-    const info = widget && this.host.infoOf(widget);
-    return widget && info ? [widget, info] : undefined;
+    for (const info of this.host.shownTables()) this.host.viewChangedFor(info.key);
   }
 
   /** The filters stored in the table (filter.*), by column */
@@ -184,10 +197,36 @@ export class Filters implements Feature {
     return { headers: Array.from({ length: info.columns }, (_, column) => ({ column, icons: [mark] })) };
   }
 
+  // The headers of the columns filtering marked; a column's bubble follows its header, which a write renders anew
   viewApplied(_widget: HTMLElement, info: WidgetInfo): void {
-    const matchers = this.matchers(info);
-    Array.from(info.table.rows[0]!.cells).forEach((cell, column) => cell.classList.toggle("swt-filtered", matchers.has(column)));
-    this.syncRow(info);
+    this.filtering.set(info.key, [...this.matchers(info).keys()].map((column) => ({ row: 0, column })));
+    if (this.bubble?.popover && this.bubble.key === info.key) this.panel.show(this.bubble.anchor, BUBBLE_PLACE);
+  }
+
+  /** The filter row while it is shown: a field per column, as the filters are */
+  headerRow(info: WidgetInfo): HeaderRow | undefined {
+    if (!this.shown.has(info.key)) {
+      // A field taken away with the row: its bubble goes too
+      if (this.bubble && !this.bubble.popover && this.bubble.key === info.key) this.hideBubble();
+      return undefined;
+    }
+    let fields = this.rows.get(info.key);
+    if (fields?.length !== info.columns) {
+      fields = Array.from({ length: info.columns }, (_, column) => this.rowField(info.key, column));
+      this.rows.set(info.key, fields);
+    }
+    const filters = this.filtersOf(info);
+    for (const [column, { element, input }] of fields.entries()) {
+      const value = filters[column] ?? "";
+      if (input.value !== value && this.host.doc.activeElement !== input) input.value = value;
+      // A filter that cannot be used filters nothing; the field says why
+      const { match, error } = parseFilter(input.value, this.options);
+      input.classList.toggle("swt-invalid", !!error);
+      input.title = error ?? "";
+      element.classList.toggle("swt-filter-active", !!match);
+      element.classList.toggle("swt-filter-typed", input.value !== "");
+    }
+    return { className: "swt-filter-row", cells: fields.map((field) => field.element) };
   }
 
   /** The filter icon at the toolbar's right; while filtered, "3 of 10 rows", its × clearing the filters */
@@ -215,8 +254,7 @@ export class Filters implements Feature {
       run: () => {
         if (this.shown.has(key)) this.shown.delete(key);
         else this.shown.add(key);
-        const table = this.table(key);
-        if (table) this.host.viewChanged(...table);
+        this.host.viewChangedFor(key);
         // A field taken away with the row loses its focus without a blur event
         this.scheduleStore(key);
       },
@@ -235,17 +273,16 @@ export class Filters implements Feature {
     if (column === undefined || body.some((ref) => ref.column !== column)) return undefined;
     const values: string[] = [];
     for (const ref of body) {
-      const cell = this.host.cellAt(info, ref, true);
-      const value = cell ? this.host.cellValue(cell).trim() : "";
+      const value = (this.host.shownValue(info, ref) ?? "").trim();
       if (!values.some((v) => normalizeForFilter(v) === normalizeForFilter(value))) values.push(value);
     }
     // A value with a | cannot be listed
     if (values.some((v) => v.includes("|"))) return undefined;
     const { key } = info;
     const apply = (prefix: "=" | "!=") => () => {
-      const table = this.table(key);
-      if (!table) return;
-      this.setFilter(key, column, withValues(this.filtersOf(table[1])[column] ?? "", prefix, values));
+      const now = this.host.tableFor(key);
+      if (!now) return;
+      this.setFilter(key, column, withValues(this.filtersOf(now)[column] ?? "", prefix, values));
       this.scheduleStore(key);
     };
     const label = valuesLabel(values);
@@ -298,6 +335,8 @@ export class Filters implements Feature {
       moved[target] = value;
     });
     this.typed.set(key, moved);
+    // The fields are made anew for the columns where they are now
+    this.rows.delete(key);
   }
 
   /** Remove metadata: what is typed goes too, the table shows what its markdown has */
@@ -306,37 +345,15 @@ export class Filters implements Feature {
     this.storesWaiting.delete(key);
   }
 
-  /** The filter row as the filters are: shown with them, or gone */
-  private syncRow(info: WidgetInfo): void {
-    let row = info.table.querySelector<HTMLTableRowElement>("tr.swt-filter-row");
-    // A column's bubble follows its header, which a write renders anew
-    if (this.bubble?.popover && this.bubble.key === info.key) this.placeBubble();
-    if (!this.shown.has(info.key)) {
-      if (row && this.bubble && row.contains(this.bubble.input)) this.hideBubble();
-      row?.remove();
-      return;
-    }
-    if (!row) {
-      row = this.host.doc.createElement("tr");
-      row.className = `${UI_CLASS} swt-filter-row`;
-      for (let column = 0; column < info.columns; column++) row.append(this.field(info.key, column));
-      info.table.rows[0]!.after(row);
-    }
-    const filters = this.filtersOf(info);
-    for (const input of Array.from(row.querySelectorAll<HTMLInputElement>("input.swt-filter"))) {
-      const value = filters[Number(input.dataset.swtColumn)] ?? "";
-      if (input.value !== value && this.host.doc.activeElement !== input) input.value = value;
-      // A filter that cannot be used filters nothing; the field says why
-      const { match, error } = parseFilter(input.value, this.options);
-      input.classList.toggle("swt-invalid", !!error);
-      input.title = error ?? "";
-      const cell = input.closest("td")!;
-      cell.classList.toggle("swt-filter-active", !!match);
-      cell.classList.toggle("swt-filter-typed", input.value !== "");
-    }
-  }
-
   // ---- storing ------------------------------------------------------------------
+
+  /** Whether one of a table's filter fields (of its row, or its bubble) is typed in */
+  private typingIn(key: string): boolean {
+    const active = this.host.doc.activeElement;
+    if (!(active instanceof HTMLInputElement)) return false;
+    if (this.bubble?.input === active) return this.bubble.key === key;
+    return (this.rows.get(key) ?? []).some((field) => field.input === active);
+  }
 
   /**
    * Stores a table's filters in its metadata row (the metadata setting, or a
@@ -350,14 +367,10 @@ export class Filters implements Feature {
       key,
       setTimeout(() => {
         this.storeTimers.delete(key);
-        const active = this.host.doc.activeElement;
-        const table = this.table(key);
-        if (active instanceof HTMLInputElement && active.classList.contains("swt-filter")) {
-          // Its blur stores again
-          if (this.bubble?.input === active ? this.bubble.key === key : !!table && table[1].table.contains(active)) return;
-        }
+        // Its blur stores again
+        if (this.typingIn(key)) return;
         const editing = this.host.editing;
-        if (!table || (editing && this.host.infoOf(editing.widget)?.key === key)) {
+        if (!this.host.tableFor(key) || editing?.key === key) {
           this.storesWaiting.add(key);
           return;
         }
@@ -368,8 +381,7 @@ export class Filters implements Feature {
 
   /** A cell editor closed: filters waiting for it are stored */
   editorClosed(editor: CellEditor): void {
-    const key = this.host.infoOf(editor.widget)?.key;
-    if (key && this.storesWaiting.delete(key)) this.scheduleStore(key);
+    if (this.storesWaiting.delete(editor.key)) this.scheduleStore(editor.key);
   }
 
   /** A table rendered again: filters waiting for it are stored */
@@ -378,10 +390,9 @@ export class Filters implements Feature {
   }
 
   private async store(key: string): Promise<void> {
-    const table = this.table(key);
+    const info = this.host.tableFor(key);
     const typed = this.typed.get(key);
-    if (!table || !typed) return;
-    const [widget, info] = table;
+    if (!info || !typed) return;
     if (sameFilters(typed, this.storedFilters(info))) {
       this.typed.delete(key);
       return;
@@ -393,7 +404,7 @@ export class Filters implements Feature {
     written.forEach((filter, column) => {
       if (filter.trim() !== "") filters.set(column, filter.trim());
     });
-    const result = await this.host.write(widget, (t) => withColumnMeta(t, "filter", filters));
+    const result = await this.host.writeTable(info, (t) => withColumnMeta(t, "filter", filters));
     // Stored: the table's markdown has them now
     if (result !== "failed" && sameFilters(this.typed.get(key) ?? [], written)) this.typed.delete(key);
   }
@@ -401,18 +412,17 @@ export class Filters implements Feature {
   // ---- typing ---------------------------------------------------------------------
 
   /** A column's field in the filter row: the filter icon, the field, its clear button */
-  private field(key: string, column: number): HTMLTableCellElement {
-    const cell = this.host.doc.createElement("td");
+  private rowField(key: string, column: number): RowField {
+    const element = this.host.doc.createElement("div");
+    element.className = "swt-filter-field";
     const { box, input } = this.filterBox(key, column);
     input.addEventListener("focus", () => {
       void this.readOptions();
-      if (this.bubble?.input !== input) {
-        this.showBubble(key, column, input, () => (input.isConnected ? input : undefined));
-      }
+      if (this.bubble?.input !== input) this.showBubble(key, column, input, { kind: "element", element: input });
     });
     input.addEventListener("blur", (e) => this.left(key, input, e));
-    cell.append(box);
-    return cell;
+    element.append(box);
+    return { element, input };
   }
 
   /** A filter field with the filter icon before it and its clear button after it */
@@ -462,7 +472,7 @@ export class Filters implements Feature {
 
   /** A column's filter removed: a field's clear button in the filter row, the × in the column's menu */
   private clear(info: WidgetInfo, column: number): void {
-    const input = info.table.querySelector<HTMLInputElement>(`.swt-filter-row input.swt-filter[data-swt-column="${column}"]`);
+    const input = this.shown.has(info.key) ? this.rows.get(info.key)?.[column]?.input : undefined;
     if (input) this.type(info.key, input, column, "");
     else this.setFilter(info.key, column, "");
     this.scheduleStore(info.key);
@@ -471,25 +481,24 @@ export class Filters implements Feature {
   /** The toolbar chip's ×: no filter any more */
   private clearAll(key: string): void {
     this.typed.set(key, []);
-    const table = this.table(key);
-    for (const input of Array.from(table?.[1].table.querySelectorAll<HTMLInputElement>("input.swt-filter") ?? [])) input.value = "";
+    for (const field of this.rows.get(key) ?? []) field.input.value = "";
     if (this.bubble?.key === key) this.hideBubble();
-    if (table) this.host.viewChanged(...table);
+    this.host.viewChangedFor(key);
     this.scheduleStore(key);
   }
 
   private setFilter(key: string, column: number, value: string): void {
-    const table = this.table(key);
-    if (table) {
-      const filters = [...this.filtersOf(table[1])];
+    const info = this.host.tableFor(key);
+    if (info) {
+      const filters = [...this.filtersOf(info)];
       while (filters.length <= column) filters.push("");
       filters[column] = value;
       this.typed.set(key, filters);
-      this.host.viewChanged(...table);
+      this.host.viewChangedFor(key);
     }
     const bubble = this.bubble;
     if (bubble && bubble.key === key && bubble.column === column) {
-      bubble.element.classList.toggle("swt-filter-typed", value !== "");
+      this.panel.element.classList.toggle("swt-filter-typed", value !== "");
       this.renderBubble();
     }
   }
@@ -497,7 +506,7 @@ export class Filters implements Feature {
   /** Puts `value` in the field as if typed */
   private type(key: string, input: HTMLInputElement, column: number, value: string): void {
     input.value = value;
-    input.closest("td")?.classList.toggle("swt-filter-typed", value !== "");
+    this.rows.get(key)?.[column]?.element.classList.toggle("swt-filter-typed", value !== "");
     this.setFilter(key, column, value);
   }
 
@@ -518,8 +527,6 @@ export class Filters implements Feature {
     const { box, input } = this.filterBox(key, column);
     input.value = this.filtersOf(info)[column] ?? "";
     input.addEventListener("blur", (e) => this.left(key, input, e));
-    // Under the header as rendered now: a write renders the table anew
-    const anchor = () => this.table(key)?.[1].table.rows[0]?.cells[column];
     // A × beside the field closes it, as Esc does (the field's own × clears the filter)
     const { doc } = this.host;
     const head = doc.createElement("div");
@@ -541,28 +548,22 @@ export class Filters implements Feature {
       }
     });
     head.append(box, close);
-    this.showBubble(key, column, input, anchor, head);
-    this.bubble?.element.classList.toggle("swt-filter-typed", input.value !== "");
+    // Under the header (as rendered now: a write renders the table anew)
+    this.showBubble(key, column, input, { kind: "cell", key, row: 0, column }, head);
+    this.panel.element.classList.toggle("swt-filter-typed", input.value !== "");
     input.focus({ preventScroll: true });
     input.setSelectionRange(input.value.length, input.value.length);
   }
 
-  private showBubble(key: string, column: number, input: HTMLInputElement, anchor: () => HTMLElement | undefined, head?: HTMLElement): void {
+  private showBubble(key: string, column: number, input: HTMLInputElement, anchor: PanelAnchor, head?: HTMLElement): void {
     this.hideBubble();
-    const { doc } = this.host;
-    const element = doc.createElement("div");
-    element.className = `${UI_CLASS} swt-floating swt-filter-bubble`;
-    if (head) element.classList.add("swt-filter-popover");
-    // Clicks in it keep the focus in the field
-    element.addEventListener("mousedown", (e) => {
-      if (e.target !== input) e.preventDefault();
-    });
-    const body = doc.createElement("div");
+    const element = this.panel.element;
+    element.classList.toggle("swt-filter-popover", !!head);
+    element.classList.remove("swt-filter-typed");
+    const body = this.host.doc.createElement("div");
     body.className = "swt-filter-bubble-body";
-    if (head) element.append(head);
-    element.append(body);
-    doc.body.append(element);
-    this.bubble = { element, body, input, key, column, anchor, popover: !!head };
+    element.replaceChildren(...(head ? [head] : []), body);
+    this.bubble = { body, input, key, column, anchor, popover: !!head };
     this.renderBubble();
   }
 
@@ -572,20 +573,21 @@ export class Filters implements Feature {
    */
   private left(key: string, input: HTMLInputElement, e: FocusEvent): void {
     const bubble = this.bubble;
-    if (bubble?.input === input && e.relatedTarget instanceof Node && bubble.element.contains(e.relatedTarget)) return;
+    if (bubble?.input === input && e.relatedTarget instanceof Node && this.panel.element.contains(e.relatedTarget)) return;
     if (bubble?.input === input) this.hideBubble();
     this.scheduleStore(key);
   }
 
   private hideBubble(): void {
-    this.bubble?.element.remove();
     this.bubble = undefined;
+    this.panel.hide();
+    this.panel.element.replaceChildren();
   }
 
   /** The bubble's content for the field's text now, under what it belongs to */
   private renderBubble(): void {
     const bubble = this.bubble;
-    const info = bubble && this.table(bubble.key)?.[1];
+    const info = bubble && this.host.tableFor(bubble.key);
     if (!bubble || !info) return;
     const { key, column, input } = bubble;
     const { doc } = this.host;
@@ -623,22 +625,8 @@ export class Filters implements Feature {
     }
     bubble.body.replaceChildren(...parts);
     // Under a field of the filter row, only when it has something to say
-    bubble.element.classList.toggle("swt-visible", parts.length > 0 || bubble.popover);
-    this.placeBubble();
-  }
-
-  /** Under what the bubble belongs to (the field, the header), inside the window */
-  private placeBubble(): void {
-    const bubble = this.bubble;
-    const anchor = bubble?.anchor();
-    if (!bubble || !anchor) return;
-    const win = this.host.doc.defaultView!;
-    const r = anchor.getBoundingClientRect();
-    const m = bubble.element.getBoundingClientRect();
-    const left = Math.max(4, Math.min(r.left - (bubble.popover ? 0 : 6), win.innerWidth - m.width - 4));
-    const top = r.bottom + 6 + m.height > win.innerHeight - 4 ? Math.max(4, r.top - m.height - 6) : r.bottom + 6;
-    bubble.element.style.left = `${Math.round(left)}px`;
-    bubble.element.style.top = `${Math.round(top)}px`;
+    if (parts.length > 0 || bubble.popover) this.panel.show(bubble.anchor, bubble.popover ? POPOVER_PLACE : BUBBLE_PLACE);
+    else this.panel.hide();
   }
 
   /** The column's values to tick: ticked are those the field's =a|b names */
@@ -681,18 +669,16 @@ export class Filters implements Feature {
   /** A column's different values in its body rows (not the pinned ones), in the order they first come */
   private columnValues(info: WidgetInfo, column: number): ColumnValue[] {
     const { top, bottom } = info.pins;
-    const rows = this.host.bodyRows(info);
+    const count = info.rows - 1;
     const found = new Map<string, { value: string; label: string; count: number }>();
-    rows.forEach((tr, i) => {
-      if (i < top || i >= rows.length - bottom) return;
-      const cell = tr.cells[column];
-      if (!cell) return;
-      const value = this.host.cellValue(cell).trim();
+    for (let row = 1 + top; row <= count - bottom; row++) {
+      const ref = { row, column };
+      const value = (this.host.shownValue(info, ref) ?? "").trim();
       const normalized = normalizeForFilter(value);
       const known = found.get(normalized);
       if (known) known.count++;
-      else found.set(normalized, { value, label: cellText(cell).trim() || value, count: 1 });
-    });
+      else found.set(normalized, { value, label: (this.host.shownText(info, ref) ?? "").trim() || value, count: 1 });
+    }
     return Array.from(found.values());
   }
 }
