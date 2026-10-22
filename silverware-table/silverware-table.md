@@ -1748,6 +1748,12 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 .sb-table-widget.swt-over-window > table {
   margin-top: 42px;
 }
+/* Full screen keeps the same room right of the table: else the table ends at the
+   window's edge, the + of a new column is pushed back over the toolbar and its
+   line drawn on the edge (the sheet view shows its empty columns there) */
+.sb-table-widget.swt-over-window.swt-fullscreen {
+  border-right: 28px solid var(--root-background-color, #fff);
+}
 /* The columns' letters above the header and the rows' numbers left of the
    rows, in that room (as formulas count them). Shown over the window only. The
    table lets them out of its box (it is clipped in the page), each header cell
@@ -1788,6 +1794,10 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 .swt-floating.swt-over-window-rows:not(.swt-visible) {
   display: none !important;
 }
+.swt-floating.swt-over-window-rows.swt-at-right {
+  left: auto;
+  right: 0;
+}
 .swt-over-window-rows > span {
   position: absolute;
   left: 0;
@@ -1799,6 +1809,11 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   font-variant-numeric: tabular-nums;
   color: var(--root-color, #333);
   opacity: 0.5;
+}
+.swt-over-window-rows.swt-at-right > span {
+  left: 2px;
+  right: 0;
+  justify-content: flex-start;
 }
 .swt-over-window-rows > span[hidden] {
   display: none;

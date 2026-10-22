@@ -10,7 +10,8 @@ export class FullScreen implements AdapterFeature {
   private readonly over: OverWindow;
 
   constructor(private readonly host: TableHost) {
-    this.over = new OverWindow(host, { className: "swt-fullscreen", changed: () => host.toolbarChanged() });
+    // The room right of the table too: the + of a new column and its line in view there, clear of the toolbar
+    this.over = new OverWindow(host, { className: "swt-fullscreen", changed: () => host.toolbarChanged(), numbersRight: true });
   }
 
   stop(): void {

@@ -17,7 +17,9 @@
 // header's cells (CSS puts them above), so they move with it; the numbers are
 // a layer over the room at the left, placed by the rows shown after each
 // scroll (in the frame the core updates what follows the layout), and go on
-// past the table where its module shows rows there (`past`).
+// past the table where its module shows rows there (`past`). A module may keep
+// the same room right of the table (`numbersRight`: full screen), numbered too,
+// so the + of a new column and its line are in view, clear of the toolbar.
 import { OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
 import { columnLetters } from "../formulas/index.ts";
 import type { TableHost, WidgetInfo } from "./feature.ts";
@@ -40,6 +42,8 @@ export type OverWindowOptions = {
   readonly changed: () => void;
   // Rows the module shows past the table, numbered on
   readonly past?: (widget: HTMLElement, info: WidgetInfo) => RowsPast | undefined;
+  // The rows' numbers in a room right of the table too (the CSS keeps it: its module's class)
+  readonly numbersRight?: boolean;
 };
 
 // The table over the window in each document, whichever module shows it
@@ -55,8 +59,8 @@ export class OverWindow {
   private place = -1;
   // Checks whether it is back, once missing
   private goneTimer: ReturnType<typeof setTimeout> | undefined;
-  // The rows' numbers, over the room left of the rows
-  private readonly numbers: HTMLElement;
+  // The rows' numbers, over the room left of the rows (and right of them, numbersRight)
+  private readonly numbers: readonly HTMLElement[];
   private readonly queueNumbers: () => void;
 
   constructor(
@@ -64,8 +68,8 @@ export class OverWindow {
     private readonly options: OverWindowOptions,
   ) {
     this.queueNumbers = oncePerFrame(host.doc, () => this.placeNumbers());
-    this.numbers = host.floating("div", "swt-over-window-rows");
-    this.numbers.setAttribute("aria-hidden", "true");
+    this.numbers = [host.floating("div", "swt-over-window-rows"), ...(options.numbersRight ? [host.floating("div", "swt-over-window-rows swt-at-right")] : [])];
+    for (const layer of this.numbers) layer.setAttribute("aria-hidden", "true");
   }
 
   /** The key of the table shown over the window, if any */
@@ -80,7 +84,7 @@ export class OverWindow {
 
   stop(): void {
     this.end();
-    this.numbers.remove();
+    for (const layer of this.numbers) layer.remove();
   }
 
   begin(widget: HTMLElement, info: WidgetInfo): void {
@@ -103,7 +107,7 @@ export class OverWindow {
     this.shownWidget = undefined;
     if (current.get(this.host.doc) === this) current.delete(this.host.doc);
     if (widget) this.unmark(widget);
-    this.numbers.classList.remove("swt-visible");
+    for (const layer of this.numbers) layer.classList.remove("swt-visible");
     this.options.changed();
     const info = widget && this.host.infoOf(widget);
     if (info) this.host.tableResized(info);
@@ -127,7 +131,7 @@ export class OverWindow {
     clearTimeout(this.goneTimer);
     this.goneTimer = undefined;
     widget.classList.add(OVER_WINDOW_CLASS, this.options.className);
-    this.numbers.classList.add("swt-visible");
+    for (const layer of this.numbers) layer.classList.add("swt-visible");
     this.queueNumbers();
   }
 
@@ -209,25 +213,11 @@ export class OverWindow {
     // Below the header, or below the room above it where the box scrolled past the table (the rows past it shown)
     const top = Math.max(info.table.rows[0]!.getBoundingClientRect().bottom, box.top + STICKY_GAP);
     const bottom = box.bottom;
-    const layer = this.numbers;
-    layer.style.top = `${top}px`;
-    layer.style.height = `${Math.max(0, bottom - top)}px`;
     // The rows as shown (in their order, their tops going down), from the first in view
     const rows = this.host.shownRows(info).filter((tr) => this.host.rowOf(info, tr) > 0 && tr.isConnected);
     const low = firstRowBelow(rows, top);
-    let shown = 0;
-    const label = (text: string, rowTop: number, height: number) => {
-      let span = layer.children[shown] as HTMLElement | undefined;
-      if (!span) {
-        span = this.host.doc.createElement("span");
-        layer.append(span);
-      }
-      span.hidden = false;
-      span.textContent = text;
-      span.style.top = `${rowTop - top}px`;
-      span.style.height = `${height}px`;
-      shown++;
-    };
+    const labels: { readonly text: string; readonly top: number; readonly height: number }[] = [];
+    const label = (text: string, rowTop: number, height: number) => labels.push({ text, top: rowTop, height });
     let full = false;
     for (let i = low; i < rows.length; i++) {
       const rect = rows[i]!.getBoundingClientRect();
@@ -247,6 +237,22 @@ export class OverWindow {
         label(String(info.rows + k), rowTop, past.height);
       }
     }
-    for (let i = shown; i < layer.children.length; i++) (layer.children[i] as HTMLElement).hidden = true;
+    // The same numbers in each room
+    for (const layer of this.numbers) {
+      layer.style.top = `${top}px`;
+      layer.style.height = `${Math.max(0, bottom - top)}px`;
+      labels.forEach((l, i) => {
+        let span = layer.children[i] as HTMLElement | undefined;
+        if (!span) {
+          span = this.host.doc.createElement("span");
+          layer.append(span);
+        }
+        span.hidden = false;
+        span.textContent = l.text;
+        span.style.top = `${l.top - top}px`;
+        span.style.height = `${l.height}px`;
+      });
+      for (let i = labels.length; i < layer.children.length; i++) (layer.children[i] as HTMLElement).hidden = true;
+    }
   }
 }

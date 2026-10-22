@@ -181,6 +181,31 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-sheet-grid")).toHaveCount(0);
   });
 
+  test("full screen keeps room right of the table: the + of a new column there, clear of the toolbar, the rows numbered on both sides", async ({ page }) => {
+    await hoverCell(page, cell(page, 1, 0));
+    await page.locator('.swt-bar button[aria-label="Full screen"]').click();
+    await expect(table(page)).toHaveClass(/swt-fullscreen/);
+    const columns = await table(page).locator("table tr").first().locator("th, td").count();
+    await hoverCell(page, cell(page, 1, columns - 1));
+    const plus = page.locator('.swt-insert.swt-quiet.swt-visible[aria-label="Add a column"]');
+    await expect(plus).toBeVisible();
+    const tableBox = (await table(page).locator("table").boundingBox())!;
+    const plusBox = (await plus.boundingBox())!;
+    const bar = (await page.locator(".swt-bar.swt-visible").boundingBox())!;
+    const width = page.viewportSize()!.width;
+    // On the table's right edge (as in the page), inside the window, beside the toolbar (not under it)
+    expect(Math.abs(plusBox.x + plusBox.width / 2 - (tableBox.x + tableBox.width))).toBeLessThan(2);
+    expect(plusBox.x + plusBox.width).toBeLessThanOrEqual(width);
+    expect(plusBox.x).toBeGreaterThanOrEqual(bar.x + bar.width);
+    // Its line on the table's edge, in view
+    await plus.hover();
+    const line = (await page.locator(".swt-insert-line.swt-visible").boundingBox())!;
+    expect(line.x).toBeLessThan(width - 2);
+    // The rows' numbers left and right of the table
+    await expect(page.locator(".swt-over-window-rows:not(.swt-at-right) > span:not([hidden])").first()).toHaveText("1");
+    await expect(page.locator(".swt-over-window-rows.swt-at-right > span:not([hidden])").first()).toHaveText("1");
+  });
+
   test("stays over the window when a write renders the tables before it anew (a formula there refers to it)", async ({ page }) => {
     await page
       .locator("#source")
