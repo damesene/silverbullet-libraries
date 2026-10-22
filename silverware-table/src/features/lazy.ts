@@ -244,10 +244,10 @@ export class Lazy implements Feature {
       await this.flushToPage(key, held);
       return false;
     }
-    // A cell opened meanwhile: written once it closes (a write now would render the table anew under it)
-    if (this.host.editing) return false;
-    // Where the table is now, else where it was when last rendered (scrolled far out of view)
-    const target = this.host.tableFor(key) ?? { key, hint: held.hint, source: held.source };
+    const target = this.host.tableFor(key);
+    // Not rendered (scrolled far out of view): written once it is (enhanced), or when the page is left;
+    // a cell opened meanwhile: written once it closes (a write now would render the table anew under it)
+    if (!target || this.host.editing) return false;
     return (await this.host.writeTable(target, (table) => table)) === "written";
   }
 

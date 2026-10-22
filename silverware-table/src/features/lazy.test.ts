@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { PAGE, cell, clickOn, controller, editor, flashes, flush, key, setup, text, useTablePage } from "../testing/page.ts";
+import { PAGE, cell, clickOn, controller, cursorMoves, editor, flashes, flush, key, renderPage, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Lazy saving", () => {
   useTablePage();
@@ -38,6 +38,24 @@ describe("Lazy saving", () => {
     await flush();
     expect(cell(1, 1).textContent).toBe("new");
     expect(views).not.toHaveBeenCalled();
+  });
+
+  it("waits with what it holds for a table no longer rendered, and writes it once the table is rendered again", async () => {
+    await setup(PAGE, { "silverware.table.modules.lazy.delay": 20, "silverware.table.editor.enterKey": "save" });
+    button().click();
+    type(1, 1, "4");
+    key(field()!, "Enter");
+    await flush();
+    // Scrolled far out of view: SilverBullet takes the table out of the page
+    editor.replaceChildren();
+    await wait(60);
+    expect(text).toBe(PAGE);
+    expect(flashes).toEqual([]);
+    // Back in view: written
+    renderPage(text, editor, cursorMoves);
+    await controller.scan();
+    await wait(60);
+    expect(text).toContain("| Pear | 4 |");
   });
 
   it("keeps the cells edited until editing stops for the delay, then writes them in one edit", async () => {
