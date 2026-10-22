@@ -1,5 +1,6 @@
 // Markdown table model: parse a GFM table from page text and write it back.
 // Rows that were not changed are written back byte for byte.
+import { metaTagPattern, TAG_BODY } from "./tags.ts";
 
 export type Align = "" | "left" | "center" | "right";
 
@@ -226,7 +227,7 @@ function parseTableText(text: string): Table {
   };
 }
 
-const META_TAG_RE = /^<meta\b([^>]*?)\/?>$/i;
+const META_TAG_RE = new RegExp(String.raw`^<meta\b(${TAG_BODY}?)\/?>$`, "i");
 // An attribute's name may name a column: sort.qty, filter.qty:2 (meta.ts)
 const META_ATTRIBUTE_RE = /([\w.:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 
@@ -258,9 +259,10 @@ export function unescapeMetaValue(value: string): string {
 }
 
 // For a value in apostrophes (metaAttribute): a formula's quotes ("done") stay
-// as they are, an apostrophe is &#39;. A backslash is written as &#92;, so the
-// only one left escapes a pipe: "\|" in a value would else be "\\|", a pipe
-// that ends the cell
+// as they are, an apostrophe is &#39;; a ">" is &gt;, as SilverBullet ends a
+// tag at its first ">" (tags.ts). A backslash is written as &#92;, so the only
+// one left escapes a pipe: "\|" in a value would else be "\\|", a pipe that
+// ends the cell
 export function escapeMetaValue(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -310,7 +312,7 @@ function charLength(s: string): number {
 }
 
 // A hidden tag in a cell (tags.ts): SilverBullet's editor does not show it in the markdown either
-const HIDDEN_TAG_RE = /<meta\b[^>]*>/gi;
+const HIDDEN_TAG_RE = metaTagPattern();
 
 /** How wide a cell shows in the markdown: its hidden tags take no room, so a padded table's | line up as seen */
 function shownLength(cell: string): number {

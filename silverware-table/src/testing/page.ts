@@ -7,6 +7,7 @@ import type { Bridge } from "../bridge.ts";
 import { Controller } from "../controller.ts";
 import type { InsertControls, InsertTarget } from "../core/insert.ts";
 import { findTables, parseTable } from "../markdown.ts";
+import { metaTagPattern } from "../tags.ts";
 
 export let text: string;
 export let editor: HTMLElement;
@@ -49,7 +50,7 @@ export function renderPage(page: string, into: HTMLElement, moves: number[]): vo
           td.append(a);
         } else {
           // A formula's <meta> tag is not shown; hashtags are links, as SilverBullet renders them
-          const shown = cell.replace(/<meta\b[^>]*>/gi, "").replace(/\*/g, "").trim();
+          const shown = cell.replace(metaTagPattern(), "").replace(/\*/g, "").trim();
           for (const part of shown.split(/((?:^|(?<=\s))#[^\s#]+)/)) {
             if (!part.startsWith("#")) {
               if (part) td.append(part);

@@ -5,8 +5,20 @@
 // module turned off loses nothing; a module that manages a tag says so
 // (Feature.takesTags), and writes it itself.
 
-// A tag: no ">" inside, as values escape it (&gt;)
-const TAG_RE = /\s*<meta\b[^>]*>/gi;
+/**
+ * What a hidden tag holds between "<meta" and its ">": anything but ">". A tag
+ * ends at its first ">" as SilverBullet reads it, also inside a value in
+ * quotes or apostrophes (verified: `<meta note='a > b'>` shows as text), so
+ * values write ">" as &gt; and Silverware Table finds tags as SilverBullet does
+ */
+export const TAG_BODY = "[^>]*";
+
+/** A hidden tag (<meta …>), as SilverBullet reads it; `flags` "gi" to find every one */
+export function metaTagPattern(flags = "gi"): RegExp {
+  return new RegExp(String.raw`<meta\b${TAG_BODY}>`, flags);
+}
+
+const TAG_RE = new RegExp(String.raw`\s*<meta\b${TAG_BODY}>`, "gi");
 // An attribute with its value, so a "name=" inside a value (a formula's n=1) is no attribute
 const ATTRIBUTE_RE = /([\w.:-]+)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g;
 

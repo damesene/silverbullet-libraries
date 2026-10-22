@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { parseTable, serializeTable } from "../markdown.ts";
+import { metaTagPattern } from "../tags.ts";
 import { allSeries, clearCustomSeries, customSeries, customSeriesAnew, defineCustomSeries, type FillLine, filled, fillLine, seriesFor } from "./index.ts";
 
 /** The values after (and, backward, before) the ones given, as a drag fills them */
@@ -85,7 +86,7 @@ describe("filling a table", () => {
   // A claim as the formulas module makes one: cells written "=…" copied with the rows they moved
   const cells = {
     claim: (cell: string, from: { row: number }, to: { row: number }) => (cell.startsWith("=") ? `=moved ${to.row - from.row}` : undefined),
-    keepTags: (value: string, from: string) => [value, ...(from.match(/<meta[^>]*>/g) ?? [])].join(" ").trim(),
+    keepTags: (value: string, from: string) => [value, ...(from.match(metaTagPattern()) ?? [])].join(" ").trim(),
   };
   const column = (c: number, backward = false): FillLine => ({
     sources: [1, 2].map((row) => ({ row, column: c })),

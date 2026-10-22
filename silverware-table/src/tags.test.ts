@@ -10,6 +10,16 @@ describe("hidden tags in cells", () => {
     expect(withoutTags("plain")).toBe("plain");
   });
 
+  it("ends a tag at its first >, as SilverBullet does, so a value's > is written &gt;", () => {
+    expect(cellTags(`big <meta f='=IF(A1&gt;5, "big", "")'>`)).toEqual([`<meta f='=IF(A1&gt;5, "big", "")'>`]);
+    // A > typed by hand into a value: SilverBullet shows the rest as text, Silverware Table takes it as text too
+    expect(withoutTags(`x <meta note='a > b'>`)).toBe(`x b'>`);
+  });
+
+  it("still finds a tag typed by hand with a lone quote", () => {
+    expect(withoutTags(`x <meta note="oops>`)).toBe("x");
+  });
+
   it("keeps the tags of the cell as it was with a new value, whatever they are for", () => {
     expect(keepTags("40", cell)).toBe(`40 <meta f='=[@qty]*2'> <meta n='pear' cn='first'>`);
     expect(keepTags("", cell)).toBe(`<meta f='=[@qty]*2'> <meta n='pear' cn='first'>`);

@@ -9,6 +9,7 @@
 // the header changes nothing.
 import { unescapeCell } from "./markdown.ts";
 import { nameOf } from "./names.ts";
+import { metaTagPattern } from "./tags.ts";
 
 export type ColumnId = { readonly name: string; readonly nth: number };
 
@@ -22,7 +23,7 @@ const HASHTAG_RE = /(^|\s)#[^\s#]+/g;
 export function columnName(header: string): string {
   return unescapeCell(header)
     // Tags are not part of it either: SilverBullet leaves <meta> out of the key
-    .replace(/<meta\b[^>]*>/gi, "")
+    .replace(metaTagPattern(), "")
     .replace(HASHTAG_RE, "$1")
     .trim()
     .replace(/^[*_`]+|[*_`]+$/g, "")

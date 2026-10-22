@@ -3,6 +3,7 @@
 import type { Bridge } from "../silverware-table/src/bridge.ts";
 import { init, openSettings } from "../silverware-table/src/index.ts";
 import { findTables, parseTable } from "../silverware-table/src/markdown.ts";
+import { metaTagPattern } from "../silverware-table/src/tags.ts";
 import libraryPage from "../silverware-table/silverware-table.md";
 import { benchmarkPage, FORMULAS, type FormulaKind, ProfileLog, renderLog, TYPE_NAMES } from "./benchmark.ts";
 import { measure, profileSilverwareTable, setProfileSink } from "./profile.ts";
@@ -49,7 +50,7 @@ function escapeHtml(text: string): string {
 // <meta> tags (table metadata, formulas) render as HTML, which browsers do not show
 function inline(text: string): string {
   return text
-    .split(/(<meta\b[^>]*>)/i)
+    .split(new RegExp(`(${metaTagPattern("i").source})`, "i"))
     .map((part, i) => (i % 2 === 1 ? part : markup(part)))
     .join("");
 }
