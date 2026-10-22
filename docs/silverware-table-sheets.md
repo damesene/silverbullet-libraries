@@ -245,10 +245,33 @@ number, a text, an index query) and a `<meta>`:
   verified. Not verified either: interactive widgets in `${…}` (buttons), which
   the live context should keep working.
 
-So a sheet drawing its tables (variant B) renders each table with
-`renderToDom`, its links' clicks routed to SilverBullet's navigation; where
-SilverBullet has no such syscall, `markdownToHtml` with `expand`, else an
-own plain rendering (text, links, hashtags, `${…}` as written).
+**Decided (2026-10-22): cells, not tables, and static HTML.**
+
+- The sheet draws the table, its rows and cells itself; a cell of plain text
+  (most: names, numbers, dates) it fills itself, at once. Only a cell with
+  something to render goes to SilverBullet: what counts as plain is told
+  carefully, any character markdown or SilverBullet reads (`[ ] # * _ ~ \` $ <
+  > & \ !` and the like) sends the cell to SilverBullet, so a mistake costs a
+  call, never a cell shown as raw markdown.
+- The cells to render of a table go in one call, each a row of a table of
+  their own: a cell is inline text, rendered alone "# x" would be a heading.
+  After an edit, only the cells changed are rendered again. Until a cell's
+  rendering is back it shows its text.
+- `markdownToHtml` with `expand`, not `renderToDom`: static HTML is enough
+  for nearly every cell (a `${…}`'s result is recalculated when the sheet
+  renders it again, and after the page is indexed, as the expressions module
+  does for SilverBullet's tables), costs half, can be cached by a cell's text
+  where it has no `${…}`, and leaves nothing live behind: a DOM of
+  `renderToDom` has no way to be let go (the widget's `destroyRenderTarget` is
+  internal), so live widgets of cells rendered again might go on updating
+  (not verified). `renderToDom` only for a cell with an interactive widget,
+  should those matter.
+- Clicks on `a[data-ref]` (page links, hashtags) go to SilverBullet's
+  navigation (`editor.navigate`, through the bridge), not to the browser.
+- Without the syscalls (a SilverBullet before 2026-10-10): the sheet's own
+  plain rendering (text, links, hashtags, `${…}` as written).
+- Open, to probe before building: tasks (`[ ]`) in cells and interactive
+  widgets in `${…}`, which SilverBullet's widget handles with its own handlers.
 
 Open before step 4: how today's modules (selection, clipboard, AutoFill,
 widths, pins) work on the sheet's drawing. (A) The sheet makes its own: the
