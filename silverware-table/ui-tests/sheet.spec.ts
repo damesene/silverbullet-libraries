@@ -120,6 +120,8 @@ test.describe("Sheet view", () => {
     await openSheet(page);
     const point = await emptyCell(page, { right: 0, row: 1 });
     await page.mouse.click(point.x, point.y);
+    // The system's clipboard is shared by the tests: what another test copied would be pasted by Ctrl+V itself
+    await page.evaluate(() => navigator.clipboard.writeText(""));
     await page.keyboard.press("Control+v");
     const field = page.locator(".swt-sheet-cell .swt-cell-editor");
     await expect(field).toBeFocused();
