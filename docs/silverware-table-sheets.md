@@ -210,10 +210,45 @@ its tables when it opens; new tables are written after its last one already,
 *Add to sheet…* of a table far from the others would offer to move its block
 there, a table not drawn would show as a place with why. The largeTables
 module keeps a tall table to a box of the window's height in the page. A
-sheet drawing its tables itself (variant B) has no such limit, but loses what
-SilverBullet renders in cells (`${…}`, links, hashtags, formatting, tasks).
-Leaning to A since (it keeps them); tables of other pages are reached by
-formulas (`[[Page]]t!B2`), not placed on the sheet.
+sheet drawing its tables itself (variant B) has no such limit. It was thought
+to lose what SilverBullet renders in cells (`${…}`, links, hashtags,
+formatting, tasks), and A was leaned to for that; probed on 2026-10-22, it
+need not (*Cells of a table the sheet draws*, below). Tables of other pages
+are reached by formulas (`[[Page]]t!B2`), not placed on the sheet.
+
+### Cells of a table the sheet draws (probed 2026-10-22)
+
+SilverBullet's table widget renders with `renderMarkdownInto` and the live
+context (`client/codemirror/syntax/table.ts`), not a syscall. Two syscalls
+render markdown the same way; probed in the local build (2.12.1, main of
+2026-10-16), a table with a page link, bold, a link out, hashtags, `${…}` (a
+number, a text, an index query) and a `<meta>`:
+
+- `markdown.renderToDom(markdown)`: a live DOM node (`span.wrapper` holding a
+  `<table>`), the whole table at once; every cell the same as the widget's,
+  `${…}` evaluated live (`span.sb-slot`), `<meta>` kept (hidden); only the
+  widget's `data-pos` missing, which a sheet drawing from the markdown does not
+  need. 100 rows with a link, a tag and `${…}` each: 14 ms. "Space Lua only":
+  handed to the JS through the library page's Lua, as the bridge's other calls.
+- `markdown.markdownToHtml(markdown, { expand = true })`: HTML text, the same
+  cells, `${…}` evaluated, its results static (event handlers dropped), links'
+  `href` with a leading `/`. 100 rows: 6 ms. Without `expand`, `${…}` stays as
+  its source.
+- **A click on a link or a hashtag in that DOM loads the window anew** (the
+  page's state gone, verified): the widget's handlers are attached by
+  `attachWidgetEventHandlers`, internal, not by the syscall. A sheet drawing
+  its tables takes such clicks itself: `a[data-ref]` to SilverBullet's
+  navigation (`editor.navigate(ref)`, through the bridge); links out open a
+  tab as they are.
+- Both came with SilverBullet's commit `1dd7556f` (2026-10-10, Lua
+  expressions and widgets evaluated anew); which release has them is not
+  verified. Not verified either: interactive widgets in `${…}` (buttons), which
+  the live context should keep working.
+
+So a sheet drawing its tables (variant B) renders each table with
+`renderToDom`, its links' clicks routed to SilverBullet's navigation; where
+SilverBullet has no such syscall, `markdownToHtml` with `expand`, else an
+own plain rendering (text, links, hashtags, `${…}` as written).
 
 Open before step 4: how today's modules (selection, clipboard, AutoFill,
 widths, pins) work on the sheet's drawing. (A) The sheet makes its own: the
