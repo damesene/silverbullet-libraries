@@ -1,41 +1,47 @@
-// The sheet module (the sheet's first step: docs/silverware-table-sheets.md):
-// a toolbar icon shows the table as a spreadsheet's sheet over the whole
-// window (core/overwindow.ts, as full screen does), with empty cells past its
-// last row and column, as many as the window shows and more as it scrolls on,
-// the columns' letters (all of them in the room above, which the header's own
-// would scroll away from) and the rows' numbers going on over them. A value typed
-// into one of them grows the table to hold it, in one edit
-// (TableHost.editBeyond: rows, and columns named, added up to it); one left
-// empty adds nothing. The same icon or Esc closes it.
+// The sheet module (docs/silverware-table-sheets.md; the plan:
+// docs/silverware-table-sheet-plan.md): a toolbar icon shows the table's sheet
+// as a spreadsheet's sheet over the whole window. A table on a sheet (its
+// metadata row: `sheet`, `at`, sheet/page.ts) shows with the sheet's other
+// tables, each at its place on one grid; a table on no sheet shows alone, at
+// A1. Around them empty cells in every direction, as many as the window shows
+// and more as it scrolls on, the columns' letters above, the rows' numbers
+// beside. A value typed into an empty cell right of a table (in its rows) or
+// below it (in its columns), up to the next table, grows that table to hold it
+// in one edit (TableHost.editBeyond); a growth that would reach into another
+// table is refused (moving tables is to come); elsewhere nothing is written yet.
+// The same icon or Esc closes it.
 //
-// The empty cells are not elements: two areas of the table's box (right of
-// the table, and below it) draw their lines, right of the table along its rows
-// in view, below it along its columns. A press there finds the cell under it,
-// and a td of the module's own is laid over that cell for the cell editor.
-//
-// The table on the sheet is drawn by the module itself from the markdown
-// (drawn.ts, its cells rendered as SilverBullet renders them: cells.ts), not
-// SilverBullet's table taken over the window: it stands for the page's table
-// of its key while it is shown, so the core and the modules work on it as on
-// SilverBullet's. A write renders SilverBullet's table anew: the module draws
-// its own anew from the markdown written, and swaps it in once drawn. Links in
-// it go to SilverBullet's navigation (the browser would load the window anew).
+// The tables are drawn by the module itself from the markdown (drawn.ts, their
+// cells rendered as SilverBullet renders them: cells.ts), each standing for
+// the page's table of its key while it is shown, so the core and the modules
+// work on them as on SilverBullet's (and on a table far from the others in
+// the page, which SilverBullet keeps out of the DOM). One box over the window
+// (the board) holds them: rows of one height, the sheet's columns' widths
+// (`sheet.width.<letters>` in its first table, else the widest of the tables'
+// columns there). After every write the page's text is read again and the
+// tables whose markdown changed are drawn anew; links in them go to
+// SilverBullet's navigation.
 import type { AdapterFeature, CellRef, RenderedEditor, TableHost, ToolbarButton, WidgetInfo } from "../../feature.ts";
 import { oncePerFrame } from "../../frame.ts";
-import { STICKY_GAP } from "../../layout.ts";
-import { firstRowBelow } from "../../geometry.ts";
-import { growTo } from "../../structure.ts";
-import { OVER_WINDOW_CLASS, OverWindow, type RowsPast } from "../../overwindow.ts";
+import { claimWindow, releaseWindow } from "../../overwindow.ts";
 import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
-import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
-import { drawTable } from "../drawn.ts";
-import { parseTable } from "../../../markdown.ts";
 import { columnLetters } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
+import { findTables, parseTable, type TableRange } from "../../../markdown.ts";
+import { metaName } from "../../../meta.ts";
+import { SHEET_ATTRIBUTE, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
+import { drawTable } from "../drawn.ts";
 
-// An empty column's width, an empty row's height when the table has no body row to take it from
+// An empty column's width, a row's height when no table gives one
 const COLUMN_WIDTH = 100;
-const ROW_HEIGHT = 32;
+const ROW_HEIGHT = 36;
+// The room for the rows' numbers (left) and the columns' letters (above): as the full screen's
+const NUMBERS_ROOM = 28;
+const LETTERS_ROOM = 42;
+// Empty columns and rows beyond the view's edge: the box scrolls on into them, and more come
+const COLUMNS_BEYOND = 4;
+const ROWS_BEYOND = 10;
 // Arrows: the rows and columns they go by
 const ARROWS: Readonly<Record<string, readonly [number, number]>> = {
   ArrowUp: [-1, 0],
@@ -43,155 +49,290 @@ const ARROWS: Readonly<Record<string, readonly [number, number]>> = {
   ArrowLeft: [0, -1],
   ArrowRight: [0, 1],
 };
-// Empty columns and rows beyond the view's edge: the box scrolls on into them, and more come
-const COLUMNS_BEYOND = 4;
-const ROWS_BEYOND = 10;
 
-/** Where the table and the empty cells are, in the box's content (its scrolled area) */
-type Layout = {
-  readonly left: number;
-  readonly top: number;
-  readonly right: number;
-  readonly bottom: number;
-  // The header's bottom: the empty cells right of it are its row's
-  readonly headBottom: number;
-  readonly rowHeight: number;
-  readonly columns: number;
-  readonly rows: number;
+/** A table on the board: where it is on the sheet, which table of the page, its drawing */
+type Placed = {
+  readonly key: string;
+  readonly range: TableRange;
+  readonly at: SheetCell;
+  readonly widget: HTMLElement;
+  // Its columns' widths as drawn, before the sheet's were applied; its body rows' height
+  natural: readonly number[];
+  rowHeight: number;
 };
 
-// The class the sheet's table shows over the window with
-const SHEET_CLASS = "swt-sheet";
+/** The board shown: which sheet (none: one table alone), its tables, its box */
+type Board = {
+  readonly sheet: string | undefined;
+  readonly box: HTMLElement;
+  readonly content: HTMLElement;
+  readonly tables: Map<string, Placed>;
+  // The sheet's own widths (its first table's sheet.width.*), by column
+  widths: ReadonlyMap<number, number>;
+};
 
 export class Sheet implements AdapterFeature {
-  private readonly over: OverWindow;
-  // Renders the cells of the table it draws
   private readonly renderer: CellRenderer;
-  // The table it drew, from which markdown at which place; `drawing` counts the drawings asked for (only the last is shown)
-  private drawn: { readonly widget: HTMLElement; readonly source: string; readonly hint: number } | undefined;
-  private drawing = 0;
-  // SilverBullet's table of the sheet's key as last enhanced: what is drawn anew from
-  private latest: WidgetInfo | undefined;
-  // A drawing put off while a cell of the table drawn is edited (swapping it would take the editor's cell away)
-  private putOff = false;
-  // The empty cells, in the table's box: right of the table and below it
-  private readonly grid: HTMLElement;
-  private readonly right: HTMLElement;
-  private readonly below: HTMLElement;
-  // The empty columns' letters, over the room above the header
+  private board: Board | undefined;
+  // The columns' letters (above) and the rows' numbers (beside), over the box's rooms
   private readonly letters: HTMLElement;
+  private readonly numbers: HTMLElement;
+  private readonly columnLines: HTMLElement;
   private readonly queuePlace: () => void;
-  private layout: Layout | undefined;
-  // The module's td over the empty cell selected or edited
-  private cell: { readonly element: HTMLTableCellElement; readonly at: CellRef } | undefined;
+  private readonly queueRefresh: () => void;
+  // The grid as last placed: columns' left edges (from the content's left), the rows' height
+  private grid: { lefts: number[]; rowHeight: number } | undefined;
+  // The module's td over the empty cell selected or edited (a sheet's cell)
+  private cell: { readonly element: HTMLTableCellElement; readonly at: SheetCell } | undefined;
   // The empty cell selected (select mode): a press on it, typing, Enter or F2 edits it
-  private chosen: CellRef | undefined;
-  // A press on an empty cell while a cell was edited: acted on once that edit is saved and the cells placed anew
+  private chosen: SheetCell | undefined;
+  // A press on an empty cell while a cell was edited: acted on once that edit is saved
   private pendingPress: { x: number; y: number } | undefined;
-  // Where the keyboard goes on from the empty cell edited (Enter, Tab, Esc), once its editor is closed: from `at`
-  // (`grown`: the cell in the table its write grew, so once that is rendered anew; `ready` then)
-  private after: { at: CellRef; key: "Enter" | "Tab" | "Escape"; back: boolean; grown: boolean; ready: boolean } | undefined;
+  // Where the keyboard goes on from the empty cell edited (Enter, Tab, Esc), once its editor is closed;
+  // `grown`: the table it grew, so once that is drawn anew (`ready` then)
+  private after: { at: SheetCell; key: "Enter" | "Tab" | "Escape"; back: boolean; grown: string | undefined; ready: boolean } | undefined;
+  // Drawings asked for, by table: only the last of each is put in
+  private readonly drawing = new Map<string, number>();
+  // A drawing put off while a cell of a table drawn is edited (swapping it would take the editor's cell away)
+  private putOff = false;
+  // The page watched while the board shows: a change no table's rendering follows (a table removed, undone) is read
+  private watching: MutationObserver | undefined;
 
   constructor(private readonly host: TableHost) {
-    this.over = new OverWindow(host, {
-      className: SHEET_CLASS,
-      changed: () => {
-        host.toolbarChanged();
-        if (this.over.key === undefined) this.hide();
-        else this.queuePlace();
-      },
-      past: (widget) => this.rowsPast(widget),
-      // The table it drew, not SilverBullet's of the same key under it
-      shows: (widget) => widget.classList.contains(DRAWN_CLASS),
-    });
-    const { bridge } = host;
-    this.renderer = new StaticCellRenderer(host.doc, (markdown) =>
+    const { doc, bridge } = host;
+    this.renderer = new StaticCellRenderer(doc, (markdown) =>
       bridge.markdownToHtml ? bridge.markdownToHtml(markdown) : Promise.reject(new Error("SilverBullet's markdown.markdownToHtml is not handed over")),
     );
-    this.queuePlace = oncePerFrame(host.doc, () => this.place());
-    const doc = host.doc;
-    this.grid = doc.createElement("div");
-    this.grid.className = `${UI_CLASS} swt-sheet-grid`;
-    this.right = doc.createElement("div");
-    this.right.className = "swt-sheet-right";
-    this.below = doc.createElement("div");
-    this.below.className = "swt-sheet-below";
-    this.grid.append(this.right, this.below);
+    this.queuePlace = oncePerFrame(doc, () => this.place());
+    this.queueRefresh = oncePerFrame(doc, () => void this.refresh());
     this.letters = host.floating("div", "swt-sheet-letters");
     this.letters.setAttribute("aria-hidden", "true");
+    this.numbers = host.floating("div", "swt-over-window-rows swt-sheet-numbers");
+    this.numbers.setAttribute("aria-hidden", "true");
+    this.columnLines = doc.createElement("div");
+    this.columnLines.className = `${UI_CLASS} swt-sheet-column-lines`;
   }
 
   stop(): void {
-    this.over.stop();
-    this.hide();
+    this.end();
     this.letters.remove();
+    this.numbers.remove();
   }
 
+  // ---- the toolbar, opening and ending ------------------------------------------
+
   toolbarButtons(info: WidgetInfo): ToolbarButton[] {
-    const on = this.over.key === info.key;
+    const on = !!this.board?.tables.has(info.key);
+    const sheet = parseTable(info.source).meta?.[SHEET_ATTRIBUTE]?.trim();
     return [
       {
         label: on ? "Exit sheet view" : "Sheet view",
         title: on
           ? "Show the table in the page again (Esc)"
-          : "Show the table as a spreadsheet over the whole window: type into an empty cell past it to grow it",
+          : sheet
+            ? `Show the sheet ${sheet} with its other tables, as a spreadsheet over the whole window`
+            : "Show the table as a spreadsheet over the whole window: type into an empty cell past it to grow it",
         place: "icon",
         icon: ICONS.sheet,
         pressed: on,
-        run: () => (on ? this.over.end() : void this.open(info)),
+        run: () => (on ? this.end() : void this.open(info)),
       },
     ];
   }
 
-  decorate(_widget: HTMLElement, info: WidgetInfo): void {
-    this.over.decorate(info);
+  /** The board of the table's sheet (or of the table alone), its tables drawn */
+  private async open(info: WidgetInfo): Promise<void> {
+    this.end();
+    const doc = this.host.doc;
+    const box = doc.createElement("div");
+    box.className = "swt-sheet-board";
+    const content = doc.createElement("div");
+    content.className = "swt-sheet-content";
+    content.append(this.columnLines);
+    box.append(content);
+    const sheet = parseTable(info.source).meta?.[SHEET_ATTRIBUTE]?.trim() || undefined;
+    const board: Board = { sheet, box, content, tables: new Map(), widths: new Map() };
+    this.board = board;
+    claimWindow(doc, this);
+    box.addEventListener("scroll", () => this.queuePlace());
+    doc.body.append(box);
+    this.watching = new MutationObserver((records) => {
+      if (records.some((r) => !box.contains(r.target) && !this.host.isFloating(r.target))) this.queueRefresh();
+    });
+    this.watching.observe(doc.body, { childList: true, subtree: true, characterData: true });
+    this.letters.classList.add("swt-visible");
+    this.numbers.classList.add("swt-visible");
+    await this.refresh(info.key);
+    this.host.toolbarChanged();
   }
 
-  tableAdded(widget: HTMLElement, table: HTMLTableElement): void {
-    this.over.tableAdded(widget, table);
-  }
-
-  enhanced(info: WidgetInfo): void {
-    const widget = this.host.widgetOf(info);
-    this.over.enhanced(widget, info);
-    // SilverBullet's table of the sheet rendered anew with other markdown, or moved in the page: drawn anew from it
-    if (!widget.classList.contains(DRAWN_CLASS)) {
-      if (info.key !== this.over.key) return;
-      this.latest = info;
-      if (this.drawn && (info.source !== this.drawn.source || info.hint !== this.drawn.hint)) void this.draw(info);
-      return;
-    }
-    if (widget !== this.over.widget) return;
-    if (this.after?.grown) this.after.ready = true;
-    this.queuePlace();
-  }
-
-  viewApplied(info: WidgetInfo): void {
-    const widget = this.host.widgetOf(info);
-    this.over.viewApplied(widget);
-    if (widget === this.over.widget) this.queuePlace();
-  }
-
-  rowsAttached(info: WidgetInfo): void {
-    this.over.rowsAttached(info);
+  /** Closes the board: its tables go, the page's show as they were */
+  end(): void {
+    const board = this.board;
+    if (!board) return;
+    this.board = undefined;
+    releaseWindow(this.host.doc, this);
+    this.watching?.disconnect();
+    this.watching = undefined;
+    this.drawing.clear();
+    this.putOff = false;
+    this.chosen = undefined;
+    this.pendingPress = undefined;
+    this.after = undefined;
+    if (this.cell && this.host.editing?.cell === this.cell.element) this.host.cancelEditing();
+    this.dropCell();
+    board.box.remove();
+    this.letters.classList.remove("swt-visible");
+    this.numbers.classList.remove("swt-visible");
+    this.grid = undefined;
+    this.host.toolbarChanged();
   }
 
   pageLoaded(): void {
-    this.over.pageLoaded();
+    this.end();
   }
 
   /**
+   * The board's tables from the page's text as it is now: those of its sheet
+   * (or the table alone, `alone`: its key), each drawn anew where its markdown
+   * or its place changed, those no longer on it taken away. None left: the
+   * board ends.
+   */
+  private async refresh(alone?: string): Promise<void> {
+    const board = this.board;
+    if (!board) return;
+    const text = await this.host.bridge.getText();
+    if (this.board !== board) return;
+    const page = this.host.currentPage;
+    const wanted = new Map<string, { range: TableRange; at: SheetCell }>();
+    if (board.sheet) {
+      const mine = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables ?? [];
+      for (const t of mine) wanted.set(`${page}#${t.range.ordinal}`, { range: t.range, at: t.at });
+      board.widths = sheetWidths(mine);
+    } else {
+      const key = alone ?? [...board.tables.keys()][0];
+      const range = key === undefined ? undefined : findTables(text)[Number(key.slice(key.lastIndexOf("#") + 1))];
+      if (key !== undefined && range) wanted.set(key, { range, at: { row: 0, column: 0 } });
+    }
+    if (wanted.size === 0) {
+      this.end();
+      return;
+    }
+    for (const [key, placed] of board.tables) {
+      if (wanted.has(key)) continue;
+      placed.widget.remove();
+      board.tables.delete(key);
+    }
+    const draws: Promise<void>[] = [];
+    for (const [key, want] of wanted) {
+      const placed = board.tables.get(key);
+      const same = placed && placed.range.text === want.range.text && placed.range.from === want.range.from;
+      if (same && placed.at.row === want.at.row && placed.at.column === want.at.column) continue;
+      draws.push(this.draw(board, key, want.range, want.at));
+    }
+    await Promise.all(draws);
+    this.queuePlace();
+  }
+
+  /** Draws a table from its markdown and puts it in place of its drawing before; the last asked for wins */
+  private async draw(board: Board, key: string, range: TableRange, at: SheetCell): Promise<void> {
+    const asked = (this.drawing.get(key) ?? 0) + 1;
+    this.drawing.set(key, asked);
+    const widget = await drawTable(this.host.doc, range.text, range.from, this.renderer);
+    if (this.board !== board || this.drawing.get(key) !== asked) return;
+    const before = board.tables.get(key);
+    // A cell of the table drawn being edited: swapped once the editor closes (its cell would go with the table)
+    const editing = this.host.editing;
+    if (before && editing && before.widget.contains(editing.cell)) {
+      this.putOff = true;
+      return;
+    }
+    // Links and hashtags, a plain click: SilverBullet's navigation, not the browser's (it would load the window
+    // anew); with a modifier the browser's (a new tab)
+    widget.addEventListener("click", (e) => {
+      const link = e.target instanceof Element ? e.target.closest<HTMLElement>("a[data-ref]") : null;
+      const navigate = this.host.bridge.navigate;
+      if (!link?.dataset.ref || !navigate || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      void navigate(link.dataset.ref);
+    });
+    widget.classList.add("swt-sheet-table");
+    if (before) before.widget.replaceWith(widget);
+    else board.content.append(widget);
+    board.tables.set(key, { key, range, at, widget, natural: before?.natural ?? [], rowHeight: before?.rowHeight ?? 0 });
+  }
+
+  /** A table of the board as enhanced now, by its key */
+  private infoOfKey(key: string): WidgetInfo | undefined {
+    const widget = this.board?.tables.get(key)?.widget;
+    return widget?.isConnected ? this.host.infoOf(widget) : undefined;
+  }
+
+  // ---- what the core tells ------------------------------------------------------------
+
+  enhanced(info: WidgetInfo): void {
+    const board = this.board;
+    if (!board) return;
+    const widget = this.host.widgetOf(info);
+    if (!widget.classList.contains(DRAWN_CLASS)) {
+      // SilverBullet's table rendered anew (an edit, by another client too): the board follows the page
+      if (board.tables.has(info.key) || (board.sheet && parseTable(info.source).meta?.[SHEET_ATTRIBUTE])) this.queueRefresh();
+      return;
+    }
+    const placed = board.tables.get(info.key);
+    if (!placed || placed.widget !== widget) return;
+    // Its columns and rows as drawn, before the sheet's widths and height are applied
+    // (As wide as its content: SilverBullet's tables are as wide as their box, which would spread the columns)
+    const table = info.table;
+    const { tableLayout, width } = table.style;
+    table.style.tableLayout = "auto";
+    table.style.width = "max-content";
+    placed.natural = Array.from(table.rows[0]?.cells ?? [], (cell) => cell.getBoundingClientRect().width);
+    placed.rowHeight = this.host.bodyRows(info).find((tr) => tr.isConnected)?.getBoundingClientRect().height ?? 0;
+    table.style.tableLayout = tableLayout;
+    table.style.width = width;
+    if (this.after?.grown === info.key) this.after.ready = true;
+    this.queuePlace();
+  }
+
+  /** Every write: what it wrote is read again (a table far in the page has no rendering of SilverBullet's to follow) */
+  async beforeWrite(): Promise<(() => void) | undefined> {
+    return this.board ? () => this.queueRefresh() : undefined;
+  }
+
+  // `${…}` results may change once the page is indexed: the tables with such cells drawn anew
+  pageIndexed(): void {
+    const board = this.board;
+    if (!board) return;
+    for (const placed of [...board.tables.values()]) {
+      if (parseTable(placed.range.text).rows.some((row) => row.cells.some((cell) => this.renderer.refreshesAfterIndex(cell)))) {
+        void this.draw(board, placed.key, placed.range, placed.at).then(() => this.queuePlace());
+      }
+    }
+  }
+
+  // The letters, numbers and empty cells follow the tables
+  layoutChanged(): void {
+    if (this.board) this.queuePlace();
+  }
+
+  viewApplied(info: WidgetInfo): void {
+    if (this.board?.tables.get(info.key)?.widget === this.host.widgetOf(info)) this.queuePlace();
+  }
+
+  // ---- keys and presses -----------------------------------------------------------------
+
+  /**
    * An empty cell selected: typing edits it (the key goes into its field, as on
-   * a table's cell), so do Enter and F2, and Ctrl+V (the paste goes into its
-   * field, which the paste module takes: cells copied from a spreadsheet grow
-   * the table); arrows select the next cell, the table's too; Esc unselects it
-   * (a second one closes the sheet view)
+   * a table's cell), so do Enter and F2, and Ctrl+V; arrows select the next
+   * cell, a table's too; Esc unselects it. Esc with nothing selected or edited
+   * closes the board (the selection module takes it first while cells are selected).
    */
   keyDown(e: KeyboardEvent): boolean {
+    if (!this.board) return false;
+    const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     const at = this.chosen;
-    const widget = this.over.widget;
-    const info = widget && this.host.infoOf(widget);
-    if (at && info && !this.host.editing && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+    if (at && !this.host.editing && !inField) {
       // AltGr arrives as Ctrl+Alt
       const typing = e.key.length === 1 && (!(e.ctrlKey || e.metaKey) || (e.ctrlKey && e.altKey));
       const paste = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v";
@@ -205,7 +346,7 @@ export class Sheet implements AdapterFeature {
       if (step) {
         e.preventDefault();
         e.stopPropagation();
-        this.go(info, this.stepFrom(info, at, step), false);
+        this.go({ row: Math.max(0, at.row + step[0]), column: Math.max(0, at.column + step[1]) }, false);
         return true;
       }
       if (typing || paste || e.key === "Enter" || e.key === "F2") {
@@ -214,43 +355,38 @@ export class Sheet implements AdapterFeature {
         return true;
       }
     }
-    return this.over.keyDown(e);
+    if (e.key === "Escape" && !this.host.editing && !inField) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.end();
+      return true;
+    }
+    return false;
   }
 
   /**
    * Enter, Tab or Esc in the empty cell's editor: the core's editor saves it (or
-   * drops it); where the keyboard goes then is the module's, as in a table:
-   * Enter edits the cell below (the enterKey setting: else selects the cell
-   * saved), Tab the next one, Shift the other way, Esc leaves the cell selected
+   * drops it); where the keyboard goes then is the module's, as in a table
    */
   editorKeyDown(e: KeyboardEvent, editor: RenderedEditor): boolean {
     if (!this.cell || editor.cell !== this.cell.element || e.ctrlKey || e.metaKey || e.altKey) return false;
     if (e.key !== "Enter" && e.key !== "Tab" && e.key !== "Escape") return false;
-    const widget = this.over.widget;
-    const info = widget && this.host.infoOf(widget);
-    if (!info) return false;
-    // Something typed is written, the table grown to hold it: on from its place in the table grown
-    const grown = e.key !== "Escape" && editor.field.value.trim() !== "";
-    const at = { row: editor.row, column: editor.column };
-    this.after = { at: grown ? growTo(info, at).cell : at, key: e.key, back: e.shiftKey, grown, ready: false };
+    // Something typed is written, the table grown to hold it: on once it is drawn anew
+    const grown = e.key !== "Escape" && editor.field.value.trim() !== "" ? this.ownerOf(this.cell.at)?.key : undefined;
+    this.after = { at: this.cell.at, key: e.key, back: e.shiftKey, grown, ready: false };
     return false;
   }
 
-  /** An arrow on a table's cell selected alone at its edge: on into the empty cells past it */
+  /** An arrow on a table's cell selected alone at its edge: on into the sheet past it (an empty cell, or another table) */
   selectionLeaves(info: WidgetInfo, from: CellRef, step: readonly [number, number]): boolean {
-    if (info.key !== this.over.key) return false;
-    const to = this.stepFrom(info, from, step);
-    if (to.row < info.rows && to.column < info.columns) return false;
-    this.select(to);
+    const placed = this.board?.tables.get(info.key);
+    const here = placed && this.sheetCellOf(info, placed, from);
+    if (!here) return false;
+    this.go({ row: Math.max(0, here.row + step[0]), column: Math.max(0, here.column + step[1]) }, false);
     return true;
   }
 
-  // The numbers past the table follow the empty rows: placed after them (place)
-  layoutChanged(): void {
-    if (this.over.layoutChanged(false)) this.place();
-  }
-
-  /** Presses on the empty cells are the module's: other buttons than the left do nothing there (no markdown shown) */
+  /** Presses on the empty cells are the module's: other buttons than the left do nothing there */
   mouseDown(e: MouseEvent): boolean {
     if (e.button === 0 || !this.inGrid(e.target)) return false;
     e.preventDefault();
@@ -261,15 +397,15 @@ export class Sheet implements AdapterFeature {
   /**
    * A press on an empty cell selects it (select mode), or edits it (edit mode,
    * or the cell selected already); with a cell being edited, that one is saved
-   * first, then the press acts on the cells as they are placed after it. A
-   * press elsewhere unselects the empty cell (the selection module ends a
-   * table's selection itself, on any press).
+   * first. A press elsewhere unselects the empty cell.
    */
   beforeMouseDown(e: MouseEvent): void {
     if (!this.inGrid(e.target)) {
       if (!(e.target instanceof Node && this.host.isFloating(e.target))) this.unselect();
       return;
     }
+    // The board is no table the core keeps the press from: the browser would take the focus from the editor opened
+    e.preventDefault();
     if (this.host.editing) {
       this.pendingPress = { x: e.clientX, y: e.clientY };
       void this.host.saveEditing().then(() => this.queuePlace());
@@ -278,26 +414,23 @@ export class Sheet implements AdapterFeature {
     this.press(e.clientX, e.clientY);
   }
 
-  /** The cells selected in a table changed: a table's selection ends the empty cell's */
+  /** A table's selection ends the empty cell's */
   selectionChanged(): void {
-    const widget = this.over.widget;
-    const info = widget && this.host.infoOf(widget);
-    if (this.chosen && info && this.host.selectedCells(info).length > 0) this.unselect();
-  }
-
-  // `${…}` results may change once the page is indexed: a table with such cells drawn anew
-  pageIndexed(): void {
-    const drawn = this.drawn;
-    const latest = this.latest;
-    if (!drawn || !latest) return;
-    if (parseTable(drawn.source).rows.some((row) => row.cells.some((cell) => this.renderer.refreshesAfterIndex(cell)))) void this.draw(latest);
+    if (!this.chosen || !this.board) return;
+    for (const key of this.board.tables.keys()) {
+      const info = this.infoOfKey(key);
+      if (info && this.host.selectedCells(info).length > 0) {
+        this.unselect();
+        return;
+      }
+    }
   }
 
   editorClosed(editor: RenderedEditor): void {
-    // A drawing put off while a cell of the drawn table was edited: done now (a write draws anew anyway)
-    if (this.putOff && this.latest) {
+    // A drawing put off while a cell of its table was edited: done now (a write draws anew anyway)
+    if (this.putOff) {
       this.putOff = false;
-      void this.draw(this.latest);
+      this.queueRefresh();
     }
     if (!this.cell || editor.cell !== this.cell.element) return;
     this.chosen = undefined;
@@ -307,55 +440,121 @@ export class Sheet implements AdapterFeature {
     this.queuePlace();
   }
 
-  /** Where the keyboard goes on after the empty cell's editor (`after`), the cells placed as they are now */
-  private async goOn(info: WidgetInfo): Promise<void> {
-    const after = this.after;
-    if (!after) return;
-    this.after = undefined;
-    const sign = after.back ? -1 : 1;
-    if (after.key === "Escape") {
-      this.go(info, after.at, false);
-    } else if (after.key === "Tab") {
-      this.go(info, this.stepFrom(info, after.at, [0, sign]), true);
-    } else if ((await this.host.setting("enterKey")) === "moveDown") {
-      this.go(info, this.stepFrom(info, after.at, [sign, 0]), true);
-    } else {
-      this.go(info, after.at, false);
-    }
+  // ---- the sheet's cells ------------------------------------------------------------------
+
+  /** Where a table's cell (its row in the markdown) is on the sheet, as its rows are shown */
+  private sheetCellOf(info: WidgetInfo, placed: Placed, ref: CellRef): SheetCell | undefined {
+    const shown = this.shownOrder(info).indexOf(ref.row);
+    return shown < 0 ? undefined : { row: placed.at.row + shown, column: placed.at.column + ref.column };
   }
 
-  /** Selects or edits a cell: the table's, or an empty one */
-  private go(info: WidgetInfo, to: CellRef, edit: boolean): void {
-    if (to.row < info.rows && to.column < info.columns) {
+  /** A table's rows as shown (the header first), by their rows in the markdown */
+  private shownOrder(info: WidgetInfo): number[] {
+    return this.host.shownRows(info).map((tr) => this.host.rowOf(info, tr));
+  }
+
+  /** The table holding a sheet's cell, and that cell in it (its row in the markdown), if one does */
+  private tableAt(at: SheetCell): { info: WidgetInfo; ref: CellRef } | undefined {
+    for (const placed of this.board?.tables.values() ?? []) {
+      const info = this.infoOfKey(placed.key);
+      if (!info) continue;
+      const order = this.shownOrder(info);
+      const row = at.row - placed.at.row;
+      const column = at.column - placed.at.column;
+      if (row >= 0 && row < order.length && column >= 0 && column < info.columns) return { info, ref: { row: order[row]!, column } };
+    }
+    return undefined;
+  }
+
+  /** The rows (as shown) and columns a table takes on the sheet */
+  private extent(placed: Placed): { top: number; left: number; bottom: number; right: number } {
+    const info = this.infoOfKey(placed.key);
+    const model = parseTable(placed.range.text);
+    const rows = info ? this.shownOrder(info).length : model.rows.length;
+    const columns = info?.columns ?? model.align.length;
+    return { top: placed.at.row, left: placed.at.column, bottom: placed.at.row + rows - 1, right: placed.at.column + columns - 1 };
+  }
+
+  /**
+   * The table an empty cell grows, and the cell in it: the nearest table left
+   * of it in its row (the cell in that table's rows), else the nearest above
+   * it in its column (in its columns)
+   */
+  private ownerOf(at: SheetCell): { key: string; info: WidgetInfo; cell: CellRef } | undefined {
+    const board = this.board;
+    if (!board) return undefined;
+    const tables = [...board.tables.values()].map((placed) => ({ placed, box: this.extent(placed) }));
+    const left = tables.filter(({ box }) => at.row >= box.top && at.row <= box.bottom && at.column > box.right).sort((a, b) => b.box.right - a.box.right)[0];
+    if (left) {
+      const info = this.infoOfKey(left.placed.key);
+      const order = info && this.shownOrder(info);
+      if (info && order) return { key: left.placed.key, info, cell: { row: order[at.row - left.box.top]!, column: at.column - left.box.left } };
+    }
+    const above = tables.filter(({ box }) => at.column >= box.left && at.column <= box.right && at.row > box.bottom).sort((a, b) => b.box.bottom - a.box.bottom)[0];
+    if (above) {
+      const info = this.infoOfKey(above.placed.key);
+      if (info) return { key: above.placed.key, info, cell: { row: info.rows + (at.row - above.box.bottom - 1), column: at.column - above.box.left } };
+    }
+    return undefined;
+  }
+
+  /** The table a table grown to hold a cell would reach into, if any */
+  private wouldOverlap(key: string, cell: CellRef): string | undefined {
+    const board = this.board;
+    const placed = board?.tables.get(key);
+    const info = this.infoOfKey(key);
+    if (!board || !placed || !info) return undefined;
+    const box = this.extent(placed);
+    // As many rows and columns as reach the cell are added (TableHost.editBeyond: growTo in structure.ts)
+    const next = {
+      top: box.top,
+      left: box.left,
+      bottom: box.bottom + Math.max(0, cell.row - info.rows + 1),
+      right: box.right + Math.max(0, cell.column - info.columns + 1),
+    };
+    for (const other of board.tables.values()) {
+      if (other.key === key) continue;
+      const o = this.extent(other);
+      if (next.left <= o.right && o.left <= next.right && next.top <= o.bottom && o.top <= next.bottom) {
+        return metaName(parseTable(other.range.text)) ?? `the table at ${columnLetters(o.left)}${o.top + 1}`;
+      }
+    }
+    return undefined;
+  }
+
+  /** Selects or edits a sheet's cell: a table's, or an empty one */
+  private go(to: SheetCell, edit: boolean): void {
+    const hit = this.tableAt(to);
+    if (hit) {
       this.unselect();
-      if (edit) this.host.editCell(info, to);
-      else this.host.selectCells(info, to, to);
+      if (edit) this.host.editCell(hit.info, hit.ref);
+      else this.host.selectCells(hit.info, hit.ref, hit.ref);
     } else if (edit) this.edit(to);
     else this.select(to);
   }
 
-  /**
-   * The cell a step away from `at`: rows as shown (the header first, then the
-   * body rows in their order, then the empty rows), never before the first row
-   * or column
-   */
-  private stepFrom(info: WidgetInfo, at: CellRef, step: readonly [number, number]): CellRef {
-    const order = this.host.shownRows(info).map((tr) => this.host.rowOf(info, tr));
-    const place = at.row >= info.rows ? order.length + at.row - info.rows : order.indexOf(at.row);
-    const next = Math.max(0, (place < 0 ? 0 : place) + step[0]);
-    const row = next < order.length ? order[next]! : info.rows + next - order.length;
-    return { row, column: Math.max(0, at.column + step[1]) };
+  /** Where the keyboard goes on after the empty cell's editor (`after`), the cells placed as they are now */
+  private async goOn(): Promise<void> {
+    const after = this.after;
+    if (!after) return;
+    this.after = undefined;
+    const sign = after.back ? -1 : 1;
+    if (after.key === "Escape") this.go(after.at, false);
+    else if (after.key === "Tab") this.go({ row: after.at.row, column: Math.max(0, after.at.column + sign) }, true);
+    else if ((await this.host.setting("enterKey")) === "moveDown") this.go({ row: Math.max(0, after.at.row + sign), column: after.at.column }, true);
+    else this.go(after.at, false);
   }
 
   private inGrid(target: EventTarget | null): boolean {
-    return target instanceof Element && this.grid.contains(target) && !target.closest(".swt-cell-editor");
+    const content = this.board?.content;
+    if (!(target instanceof Element) || !content?.contains(target) || target.closest(".swt-cell-editor")) return false;
+    // A table's own cells are the table's
+    return !target.closest(".swt-sheet-table");
   }
 
   private press(x: number, y: number): void {
-    const widget = this.over.widget;
-    const info = widget && this.host.infoOf(widget);
-    const at = widget && info && this.cellAt(widget, info, x, y);
-    if (!at) {
+    const at = this.cellAtPoint(x, y);
+    if (!at || this.tableAt(at)) {
       this.unselect();
       return;
     }
@@ -364,7 +563,7 @@ export class Sheet implements AdapterFeature {
     else this.edit(at);
   }
 
-  private select(at: CellRef): void {
+  private select(at: SheetCell): void {
     this.chosen = at;
     this.showCell(at)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }
@@ -375,13 +574,21 @@ export class Sheet implements AdapterFeature {
     if (!this.cell || this.host.editing?.cell !== this.cell.element) this.dropCell();
   }
 
-  /** Opens the cell editor in an empty cell (TableHost.editBeyond), in the module's td laid over it */
-  private edit(at: CellRef): void {
-    const widget = this.over.widget;
-    const info = widget && this.host.infoOf(widget);
+  /** Opens the cell editor in an empty cell (TableHost.editBeyond) for the table it grows, in the module's td over it */
+  private edit(at: SheetCell): void {
+    const owner = this.ownerOf(at);
+    if (!owner) {
+      void this.host.bridge.flash("Silverware Table: a cell right of a table or below it grows that table; a new table elsewhere is to come", "info");
+      return;
+    }
+    const overlap = this.wouldOverlap(owner.key, owner.cell);
+    if (overlap) {
+      void this.host.bridge.flash(`Silverware Table: the table would grow into ${overlap} (moving tables is to come)`, "info");
+      return;
+    }
     const cell = this.showCell(at);
-    if (!widget || !info || !cell) return;
-    this.host.editBeyond(widget, info, at, cell);
+    if (!cell) return;
+    this.host.editBeyond(this.host.widgetOf(owner.info), owner.info, owner.cell, cell);
     // (Read again: the editor opened, or did not)
     if ((this.host.editing as RenderedEditor | undefined)?.cell !== cell) {
       this.chosen = undefined;
@@ -389,12 +596,11 @@ export class Sheet implements AdapterFeature {
     }
   }
 
-  /** The module's td over an empty cell (the one selected or edited), placed where that cell is now */
-  private showCell(at: CellRef): HTMLTableCellElement | undefined {
-    const widget = this.over.widget;
-    const info = widget && this.host.infoOf(widget);
-    const box = widget && info && this.cellBox(widget, info, at);
-    if (!box) {
+  /** The module's td over an empty cell (the one selected or edited), where that cell is now */
+  private showCell(at: SheetCell): HTMLTableCellElement | undefined {
+    const box = this.cellBox(at);
+    const board = this.board;
+    if (!box || !board) {
       this.dropCell();
       return undefined;
     }
@@ -402,7 +608,7 @@ export class Sheet implements AdapterFeature {
     if (!element) {
       element = this.host.doc.createElement("td");
       element.className = "swt-sheet-cell";
-      this.grid.append(element);
+      board.content.append(element);
     }
     this.cell = { element, at };
     Object.assign(element.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
@@ -414,249 +620,169 @@ export class Sheet implements AdapterFeature {
     this.cell = undefined;
   }
 
-  /** Shows the table on the sheet: drawn first, then over the window */
-  private async open(info: WidgetInfo): Promise<void> {
-    this.latest = info;
-    const widget = await this.draw(info);
-    if (widget) this.over.begin(widget, info);
+  // ---- the layout -------------------------------------------------------------------------
+
+  /** A sheet column's width: the sheet's own, else the widest of the tables' columns there, else an empty one's */
+  private columnWidth(column: number): number {
+    const board = this.board!;
+    const own = board.widths.get(column);
+    if (own) return own;
+    let width = 0;
+    for (const placed of board.tables.values()) {
+      const i = column - placed.at.column;
+      if (i >= 0 && i < placed.natural.length) width = Math.max(width, placed.natural[i]!);
+    }
+    return width > 0 ? Math.ceil(width) : COLUMN_WIDTH;
+  }
+
+  /** The left edge of a sheet column (and of the one after the last: its right edge), as the grid was last placed */
+  private leftOf(column: number): number {
+    const lefts = this.grid!.lefts;
+    while (lefts.length <= column) lefts.push(lefts[lefts.length - 1]! + COLUMN_WIDTH);
+    return lefts[column]!;
+  }
+
+  /** Where a sheet's cell is in the box's content, as the grid was last placed */
+  private cellBox(at: SheetCell): { left: number; top: number; width: number; height: number } | undefined {
+    const grid = this.grid;
+    if (!grid) return undefined;
+    const left = this.leftOf(at.column);
+    return { left, top: at.row * grid.rowHeight, width: this.leftOf(at.column + 1) - left, height: grid.rowHeight };
+  }
+
+  /** The sheet's cell at a point of the window */
+  private cellAtPoint(x: number, y: number): SheetCell | undefined {
+    const grid = this.grid;
+    const content = this.board?.content.getBoundingClientRect();
+    if (!grid || !content) return undefined;
+    const dx = x - content.left;
+    const dy = y - content.top;
+    if (dx < 0 || dy < 0) return undefined;
+    let column = 0;
+    while (this.leftOf(column + 1) <= dx) column++;
+    return { row: Math.floor(dy / grid.rowHeight), column };
   }
 
   /**
-   * Draws the table from its markdown and puts it in place of the one drawn
-   * before (or into the page); the last drawing asked for wins. Shown over the
-   * window at once, before the core enhances it, so it does not show in the
-   * page's flow meanwhile.
-   */
-  private async draw(info: WidgetInfo): Promise<HTMLElement | undefined> {
-    const asked = ++this.drawing;
-    const widget = await drawTable(this.host.doc, info.source, info.hint, this.renderer);
-    if (asked !== this.drawing) return undefined;
-    const before = this.drawn?.widget;
-    // A cell of the table drawn being edited: swapped once the editor closes (its cell would go with the table)
-    const editing = this.host.editing;
-    if (before && editing && before.contains(editing.cell)) {
-      this.putOff = true;
-      return undefined;
-    }
-    // Links and hashtags, a plain click: SilverBullet's navigation, not the browser's (it would load the window
-    // anew); with a modifier the browser's (a new tab)
-    widget.addEventListener("click", (e) => {
-      const link = e.target instanceof Element ? e.target.closest<HTMLElement>("a[data-ref]") : null;
-      const navigate = this.host.bridge.navigate;
-      if (!link?.dataset.ref || !navigate || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-      e.preventDefault();
-      void navigate(link.dataset.ref);
-    });
-    if (before) {
-      widget.classList.add(OVER_WINDOW_CLASS, SHEET_CLASS);
-      const { scrollLeft, scrollTop } = before;
-      before.replaceWith(widget);
-      // The empty cells come along, so the box can be scrolled where it was (past the table) before they are placed anew
-      if (this.grid.parentElement === before) widget.append(this.grid);
-      widget.scrollLeft = scrollLeft;
-      widget.scrollTop = scrollTop;
-    } else {
-      this.host.doc.body.append(widget);
-    }
-    this.drawn = { widget, source: info.source, hint: info.hint };
-    return widget;
-  }
-
-  private hide(): void {
-    // The table drawn goes (a drawing on its way is not shown)
-    this.drawing++;
-    this.drawn?.widget.remove();
-    this.drawn = undefined;
-    this.latest = undefined;
-    this.putOff = false;
-    this.chosen = undefined;
-    this.pendingPress = undefined;
-    this.after = undefined;
-    if (this.cell && this.host.editing?.cell === this.cell.element) this.host.cancelEditing();
-    this.dropCell();
-    this.grid.remove();
-    this.letters.classList.remove("swt-visible");
-    this.layout = undefined;
-  }
-
-  /** Where the box's content starts, in the viewport: what the grid's places are measured from */
-  private origin(widget: HTMLElement): { x: number; y: number } {
-    const box = widget.getBoundingClientRect();
-    return { x: box.left + widget.clientLeft - widget.scrollLeft, y: box.top + widget.clientTop - widget.scrollTop };
-  }
-
-  /** The empty rows below the table, numbered on beside them */
-  private rowsPast(widget: HTMLElement): RowsPast | undefined {
-    const layout = this.layout;
-    if (!layout) return undefined;
-    return { top: this.origin(widget).y + layout.bottom, height: layout.rowHeight, count: layout.rows };
-  }
-
-  /**
-   * The empty cells' areas around the table as it is laid out now, enough of
-   * them to fill the view and more; then the letters and the numbers, which
-   * follow them. Everything is measured before anything is changed.
+   * The tables at their places, the sheet's widths and height applied to them,
+   * the empty cells' lines, the letters and numbers; enough of the grid to fill
+   * the view and more. Everything is measured before anything is changed.
    */
   private place(): void {
-    const widget = this.over.widget;
-    // Rendered anew, not enhanced yet: placed once it is (what is selected or comes next kept meanwhile)
-    const info = widget?.isConnected ? this.host.infoOf(widget) : undefined;
-    if (!widget || !info) return;
-    const origin = this.origin(widget);
-    const view = this.host.innerBox(widget);
-    const table = info.table.getBoundingClientRect();
-    const left = table.left - origin.x;
-    const top = table.top - origin.y;
-    const right = table.right - origin.x;
-    const bottom = table.bottom - origin.y;
-    const headBottom = top + (info.table.tHead?.offsetHeight ?? info.table.rows[0]?.offsetHeight ?? 0);
-    // The body rows as shown, those in view measured (from the first in view on)
-    const body = this.host.shownRows(info).filter((tr) => this.host.rowOf(info, tr) > 0 && tr.isConnected);
-    const rowHeight = body[0]?.offsetHeight || ROW_HEIGHT;
-    const rowLines = [headBottom - top];
-    for (let i = firstRowBelow(body, view.top); i < body.length; i++) {
-      const rect = body[i]!.getBoundingClientRect();
-      if (rect.top > view.bottom) break;
-      rowLines.push(rect.bottom - origin.y - top);
-    }
-    const heads = this.headCells(info);
-    const columnLines = heads.map((head) => head.right - origin.x - left);
-    const columns = Math.max(COLUMNS_BEYOND, Math.ceil((widget.scrollLeft + widget.clientWidth - right) / COLUMN_WIDTH) + COLUMNS_BEYOND);
-    const rows = Math.max(ROWS_BEYOND, Math.ceil((widget.scrollTop + widget.clientHeight - bottom) / rowHeight) + ROWS_BEYOND);
-    this.layout = { left, top, right, bottom, headBottom, rowHeight, columns, rows };
+    const board = this.board;
+    if (!board) return;
+    const { box, content } = board;
+    const tables = [...board.tables.values()];
+    const rowHeight = Math.max(ROW_HEIGHT, ...tables.map((p) => Math.ceil(p.rowHeight)));
+    const extents = tables.map((p) => this.extent(p));
+    const lastColumn = Math.max(0, ...extents.map((e) => e.right));
+    const lastRow = Math.max(0, ...extents.map((e) => e.bottom));
+    const viewWidth = box.clientWidth;
+    const viewHeight = box.clientHeight;
+    // Columns' left edges, as far as the tables go and the view (and more) needs
+    const lefts = [0];
+    for (let c = 0; c <= lastColumn || lefts[c]! < box.scrollLeft + viewWidth + COLUMNS_BEYOND * COLUMN_WIDTH; c++) lefts.push(lefts[c]! + this.columnWidth(c));
+    const rows = Math.max(lastRow + 1 + ROWS_BEYOND, Math.ceil((box.scrollTop + viewHeight) / rowHeight) + ROWS_BEYOND);
+    this.grid = { lefts, rowHeight };
 
-    if (this.grid.parentElement !== widget) widget.append(this.grid);
-    const width = columns * COLUMN_WIDTH;
-    Object.assign(this.right.style, { left: `${right}px`, top: `${top}px`, width: `${width}px`, height: `${bottom - top}px` });
-    Object.assign(this.below.style, { left: `${left}px`, top: `${bottom}px`, width: `${right - left + width}px`, height: `${rows * rowHeight}px` });
-    this.grid.style.setProperty("--swt-sheet-column", `${COLUMN_WIDTH}px`);
-    this.grid.style.setProperty("--swt-sheet-row", `${rowHeight}px`);
-    this.grid.style.setProperty("--swt-sheet-table-width", `${right - left}px`);
-    // The lines no gradient can draw: right of the table along its rows in view (their heights differ), below it
-    // along its columns (their widths differ)
-    lines(this.right, "swt-sheet-row-line", rowLines, "top");
-    lines(this.below, "swt-sheet-column-line", columnLines, "left");
-    this.placeLetters(view, info, heads, origin.x + right, columns);
-    this.over.placeNumbers();
-    // The empty cell selected or edited follows the table (grown, rendered anew)
+    content.style.width = `${lefts[lefts.length - 1]}px`;
+    content.style.height = `${rows * rowHeight}px`;
+    box.style.setProperty("--swt-sheet-row", `${rowHeight}px`);
+    // The tables: their columns the sheet's widths, at their places
+    for (const placed of tables) {
+      const table = placed.widget.querySelector("table");
+      if (!table) continue;
+      const count = table.rows[0]?.cells.length ?? 0;
+      let colgroup = table.querySelector<HTMLTableColElement>(":scope > colgroup.swt-sheet-cols");
+      if (!colgroup) {
+        colgroup = this.host.doc.createElement("colgroup");
+        colgroup.className = "swt-sheet-cols";
+        table.prepend(colgroup);
+      }
+      while (colgroup.children.length < count) colgroup.append(this.host.doc.createElement("col"));
+      while (colgroup.children.length > count) colgroup.lastElementChild!.remove();
+      let width = 0;
+      for (let j = 0; j < count; j++) {
+        const w = this.leftOf(placed.at.column + j + 1) - this.leftOf(placed.at.column + j);
+        (colgroup.children[j] as HTMLElement).style.width = `${w}px`;
+        width += w;
+      }
+      table.style.tableLayout = "fixed";
+      table.style.width = `${width}px`;
+      Object.assign(placed.widget.style, { left: `${this.leftOf(placed.at.column)}px`, top: `${placed.at.row * rowHeight}px`, width: `${width}px` });
+    }
+    // The column lines no gradient can draw (the columns' widths differ); the rows' lines are a gradient (CSS)
+    let shown = 0;
+    for (let c = 0; c < lefts.length; c++) {
+      if (lefts[c]! < box.scrollLeft || lefts[c]! > box.scrollLeft + viewWidth) continue;
+      let line = this.columnLines.children[shown] as HTMLElement | undefined;
+      if (!line) {
+        line = this.host.doc.createElement("div");
+        this.columnLines.append(line);
+      }
+      line.style.left = `${lefts[c]! - 1}px`;
+      line.hidden = false;
+      shown++;
+    }
+    for (let i = shown; i < this.columnLines.children.length; i++) (this.columnLines.children[i] as HTMLElement).hidden = true;
+    this.placeLetters(box, content, lefts);
+    this.placeNumbers(box, content, rowHeight);
+    // The empty cell selected or edited follows the grid
     if (this.cell) this.showCell(this.cell.at);
     const pending = this.pendingPress;
     if (pending && !this.host.editing) {
       this.pendingPress = undefined;
       this.press(pending.x, pending.y);
     }
-    if (this.after?.ready && !this.host.editing) void this.goOn(info);
+    if (this.after?.ready && !this.host.editing) void this.goOn();
   }
 
-  /** The table's columns where its header cells are, in the viewport */
-  private headCells(info: WidgetInfo): { column: number; left: number; right: number }[] {
-    const heads: { column: number; left: number; right: number }[] = [];
-    for (const cell of Array.from(info.table.rows[0]?.cells ?? [])) {
-      const ref = this.host.cellRef(info, cell);
-      if (!ref) continue;
-      const rect = cell.getBoundingClientRect();
-      heads.push({ column: ref.column, left: rect.left, right: rect.right });
-    }
-    return heads;
-  }
-
-  /**
-   * Every column's letter in view, in the room above the header: the header's
-   * own letters (in its cells) go with the table, which scrolls away as the
-   * box scrolls down past it
-   */
-  private placeLetters(
-    box: { left: number; right: number; top: number },
-    info: WidgetInfo,
-    heads: readonly { column: number; left: number; right: number }[],
-    right: number,
-    columns: number,
-  ): void {
+  /** Every column's letter in view, in the room above the grid */
+  private placeLetters(box: HTMLElement, content: HTMLElement, lefts: readonly number[]): void {
+    const view = box.getBoundingClientRect();
+    const origin = content.getBoundingClientRect();
     const layer = this.letters;
-    layer.style.left = `${box.left}px`;
-    layer.style.width = `${Math.max(0, box.right - box.left)}px`;
-    // Over the room above the header (STICKY_GAP), which it covers: rows scroll under it
-    layer.style.top = `${box.top}px`;
-    layer.style.height = `${STICKY_GAP}px`;
-    layer.classList.add("swt-visible");
-    const places = heads.map((head) => ({ column: head.column, left: head.left, width: head.right - head.left }));
-    for (let j = 0; j < columns; j++) places.push({ column: info.columns + j, left: right + j * COLUMN_WIDTH, width: COLUMN_WIDTH });
+    Object.assign(layer.style, { left: `${view.left + NUMBERS_ROOM}px`, width: `${Math.max(0, view.width - NUMBERS_ROOM)}px`, top: `${view.top}px`, height: `${LETTERS_ROOM}px` });
     let shown = 0;
-    for (const place of places) {
-      if (place.left >= box.right || place.left + place.width <= box.left) continue;
+    for (let c = 0; c + 1 < lefts.length; c++) {
+      const left = origin.left + lefts[c]! - view.left - NUMBERS_ROOM;
+      const width = lefts[c + 1]! - lefts[c]!;
+      if (left + width <= 0 || left >= view.width) continue;
       let letter = layer.children[shown] as HTMLElement | undefined;
       if (!letter) {
         letter = this.host.doc.createElement("span");
         layer.append(letter);
       }
       letter.hidden = false;
-      letter.textContent = columnLetters(place.column);
-      letter.style.left = `${place.left - box.left}px`;
-      letter.style.width = `${place.width}px`;
+      letter.textContent = columnLetters(c);
+      letter.style.left = `${left}px`;
+      letter.style.width = `${width}px`;
       shown++;
     }
     for (let i = shown; i < layer.children.length; i++) (layer.children[i] as HTMLElement).hidden = true;
   }
 
-  /** The empty cell at a point of the viewport, if one is there */
-  private cellAt(widget: HTMLElement, info: WidgetInfo, clientX: number, clientY: number): CellRef | undefined {
-    const layout = this.layout;
-    if (!layout) return undefined;
-    const origin = this.origin(widget);
-    const x = clientX - origin.x;
-    const y = clientY - origin.y;
-    if (x < layout.right && y < layout.bottom) return undefined;
-    // Right of the table: an empty column; below it, the column of the header cell over the point
-    const column =
-      x >= layout.right
-        ? info.columns + Math.floor((x - layout.right) / COLUMN_WIDTH)
-        : this.headCells(info).find((head) => head.left <= clientX && clientX < head.right)?.column;
-    if (column === undefined) return undefined;
-    if (y >= layout.bottom) return { row: info.rows + Math.floor((y - layout.bottom) / layout.rowHeight), column };
-    if (y < layout.headBottom) return { row: 0, column };
-    // Right of the table: the row shown at the point
-    const tr = this.host.shownRows(info).find((r) => {
-      if (this.host.rowOf(info, r) === 0 || !r.isConnected) return false;
-      const rect = r.getBoundingClientRect();
-      return rect.top <= clientY && clientY < rect.bottom;
-    });
-    return tr && { row: this.host.rowOf(info, tr), column };
-  }
-
-  /** Where an empty cell is in the box's content, as the table is laid out now */
-  private cellBox(widget: HTMLElement, info: WidgetInfo, at: CellRef): { left: number; top: number; width: number; height: number } | undefined {
-    const layout = this.layout;
-    if (!layout || (at.row < info.rows && at.column < info.columns)) return undefined;
-    const origin = this.origin(widget);
-    let left = layout.right + (at.column - info.columns) * COLUMN_WIDTH;
-    let width = COLUMN_WIDTH;
-    if (at.column < info.columns) {
-      const head = this.headCells(info).find((h) => h.column === at.column);
-      if (!head) return undefined;
-      left = head.left - origin.x;
-      width = head.right - head.left;
+  /** Every row's number in view, in the room beside the grid */
+  private placeNumbers(box: HTMLElement, content: HTMLElement, rowHeight: number): void {
+    const view = box.getBoundingClientRect();
+    const origin = content.getBoundingClientRect();
+    const layer = this.numbers;
+    const top = view.top + LETTERS_ROOM;
+    Object.assign(layer.style, { left: `${view.left}px`, top: `${top}px`, height: `${Math.max(0, view.bottom - top)}px` });
+    const first = Math.max(0, Math.floor((top - origin.top) / rowHeight));
+    let shown = 0;
+    for (let r = first; origin.top + r * rowHeight < view.bottom; r++) {
+      let span = layer.children[shown] as HTMLElement | undefined;
+      if (!span) {
+        span = this.host.doc.createElement("span");
+        layer.append(span);
+      }
+      span.hidden = false;
+      span.textContent = String(r + 1);
+      span.style.top = `${origin.top + r * rowHeight - top}px`;
+      span.style.height = `${rowHeight}px`;
+      shown++;
     }
-    if (at.row >= info.rows) return { left, top: layout.bottom + (at.row - info.rows) * layout.rowHeight, width, height: layout.rowHeight };
-    if (at.row === 0) return { left, top: layout.top, width, height: layout.headBottom - layout.top };
-    const row = this.host.cellAt(info, { row: at.row, column: 0 })?.parentElement;
-    if (!row?.isConnected) return undefined;
-    const rect = row.getBoundingClientRect();
-    return { left, top: rect.top - origin.y, width, height: rect.height };
+    for (let i = shown; i < layer.children.length; i++) (layer.children[i] as HTMLElement).hidden = true;
   }
-}
-
-/** Lines across an area at these offsets (`side`: from its top or its left), as many elements as there are lines */
-function lines(area: HTMLElement, className: string, offsets: readonly number[], side: "top" | "left"): void {
-  const doc = area.ownerDocument;
-  const existing = Array.from(area.children).filter((child) => child.classList.contains(className)) as HTMLElement[];
-  offsets.forEach((offset, i) => {
-    let line = existing[i];
-    if (!line) {
-      line = doc.createElement("div");
-      line.className = `${UI_CLASS} ${className}`;
-      area.append(line);
-    }
-    line.style[side] = `${Math.round(offset) - 1}px`;
-  });
-  for (let i = offsets.length; i < existing.length; i++) existing[i]!.remove();
 }

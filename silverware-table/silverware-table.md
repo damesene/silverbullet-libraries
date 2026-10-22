@@ -730,7 +730,9 @@ The sheet icon (a grid) in a table's toolbar shows the table like a spreadsheet,
 
 A page's tables can share a sheet, as a spreadsheet's sheet holds several tables. *Add to sheet…* in a table's ⋯ menu puts it on one of the page's sheets or on a new one, and names it (the sheet's other tables refer to its cells by its name: `costs!B2`); it goes in column A, one empty row under the sheet's lowest table. The table keeps its place in the page, which shows it as before; its metadata row says which sheet it is on and where (`<meta name='costs' sheet='Budget' at='B3'>`). *Remove from sheet* takes it off again, its name kept. Both need the *Store table metadata* setting (or a metadata row the table has already).
 
-Everything else works as in the page: editing, selecting, menus, formulas. A table sorted or filtered shows a row added so where its sorting or filter puts it (or hides it); the rows' numbers past the table go on from the table's last row in the markdown. The empty cells are not cells yet: a selection, AutoFill or a drag stays within the table, a formula cannot refer to them, and the cell menu has nothing for them.
+The sheet view of a table on a sheet shows all the sheet's tables, each at its place (its `at` cell), however far apart they are in the page. The sheet's rows have one height, and each column is as wide as the widest of the tables' columns in it. An empty cell right of a table (in its rows) or below it (in its columns) grows that table, as for a table alone; a growth that would reach into another table is refused, and a cell that is neither right of nor below a table takes nothing yet. In the sheet view a table's header and pinned rows and columns scroll with the sheet, as a spreadsheet's cells do.
+
+Everything else works as in the page: editing, selecting, menus, formulas. A table sorted or filtered shows a row added so where its sorting or filter puts it (or hides it); the rows' numbers are the sheet's. The empty cells are not cells yet: a selection, AutoFill or a drag stays within the table, a formula cannot refer to them, and the cell menu has nothing for them.
 
 ## Large tables
 
@@ -1863,66 +1865,72 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   display: none;
 }
 
-/* The sheet module: empty cells past the table, in its box over the window.
-   Two areas (right of the table, below it), placed in the box's content by
-   script; their lines are gradients where they are regular (the empty
-   columns' width, the empty rows' height) and elements where they follow the
-   table (its rows right of it, its columns below it). The cell edited is a
-   td laid over its place. */
-/* The sheet shows every column's letter in a layer of its own (swt-sheet-letters) */
-.sb-table-widget.swt-sheet .swt-col-letter {
-  display: none;
-}
-/* As wide as its columns, so the empty columns show right of it */
-.sb-table-widget.swt-sheet > table {
-  width: max-content !important;
-  max-width: none !important;
-}
-.sb-table-widget .swt-sheet-grid {
+/* The sheet module (core/silverbullet/modules/sheet.ts): the board, one box
+   over the window holding the sheet's tables (drawn by the module), each at
+   its place, on a grid of rows of one height (--swt-sheet-row) and the
+   sheet's columns' widths. The room for the letters (above) and the numbers
+   (beside) is the box's border: it does not scroll away. The rows' lines are
+   a gradient, the columns' (their widths differ) elements. The empty cell
+   selected or edited is a td laid over its place. */
+.swt-sheet-board {
   --swt-sheet-line: var(--swt-border, color-mix(in srgb, currentColor 14%, transparent));
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  box-sizing: border-box;
+  border-left: 28px solid var(--root-background-color, #fff);
+  border-top: 42px solid var(--root-background-color, #fff);
+  overflow: auto;
+  background: var(--root-background-color, #fff);
+  color: var(--root-color, #333);
 }
-.swt-sheet-grid > :is(.swt-sheet-right, .swt-sheet-below) {
-  position: absolute;
+.swt-sheet-content {
+  position: relative;
   cursor: cell;
-}
-.swt-sheet-grid > .swt-sheet-right {
-  background-image: linear-gradient(to right, transparent calc(var(--swt-sheet-column) - 1px), var(--swt-sheet-line) 0);
-  background-size: var(--swt-sheet-column) 100%;
-}
-.swt-sheet-grid > .swt-sheet-below {
   background-image: linear-gradient(to bottom, transparent calc(var(--swt-sheet-row) - 1px), var(--swt-sheet-line) 0);
   background-size: 100% var(--swt-sheet-row);
 }
-.swt-sheet-grid > .swt-sheet-below::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: var(--swt-sheet-table-width);
-  right: 0;
-  background-image: linear-gradient(to right, transparent calc(var(--swt-sheet-column) - 1px), var(--swt-sheet-line) 0);
-  background-size: var(--swt-sheet-column) 100%;
-}
-.swt-sheet-grid .swt-sheet-row-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--swt-sheet-line);
-}
-.swt-sheet-grid .swt-sheet-column-line {
+.swt-sheet-column-lines > div {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 1px;
   background: var(--swt-sheet-line);
+  pointer-events: none;
 }
-.swt-sheet-grid > td.swt-sheet-cell {
+.swt-sheet-column-lines > div[hidden] {
+  display: none;
+}
+/* A table on the board: at its place, as wide as the sheet's columns it takes;
+   it scrolls with the board, its header and pinned lines held by nothing (its
+   own box, clipped, takes their sticky positioning) */
+.sb-table-widget.swt-table.swt-sheet-table {
+  position: absolute;
+  display: block;
+  overflow: hidden !important;
+  max-height: none !important;
+  cursor: auto;
+}
+/* On the sheet nothing of a table is held (its header, its pinned rows and
+   columns): the grid scrolls as one, as a spreadsheet's does */
+.sb-table-widget.swt-table.swt-sheet-table :is(thead, tfoot, thead.swt-stuck, tfoot.swt-stuck),
+.sb-table-widget.swt-table.swt-sheet-table td:is(.swt-pin-left, .swt-pin-right) {
+  position: static !important;
+  transform: none !important;
+  filter: none !important;
+}
+.sb-table-widget.swt-sheet-table table {
+  border-spacing: 0;
+}
+.sb-table-widget.swt-sheet-table tr > td {
+  box-sizing: border-box;
+  height: var(--swt-sheet-row);
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.swt-sheet-content > td.swt-sheet-cell {
   position: absolute;
   z-index: 1;
   display: flex;
@@ -1954,6 +1962,9 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 }
 .swt-sheet-letters > span[hidden] {
   display: none;
+}
+.swt-floating.swt-sheet-numbers {
+  background: var(--root-background-color, #fff);
 }
 
 /* CodeMirror's scroller is a stacking context (z-index 0) under SilverBullet's

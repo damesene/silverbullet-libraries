@@ -49,8 +49,20 @@ export type OverWindowOptions = {
   readonly shows?: (widget: HTMLElement) => boolean;
 };
 
-// The table over the window in each document, whichever module shows it
-const current = new WeakMap<Document, OverWindow>();
+// What is over the window in each document, whichever module shows it (a table, the sheet's board): one at a time
+const current = new WeakMap<Document, { end(): void }>();
+
+/** Something is shown over the window (one at a time): what was before ends */
+export function claimWindow(doc: Document, owner: { end(): void }): void {
+  const other = current.get(doc);
+  if (other && other !== owner) other.end();
+  current.set(doc, owner);
+}
+
+/** It no longer is */
+export function releaseWindow(doc: Document, owner: { end(): void }): void {
+  if (current.get(doc) === owner) current.delete(doc);
+}
 
 export class OverWindow {
   // The table shown over the window (its key) and its widget as rendered now
@@ -95,8 +107,7 @@ export class OverWindow {
   }
 
   begin(widget: HTMLElement, info: WidgetInfo): void {
-    const other = current.get(this.host.doc);
-    if (other && other !== this) other.end();
+    claimWindow(this.host.doc, this);
     // The other's table may have gone with it (the sheet's own drawing): the one that stands for the key now
     if (!widget.isConnected) {
       const now = this.host.widgetForKey(info.key);
@@ -105,7 +116,6 @@ export class OverWindow {
       widget = now;
       info = nowInfo;
     }
-    current.set(this.host.doc, this);
     if (this.shownWidget && this.shownWidget !== widget) this.unmark(this.shownWidget);
     this.shownKey = info.key;
     this.mark(widget);
@@ -122,7 +132,7 @@ export class OverWindow {
     const widget = this.shownWidget;
     this.shownKey = undefined;
     this.shownWidget = undefined;
-    if (current.get(this.host.doc) === this) current.delete(this.host.doc);
+    releaseWindow(this.host.doc, this);
     if (widget) this.unmark(widget);
     for (const layer of this.numbers) layer.classList.remove("swt-visible");
     this.options.changed();

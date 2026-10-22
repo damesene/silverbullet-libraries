@@ -8,9 +8,9 @@ const sheetTable = (page: Page) => page.locator(".sb-table-widget.swt-table.swt-
 /** A body cell of the sheet's table by its row in the markdown and its column */
 const sheetCell = (page: Page, row: number, column: number) => sheetTable(page).locator(`tr[data-swt-row="${row}"] > td`).nth(column);
 
-/** As rendersAnew, for the sheet's table: drawn anew from the markdown written, and enhanced */
+/** As rendersAnew, for the sheet's (first) table: drawn anew from the markdown written, and enhanced */
 async function sheetRendersAnew(page: Page, action: () => Promise<unknown>): Promise<void> {
-  await sheetTable(page).locator("table").evaluate((t) => t.setAttribute("data-test-old", ""));
+  await sheetTable(page).first().locator("table").evaluate((t) => t.setAttribute("data-test-old", ""));
   await action();
   await expect(page.locator(".swt-drawn table[data-test-old]")).toHaveCount(0);
   await expect(sheetTable(page).locator("table:not([data-test-old]) tr[data-swt-row]").first()).toBeAttached();
@@ -20,7 +20,7 @@ async function sheetRendersAnew(page: Page, action: () => Promise<unknown>): Pro
 async function openSheet(page: Page): Promise<void> {
   await hoverCell(page, cell(page, 1, 0));
   await page.locator('.swt-bar button[aria-label="Sheet view"]').click();
-  await expect(sheetTable(page)).toHaveClass(/swt-sheet/);
+  await expect(sheetTable(page).first()).toHaveClass(/swt-sheet/);
 }
 
 /** A point in the empty cells: `right` empty columns right of the table at a row's middle, or `below` empty rows under it in a column */
@@ -311,7 +311,7 @@ test.describe("Sheet view", () => {
 
   test("scrolled past the table, a value written there keeps the box where it was", async ({ page }) => {
     await openSheet(page);
-    const box = sheetTable(page);
+    const box = page.locator(".swt-sheet-board");
     await box.evaluate((w) => (w.scrollLeft = 400));
     const scrolled = await box.evaluate((w) => w.scrollLeft);
     expect(scrolled).toBeGreaterThan(300);
@@ -319,7 +319,41 @@ test.describe("Sheet view", () => {
     await page.mouse.click(point.x, point.y);
     await page.keyboard.type("far");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
-    expect(Math.abs((await sheetTable(page).evaluate((w) => w.scrollLeft)) - scrolled)).toBeLessThan(2);
+    expect(Math.abs((await box.evaluate((w) => w.scrollLeft)) - scrolled)).toBeLessThan(2);
+  });
+
+  test("a sheet of two tables shows both at their places; a growth into the other is refused, one clear of it written", async ({ page }) => {
+    await page
+      .locator("#source")
+      .fill(
+        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta sheet='Plan' at='A1'> |\n\nText between.\n\n| City | Zip |\n|---|---|\n| Brno | 602 |\n| <meta sheet='Plan' at='B4'> |\n",
+      );
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
+    await openSheet(page);
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    await expect(drawn).toHaveCount(2);
+    const letter = (text: string) => page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: new RegExp(`^${text}$`) });
+    // The second at B4: under the letter B, three rows below the first's top
+    const first = (await drawn.nth(0).boundingBox())!;
+    const second = (await drawn.nth(1).boundingBox())!;
+    const rowHeight = (await drawn.nth(0).locator("tr[data-swt-row='1'] > td").first().boundingBox())!.height;
+    expect(Math.abs(second.x - (await letter("B").boundingBox())!.x)).toBeLessThan(1);
+    expect(Math.abs(second.y - (first.y + 3 * rowHeight))).toBeLessThan(1);
+    const a = (await letter("A").boundingBox())!;
+    const x = a.x + a.width / 2;
+    // A5: the first table grown to row 5 would reach into the second (B4:C5): refused, nothing written
+    const before = await markdown(page);
+    await page.mouse.click(x, first.y + 4 * rowHeight + rowHeight / 2);
+    await page.mouse.click(x, first.y + 4 * rowHeight + rowHeight / 2);
+    await expect(page.locator("#flash > div", { hasText: "would grow into" })).toBeVisible();
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
+    expect(await markdown(page)).toBe(before);
+    // A3, right below the first table: it grows by a row
+    await page.mouse.click(x, first.y + 2 * rowHeight + rowHeight / 2);
+    await page.keyboard.type("Fig");
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
+    expect(await markdown(page)).toMatch(/\| Pear +\| 3 +\|\n\| Fig +\| +\|/);
   });
 
   test("Esc closes it", async ({ page }) => {
