@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:ui": "playwright test",
     "test:ui:open": "playwright test --ui",
+    "test:ui:install": "playwright install chromium",
     "playground": "node scripts/playground.mjs"
   },
   "devDependencies": {

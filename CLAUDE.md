@@ -11,7 +11,8 @@ npm install
 npm run build        # bundle silverware-table/src/index.ts into silverware-table/silverware-table.js
 npm run verify       # before a commit: tsc (with unused locals), vitest, and the bundle matches src/ (check-build)
 npm test             # vitest (unit tests and jsdom UI tests)
-npm run test:ui      # Playwright: interactions in Chrome (as installed) against the playground, which it starts on port 8010
+npm run test:ui:install  # once: Playwright's Chromium (the version it pins), which the UI tests run in
+npm run test:ui      # Playwright: interactions in its Chromium against the playground, which it starts on port 8010
 npm run test:ui:open # the same in Playwright's window: tests picked and run one by one, each step's page to look at
 npm run check        # tsc
 npm run playground   # http://localhost:8000/: Silverware Table without SilverBullet, on mock data
@@ -33,7 +34,7 @@ npm run deploy -- <space folder>   # copy the library into a local space
 - **What SilverBullet runs is not touched for the playground**: the benchmark measures from outside (playground/profile.ts wraps methods); no measuring, flags or checks for it in `src/`.
 - Do not write files of a SilverBullet space on disk while SilverBullet has it open: it keeps its copy and writes a sync conflict into the page (it did, in CONFIG.md). Change pages through SilverBullet (its UI, a Silverware Table command).
 - Every commit: `npm run build`, then `npm run verify` passes (tsc with `--noUnusedLocals`, which tsconfig does not enforce; vitest; the bundle checked against `src/`).
-- A change to how tables are used (pointer, touch, menus, what survives a write) gets a scenario in `silverware-table/ui-tests/`, and `npm run test:ui` passes before its commit (not part of `verify`: it needs Chrome and takes longer).
+- A change to how tables are used (pointer, touch, menus, what survives a write) gets a scenario in `silverware-table/ui-tests/`, and `npm run test:ui` passes before its commit (not part of `verify`: it needs a browser and takes longer).
 - Code style: match the surrounding code. Comments explain why, in full sentences or fragments; user-facing strings and docs are English. The library page is written for users: plain, specific, no internals.
 - Line endings are LF (`.gitattributes`); editors on Windows may write CRLF into the working copy, git normalizes on commit.
 - When editing files from a shell on this machine, heredocs mangle backslashes: write scripts to a file (or use an editor tool) when the text has `\`.
