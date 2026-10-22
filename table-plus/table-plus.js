@@ -11331,6 +11331,10 @@ var Grips = class {
     this.markGrips();
     this.positionMenu();
   }
+  // A menu asked for on a table rendered anew since: opened again there (not only once the selection is shown again: the selection module may be off)
+  enhanced(_widget, info) {
+    if (this.menu?.again?.key === info.key) this.menuAgain();
+  }
   /** No cell is hovered (editing, or the table left the view): the grips go, and with `closeMenus` an open menu */
   hoverEnded(closeMenus) {
     if (closeMenus && !this.menuAgain()) this.closeMenu(false);
@@ -11543,11 +11547,23 @@ var Grips = class {
     this.closeMenu(false, false);
     return this.cellMenu(widget, info, at, point);
   }
+  /** The cells selected in a table, as a menu remembers them */
+  selectionOf(info) {
+    return `${info.key}|${this.host.selectedCells(info).map((ref) => `${ref.row},${ref.column}`).join(";")}`;
+  }
+  /** Whether the cells selected are those the open menu was opened with (shown again with its table rendered anew) */
+  selectionKept() {
+    const menu = this.menu;
+    const key2 = menu && this.host.infoOf(menu.widget)?.key;
+    const widget = key2 === void 0 ? void 0 : this.host.widgetForKey(key2);
+    const info = widget && this.host.infoOf(widget);
+    return !!menu && !!info && this.selectionOf(info) === menu.selected;
+  }
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged() {
     this.linesSelected = void 0;
     if (!this.selectingLines) this.lineAnchor = void 0;
-    if (!this.selectingLines && this.menu && !this.menuAgain()) this.closeMenu(false, false);
+    if (!this.selectingLines && this.menu && !this.menuAgain() && !this.selectionKept()) this.closeMenu(false, false);
     this.markGrips();
   }
   /**
@@ -11720,14 +11736,15 @@ var Grips = class {
     const entries = axis === "row" ? this.rowMenu(widget, info, target.row, target.column) : this.columnMenu(widget, info, target.column);
     const element = floatingMenu(doc, title, entries, { naming, close: () => this.closeMenu(true) });
     doc.body.append(element);
+    const selected = this.selectionOf(info);
     if (at) {
       const c = at.cell.getBoundingClientRect();
-      this.menu = { element, axis, widget, line, anchor: { cell: at.cell, dx: at.x - c.left, dy: at.y - c.top, width: 0, height: 0 }, byPoint: true };
+      this.menu = { element, axis, widget, line, anchor: { cell: at.cell, dx: at.x - c.left, dy: at.y - c.top, width: 0, height: 0 }, byPoint: true, selected };
     } else {
       const g = grip.getBoundingClientRect();
       const cell = this.cellsOf(target, axis)[0] ?? grip;
       const c = cell.getBoundingClientRect();
-      this.menu = { element, axis, widget, line, anchor: { cell, dx: g.left - c.left, dy: g.top - c.top, width: g.width, height: g.height } };
+      this.menu = { element, axis, widget, line, anchor: { cell, dx: g.left - c.left, dy: g.top - c.top, width: g.width, height: g.height }, selected };
       grip.classList.add("tp-active");
     }
     this.positionMenu();

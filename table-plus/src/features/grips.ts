@@ -70,6 +70,8 @@ export class Grips implements Feature {
         byPoint?: boolean;
         // Asked for on a cell (cellMenu): opened again there when its table is rendered anew (an edit saved by the press)
         again?: { readonly key: string; readonly at: CellRef; readonly point: { x: number; y: number } };
+        // The cells selected as it opened (selectionOf): it closes when they change, not when they are shown again
+        selected: string;
       }
     | undefined;
   private dragging = false;
@@ -214,6 +216,11 @@ export class Grips implements Feature {
     this.columnGrip.classList.toggle("tp-active", !menu?.byPoint && menu?.axis === "column" && menu.line === ref.column);
     this.markGrips();
     this.positionMenu();
+  }
+
+  // A menu asked for on a table rendered anew since: opened again there (not only once the selection is shown again: the selection module may be off)
+  enhanced(_widget: HTMLElement, info: WidgetInfo): void {
+    if (this.menu?.again?.key === info.key) this.menuAgain();
   }
 
   /** No cell is hovered (editing, or the table left the view): the grips go, and with `closeMenus` an open menu */
@@ -459,12 +466,29 @@ export class Grips implements Feature {
     return this.cellMenu(widget, info, at, point);
   }
 
+  /** The cells selected in a table, as a menu remembers them */
+  private selectionOf(info: WidgetInfo): string {
+    return `${info.key}|${this.host
+      .selectedCells(info)
+      .map((ref) => `${ref.row},${ref.column}`)
+      .join(";")}`;
+  }
+
+  /** Whether the cells selected are those the open menu was opened with (shown again with its table rendered anew) */
+  private selectionKept(): boolean {
+    const menu = this.menu;
+    const key = menu && this.host.infoOf(menu.widget)?.key;
+    const widget = key === undefined ? undefined : this.host.widgetForKey(key);
+    const info = widget && this.host.infoOf(widget);
+    return !!menu && !!info && this.selectionOf(info) === menu.selected;
+  }
+
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged(): void {
     this.linesSelected = undefined;
     // Selected otherwise (keys, a drag, a move): a grip's anchor is no longer where it was
     if (!this.selectingLines) this.lineAnchor = undefined;
-    if (!this.selectingLines && this.menu && !this.menuAgain()) this.closeMenu(false, false);
+    if (!this.selectingLines && this.menu && !this.menuAgain() && !this.selectionKept()) this.closeMenu(false, false);
     this.markGrips();
   }
 
@@ -666,15 +690,16 @@ export class Grips implements Feature {
     const entries = axis === "row" ? this.rowMenu(widget, info, target.row!, target.column) : this.columnMenu(widget, info, target.column);
     const element = floatingMenu(doc, title, entries, { naming, close: () => this.closeMenu(true) });
     doc.body.append(element);
+    const selected = this.selectionOf(info);
     if (at) {
       // By the point pressed, following its cell as the page scrolls
       const c = at.cell.getBoundingClientRect();
-      this.menu = { element, axis, widget, line, anchor: { cell: at.cell, dx: at.x - c.left, dy: at.y - c.top, width: 0, height: 0 }, byPoint: true };
+      this.menu = { element, axis, widget, line, anchor: { cell: at.cell, dx: at.x - c.left, dy: at.y - c.top, width: 0, height: 0 }, byPoint: true, selected };
     } else {
       const g = grip.getBoundingClientRect();
       const cell = this.cellsOf(target, axis)[0] ?? grip;
       const c = cell.getBoundingClientRect();
-      this.menu = { element, axis, widget, line, anchor: { cell, dx: g.left - c.left, dy: g.top - c.top, width: g.width, height: g.height } };
+      this.menu = { element, axis, widget, line, anchor: { cell, dx: g.left - c.left, dy: g.top - c.top, width: g.width, height: g.height }, selected };
       grip.classList.add("tp-active");
     }
     this.positionMenu();

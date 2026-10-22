@@ -74,6 +74,22 @@ describe("Cell menu", () => {
     expect(cell(0, 1).isConnected).toBe(true);
   });
 
+  it("gives a header's column menu for the table rendered anew without the selection module too", async () => {
+    await setup(PAGE, { "tablePlus.modules.selection.enabled": false });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 0);
+    clickOn(cell(2, 0));
+    editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "apples";
+    cell(0, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    rightClick(cell(0, 1));
+    const before = menu();
+    expect(before?.querySelector(".tp-menu-title")?.textContent).toBe("Column: Qty");
+    await vi.waitFor(() => expect(text).toContain("| apples | 10 |"));
+    await controller.scan();
+    // Opened again for the table as it is now (no selection shown again to call for it)
+    expect(menu()?.querySelector(".tp-menu-title")?.textContent).toBe("Column: Qty");
+    expect(menu()).not.toBe(before);
+  });
+
   it("moves the grips to the cell a menu opens for, and with the pointer while it is open", async () => {
     await setup(PAGE);
     const rowGrip = () => document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
