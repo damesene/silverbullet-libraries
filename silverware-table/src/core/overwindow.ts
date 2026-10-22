@@ -5,7 +5,11 @@
 // controls work as in a table with its own box. SilverBullet renders the table
 // anew after every edit: the table shown so (by its key) is shown so again, at
 // once when it is put into the page (before it is laid out), confirmed once it
-// is enhanced. One table is over the window at a time: another shown so ends it.
+// is enhanced. A write of several tables (formulas referring to the one written)
+// renders them all anew, and they are enhanced one by one, so the table is not
+// gone while it is missing for a moment: it ends when another page is loaded, or
+// when no table of its key is back after GONE_MS. One table is over the window
+// at a time: another shown so ends it.
 //
 // The room above the header and left of the rows (for the toolbar, the grips
 // and the +) shows the columns' letters and the rows' numbers, as formulas
@@ -23,6 +27,8 @@ import { STICKY_GAP } from "./layout.ts";
 
 export const OVER_WINDOW_CLASS = "swt-over-window";
 const LETTER_CLASS = "swt-col-letter";
+// How long the table shown so may be missing from the page (rendered anew, not enhanced yet) before it ends
+const GONE_MS = 2000;
 
 /** Rows shown past a table's last one, numbered on: the first's top (in the viewport), each one's height, how many */
 export type RowsPast = { readonly top: number; readonly height: number; readonly count: number };
@@ -45,6 +51,10 @@ export class OverWindow {
   private shownWidget: HTMLElement | undefined;
   // The table rendered anew taken for it before it was enhanced (tableAdded)
   private guessed: HTMLElement | undefined;
+  // Its place among the page's tables, which a table rendered anew in its place has too
+  private place = -1;
+  // Checks whether it is back, once missing
+  private goneTimer: ReturnType<typeof setTimeout> | undefined;
   // The rows' numbers, over the room left of the rows
   private readonly numbers: HTMLElement;
   private readonly queueNumbers: () => void;
@@ -85,6 +95,8 @@ export class OverWindow {
   }
 
   end(): void {
+    clearTimeout(this.goneTimer);
+    this.goneTimer = undefined;
     if (this.shownKey === undefined && !this.shownWidget) return;
     const widget = this.shownWidget;
     this.shownKey = undefined;
@@ -111,6 +123,9 @@ export class OverWindow {
 
   private mark(widget: HTMLElement): void {
     this.shownWidget = widget;
+    this.place = this.widgets().indexOf(widget);
+    clearTimeout(this.goneTimer);
+    this.goneTimer = undefined;
     widget.classList.add(OVER_WINDOW_CLASS, this.options.className);
     this.numbers.classList.add("swt-visible");
     this.queueNumbers();
@@ -120,13 +135,17 @@ export class OverWindow {
     widget.classList.remove(OVER_WINDOW_CLASS, this.options.className);
   }
 
-  // Rendered anew (an edit): the replacement of the table shown over the window shows so at once, before it is laid out
-  // (the one starting where the table taken out started, data-pos: an edit in a table does not move its start;
-  // the page may render every table anew)
+  private widgets(): HTMLElement[] {
+    return Array.from(this.host.doc.querySelectorAll<HTMLElement>(WIDGET_SELECTOR));
+  }
+
+  // Rendered anew (an edit): the replacement of the table shown over the window shows so at once, before it is laid
+  // out: the one starting where the table taken out started (data-pos: an edit in a table does not move its start),
+  // else the one in its place among the page's tables (a table before it written too moved its start)
   tableAdded(widget: HTMLElement, table: HTMLTableElement): void {
     const old = this.shownWidget;
     if (this.shownKey === undefined || !old || old.isConnected || this.guessed?.isConnected) return;
-    if (table.dataset.pos !== old.querySelector("table")?.dataset.pos) return;
+    if (table.dataset.pos !== old.querySelector("table")?.dataset.pos && this.widgets().indexOf(widget) !== this.place) return;
     this.guessed = widget;
     widget.classList.add(OVER_WINDOW_CLASS, this.options.className);
   }
@@ -135,8 +154,11 @@ export class OverWindow {
   enhanced(widget: HTMLElement, info: WidgetInfo): void {
     if (info.key === this.shownKey) this.mark(widget);
     else if (widget.classList.contains(this.options.className)) this.unmark(widget);
-    // The table shown so is gone from the page (another page opened): it ends
-    if (this.shownKey !== undefined && this.shownWidget && !this.shownWidget.isConnected && !this.host.widgetForKey(this.shownKey)) this.end();
+  }
+
+  /** Another page is in the editor: the table shown so is gone */
+  pageLoaded(): void {
+    this.end();
   }
 
   // Its rows sorted, filtered or put back into the document: their numbers follow
@@ -162,13 +184,16 @@ export class OverWindow {
   /**
    * After a scroll or a change of the layout (in a frame): the numbers follow
    * the rows (unless `numbers` is false: the module places what they are
-   * placed by first, then calls placeNumbers); another page shown: it ends.
-   * Whether a table is still shown so.
+   * placed by first, then calls placeNumbers). Whether the table shown so is
+   * in the page (not while it is rendered anew, nor once it is gone: GONE_MS).
    */
   layoutChanged(numbers = true): boolean {
     if (this.shownKey === undefined) return false;
-    if (!this.shownWidget?.isConnected && !this.host.doc.querySelector(`${WIDGET_SELECTOR}.${this.options.className}`)) {
-      this.end();
+    if (!this.shownWidget?.isConnected) {
+      this.goneTimer ??= setTimeout(() => {
+        this.goneTimer = undefined;
+        if (this.shownKey !== undefined && !this.shownWidget?.isConnected && !this.host.widgetForKey(this.shownKey)) this.end();
+      }, GONE_MS);
       return false;
     }
     if (numbers) this.placeNumbers();

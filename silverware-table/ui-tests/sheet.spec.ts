@@ -119,6 +119,25 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-sheet-grid")).toHaveCount(0);
   });
 
+  test("stays over the window when a write renders the tables before it anew (a formula there refers to it)", async ({ page }) => {
+    await page
+      .locator("#source")
+      .fill("# Test\n\n| A | B |\n|---|---|\n| 1 | 2 <meta f='=prices!B1'> |\n\nText\n\n| Item | Price |\n|---|---|\n| Pear | 2 |\n| <meta name='prices'> |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("table tr")).toHaveCount(3);
+    await hoverCell(page, cell(page, 1, 0, 1));
+    await page.locator('.swt-bar button[aria-label="Full screen"]').click();
+    await expect(table(page, 1)).toHaveClass(/swt-fullscreen/);
+    // Select mode: a click selects, typing replaces the text, a click elsewhere saves
+    await cell(page, 1, 1, 1).click();
+    await page.keyboard.type("5");
+    await rendersAnew(page, () => cell(page, 1, 0, 1).click(), 1);
+    // The first table recalculated in the same edit, so the second's start moved
+    expect(await markdown(page)).toMatch(/\| 1 +\| 5 <meta f='=prices!B1'> +\|/);
+    await page.waitForTimeout(2500);
+    await expect(table(page, 1)).toHaveClass(/swt-fullscreen/);
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");

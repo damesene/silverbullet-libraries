@@ -129,6 +129,10 @@ export class Sheet implements Feature {
     this.over.rowsAttached(info);
   }
 
+  pageLoaded(): void {
+    this.over.pageLoaded();
+  }
+
   /**
    * An empty cell selected: typing edits it (the key goes into its field, as on
    * a table's cell), so do Enter and F2; Esc unselects it (a second one closes

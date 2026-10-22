@@ -51,6 +51,10 @@ export class FullScreen implements Feature {
     this.over.rowsAttached(info);
   }
 
+  pageLoaded(): void {
+    this.over.pageLoaded();
+  }
+
   keyDown(e: KeyboardEvent): boolean {
     return this.over.keyDown(e);
   }
