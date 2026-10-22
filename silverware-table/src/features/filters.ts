@@ -202,7 +202,7 @@ export class Filters implements Feature {
   // The headers of the columns filtering marked; a column's bubble follows its header, which a write renders anew
   viewApplied(info: TableInfo): void {
     this.filtering.set(info.key, [...this.matchers(info).keys()].map((column) => ({ row: 0, column })));
-    if (this.bubble?.popover && this.bubble.key === info.key) this.panel.show(this.bubble.anchor, BUBBLE_PLACE);
+    if (this.bubble?.popover && this.bubble.key === info.key) this.panel.show(this.bubble.anchor, POPOVER_PLACE);
   }
 
   /** The filter row while it is shown: a field per column, as the filters are */

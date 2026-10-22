@@ -48,12 +48,17 @@ test.describe("Filters", () => {
     const field = page.locator(".swt-filter-popover input.swt-filter");
     await expect(field).toBeFocused();
     const head = (await header(page, 1).boundingBox())!;
-    expect((await bubble(page).boundingBox())!.y).toBeGreaterThan(head.y + head.height - 1);
+    const opened = (await bubble(page).boundingBox())!;
+    expect(opened.y).toBeGreaterThan(head.y + head.height - 1);
     await page.keyboard.type("=open");
     await expect(items(page)).toHaveText(["Pear", "Kiwi"]);
+    // The view applied as it filtered left the bubble where it was under its header (the header may have moved: rows hidden)
+    const headNow = (await header(page, 1).boundingBox())!;
+    expect(Math.abs((await bubble(page).boundingBox())!.x - headNow.x - (opened.x - head.x))).toBeLessThan(1);
     await expect(page.locator(".swt-filter-row")).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(bubble(page)).toHaveCount(0);
     await expect(items(page)).toHaveText(["Pear", "Kiwi"]);
   });
+
 });
