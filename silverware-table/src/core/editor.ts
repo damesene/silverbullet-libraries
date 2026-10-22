@@ -210,9 +210,10 @@ export class CellEditing {
       },
       select: (from, to) => field.setSelectionRange(from, to),
       focus: () => field.focus({ preventScroll: true }),
+      // As the key: the features' editorKeyDown hear it (the sheet view goes on from an empty cell), then the editor's own
       commit: () => {
         if (this.editor !== opened) return;
-        void (opened.growth ? this.finish(true) : this.enter(false));
+        field.dispatchEvent(new (doc.defaultView ?? window).KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
       },
     };
     this.editor = opened;

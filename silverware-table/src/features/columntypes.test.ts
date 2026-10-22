@@ -114,7 +114,11 @@ describe("Column types", () => {
     const field = () => editor.querySelector<HTMLInputElement>(".swt-cell-editor")!;
     const options = () => Array.from(document.querySelectorAll<HTMLElement>(".swt-choices .swt-choice"));
     clickOn(cell(1, 3)); // Done: yes
+    // Saved as Enter saves: what hears Enter in the editor (the sheet view going on to the next cell) hears it
+    const keys: string[] = [];
+    field().addEventListener("keydown", (e) => keys.push(e.key));
     options().find((o) => o.textContent === "❌ no")!.click();
+    expect(keys).toEqual(["Enter"]);
     await flush();
     expect(text).toContain("| Pear | 12.99 | 4 | no |");
     await controller.scan();
