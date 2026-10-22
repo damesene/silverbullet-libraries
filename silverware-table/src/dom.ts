@@ -2,7 +2,21 @@
 // so a SilverBullet update that changes it has one place to fix.
 
 // The element SilverBullet renders a markdown table into
-export const WIDGET_SELECTOR = ".sb-table-widget";
+export const WIDGET_CLASS = "sb-table-widget";
+export const WIDGET_SELECTOR = `.${WIDGET_CLASS}`;
+
+// A cell's alignment, as SilverBullet's tables mark it
+export const alignClass = (align: "left" | "right" | "center") => `sb-table-align-${align}`;
+
+/**
+ * The body rows of a table SilverBullet's markdown.markdownToHtml made (its
+ * header row first, then the body: those of the outer table only, a `${…}`'s
+ * result may hold a table of its own)
+ */
+export function renderedTableRows(fragment: ParentNode): HTMLTableRowElement[] {
+  const table = fragment.querySelector("table");
+  return table ? Array.from(table.rows).slice(1) : [];
+}
 
 // CodeMirror's editable area: focusing it hands the keyboard back to the editor
 export const EDITOR_SELECTOR = ".cm-content";

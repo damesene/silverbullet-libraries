@@ -62,6 +62,16 @@ describe("StaticCellRenderer", () => {
     expect(renderer.refreshesAfterIndex("#fruit")).toBe(false);
   });
 
+  it("gives each cell its own content when one holds a table of its own (a query's result)", async () => {
+    // As SilverBullet renders a ${query[[…]]}: a table inside the cell
+    const toHtml = () =>
+      "<table><thead><tr><td>cell</td></tr></thead><tr><td><table><tr><td>row a</td></tr><tr><td>row b</td></tr></table></td></tr><tr><td><strong>second</strong></td></tr></table>";
+    const { later } = new StaticCellRenderer(document, toHtml).render(["${query}", "**second**"]);
+    const rendered = await later;
+    expect(rendered.get(0)!.textContent).toBe("row arow b");
+    expect(htmlOf(rendered.get(1)!)).toBe("<strong>second</strong>");
+  });
+
   it("calls SilverBullet for nothing when every cell is plain", async () => {
     const toHtml = vi.fn(fakeToHtml);
     const { later } = new StaticCellRenderer(document, toHtml).render(["Pear", "3", ""]);

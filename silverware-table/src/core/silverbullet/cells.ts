@@ -11,6 +11,8 @@
 // result static), each a row of a table of their own, as a cell is inline text
 // (rendered alone, "# x" would be a heading).
 
+import { renderedTableRows } from "../../dom.ts";
+
 /** What a renderer gives for a table's cells */
 export type RenderedCells = {
   // A node per cell, in their order, ready now (a cell still to render shows its text)
@@ -89,7 +91,7 @@ export class StaticCellRenderer implements CellRenderer {
     }
     const template = this.doc.createElement("template");
     template.innerHTML = html;
-    const rows = Array.from(template.content.querySelectorAll("tr")).slice(1);
+    const rows = renderedTableRows(template.content);
     const rendered = new Map<number, Node>();
     queued.forEach((index, i) => {
       const cell = rows[i]?.cells[0];

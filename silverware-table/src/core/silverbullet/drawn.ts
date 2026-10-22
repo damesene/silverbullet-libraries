@@ -6,7 +6,7 @@
 // is shown (DRAWN_CLASS). Its cells are rendered by a cell renderer
 // (cells.ts); the table is handed over whole, once every cell is rendered, so
 // nothing is filled in later under what the core and the modules put into it.
-import { DRAWN_CLASS } from "../../dom.ts";
+import { alignClass, DRAWN_CLASS, WIDGET_CLASS } from "../../dom.ts";
 import { parseTable } from "../../markdown.ts";
 import type { CellRenderer } from "./cells.ts";
 
@@ -29,13 +29,13 @@ export async function drawTable(doc: Document, source: string, hint: number, ren
   const content = (i: number) => later.get(i) ?? rendered.now[i]!;
 
   const widget = doc.createElement("span");
-  widget.className = `sb-table-widget ${DRAWN_CLASS}`;
+  widget.className = `${WIDGET_CLASS} ${DRAWN_CLASS}`;
   const table = doc.createElement("table");
   table.dataset.pos = String(hint);
   const cell = (node: Node, column: number) => {
     const td = doc.createElement("td");
     const align = model.align[column];
-    if (align) td.classList.add(`sb-table-align-${align}`);
+    if (align) td.classList.add(alignClass(align));
     td.append(node);
     return td;
   };
