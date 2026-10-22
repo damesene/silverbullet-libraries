@@ -719,6 +719,7 @@ The header's background and its text color go together: SilverBullet's header is
 
 The sheet icon (a grid) in a table's toolbar shows the table like a spreadsheet, over the whole window: the columns' letters above, the rows' numbers beside them (as formulas refer to cells, `B3`), and empty rows and columns past the table's last row and column. More appear as you scroll on.
 
+* **Select an empty cell** as a table's cell: a click selects it (in *Edit mode* it edits it at once); typing, a second click, Enter or F2 edits it; Esc unselects it, a second Esc closes the view.
 * **Grow the table**: click an empty cell and type. Enter or Tab saves it, and the table grows to hold it, in one edit (one Ctrl+Z): the rows and columns between are added empty, a new column is named *Column 5* (rename it like any header). Typing into the header's line right of the table adds a column with that name.
 * **Nothing is added for a cell left empty**: Enter on an empty cell, or Esc, writes nothing.
 * **Rows pinned to the bottom stay last**: a new row goes above them, as Tab on the last cell does; a column, left of the columns pinned to the right.

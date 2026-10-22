@@ -354,30 +354,32 @@ export class CellEditing {
     if (!(sameTable && next?.row === closed.row)) this.context.releaseRow();
     let result: WriteResult = "unchanged";
     const growth = closed.growth;
-    if (growth) {
-      // Past the table: written with the rows and columns that reach it, unless nothing was typed. Nothing moves on
-      // from it (`next`: its keys only save it), as the cells after it are not there before the write.
-      if (changed && withoutTags(closed.value) !== "") {
-        let changedMeanwhile = false;
-        await this.host.write(
-          closed.widget,
-          (t) => {
-            const grown = growth.grow(t);
-            changedMeanwhile = !grown;
-            return grown && setCell(grown, growth.cell.row, growth.cell.column, closed.value);
-          },
-          { rowMap: growth.rowMap, columnMap: growth.columnMap },
-        );
-        if (changedMeanwhile) void this.host.bridge.flash("Silverware Table: the table changed meanwhile, so it was not grown; type the value again", "info");
-      }
-      if (refocus) this.host.focusEditor(closed.widget);
-      return;
+    if (growth && changed && withoutTags(closed.value) !== "") {
+      // Past the table: written with the rows and columns that reach it (nothing typed: nothing written). A cell
+      // pressed meanwhile (`next`) is edited once the table is rendered anew, where the growth moved it.
+      const row = next && sameTable ? growth.rowMap(next.row) : undefined;
+      const column = next && sameTable ? growth.columnMap(next.column) : undefined;
+      let changedMeanwhile = false;
+      result = await this.host.write(
+        closed.widget,
+        (t) => {
+          const grown = growth.grow(t);
+          changedMeanwhile = !grown;
+          return grown && setCell(grown, growth.cell.row, growth.cell.column, closed.value);
+        },
+        {
+          rowMap: growth.rowMap,
+          columnMap: growth.columnMap,
+          ...(row !== undefined && column !== undefined ? { focus: { row, column, ...(next?.select ? { select: true } : {}) } } : {}),
+        },
+      );
+      if (changedMeanwhile) void this.host.bridge.flash("Silverware Table: the table changed meanwhile, so it was not grown; type the value again", "info");
     }
     // A feature may keep a cell's edit to write it later (the lazy module); a header's name is written at once
     const info = changed && closed.row > 0 ? this.host.infoOf(closed.widget) : undefined;
     const edit = { row: closed.row, column: closed.column, original: closed.original, value: closed.value };
-    const held = !!info && this.context.features.some((f) => f.holdCellEdit?.(closed.widget, info, edit));
-    if (changed && !held) {
+    const held = !growth && !!info && this.context.features.some((f) => f.holdCellEdit?.(closed.widget, info, edit));
+    if (changed && !held && !growth) {
       result = await this.host.write(closed.widget, (t) => this.withCellEdit(t, closed), { focus: sameTable ? next : undefined });
     }
     if (next && (result === "unchanged" || !sameTable)) {

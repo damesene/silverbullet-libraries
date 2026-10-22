@@ -26,10 +26,12 @@ test.describe("Sheet view", () => {
     await openSheet(page);
     const columns = await table(page).locator("table tr").first().locator("th, td").count();
     const point = await emptyCell(page, { right: 0, row: 1 });
+    // Select mode (the playground's): a click selects the empty cell, typing edits it
     await page.mouse.click(point.x, point.y);
-    const field = page.locator(".swt-sheet-cell .swt-cell-editor");
-    await expect(field).toBeFocused();
+    await expect(page.locator(".swt-sheet-cell")).toBeVisible();
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
     await page.keyboard.type("note");
+    await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toHaveValue("note");
     await rendersAnew(page, () => page.keyboard.press("Enter"));
     expect(await markdown(page)).toMatch(/\| Column \d+ \|/);
     await expect(table(page).locator("table tr").first().locator("th, td")).toHaveCount(columns + 1);
@@ -40,6 +42,8 @@ test.describe("Sheet view", () => {
     await openSheet(page);
     const before = await markdown(page);
     const empty = await emptyCell(page, { below: 0, column: 0 });
+    // A second click on the cell selected edits it
+    await page.mouse.click(empty.x, empty.y);
     await page.mouse.click(empty.x, empty.y);
     await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toBeFocused();
     await page.keyboard.press("Enter");
@@ -54,6 +58,36 @@ test.describe("Sheet view", () => {
     const last = lines.findIndex((line) => line.startsWith("| Šípek"));
     expect(lines[last + 1]).toMatch(/^[| ]+$/);
     expect(lines[last + 2]).toMatch(/^\| Plum +\|/);
+  });
+
+  test("a click elsewhere: on a table's cell selects it, on another empty cell selects that one, an edit saved first", async ({ page }) => {
+    await openSheet(page);
+    const first = await emptyCell(page, { right: 1, row: 2 });
+    await page.mouse.click(first.x, first.y);
+    await page.mouse.click(first.x, first.y);
+    await page.keyboard.type("a");
+    // Another empty cell: the edit is saved (the table grows), that cell selected
+    const second = await emptyCell(page, { below: 2, column: 1 });
+    await rendersAnew(page, () => page.mouse.click(second.x, second.y));
+    await expect(page.locator(".swt-sheet-cell")).toBeVisible();
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
+    expect(await markdown(page)).toMatch(/\| Column 5 \| Column 6 \|/);
+    // A table's cell: selected, the empty cell no longer
+    await cell(page, 1, 1).click();
+    await expect(table(page).locator(".swt-selected")).toHaveCount(1);
+    await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
+  });
+
+  test("Esc unselects an empty cell, a second Esc closes the view", async ({ page }) => {
+    await openSheet(page);
+    const point = await emptyCell(page, { right: 0, row: 1 });
+    await page.mouse.click(point.x, point.y);
+    await expect(page.locator(".swt-sheet-cell")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
+    await expect(table(page)).toHaveClass(/swt-sheet/);
+    await page.keyboard.press("Escape");
+    await expect(table(page)).not.toHaveClass(/swt-sheet/);
   });
 
   test("the rows past the table are numbered on, and every column has its letter", async ({ page }) => {

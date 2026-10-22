@@ -51,8 +51,12 @@ export class Sheet implements Feature {
   private readonly letters: HTMLElement;
   private readonly queuePlace: () => void;
   private layout: Layout | undefined;
-  // The cell laid for the cell editor, while it edits an empty cell
-  private cell: HTMLTableCellElement | undefined;
+  // The module's td over the empty cell selected or edited
+  private cell: { readonly element: HTMLTableCellElement; readonly at: CellRef } | undefined;
+  // The empty cell selected (select mode): a press on it, typing, Enter or F2 edits it
+  private chosen: CellRef | undefined;
+  // A press on an empty cell while a cell was edited: acted on once that edit is saved and the cells placed anew
+  private pendingPress: { x: number; y: number } | undefined;
 
   constructor(private readonly host: TableHost) {
     this.over = new OverWindow(host, {
@@ -125,7 +129,28 @@ export class Sheet implements Feature {
     this.over.rowsAttached(info);
   }
 
+  /**
+   * An empty cell selected: typing edits it (the key goes into its field, as on
+   * a table's cell), so do Enter and F2; Esc unselects it (a second one closes
+   * the sheet view)
+   */
   keyDown(e: KeyboardEvent): boolean {
+    const at = this.chosen;
+    if (at && !this.host.editing && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+      // AltGr arrives as Ctrl+Alt
+      const typing = e.key.length === 1 && (!(e.ctrlKey || e.metaKey) || (e.ctrlKey && e.altKey));
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        this.unselect();
+        return true;
+      }
+      if (typing || e.key === "Enter" || e.key === "F2") {
+        if (!typing) e.preventDefault();
+        this.edit(at);
+        return true;
+      }
+    }
     return this.over.keyDown(e);
   }
 
@@ -134,42 +159,119 @@ export class Sheet implements Feature {
     if (this.over.layoutChanged(false)) this.place();
   }
 
-  /** A press on an empty cell edits it; with another cell being edited, that one is saved first (the press does no more) */
+  /** Presses on the empty cells are the module's: other buttons than the left do nothing there (no markdown shown) */
   mouseDown(e: MouseEvent): boolean {
-    const target = e.target;
-    if (!(target instanceof Element) || !this.grid.contains(target) || target.closest(".swt-cell-editor")) return false;
+    if (e.button === 0 || !this.inGrid(e.target)) return false;
     e.preventDefault();
     e.stopPropagation();
-    if (e.button !== 0) return true;
-    if (this.host.editing) {
-      void this.host.saveEditing();
-      return true;
-    }
-    const widget = this.over.widget;
-    const info = widget && this.host.infoOf(widget);
-    const hit = info && this.cellAt(widget, info, e.clientX, e.clientY);
-    if (!widget || !info || !hit) return true;
-    const cell = this.host.doc.createElement("td");
-    cell.className = "swt-sheet-cell";
-    Object.assign(cell.style, { left: `${hit.left}px`, top: `${hit.top}px`, width: `${hit.width}px`, height: `${hit.height}px` });
-    this.grid.append(cell);
-    this.cell = cell;
-    this.host.editBeyond(widget, info, hit.at, cell);
-    // (Read again: the editor opened, or did not)
-    if ((this.host.editing as CellEditor | undefined)?.cell !== cell) this.dropCell();
     return true;
   }
 
+  /**
+   * A press on an empty cell selects it (select mode), or edits it (edit mode,
+   * or the cell selected already); with a cell being edited, that one is saved
+   * first, then the press acts on the cells as they are placed after it. A
+   * press elsewhere unselects the empty cell (the selection module ends a
+   * table's selection itself, on any press).
+   */
+  beforeMouseDown(e: MouseEvent): void {
+    if (!this.inGrid(e.target)) {
+      if (!(e.target instanceof Node && this.host.isFloating(e.target))) this.unselect();
+      return;
+    }
+    if (this.host.editing) {
+      this.pendingPress = { x: e.clientX, y: e.clientY };
+      void this.host.saveEditing().then(() => this.queuePlace());
+      return;
+    }
+    this.press(e.clientX, e.clientY);
+  }
+
+  /** The cells selected in a table changed: a table's selection ends the empty cell's */
+  selectionChanged(): void {
+    const widget = this.over.widget;
+    const info = widget && this.host.infoOf(widget);
+    if (this.chosen && info && this.host.selectedCells(info).length > 0) this.unselect();
+  }
+
   editorClosed(editor: CellEditor): void {
-    if (editor.cell === this.cell) this.dropCell();
+    if (!this.cell || editor.cell !== this.cell.element) return;
+    this.chosen = undefined;
+    this.dropCell();
+  }
+
+  private inGrid(target: EventTarget | null): boolean {
+    return target instanceof Element && this.grid.contains(target) && !target.closest(".swt-cell-editor");
+  }
+
+  private press(x: number, y: number): void {
+    const widget = this.over.widget;
+    const info = widget && this.host.infoOf(widget);
+    const at = widget && info && this.cellAt(widget, info, x, y);
+    if (!at) {
+      this.unselect();
+      return;
+    }
+    const same = this.chosen?.row === at.row && this.chosen.column === at.column;
+    if (this.host.clickSelects() && !same) this.select(at);
+    else this.edit(at);
+  }
+
+  private select(at: CellRef): void {
+    this.chosen = at;
+    this.showCell(at);
+  }
+
+  private unselect(): void {
+    if (!this.chosen) return;
+    this.chosen = undefined;
+    if (!this.cell || this.host.editing?.cell !== this.cell.element) this.dropCell();
+  }
+
+  /** Opens the cell editor in an empty cell (TableHost.editBeyond), in the module's td laid over it */
+  private edit(at: CellRef): void {
+    const widget = this.over.widget;
+    const info = widget && this.host.infoOf(widget);
+    const cell = this.showCell(at);
+    if (!widget || !info || !cell) return;
+    this.host.editBeyond(widget, info, at, cell);
+    // (Read again: the editor opened, or did not)
+    if ((this.host.editing as CellEditor | undefined)?.cell !== cell) {
+      this.chosen = undefined;
+      this.dropCell();
+    }
+  }
+
+  /** The module's td over an empty cell (the one selected or edited), placed where that cell is now */
+  private showCell(at: CellRef): HTMLTableCellElement | undefined {
+    const widget = this.over.widget;
+    const info = widget && this.host.infoOf(widget);
+    const box = widget && info && this.cellBox(widget, info, at);
+    if (!box) {
+      this.dropCell();
+      return undefined;
+    }
+    let element = this.cell?.element;
+    if (!element) {
+      element = this.host.doc.createElement("td");
+      element.className = "swt-sheet-cell";
+      this.grid.append(element);
+    }
+    this.cell = { element, at };
+    Object.assign(element.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+    return element;
   }
 
   private dropCell(): void {
-    this.cell?.remove();
+    this.cell?.element.remove();
     this.cell = undefined;
   }
 
   private hide(): void {
+    this.chosen = undefined;
+    this.pendingPress = undefined;
+    if (this.cell && this.host.editing?.cell === this.cell.element) this.host.cancelEditing();
+    this.dropCell();
     this.grid.remove();
     this.letters.classList.remove("swt-visible");
     this.layout = undefined;
@@ -236,6 +338,13 @@ export class Sheet implements Feature {
     lines(this.below, "swt-sheet-column-line", columnLines, "left");
     this.placeLetters(view, info, heads, origin.x + right, columns);
     this.over.placeNumbers();
+    // The empty cell selected or edited follows the table (grown, rendered anew)
+    if (this.cell) this.showCell(this.cell.at);
+    const pending = this.pendingPress;
+    if (pending && !this.host.editing) {
+      this.pendingPress = undefined;
+      this.press(pending.x, pending.y);
+    }
   }
 
   /** The table's columns where its header cells are, in the viewport */
@@ -288,64 +397,50 @@ export class Sheet implements Feature {
     for (let i = shown; i < layer.children.length; i++) (layer.children[i] as HTMLElement).hidden = true;
   }
 
-  /** The empty cell at a point of the viewport (its place in the box's content), if one is there */
-  private cellAt(
-    widget: HTMLElement,
-    info: WidgetInfo,
-    clientX: number,
-    clientY: number,
-  ): { at: CellRef; left: number; top: number; width: number; height: number } | undefined {
+  /** The empty cell at a point of the viewport, if one is there */
+  private cellAt(widget: HTMLElement, info: WidgetInfo, clientX: number, clientY: number): CellRef | undefined {
     const layout = this.layout;
     if (!layout) return undefined;
     const origin = this.origin(widget);
     const x = clientX - origin.x;
     const y = clientY - origin.y;
     if (x < layout.right && y < layout.bottom) return undefined;
-    let column: number;
-    let left: number;
+    // Right of the table: an empty column; below it, the column of the header cell over the point
+    const column =
+      x >= layout.right
+        ? info.columns + Math.floor((x - layout.right) / COLUMN_WIDTH)
+        : this.headCells(info).find((head) => head.left <= clientX && clientX < head.right)?.column;
+    if (column === undefined) return undefined;
+    if (y >= layout.bottom) return { row: info.rows + Math.floor((y - layout.bottom) / layout.rowHeight), column };
+    if (y < layout.headBottom) return { row: 0, column };
+    // Right of the table: the row shown at the point
+    const tr = this.host.shownRows(info).find((r) => {
+      if (this.host.rowOf(info, r) === 0 || !r.isConnected) return false;
+      const rect = r.getBoundingClientRect();
+      return rect.top <= clientY && clientY < rect.bottom;
+    });
+    return tr && { row: this.host.rowOf(info, tr), column };
+  }
+
+  /** Where an empty cell is in the box's content, as the table is laid out now */
+  private cellBox(widget: HTMLElement, info: WidgetInfo, at: CellRef): { left: number; top: number; width: number; height: number } | undefined {
+    const layout = this.layout;
+    if (!layout || (at.row < info.rows && at.column < info.columns)) return undefined;
+    const origin = this.origin(widget);
+    let left = layout.right + (at.column - info.columns) * COLUMN_WIDTH;
     let width = COLUMN_WIDTH;
-    if (x >= layout.right) {
-      const j = Math.floor((x - layout.right) / COLUMN_WIDTH);
-      column = info.columns + j;
-      left = layout.right + j * COLUMN_WIDTH;
-    } else {
-      // Below the table: the column of the header cell over the point
-      const head = Array.from(info.table.rows[0]?.cells ?? []).find((cell) => {
-        const rect = cell.getBoundingClientRect();
-        return rect.left <= clientX && clientX < rect.right && this.host.cellRef(info, cell);
-      });
-      const ref = head && this.host.cellRef(info, head);
-      if (!head || !ref) return undefined;
-      const rect = head.getBoundingClientRect();
-      column = ref.column;
-      left = rect.left - origin.x;
-      width = rect.width;
+    if (at.column < info.columns) {
+      const head = this.headCells(info).find((h) => h.column === at.column);
+      if (!head) return undefined;
+      left = head.left - origin.x;
+      width = head.right - head.left;
     }
-    let row: number;
-    let top: number;
-    let height = layout.rowHeight;
-    if (y >= layout.bottom) {
-      const k = Math.floor((y - layout.bottom) / layout.rowHeight);
-      row = info.rows + k;
-      top = layout.bottom + k * layout.rowHeight;
-    } else if (y < layout.headBottom) {
-      row = 0;
-      top = layout.top;
-      height = layout.headBottom - layout.top;
-    } else {
-      // Right of the table: the row shown at the point
-      const tr = this.host.shownRows(info).find((r) => {
-        if (this.host.rowOf(info, r) === 0 || !r.isConnected) return false;
-        const rect = r.getBoundingClientRect();
-        return rect.top <= clientY && clientY < rect.bottom;
-      });
-      if (!tr) return undefined;
-      const rect = tr.getBoundingClientRect();
-      row = this.host.rowOf(info, tr);
-      top = rect.top - origin.y;
-      height = rect.height;
-    }
-    return { at: { row, column }, left, top, width, height };
+    if (at.row >= info.rows) return { left, top: layout.bottom + (at.row - info.rows) * layout.rowHeight, width, height: layout.rowHeight };
+    if (at.row === 0) return { left, top: layout.top, width, height: layout.headBottom - layout.top };
+    const row = this.host.cellAt(info, { row: at.row, column: 0 })?.parentElement;
+    if (!row?.isConnected) return undefined;
+    const rect = row.getBoundingClientRect();
+    return { left, top: rect.top - origin.y, width, height: rect.height };
   }
 }
 
