@@ -38,12 +38,11 @@ export function removeAllMetadata(): void {
 }
 
 /**
- * What a notification says of definitions refused: which, why, and how to find
- * the script that gave them (the definitions do not say where they come from)
+ * What a notification says of definitions refused: which and why (the library
+ * page's Lua adds where they come from: the definitions do not say)
  */
-function notDefined(what: string, api: string, problems: readonly string[]): string | undefined {
-  if (!problems.length) return undefined;
-  return `Silverware Table: ${what} not defined: ${problems.join("; ")}. Search the space for ${api} to find the space-lua block giving them.`;
+function notDefined(what: string, problems: readonly string[]): string | undefined {
+  return problems.length ? `Silverware Table: ${what} not defined: ${problems.join("; ")}.` : undefined;
 }
 
 /**
@@ -57,7 +56,7 @@ export function defineFunctions(definitions: unknown): string | undefined {
   const { functions, problems } = customFunctions(definitions);
   defineCustomFunctions(functions);
   definitionsChanged();
-  return notDefined("custom functions", "defineFunctions", problems);
+  return notDefined("custom functions", problems);
 }
 
 /**
@@ -69,7 +68,7 @@ export function defineTypes(definitions: unknown): string | undefined {
   const { types, problems } = customTypes(definitions);
   defineCustomTypes(types);
   definitionsChanged();
-  return notDefined("custom column types", "defineTypes", problems);
+  return notDefined("custom column types", problems);
 }
 
 /**
@@ -81,7 +80,7 @@ export function defineTypes(definitions: unknown): string | undefined {
 export function defineSeries(definitions: unknown): string | undefined {
   const { series, problems } = customSeries(definitions);
   defineCustomSeries(series);
-  return notDefined("custom series", "defineSeries", problems);
+  return notDefined("custom series", problems);
 }
 
 /** Space Lua is loaded (again): the custom definitions are made anew, replacing those of before */

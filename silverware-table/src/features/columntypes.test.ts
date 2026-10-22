@@ -167,7 +167,7 @@ describe("Column types", () => {
     it("shows cells as a custom type defined from Space Lua; one that fails marks the cell", async () => {
       // Space Lua defines them before the page's tables show
       expect(defineTypes([TEMP, { name: "bad-name" }])).toBe(
-        'Silverware Table: custom column types not defined: type 2: its name "bad-name" is not letters, digits and _ starting with a letter. Search the space for defineTypes to find the space-lua block giving them.',
+        'Silverware Table: custom column types not defined: type 2: its name "bad-name" is not letters, digits and _ starting with a letter.',
       );
       await setup("| Place | Temp #temp-f |\n|---|---|\n| Oven | 350 |\n| Sun | hot |\n| Moon | cold |\n");
       expect(cell(1, 1).textContent).toBe("350 °F");
