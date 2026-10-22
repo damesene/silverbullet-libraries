@@ -2932,7 +2932,8 @@ html[data-theme="dark"] .tp-excel-error {
 /* The title centered; a submenu's back arrow at the left */
 .tp-menu-title {
   display: grid;
-  grid-template-columns: 1fr minmax(0, max-content) 1fr;
+  /* The back arrow | the title | its pencil | the ×: the sides keep room for the arrow and the ×, the title is cut first */
+  grid-template-columns: minmax(22px, 1fr) minmax(0, max-content) auto minmax(22px, 1fr);
   align-items: center;
   gap: 4px;
   padding: 4px 8px 6px;
@@ -2970,7 +2971,7 @@ html[data-theme="dark"] .tp-excel-error {
 }
 /* The × closing the menu, at the title's right */
 .tp-menu-close {
-  grid-column: 3;
+  grid-column: 4;
   grid-row: 1;
   justify-self: end;
   display: inline-flex;
