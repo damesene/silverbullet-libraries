@@ -183,6 +183,8 @@ export class Formulas implements Feature {
   // The cell edited whose formula shows in its table's addresses though a frame lays the table out (editKey):
   // the frame could not show it
   private unframed: string | undefined;
+  // Why a range dragged over is not pointed at (a sorted table in a frame's addresses), shown in the hint
+  private noRange: { readonly editor: CellEditor; readonly text: string } | undefined;
 
   constructor(private readonly host: ModelHost) {
     this.formulaHint = host.panel("swt-formula-hint");
@@ -350,6 +352,7 @@ export class Formulas implements Feature {
     // Typing makes the reference just pointed at part of the formula: pointing no longer replaces it
     // (F4 cycles the reference just pointed at: pointing again still replaces it)
     if (!["Shift", "Control", "Alt", "Meta", "F4"].includes(e.key)) this.pointed = undefined;
+    this.noRange = undefined;
     if (e.ctrlKey || e.altKey || e.metaKey) return false;
     // Shift+F3, as in a spreadsheet: every function, to find one and insert it
     if (e.key === "F3" && e.shiftKey && editor.row > 0 && this.allowed(editor)) {
@@ -430,6 +433,7 @@ export class Formulas implements Feature {
 
   editorClosed(): void {
     // (unframed stays: the editor's value is read after it closed; the next editor opened sets it anew)
+    this.noRange = undefined;
     this.functions.close();
     this.stopPointing?.();
     this.pointed = undefined;
@@ -475,15 +479,24 @@ export class Formulas implements Feature {
 
   /**
    * An area of the table edited as the formula edited writes it: in a frame's
-   * addresses where one lays the table out. Not one area there (a range in a
-   * sorted table): by the table's name, as stored; undefined if it has none.
+   * addresses where one lays the table out. Undefined where it is not one area
+   * there (a range of rows in a sorted or filtered table): it is not pointed
+   * at (noRanged says why).
    */
   private areaWritten(info: TableInfo, active: CellEditor, area: Area, fixed?: Fixed): string | undefined {
     const frame = this.frameFor(info, active);
     const out = frame?.outward(undefined, area);
-    if (!frame || out) return areaText(out ?? area, fixed);
-    const own = metaName(parseTable(info.source));
-    return own ? writtenArea(area, fixed, own) : undefined;
+    return !frame || out ? areaText(out ?? area, fixed) : undefined;
+  }
+
+  /** A range dragged over that has no address (areaWritten): the hint says why, and what to use instead */
+  private noRanged(info: TableInfo, active: CellEditor, column: number): void {
+    if (this.noRange?.editor === active) return;
+    const headers = parseTable(info.source).rows[0]?.cells ?? [];
+    const whole = columnRefText(columnIdOf(headers, column), false);
+    const instead = whole ? `Use the whole column, ${whole} (a click on its header), or sort the rows in the markdown.` : "Sort the rows in the markdown first.";
+    this.noRange = { editor: active, text: `A range cannot be pointed at in a sorted or filtered table here: its rows are not in the markdown's order. ${instead}` };
+    this.updateFormulaUi();
   }
 
   /**
@@ -738,6 +751,7 @@ export class Formulas implements Feature {
         }
         const to = this.bodyCellAt(info, at.x, at.y);
         const text = to && this.areaWritten(info, active, areaTo(to));
+        if (to && !text) this.noRanged(info, active, to.column);
         if (text && text !== active.text.slice(span.from, span.to)) put(text, anchor);
       },
       onKey: end,
@@ -883,6 +897,9 @@ export class Formulas implements Feature {
     } else {
       const help = formulaHelp(formula, active.selection[0]);
       if (help) body.append(this.helpLine(help));
+    }
+    if (this.noRange?.editor === active) {
+      body.append(Object.assign(doc.createElement("div"), { className: "swt-formula-help swt-formula-note", textContent: this.noRange.text }));
     }
     // Under the cell, above it where it does not fit and there is more room (fx at its bottom, by the cell again);
     // its cell scrolled out of view (the field with it, or the popup cut so): none, as there is no help either
@@ -1099,6 +1116,7 @@ export class Formulas implements Feature {
         const cell = this.bodyCellAt(info, at.x, at.y);
         const current = references(active.text)[index];
         const text = cell && current && textFor(cell);
+        if (cell && current && !text && ref.kind === "area") this.noRanged(info, active, cell.column);
         if (!text || !current || active.text.slice(current.from, current.to) === text) return;
         active.insert(current.from, current.to, text);
         const caret = current.from + text.length;

@@ -474,6 +474,34 @@ test.describe("Sheet view", () => {
     await expect(sheetCell(page, 2, 2)).toHaveAttribute("title", "=B2*2");
   });
 
+  test("sorted on the sheet: a range dragged over says why it is not pointed at, a header click gives the column", async ({ page }) => {
+    await page.locator("#source").fill("# Test\n\n| Item | Qty | Double |\n|---|--:|--:|\n| Pear | 5 | 10 |\n| Fig | 3 | 6 |\n| Kiwi | 4 | 8 |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(3);
+    await openSheet(page);
+    await sheetTable(page).locator("thead tr > *").nth(1).hover();
+    await sheetTable(page).locator("thead tr > *").nth(1).locator(".swt-sort").click();
+    await expect(sheetTable(page).locator("tbody tr").first()).toContainText("Fig");
+    // Pear's Double (the last row shown): a new formula
+    await sheetCell(page, 1, 2).dblclick();
+    const field = sheetTable(page).locator(".swt-cell-editor");
+    await field.fill("=SUM(");
+    // Shown: Fig, Kiwi (row 3), Pear (row 4); dragged over Kiwi's and Pear's Qty: the markdown's third and first rows, not one range
+    const from = (await sheetCell(page, 3, 1).boundingBox())!;
+    const to = (await sheetCell(page, 1, 1).boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 4 });
+    await page.mouse.up();
+    // The first cell pointed at stays, the hint says why the range is not
+    await expect(field).toHaveValue("=SUM(B3");
+    await expect(page.locator(".swt-formula-note")).toContainText("A range cannot be pointed at in a sorted or filtered table");
+    await expect(page.locator(".swt-formula-note")).toContainText("[qty]");
+    // The header: the whole column, in place of the cell just pointed at
+    await sheetTable(page).locator("thead tr > *").nth(1).click();
+    await expect(field).toHaveValue("=SUM([qty]");
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");
