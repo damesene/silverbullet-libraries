@@ -1,8 +1,10 @@
 # Silverware Table: modules isolated from the rendering
 
-Status: started 2026-10-22, branch `core-view-isolation`. Done: step 1, and of
-step 2 the column types (looks, the choice list as a panel) and the filters'
-header mark.
+Status (2026-10-22, branch `core-view-isolation`): steps 1 to 6 done but the
+second renderer. The modules in `src/features/` are typed against `ModelHost`
+and `TableInfo` (no element of the rendering); the rendering modules are the
+adapter's (`core/silverbullet/modules/`, `AdapterFeature`, `TableHost`);
+`isolation.test.ts` checks what types cannot (imports, selectors).
 
 ## Why
 
@@ -51,6 +53,25 @@ writing every module again.
 - A test fails when a module refers to the rendered table (its element types,
   its selectors and classes, the host's methods that hand out its elements).
 
+## The types
+
+- `TableInfo`: a table shown, in model terms (key, source, its place in the
+  page, shape, pins); `WidgetInfo` is it with its rendered `<table>`, the
+  adapter's.
+- `ModelHost`: what the core offers the modules, in model terms only.
+  `TableHost` extends it with the rendering (elements, rows as rendered, the
+  cell editor's field), for the adapter's modules.
+- `Feature`: the modules' hooks, without the widget (`cellMenu(info, at,
+  point)`, `toolbarButtons(info)`, `action(name, info, column)` …).
+  `AdapterFeature` adds the rendering's hooks (`decorate`, `tableAdded`,
+  `placeRows`, `rowNeeded`, `rowsAttached`, `cellHovered` with its td).
+- `CellEditor`: the editor's model (its cell, text, selection, calls);
+  `RenderedEditor` adds its widget, cell and field, the adapter's.
+- Order of what modules add without knowing each other: the modules' order in
+  `modules.ts`, and named slots where one list takes several modules'
+  entries (`CELL_MENU_ORDER` for the cell menu's groups, `HEADER_ICON_ORDER`
+  for icons after a header's name).
+
 ## The API, in model terms
 
 What replaces what the modules do on the DOM (the inventory of 2026-10-22):
@@ -61,14 +82,16 @@ What replaces what the modules do on the DOM (the inventory of 2026-10-22):
   a type's value, the edited cell's text), `tableFor(key)`.
 - **Writing by key**: `write(info, change, options)` and the structural edits
   (`core/structure.ts`) by the table's key, rendered or not (`writeTable`).
-- **Looks of cells**: `Feature.cellLook(info, ref, markdown)` returns what a
-  cell shows and is (`display`: text or a link, `value` for sorting, `marks`,
-  `title`), the core merges the modules' looks in their order and the renderer
-  applies them; `Feature.headerLook(info, column)`: icons after the name (the
-  type's, the filter mark), marks, the type hashtag hidden.
+- **Looks of cells**: `Feature.looks(info, table)` returns what cells show and
+  are (`CellLook`: `display`, text or a link, `value` for sorting, `marks`,
+  `title`) and headers (`HeaderLook`: icons after the name, marks, the type
+  hashtag hidden); the core merges the modules' looks in their order
+  (`core/looks.ts`) and the adapter applies them. `Feature.tableLook(meta)`:
+  attributes of the table (the theme).
 - **Marks** that change without a new rendering (the selection, the column a
-  grip hovers): `host.marks(layer).set(info, cells, mark)`; kept by table key
-  and cell, so a table rendered anew shows them again.
+  grip hovers): `host.markLayer(mark).set(key, cells)`, `tableMark`,
+  `pageMark`; kept by table key and cell, so a table rendered anew shows them
+  again.
 - **Outlines** of ranges (copied, cut, filled, a move's target, a formula's
   references) and **handles** at a range's corner (the fill handle, the
   selection's handles), drawn by the renderer, reporting presses and drags.
@@ -103,6 +126,10 @@ methods stay until no module uses them.
 4. Formulas (looks, the hint as a panel at the editor, reference outlines with
    drag handles, pointing as cell presses).
 5. The rendering modules into the renderer (sticky, largeTables, longText,
-   widths, popup, autoscroll, expressions, the views over the window).
-6. The old DOM members of `TableHost` and `Feature` removed, the isolation test
-   on; the sheet's own tables as a second renderer.
+   popup, autoscroll, history, expressions, the views over the window). The
+   widths stayed a module: the widths are its decision (`columnWidths`), the
+   adapter applies them.
+6. The types split (`ModelHost`/`TableHost`, `Feature`/`AdapterFeature`,
+   `CellEditor`/`RenderedEditor`), the isolation test on. Left: the sheet's own
+   tables as a second renderer (variant B, kept in a stash of the branch
+   `sheet-self-render`).
