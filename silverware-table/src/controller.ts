@@ -1120,7 +1120,11 @@ export class Controller implements TableHost {
     // The editor the tables are in: another CodeMirror may come before it in the document (SilverBullet's workbench input)
     const shown = this.shownTables().find((info) => info.table.isConnected);
     const editor = shown?.table.closest<HTMLElement>(EDITOR_SELECTOR) ?? this.doc.querySelector<HTMLElement>(EDITOR_SELECTOR);
-    editor?.focus({ preventScroll: true });
+    if (!editor) return;
+    // The document's selection now is no cursor of the page (a field's, or where a cell editor was in a table
+    // rendered anew since): CodeMirror would take it for its cursor, in the table, and show the table's markdown
+    if (this.doc.activeElement !== editor) this.doc.getSelection()?.removeAllRanges();
+    editor.focus({ preventScroll: true });
   }
 
   get editing(): RenderedEditor | undefined {
