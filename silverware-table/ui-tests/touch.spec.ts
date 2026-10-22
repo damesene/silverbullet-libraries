@@ -17,6 +17,21 @@ test.describe("Touch", () => {
     await expect(menu(page)).toHaveCount(1);
   });
 
+  test("a tap on a choice of the list while typing a formula inserts it, the editor staying open", async ({ page }) => {
+    // Select mode: the first tap selects the cell, the second edits it
+    await tap(page, cell(page, 1, 3));
+    await tap(page, cell(page, 1, 3));
+    const field = page.locator(".swt-cell-editor");
+    await expect(field).toBeFocused();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("=su");
+    const sum = page.locator(".swt-formula-choice", { has: page.locator("code", { hasText: /^SUM$/ }) });
+    await expect(sum).toBeVisible();
+    await tap(page, sum);
+    await expect(field).toHaveValue("=SUM(");
+    await expect(field).toBeFocused();
+  });
+
   test("the selection's handles show after a touch, the fill handle does not", async ({ page }) => {
     await tap(page, cell(page, 2, 1));
     await expect(page.locator(".swt-select-handle").first()).toBeVisible();
