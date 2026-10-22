@@ -100,6 +100,8 @@ export class Sheet implements AdapterFeature {
     | undefined;
   // The board's tables as shown (their rows' order), as of the last view applied to them
   private shownIndex: { placed: Placed; info: WidgetInfo; order: number[] }[] | undefined;
+  // The rows' order each table's cells last looked by (their formulas' addresses on the sheet follow it)
+  private readonly looksOrder = new Map<string, string>();
   // Drawings asked for, by table: only the last of each is put in
   private readonly drawing = new Map<string, number>();
   // A drawing put off while a cell of a table drawn is edited (swapping it would take the editor's cell away)
@@ -192,6 +194,7 @@ export class Sheet implements AdapterFeature {
     this.watching = undefined;
     this.drawing.clear();
     this.shownIndex = undefined;
+    this.looksOrder.clear();
     this.putOff = false;
     this.chosen = undefined;
     this.pendingPress = undefined;
@@ -337,6 +340,13 @@ export class Sheet implements AdapterFeature {
   viewApplied(info: WidgetInfo): void {
     if (this.board?.tables.get(info.key)?.widget !== this.host.widgetOf(info)) return;
     this.shownIndex = undefined;
+    // Sorted or filtered anew: the cells' looks were made before (by the rows' order of before), and what they
+    // show in the sheet's addresses (a formula's title) follows the order now
+    const order = this.shownOrder(info).join(",");
+    if (this.looksOrder.get(info.key) !== order) {
+      this.looksOrder.set(info.key, order);
+      this.host.looksChanged(info);
+    }
     this.queuePlace();
   }
 

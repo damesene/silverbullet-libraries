@@ -459,6 +459,21 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-sheet-board")).toBeFocused();
   });
 
+  test("sorted on the sheet: a formula's title follows the rows' new places at once", async ({ page }) => {
+    await page.locator("#source").fill("# Test\n\n| Item | Qty | Double |\n|---|--:|--:|\n| Pear | 5 | 10 <meta f='=B1*2'> |\n| Fig | 3 | 6 <meta f='=B2*2'> |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(2);
+    await openSheet(page);
+    // The table alone at A1: its header in row 1, Pear's row 2
+    await expect(sheetCell(page, 1, 2)).toHaveAttribute("title", "=B2*2");
+    await sheetTable(page).locator("thead tr > *").nth(1).hover();
+    await sheetTable(page).locator("thead tr > *").nth(1).locator(".swt-sort").click();
+    // Sorted by Qty: Fig first, Pear in row 3
+    await expect(sheetTable(page).locator("tbody tr").first()).toContainText("Fig");
+    await expect(sheetCell(page, 1, 2)).toHaveAttribute("title", "=B3*2");
+    await expect(sheetCell(page, 2, 2)).toHaveAttribute("title", "=B2*2");
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");
