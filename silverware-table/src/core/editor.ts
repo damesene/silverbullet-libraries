@@ -8,7 +8,7 @@ import { escapeCell, type Table, unescapeCell } from "../markdown.ts";
 import { columnAfterMove, moveColumn, moveRow, setCell } from "../ops.ts";
 import { appendRowAt, clampColumnMove, clampRowMove } from "../pins.ts";
 import { OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
-import type { AdapterFeature, CellField, CellRef, FocusTarget, RenderedEditor, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
+import { type AdapterFeature, type CellField, type CellRef, type FocusTarget, PAGE_ROWS, type RenderedEditor, type TableHost, type WidgetInfo, type WriteResult } from "./feature.ts";
 import { STICKY_GAP } from "./layout.ts";
 import { type Growth, growTo, insertRowWith, MOVE_BLOCKED } from "./structure.ts";
 import { withoutTags } from "../tags.ts";
@@ -28,8 +28,6 @@ const NAVIGATION_KEYS = new Set([
   "PageDown",
 ]);
 
-// Rows a PageUp / PageDown jumps (Ctrl; in a selection without Ctrl) or moves a row (Ctrl+Alt)
-export const PAGE_ROWS = 10;
 
 // The cell editor as features see it, and what it takes to put the cell back
 type ActiveEditor = RenderedEditor & {

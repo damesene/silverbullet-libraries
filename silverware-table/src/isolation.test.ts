@@ -23,11 +23,15 @@ describe("isolation", () => {
 
   it("the modules know nothing of the rendering: its types, the adapter, the DOM of SilverBullet", () => {
     expect(matches(features, /\b(HTMLTable\w*Element|WidgetInfo|TableHost|RenderedEditor|AdapterFeature|CellHit)\b/)).toEqual([]);
-    expect(matches(features, /from "\.\.\/(core\/silverbullet\/|dom\.ts|controller\.ts|core\/(adapter|rows|geometry|overwindow|insert|toolbar)\.ts)/)).toEqual([]);
+    expect(matches(features, /from "\.\.\/(dom\.ts|controller\.ts)"/)).toEqual([]);
+    // Of the core, its API (feature.ts) and the helpers in model terms only: structural edits, presses told apart
+    expect(matches(features, /from "\.\.\/core\/(?!(feature|structure|press)\.ts")/)).toEqual([]);
     // Their own UI only: no table's rows or cells looked for, nothing of SilverBullet's or CodeMirror's
     expect(matches(features, /(querySelector\w*|closest)\([^)]*(["'`](td|th|tr|table)\b|\bsb-|\bcm-)/)).toEqual([]);
-    // Floating UI made by the core (host.floating, panel, floatingMenu), which tells it so: not made apart
-    expect(matches(features, /(?<!host\.)\bfloatingMenu\(|\bswt-floating\b/)).toEqual([]);
+    // Their floating UI made by the core (host.floating, panel, floatingMenu), which knows it so: nothing put into the page apart
+    // (but a download's link, clicked and removed at once)
+    const intoPage = matches(features, /\.body\.(append|prepend|appendChild|insertBefore)\(/).filter((m) => !/^\.\/features\/excel\.ts:\d+: doc\.body\.append\(link\);$/.test(m));
+    expect(intoPage).toEqual([]);
   });
 
   it("the core and the adapter name no module", () => {

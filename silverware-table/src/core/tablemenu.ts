@@ -1,7 +1,8 @@
 // The open menu of a table's toolbar (⋯, below its button) or of cells (at
 // the pointer): one at a time. Its items close it when run; Esc, its × or a
 // press elsewhere close it (the controller routes those).
-import { focusMenu, type MenuBack, type MenuEntry, type MenuNaming, namingThatCloses, startNaming, wrapRuns } from "../menu.ts";
+import { type MenuBack, type MenuEntry, type MenuNaming, namingThatCloses, wrapRuns } from "../menu.ts";
+import { focusMenu, startNaming } from "./menu.ts";
 
 export type MenuKind = "table" | "cell";
 
@@ -40,7 +41,6 @@ export class TableMenu {
       naming: namingThatCloses(naming, () => this.close(false)),
       close: () => this.close(true),
     });
-    this.doc.body.append(element);
     this.open = { element, widget, ...place };
     place.anchor?.classList.add("swt-active");
     this.position();

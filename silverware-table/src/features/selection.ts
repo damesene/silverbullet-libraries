@@ -26,6 +26,7 @@ import {
   type HandleLayer,
   type MarkLayer,
   type OutlineLayer,
+  PAGE_ROWS,
   type Panel,
   type ModelHost,
   type ToolbarButton,
@@ -33,7 +34,6 @@ import {
 } from "../core/feature.ts";
 import { watchPress } from "../core/press.ts";
 import { clipboardHtml, clipboardText, writeClipboard } from "../clipboard.ts";
-import { PAGE_ROWS } from "../core/editor.ts";
 import {
   columnBlockTo,
   deleteColumnsAt,

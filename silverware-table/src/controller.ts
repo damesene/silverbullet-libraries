@@ -53,7 +53,8 @@ import {
   type TableMeta,
   type TableRange,
 } from "./markdown.ts";
-import { floatingMenu, type MenuBack, type MenuEntry, type MenuNaming } from "./menu.ts";
+import type { MenuBack, MenuEntry, MenuNaming } from "./menu.ts";
+import { floatingMenu, focusMenu } from "./core/menu.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { keepTags } from "./tags.ts";
 import { nameEmptyHeaders, reorderRows } from "./ops.ts";
@@ -2069,7 +2070,12 @@ export class Controller implements TableHost {
   floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void }): HTMLElement {
     const menu = floatingMenu(this.doc, title, entries, options);
     this.made.add(menu);
+    this.doc.body.append(menu);
     return menu;
+  }
+
+  focusMenu(menu: HTMLElement): void {
+    focusMenu(menu);
   }
 
   isFloating(node: Node): boolean {

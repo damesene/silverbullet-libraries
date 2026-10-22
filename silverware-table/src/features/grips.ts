@@ -21,7 +21,7 @@ import {
 } from "../core/structure.ts";
 import { ICONS } from "../icons.ts";
 import { type Align, parseTable, type Table } from "../markdown.ts";
-import { focusMenu, type MenuEntry, namingThatCloses, wrapRuns } from "../menu.ts";
+import { type MenuEntry, namingThatCloses, wrapRuns } from "../menu.ts";
 import { setAlign } from "../ops.ts";
 import { columnZone, insertColumnAt, insertRowAt, rowZone } from "../pins.ts";
 import { type ViewState, withoutSort, withSort } from "../view.ts";
@@ -558,7 +558,6 @@ export class Grips implements Feature {
     // Opened by a tap (a long press): that press is the grip's. The click a touch screen fires after the finger lifts
     // would land on the item that opened under it (Copy, under a column's grip); a mouse's click stays on the grip
     if (this.host.pressedWith === "touch") this.host.takePress();
-    const { doc } = this.host;
     const { info } = target;
     // The line's name in the title, a pencil to change it (the names module's); saved, the menu closes
     const named = this.host.menuNaming(info, axis === "row" ? { kind: "row", row: line } : { kind: "column", column: line });
@@ -567,7 +566,6 @@ export class Grips implements Feature {
     const title = axis === "row" ? (naming?.name ? `Row: ${naming.name}` : `Row ${target.row}`) : `Column: ${naming?.name ?? header}`;
     const entries = axis === "row" ? this.rowMenu(info, target.row!, target.column) : this.columnMenu(info, target.column);
     const element = this.host.floatingMenu(title, entries, { naming, close: () => this.closeMenu(true) });
-    doc.body.append(element);
     const selected = this.selectionOf(info);
     if (at) {
       // By the point pressed, following its cell as the page scrolls
@@ -581,7 +579,7 @@ export class Grips implements Feature {
       grip.classList.add("swt-active");
     }
     this.positionMenu();
-    focusMenu(element);
+    this.host.focusMenu(element);
   }
 
   /**
@@ -604,7 +602,7 @@ export class Grips implements Feature {
     menu.element.replaceWith(element);
     this.menu = { ...menu, element };
     this.positionMenu();
-    focusMenu(element);
+    this.host.focusMenu(element);
   }
 
   /** Rows: to the right of the grip; columns: below it; always inside the window */

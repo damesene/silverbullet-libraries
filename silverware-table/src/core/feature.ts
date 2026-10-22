@@ -362,6 +362,9 @@ export type WriteEdit = WriteOptions & { readonly page: WritePage };
  * inserting into them, filling from them, viewing (filters), deleting last.
  * A feature picks a slot by meaning, never by another feature's entries.
  */
+// Rows a PageUp / PageDown jumps (Ctrl; in a selection without Ctrl) or moves a row (Ctrl+Alt)
+export const PAGE_ROWS = 10;
+
 export const CELL_MENU_ORDER = { clipboard: -1, naming: 0, editing: 1, inserting: 1.2, filling: 1.5, viewing: 2, deleting: 9 } as const;
 
 /** A group of entries in the cell menu, between separators (CELL_MENU_ORDER) */
@@ -501,8 +504,10 @@ export interface ModelHost {
   headerRenamed(name: string, original: string): string;
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
   openCellMenu(info: TableInfo, at: CellRef, point: { x: number; y: number }): boolean;
-  /** A menu floating over the page (menu.ts), one of the core's floating elements: to put into the page and focus once placed */
+  /** A menu floating over the page (core/menu.ts) made of the entries, one of the core's floating elements, in the page: to place and focus (focusMenu) */
   floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void }): HTMLElement;
+  /** The keyboard into a menu made by floatingMenu, once it is placed (its entry checked, if it is a list) */
+  focusMenu(menu: HTMLElement): void;
   /** A floating element (position: fixed) in the page, kept out of the editor's way */
   floating<K extends keyof HTMLElementTagNameMap>(tag: K, className: string): HTMLElementTagNameMap[K];
   /** Places a floating element at a point of the viewport, kept inside it sideways, and shows it */
