@@ -11,7 +11,7 @@
 // And a row's name (its row menu): pear[price] is the row's Price cell,
 // wherever the row is moved or sorted.
 import { columnIdOf } from "../columns.ts";
-import type { CellLook, CellRef, Feature, HeaderLook, MetadataPart, NamingTarget, TableHost, TableLooks, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { CellLook, CellRef, Feature, HeaderLook, MetadataPart, NamingTarget, ModelHost, TableLooks, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { functionNamed } from "../formulas/registry.ts";
 import { findTables, locateBySource, parseTable, type Table } from "../markdown.ts";
 import { metaName, sameTableName, tableNameProblem, withMetaName } from "../meta.ts";
@@ -28,7 +28,7 @@ function listed(names: readonly string[]): string {
 }
 
 export class Names implements Feature {
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: ModelHost) {}
 
   /** A name is one cell's, one row's: a copy of a row takes none */
   uniqueTags(): readonly string[] {
@@ -36,7 +36,7 @@ export class Names implements Feature {
   }
 
   /** Deleting a column removes the names of the rows and cells it holds, and the formulas using them break */
-  columnDeleteWarning(info: WidgetInfo, column: number): string | undefined {
+  columnDeleteWarning(info: TableInfo, column: number): string | undefined {
     const body = parseTable(info.source).rows.slice(1);
     const rows = body.flatMap((r) => {
       const named = rowNameIn(r.cells);
@@ -64,7 +64,7 @@ export class Names implements Feature {
   }
 
   /** Named cells show a mark in their corner, and their name on hover */
-  looks(_info: WidgetInfo, table: Table): TableLooks | undefined {
+  looks(_info: TableInfo, table: Table): TableLooks | undefined {
     const headers: ({ column: number } & HeaderLook)[] = [];
     const cells: (CellRef & CellLook)[] = [];
     // A column's name: the same mark in its header
@@ -86,11 +86,11 @@ export class Names implements Feature {
   }
 
   /** The table's name at the toolbar's left: a click opens its ⋯ menu, the name to type in its title */
-  toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: TableInfo): ToolbarButton[] {
     const name = metaName(parseTable(info.source));
     if (!name) return [];
     const title = `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`;
-    return [{ label: name, title, place: "label", run: () => this.host.openTableMenu(widget, true) }];
+    return [{ label: name, title, place: "label", run: () => this.host.openTableMenu(info, true) }];
   }
 
   /**
@@ -99,7 +99,7 @@ export class Names implements Feature {
    * a column's ([name] whatever its header says). Names are metadata: with
    * the setting off only one already there can be changed or removed.
    */
-  menuNaming(_widget: HTMLElement, info: WidgetInfo, target: NamingTarget): MenuNaming | undefined {
+  menuNaming(info: TableInfo, target: NamingTarget): MenuNaming | undefined {
     const table = parseTable(info.source);
     const needs = "Needs the Store table metadata setting";
     if (target.kind === "table") {
@@ -148,7 +148,7 @@ export class Names implements Feature {
    * Names, renames or (with an empty name) unnames a table; refused, with
    * why, when it is not a valid name or another table on the page has it
    */
-  private async renameTable(shownInfo: WidgetInfo, name: string): Promise<string | undefined> {
+  private async renameTable(shownInfo: TableInfo, name: string): Promise<string | undefined> {
     const shown = parseTable(shownInfo.source);
     // Against the name as stored, so an empty answer also clears a name that is not valid
     if (name === (shown.meta?.name?.trim() ?? "")) return this.unchanged();
@@ -172,7 +172,7 @@ export class Names implements Feature {
   }
 
   /** Names a row (empty: unnames it); refused, with why, when not valid or another row of the table has it */
-  private async nameRow(shownInfo: WidgetInfo, row: number, name: string): Promise<string | undefined> {
+  private async nameRow(shownInfo: TableInfo, row: number, name: string): Promise<string | undefined> {
     const table = parseTable(shownInfo.source);
     const current = rowNameIn(table.rows[row]?.cells ?? [])?.name ?? "";
     if (name === current) return this.unchanged();
@@ -196,7 +196,7 @@ export class Names implements Feature {
    * function's or another cell's of the table (a name is the table's: another
    * table may have a cell of the same name, written there as its name!name)
    */
-  private async nameCell(shownInfo: WidgetInfo, row: number, column: number, name: string): Promise<string | undefined> {
+  private async nameCell(shownInfo: TableInfo, row: number, column: number, name: string): Promise<string | undefined> {
     const table = this.host.tableOf(shownInfo);
     const current = cellNameOf(table.rows[row]?.cells[column] ?? "") ?? "";
     if (name === current) return this.unchanged();
@@ -214,7 +214,7 @@ export class Names implements Feature {
   }
 
   /** Names a column (empty: unnames it); refused, with why, when not valid or another column answers to it */
-  private async rename(shownInfo: WidgetInfo, column: number, name: string): Promise<string | undefined> {
+  private async rename(shownInfo: TableInfo, column: number, name: string): Promise<string | undefined> {
     const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
     const current = nameOf(headers[column] ?? "") ?? "";
     if (name === current) return this.unchanged();

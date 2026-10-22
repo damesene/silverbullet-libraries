@@ -24,10 +24,10 @@ import {
   type Panel,
   type PanelAnchor,
   type PanelOptions,
-  type TableHost,
+  type ModelHost,
   type TableLooks,
   type ToolbarButton,
-  type WidgetInfo,
+  type TableInfo,
 } from "../core/feature.ts";
 import { type FilterOptions, normalizeForFilter, parseFilter } from "../filter.ts";
 import { ICONS } from "../icons.ts";
@@ -122,7 +122,7 @@ export class Filters implements Feature {
       }
     | undefined;
 
-  constructor(private readonly host: TableHost) {
+  constructor(private readonly host: ModelHost) {
     this.filtering = host.markLayer("filtered");
     this.panel = host.panel("swt-filter-bubble");
   }
@@ -147,7 +147,7 @@ export class Filters implements Feature {
   }
 
   /** The filters stored in the table (filter.*), by column */
-  private storedFilters(info: WidgetInfo): readonly string[] {
+  private storedFilters(info: TableInfo): readonly string[] {
     const known = this.stored.get(info.key);
     if (known?.source === info.source) return known.filters;
     const filters: string[] = [];
@@ -160,12 +160,12 @@ export class Filters implements Feature {
   }
 
   /** The table's filters, by column: those typed, else those stored */
-  private filtersOf(info: WidgetInfo): readonly string[] {
+  private filtersOf(info: TableInfo): readonly string[] {
     return this.typed.get(info.key) ?? this.storedFilters(info);
   }
 
   /** The filters that filter, by column */
-  private matchers(info: WidgetInfo): Map<number, (value: string) => boolean> {
+  private matchers(info: TableInfo): Map<number, (value: string) => boolean> {
     const matchers = new Map<number, (value: string) => boolean>();
     this.filtersOf(info).forEach((filter, column) => {
       const match = parseFilter(filter, this.options).match;
@@ -174,7 +174,7 @@ export class Filters implements Feature {
     return matchers;
   }
 
-  hiddenRows(info: WidgetInfo, values: readonly (readonly string[])[]): ReadonlySet<number> | undefined {
+  hiddenRows(info: TableInfo, values: readonly (readonly string[])[]): ReadonlySet<number> | undefined {
     const matchers = this.matchers(info);
     if (matchers.size === 0) return undefined;
     const hidden = new Set<number>();
@@ -189,24 +189,24 @@ export class Filters implements Feature {
     return hidden;
   }
 
-  hidesRows(info: WidgetInfo): boolean {
+  hidesRows(info: TableInfo): boolean {
     return this.matchers(info).size > 0;
   }
 
   /** A filter mark in each header, shown while its column filters (also with the filter row hidden): a click changes the filter */
-  looks(info: WidgetInfo): TableLooks {
+  looks(info: TableInfo): TableLooks {
     const mark = { svg: ICONS.filter, title: "Filtered: click to change the filter", className: "swt-filter-mark", order: HEADER_ICON_ORDER.state, action: "filter" };
     return { headers: Array.from({ length: info.columns }, (_, column) => ({ column, icons: [mark] })) };
   }
 
   // The headers of the columns filtering marked; a column's bubble follows its header, which a write renders anew
-  viewApplied(_widget: HTMLElement, info: WidgetInfo): void {
+  viewApplied(info: TableInfo): void {
     this.filtering.set(info.key, [...this.matchers(info).keys()].map((column) => ({ row: 0, column })));
     if (this.bubble?.popover && this.bubble.key === info.key) this.panel.show(this.bubble.anchor, BUBBLE_PLACE);
   }
 
   /** The filter row while it is shown: a field per column, as the filters are */
-  headerRow(info: WidgetInfo): HeaderRow | undefined {
+  headerRow(info: TableInfo): HeaderRow | undefined {
     if (!this.shown.has(info.key)) {
       // A field taken away with the row: its bubble goes too
       if (this.bubble && !this.bubble.popover && this.bubble.key === info.key) this.hideBubble();
@@ -232,7 +232,7 @@ export class Filters implements Feature {
   }
 
   /** The filter icon at the toolbar's right; while filtered, "3 of 10 rows", its × clearing the filters */
-  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: TableInfo): ToolbarButton[] {
     const { key } = info;
     const buttons: ToolbarButton[] = [];
     if (this.hidesRows(info)) {
@@ -269,7 +269,7 @@ export class Filters implements Feature {
    * rows with one of them) and Filter ≠ their values (rows with none); added
    * to a list of that kind the column filters by already
    */
-  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): { order: number; entries: MenuEntry[] } | undefined {
+  cellMenuEntries(info: TableInfo, cells: readonly CellRef[]): { order: number; entries: MenuEntry[] } | undefined {
     const body = cells.filter((ref) => ref.row > 0);
     const column = body[0]?.column;
     if (column === undefined || body.some((ref) => ref.column !== column)) return undefined;
@@ -298,7 +298,7 @@ export class Filters implements Feature {
   }
 
   /** "Filter" in a column's menu: its filter in a bubble under its header, and a × removing it */
-  columnMenuEntries(_widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
+  columnMenuEntries(info: TableInfo, column: number): MenuEntry[] {
     const filtered = (this.filtersOf(info)[column] ?? "").trim() !== "";
     return [
       {
@@ -317,8 +317,8 @@ export class Filters implements Feature {
     ];
   }
 
-  action(name: string, element: HTMLElement, _widget: HTMLElement, info: WidgetInfo): boolean {
-    const column = Number(element.dataset.swtColumn);
+  action(name: string, info: TableInfo, column: number | undefined): boolean {
+    if (column === undefined) return false;
     if (name === "filter") this.openFilter(info, column);
     else if (name === "clear-filter") this.clear(info, column);
     else return false;
@@ -387,7 +387,7 @@ export class Filters implements Feature {
   }
 
   /** A table rendered again: filters waiting for it are stored */
-  enhanced(_widget: HTMLElement, info: WidgetInfo): void {
+  enhanced(info: TableInfo): void {
     if (this.storesWaiting.delete(info.key)) this.scheduleStore(info.key);
   }
 
@@ -473,7 +473,7 @@ export class Filters implements Feature {
   }
 
   /** A column's filter removed: a field's clear button in the filter row, the × in the column's menu */
-  private clear(info: WidgetInfo, column: number): void {
+  private clear(info: TableInfo, column: number): void {
     const input = this.shown.has(info.key) ? this.rows.get(info.key)?.[column]?.input : undefined;
     if (input) this.type(info.key, input, column, "");
     else this.setFilter(info.key, column, "");
@@ -519,7 +519,7 @@ export class Filters implements Feature {
    * column menu's Filter): nothing in the table moves. Asked again for the same
    * column, it closes.
    */
-  private openFilter(info: WidgetInfo, column: number): void {
+  private openFilter(info: TableInfo, column: number): void {
     const { key } = info;
     if (this.bubble?.popover && this.bubble.key === key && this.bubble.column === column) {
       this.hideBubble();
@@ -669,7 +669,7 @@ export class Filters implements Feature {
   }
 
   /** A column's different values in its body rows (not the pinned ones), in the order they first come */
-  private columnValues(info: WidgetInfo, column: number): ColumnValue[] {
+  private columnValues(info: TableInfo, column: number): ColumnValue[] {
     const { top, bottom } = info.pins;
     const count = info.rows - 1;
     const found = new Map<string, { value: string; label: string; count: number }>();

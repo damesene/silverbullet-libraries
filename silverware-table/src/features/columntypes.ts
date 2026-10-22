@@ -2,7 +2,7 @@
 // (`| Price #currency |`) shows its cells as that type (columntypes/), hides that
 // hashtag, and marks the cells that are not values of the type. The markdown
 // keeps the values as written: sorting, filters and copying use them.
-import { type CellEditor, type CellLook, type CellRef, type Feature, HEADER_ICON_ORDER, type HeaderLook, type Panel, type TableHost, type TableLooks, type WidgetInfo } from "../core/feature.ts";
+import { type CellEditor, type CellLook, type CellRef, type Feature, HEADER_ICON_ORDER, type HeaderLook, type Panel, type ModelHost, type TableLooks, type TableInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import type { MenuDetail, MenuEntry } from "../menu.ts";
 import { setCell } from "../ops.ts";
@@ -67,7 +67,7 @@ export class ColumnTypes implements Feature {
   private readonly picker: Panel;
   private picking: Picking | undefined;
 
-  constructor(private readonly host: TableHost) {
+  constructor(private readonly host: ModelHost) {
     // The type hashtags of headers hidden from the start (a table shows before its looks apply)
     host.hideHeaderTags("types", typeTagPatterns());
     this.picker = host.panel("swt-choices");
@@ -86,9 +86,7 @@ export class ColumnTypes implements Feature {
   // ---- the column menu ----------------------------------------------------------
 
   /** "Type: …" in a column's menu (first in its section of sorting and filtering): picks the column's type, written as a hashtag in its header */
-  columnMenuLeadEntries(
-    _widget: HTMLElement,
-    info: WidgetInfo,
+  columnMenuLeadEntries(info: TableInfo,
     column: number,
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[] {
@@ -139,7 +137,7 @@ export class ColumnTypes implements Feature {
   // ---- the cell editor ------------------------------------------------------------
 
   /** A header is edited as the column's name: its type's hashtag is the menu's business */
-  editorText(info: WidgetInfo, cell: CellRef, original: string): string | undefined {
+  editorText(info: TableInfo, cell: CellRef, original: string): string | undefined {
     if (cell.row !== 0 || !columnTypeOf(unescapeCell(original))) return undefined;
     return unescapeCell(withoutTags(withColumnType(original, undefined)));
   }
@@ -272,7 +270,7 @@ export class ColumnTypes implements Feature {
    * after its name; its cells shown as the type formats them (their value for
    * sorting the type's), those that are not values of the type marked with why
    */
-  looks(info: WidgetInfo, table: Table): TableLooks | undefined {
+  looks(info: TableInfo, table: Table): TableLooks | undefined {
     const headers: ({ column: number } & HeaderLook)[] = [];
     const cells: (CellRef & CellLook)[] = [];
     table.rows[0]?.cells.forEach((name, column) => {

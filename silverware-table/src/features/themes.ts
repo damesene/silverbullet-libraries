@@ -13,7 +13,7 @@
 // as the table is rendered (its metadata as rendered, before the browser lays
 // it out), so a table rendered anew after an edit does not show SilverBullet's
 // look for a moment; once its markdown is read, again from it.
-import type { Feature, TableHost, TableLook, TablePreview, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { Feature, ModelHost, TableLook, TablePreview, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable, type Table, type TableMeta } from "../markdown.ts";
 import type { MenuDetail, MenuEntry } from "../menu.ts";
@@ -45,7 +45,7 @@ export class Themes implements Feature {
   private theme = NATIVE_THEME;
   private stripes: Stripes = "rows";
 
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: ModelHost) {}
 
   start(): void {
     void this.readSettings();
@@ -78,7 +78,7 @@ export class Themes implements Feature {
    * the table's metadata row, also the settings' one (kept whatever the
    * settings become). As names are, only where the table can have metadata.
    */
-  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: TableInfo): ToolbarButton[] {
     if (!info.metaRow && !this.host.metadataEnabled) return [];
     const table = parseTable(info.source);
     const own = metaTheme(table);
@@ -140,7 +140,7 @@ export class Themes implements Feature {
   }
 
   /** The table's own choices written into its metadata row, as one edit (undefined: the setting's again) */
-  private async choose(shownInfo: WidgetInfo, choices: Readonly<Record<string, string | undefined>>): Promise<void> {
+  private async choose(shownInfo: TableInfo, choices: Readonly<Record<string, string | undefined>>): Promise<void> {
     const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
     await this.host.writeTable(info, (table) => Object.entries(choices).reduce((t, [name, value]) => withMeta(t, name, value), table));
     this.host.focusPage();

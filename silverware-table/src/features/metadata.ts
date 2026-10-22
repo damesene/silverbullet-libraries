@@ -4,7 +4,7 @@
 // say what they keep, for the question asked first (Feature.metadataPart).
 // For one table from its toolbar, for all tables of the page with the
 // "Silverware Table: Remove table metadata" command.
-import type { Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { Feature, MetadataPart, ModelHost, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import { findTables, minimalEdit, parseTable, serializeTable, type Table } from "../markdown.ts";
 import { attributesOf, cellTags, withoutTags } from "../tags.ts";
@@ -40,9 +40,9 @@ function described(parts: readonly MetadataPart[], tables: readonly Table[], for
 }
 
 export class Metadata implements Feature {
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: ModelHost) {}
 
-  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: TableInfo): ToolbarButton[] {
     if (!hasMetadata(parseTable(info.source))) return [];
     return [
       {
@@ -60,7 +60,7 @@ export class Metadata implements Feature {
    * stored there goes with it: the rows show as written) and the formulas of
    * its cells, which keep their results as plain values
    */
-  private async removeFromTable(shownInfo: WidgetInfo): Promise<void> {
+  private async removeFromTable(shownInfo: TableInfo): Promise<void> {
     const shown = parseTable(shownInfo.source);
     const removed = [
       ...(shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name, theme, stripes)"] : []),

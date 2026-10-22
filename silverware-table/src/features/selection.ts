@@ -27,9 +27,9 @@ import {
   type MarkLayer,
   type OutlineLayer,
   type Panel,
-  type TableHost,
+  type ModelHost,
   type ToolbarButton,
-  type WidgetInfo,
+  type TableInfo,
 } from "../core/feature.ts";
 import { watchPress } from "../core/press.ts";
 import { clipboardHtml, clipboardText, writeClipboard } from "../clipboard.ts";
@@ -66,7 +66,7 @@ const START_HANDLE = "swt-select-handle swt-select-start";
 const END_HANDLE = "swt-select-handle swt-select-end";
 
 /** The cells selected: their table, its rows (of the markdown) as shown, and the columns from left to right */
-type Area = { readonly info: WidgetInfo; readonly rows: readonly number[]; readonly left: number; readonly right: number };
+type Area = { readonly info: TableInfo; readonly rows: readonly number[]; readonly left: number; readonly right: number };
 
 /** The cells selected, to move: their place among the rows shown (`order`, `top`), their size and the cells by row */
 type Block = Area & {
@@ -128,7 +128,7 @@ export class Selection implements Feature {
   // Edit mode: a click edits a cell; off (select mode, the default) a click selects it. Kept in this browser.
   private editMode = readEditMode();
 
-  constructor(private readonly host: TableHost) {
+  constructor(private readonly host: ModelHost) {
     this.selectedMarks = host.markLayer("selected");
     this.alone = host.markLayer("selected-alone");
     this.handles = host.handleLayer(HANDLE_LAYER);
@@ -196,7 +196,7 @@ export class Selection implements Feature {
    * mode a click selects the cell (dragging on selects more); on the cell
    * selected alone, it edits it (so does a double click).
    */
-  beforeCellPress(_widget: HTMLElement, info: WidgetInfo, ref: CellRef, e: MouseEvent): boolean {
+  beforeCellPress(info: TableInfo, ref: CellRef, e: MouseEvent): boolean {
     const pressed = this.pressed?.key === info.key ? this.pressed : undefined;
     this.pressed = undefined;
     if (!e.shiftKey && (this.editMode || (pressed && same(pressed.anchor, ref) && same(pressed.focus, ref)))) return false;
@@ -236,7 +236,7 @@ export class Selection implements Feature {
    * the button held, selects the cells between the two as shown (sorting and
    * filters included), and closes the cell editor the press opened, unchanged
    */
-  afterCellPress(info: WidgetInfo, anchor: CellRef, e: MouseEvent): void {
+  afterCellPress(info: TableInfo, anchor: CellRef, e: MouseEvent): void {
     this.stopSelecting?.();
     const { key } = info;
     this.stopSelecting = this.host.drag(e, {
@@ -321,7 +321,7 @@ export class Selection implements Feature {
    * `at` is selected (marked, not edited), as a right click selects in a
    * spreadsheet, and stays so for Ctrl+C and Delete
    */
-  selectedCells(info: WidgetInfo, at: CellRef): readonly CellRef[] {
+  selectedCells(info: TableInfo, at: CellRef): readonly CellRef[] {
     const refs = this.selection?.key === info.key ? this.refs() : [];
     if (refs.some((ref) => same(ref, at))) return refs;
     // A cell being edited is saved as the menu takes the focus
@@ -330,7 +330,7 @@ export class Selection implements Feature {
     return [at];
   }
 
-  selectCells(info: WidgetInfo, anchor: CellRef, focus: CellRef): void {
+  selectCells(info: TableInfo, anchor: CellRef, focus: CellRef): void {
     this.selection = { key: info.key, anchor, focus };
     this.show();
   }
@@ -467,12 +467,12 @@ export class Selection implements Feature {
     if (now && focus) this.host.revealCell(now, focus);
   }
 
-  selected(info: WidgetInfo): readonly CellRef[] | undefined {
+  selected(info: TableInfo): readonly CellRef[] | undefined {
     return this.selection?.key === info.key ? this.refs() : undefined;
   }
 
   /** Clear in the menu of rows (columns): their cells (a column's header keeps its name), after the clipboard's entries */
-  lineMenuEntries(_widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+  lineMenuEntries(info: TableInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
     const rows = axis === "row" ? lines : Array.from({ length: info.rows - 1 }, (_, i) => i + 1);
     const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : lines;
     const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
@@ -489,7 +489,7 @@ export class Selection implements Feature {
   }
 
   /** Clear in the menu of a cell or of the cells selected (Copy, Cut and Paste are the paste module's; Copy here when it is off) */
-  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup[] {
+  cellMenuEntries(info: TableInfo, cells: readonly CellRef[]): CellMenuGroup[] {
     const body = cells.filter((ref) => ref.row > 0).length;
     const entries: MenuEntry[] = [];
     if (!this.host.moduleOn("paste")) {
@@ -554,14 +554,14 @@ export class Selection implements Feature {
   }
 
   /** The cells' values in rows as shown, as Ctrl+C copies them */
-  private valuesOf(info: WidgetInfo, cells: readonly CellRef[]): string[][] {
+  private valuesOf(info: TableInfo, cells: readonly CellRef[]): string[][] {
     const rows = new Map<number, string[]>();
     for (const ref of cells) rows.set(ref.row, [...(rows.get(ref.row) ?? []), this.host.shownValue(info, ref) ?? ""]);
     return Array.from(rows.values());
   }
 
   /** The cells, as values in rows as shown, onto the clipboard as Ctrl+C puts them */
-  private async copy(info: WidgetInfo, cells: readonly CellRef[]): Promise<void> {
+  private async copy(info: TableInfo, cells: readonly CellRef[]): Promise<void> {
     const values = this.valuesOf(info, cells);
     try {
       await writeClipboard(this.host.doc, clipboardText(values), clipboardHtml(values));
@@ -578,7 +578,7 @@ export class Selection implements Feature {
   }
 
   // A table rendered again (after a write) shows the selection again: its rows may be elsewhere now
-  enhanced(_widget: HTMLElement, info: WidgetInfo): void {
+  enhanced(info: TableInfo): void {
     if (this.selection?.key === info.key) this.show();
   }
 
@@ -833,7 +833,7 @@ export class Selection implements Feature {
   }
 
   /** Move to…: the next press on a cell of the table (a click, a tap) moves the cells there */
-  private startMoving(info: WidgetInfo): void {
+  private startMoving(info: TableInfo): void {
     this.moving = info.key;
     this.host.pageMark("move-picking", true);
     // Where they would go outlined under the pointer, as while dragging them
@@ -953,12 +953,12 @@ export class Selection implements Feature {
     await this.empty(info, refs);
   }
 
-  private async deleteRows(info: WidgetInfo, rows: readonly number[]): Promise<void> {
+  private async deleteRows(info: TableInfo, rows: readonly number[]): Promise<void> {
     this.clear();
     await deleteRowsAt(this.host, this.host.tableFor(info.key) ?? info, rows);
   }
 
-  private async deleteColumns(info: WidgetInfo, columns: readonly number[]): Promise<void> {
+  private async deleteColumns(info: TableInfo, columns: readonly number[]): Promise<void> {
     this.clear();
     await deleteColumnsAt(this.host, this.host.tableFor(info.key) ?? info, columns);
   }
@@ -967,7 +967,7 @@ export class Selection implements Feature {
    * Empties cells, formulas included, as one edit; header cells keep their
    * names (a column needs one), cells their hidden tags (names)
    */
-  private async empty(info: WidgetInfo, cells: readonly CellRef[]): Promise<void> {
+  private async empty(info: TableInfo, cells: readonly CellRef[]): Promise<void> {
     const refs = cells.filter((ref) => ref.row > 0);
     const emptied = (table: Table, ref: CellRef) => setCell(table, ref.row, ref.column, this.host.keepTags("", table.rows[ref.row]?.cells[ref.column] ?? ""));
     await this.host.writeTable(this.host.tableFor(info.key) ?? info, (t) => refs.reduce(emptied, t));

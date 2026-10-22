@@ -2,14 +2,14 @@
 // (not the browser's full screen); the same icon (Exit full screen) or Esc
 // closes it. The table stays where SilverBullet rendered it, its box laid over
 // the window with the columns' letters and the rows' numbers (core/overwindow.ts).
-import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../../feature.ts";
+import type { AdapterFeature, TableHost, ToolbarButton, WidgetInfo } from "../../feature.ts";
 import { OverWindow } from "../../overwindow.ts";
 import { ICONS } from "../../../icons.ts";
 
-export class FullScreen implements Feature {
+export class FullScreen implements AdapterFeature {
   private readonly over: OverWindow;
 
-  constructor(host: TableHost) {
+  constructor(private readonly host: TableHost) {
     this.over = new OverWindow(host, { className: "swt-fullscreen", changed: () => host.toolbarChanged() });
   }
 
@@ -17,7 +17,8 @@ export class FullScreen implements Feature {
     this.over.stop();
   }
 
-  toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: WidgetInfo): ToolbarButton[] {
+    const widget = this.host.widgetOf(info);
     const on = this.over.key === info.key;
     return [
       {
@@ -39,11 +40,13 @@ export class FullScreen implements Feature {
     this.over.tableAdded(widget, table);
   }
 
-  enhanced(widget: HTMLElement, info: WidgetInfo): void {
+  enhanced(info: WidgetInfo): void {
+    const widget = this.host.widgetOf(info);
     this.over.enhanced(widget, info);
   }
 
-  viewApplied(widget: HTMLElement): void {
+  viewApplied(info: WidgetInfo): void {
+    const widget = this.host.widgetOf(info);
     this.over.viewApplied(widget);
   }
 

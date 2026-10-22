@@ -3,7 +3,7 @@
 // stretch them); hovering one tints its row or column, a click opens the row or
 // column menu, a drag moves the row or column. Shift+click on another grip
 // selects the rows (columns) between.
-import type { CellRef, Feature, LineDrag, MarkLayer, TableHost, WidgetInfo } from "../core/feature.ts";
+import type { CellRef, Feature, LineDrag, MarkLayer, ModelHost, TableInfo } from "../core/feature.ts";
 import { LONG_PRESS_MS } from "../core/press.ts";
 import {
   columnBlockTo,
@@ -30,7 +30,7 @@ type Axis = "row" | "column";
 
 // What the grips currently belong to
 type HandleTarget = {
-  readonly info: WidgetInfo;
+  readonly info: TableInfo;
   readonly row?: number;
   readonly column: number;
 };
@@ -61,7 +61,7 @@ export class Grips implements Feature {
         element: HTMLElement;
         axis: Axis;
         // The table as it was when the menu opened (rendered anew: another info)
-        info: WidgetInfo;
+        info: TableInfo;
         line: number;
         // Kept by the cell `at` (a row's first cell, a column's header, the cell pressed), `dx`, `dy` from its corner
         anchor: { readonly at: CellRef; readonly dx: number; readonly dy: number; readonly width: number; readonly height: number };
@@ -85,7 +85,7 @@ export class Grips implements Feature {
   // The cells of the row (column) a grip hovered acts on, tinted
   private readonly hoverTint: MarkLayer;
 
-  constructor(private readonly host: TableHost) {
+  constructor(private readonly host: ModelHost) {
     this.rowGrip = this.gripButton("swt-handle swt-grip", "Row: click for actions, drag to move");
     this.columnGrip = this.gripButton("swt-handle swt-grip swt-grip-column", "Column: click for actions, drag to move");
     this.hoverTint = host.markLayer("handle-hover");
@@ -181,7 +181,7 @@ export class Grips implements Feature {
   }
 
   /** The pointer is over a cell (or the page moved under it): the grips go to its row and column */
-  hovered(info: WidgetInfo, ref: CellRef): void {
+  hovered(info: TableInfo, ref: CellRef): void {
     this.target = { info, column: ref.column, ...(ref.row > 0 ? { row: ref.row } : {}) };
     // The part of a wide table in view: the table itself may be scrolled sideways
     const shown = this.host.rectOf(info, "table");
@@ -218,7 +218,7 @@ export class Grips implements Feature {
   }
 
   // A menu asked for on a table rendered anew since: opened again there (not only once the selection is shown again: the selection module may be off)
-  enhanced(_widget: HTMLElement, info: WidgetInfo): void {
+  enhanced(info: TableInfo): void {
     if (this.menu?.again?.key === info.key) this.menuAgain();
   }
 
@@ -365,7 +365,7 @@ export class Grips implements Feature {
   }
 
   /** The rows (columns) selected whole, as shown; none when the selection is not whole rows (columns) */
-  private wholeLinesSelected(info: WidgetInfo, axis: Axis): number[] {
+  private wholeLinesSelected(info: TableInfo, axis: Axis): number[] {
     const cells = this.host.selectedCells(info);
     const lines = [...new Set(cells.map((ref) => (axis === "row" ? ref.row : ref.column)))];
     const whole = axis === "row" ? info.columns : this.host.shownOrder(info).length;
@@ -397,7 +397,7 @@ export class Grips implements Feature {
   }
 
   /** Selects the rows (columns) from `from` to `to`, as shown; a column with its header and every row shown */
-  private selectLines(info: WidgetInfo, axis: Axis, from: number, to: number): void {
+  private selectLines(info: TableInfo, axis: Axis, from: number, to: number): void {
     this.selectingLines = true;
     try {
       if (axis === "row") {
@@ -422,7 +422,7 @@ export class Grips implements Feature {
    * the column selected as its grip selects it (the header names the column;
    * a selection of several cells holding it keeps the selection's menu)
    */
-  cellMenu(_widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean {
+  cellMenu(info: TableInfo, at: CellRef, point: { x: number; y: number }): boolean {
     const selected = this.host.selectedCells(info);
     const inSelection = selected.length > 1 && selected.some((ref) => ref.row === at.row && ref.column === at.column);
     for (const axis of ["row", "column"] as const) {
@@ -460,11 +460,11 @@ export class Grips implements Feature {
     // Not enhanced yet: the menu waits for it (its selection shown again then calls this again)
     if (!info) return true;
     this.closeMenu(false, false);
-    return this.cellMenu(info.table, info, at, point);
+    return this.cellMenu(info, at, point);
   }
 
   /** The cells selected in a table, as a menu remembers them */
-  private selectionOf(info: WidgetInfo): string {
+  private selectionOf(info: TableInfo): string {
     return `${info.key}|${this.host
       .selectedCells(info)
       .map((ref) => `${ref.row},${ref.column}`)
@@ -491,7 +491,7 @@ export class Grips implements Feature {
    * The lines a grip moves: the rows (columns) selected whole, when they hold
    * its line and follow each other in the markdown; else just its line
    */
-  private blockOf(info: WidgetInfo, axis: Axis, line: number): { first: number; last: number } {
+  private blockOf(info: TableInfo, axis: Axis, line: number): { first: number; last: number } {
     const lines = this.wholeLinesSelected(info, axis);
     const first = Math.min(...lines);
     const last = Math.max(...lines);
@@ -502,12 +502,12 @@ export class Grips implements Feature {
   }
 
   /** Where a block asked to start at `asked` goes (its first line's place; `first`: it stays) */
-  private blockTo(info: WidgetInfo, axis: Axis, block: { first: number; last: number }, asked: number): number {
+  private blockTo(info: TableInfo, axis: Axis, block: { first: number; last: number }, asked: number): number {
     return axis === "row" ? rowBlockTo(info, block.first, block.last, asked) : columnBlockTo(info, block.first, block.last, asked);
   }
 
   /** Moves a block of rows (columns) to start at `asked`, as one edit; several stay selected where they go */
-  private moveBlock(info: WidgetInfo, axis: Axis, block: { first: number; last: number }, asked: number): void {
+  private moveBlock(info: TableInfo, axis: Axis, block: { first: number; last: number }, asked: number): void {
     const to = this.blockTo(info, axis, block, asked);
     if (to === block.first) return;
     void (axis === "row" ? moveRowsTo : moveColumnsTo)(this.host, info, block.first, block.last, to).then((result) => {
@@ -518,7 +518,7 @@ export class Grips implements Feature {
   }
 
   /** The rows (columns) selected, when the selection holds this one; else just it */
-  private selectedLines(info: WidgetInfo, axis: Axis, line: number): number[] {
+  private selectedLines(info: TableInfo, axis: Axis, line: number): number[] {
     const cells = this.host.selectedCells(info);
     const lines = [...new Set(cells.map((ref) => (axis === "row" ? ref.row : ref.column)))].filter((l) => axis === "column" || l > 0);
     return lines.includes(line) ? lines : [line];
@@ -652,7 +652,7 @@ export class Grips implements Feature {
   }
 
   // `column`: the hovered column, where editing a new row starts
-  private rowMenu(info: WidgetInfo, row: number, column: number): MenuEntry[] {
+  private rowMenu(info: TableInfo, row: number, column: number): MenuEntry[] {
     const host = this.host;
     const rearranged = host.rearranged(info);
     const zone = rowZone(info.pins, info.rows, row);
@@ -745,7 +745,7 @@ export class Grips implements Feature {
   }
 
   /** Delete row (column), or the rows (columns) selected when they hold it */
-  private deleteEntry(info: WidgetInfo, axis: Axis, line: number): MenuEntry {
+  private deleteEntry(info: TableInfo, axis: Axis, line: number): MenuEntry {
     const lines = this.selectedLines(info, axis, line);
     const many = lines.length > 1;
     const run = this.runAndClose(() => {
@@ -762,7 +762,7 @@ export class Grips implements Feature {
   }
 
   /** The features' entries for the lines a grip acts on: the clipboard's bar, then the others (Clear), each a section as in the cell menu */
-  private lineSections(info: WidgetInfo, axis: Axis, line: number): MenuEntry[] {
+  private lineSections(info: TableInfo, axis: Axis, line: number): MenuEntry[] {
     const entries = this.host.lineMenuEntries(info, axis, this.selectedLines(info, axis, line));
     return [...this.section(entries.filter((e) => e.kind === "actions")), ...this.section(entries.filter((e) => e.kind !== "actions"))];
   }
@@ -777,7 +777,7 @@ export class Grips implements Feature {
    * The entries features add to a column's menu: run, they close the menu,
    * but one that showed other entries in its place (a list to pick from)
    */
-  private featureColumnEntries(info: WidgetInfo, column: number, lead = false): MenuEntry[] {
+  private featureColumnEntries(info: TableInfo, column: number, lead = false): MenuEntry[] {
     const open = (title: string, list: readonly MenuEntry[]) => this.replaceMenu(title, list);
     const entries = lead ? this.host.columnMenuLeadEntries(info, column, open) : this.host.columnMenuEntries(info, column, open);
     return wrapRuns(entries, (run) => () => {
@@ -787,7 +787,7 @@ export class Grips implements Feature {
     });
   }
 
-  private columnMenu(info: WidgetInfo, column: number): MenuEntry[] {
+  private columnMenu(info: TableInfo, column: number): MenuEntry[] {
     const host = this.host;
     const view = host.viewOf(info);
     const sorted = view.sort?.column === column ? view.sort.direction : undefined;

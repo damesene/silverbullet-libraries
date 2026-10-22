@@ -12,8 +12,8 @@ import type { OtherPages, PageTable, Table, TableMeta } from "../markdown.ts";
 import type { MenuEntry, MenuNaming } from "../menu.ts";
 import type { Pins, ViewState } from "../view.ts";
 
-export type WidgetInfo = {
-  readonly table: HTMLTableElement;
+/** A table shown, in model terms (what modules get): where it is in the page, its shape, its pins */
+export type TableInfo = {
   // The table's markdown when it was rendered: the editor only reuses a
   // rendered table while its markdown stays exactly the same
   readonly source: string;
@@ -27,6 +27,9 @@ export type WidgetInfo = {
   // Pinned rows and columns, as stored in the metadata row
   readonly pins: Pins;
 };
+
+/** A table shown as the adapter has it: with its rendered element */
+export type WidgetInfo = TableInfo & { readonly table: HTMLTableElement };
 
 /** A table of the page as a write finds it, rendered or not: its key, its markdown as last read and where it was (`hint`) */
 export type TableTarget = Pick<WidgetInfo, "key" | "source" | "hint">;
@@ -133,23 +136,27 @@ export type CellEditor = {
   focus(): void;
   /** Saved as Enter saves (and on as Enter goes on) */
   commit(): void;
-  readonly widget: HTMLElement;
-  readonly cell: HTMLTableCellElement;
   // The cell's markdown when the editor opened
   readonly original: string;
   // What the field showed when it opened: the cell's text, or what a feature showed (a formula)
   readonly initial: string;
-  // An input in the cell, or a textarea in the cell's popup (text that does not fit, wrapped)
-  readonly field: CellField;
   // Edited in the cell's popup
   readonly popup: boolean;
+};
+
+/** The cell editor as rendered (the adapter's): its table's element, its cell, its field */
+export type RenderedEditor = CellEditor & {
+  readonly widget: HTMLElement;
+  readonly cell: HTMLTableCellElement;
+  // An input in the cell, or a textarea in the cell's popup (text that does not fit, wrapped)
+  readonly field: CellField;
 };
 
 /** The field of the cell editor: an input in the cell, a textarea in its popup */
 export type CellField = HTMLInputElement | HTMLTextAreaElement;
 
 /** Where the cell editor shows, for what goes under or above it (a formula's hint, a type's choices): its popup, else its cell */
-export function editorRect(editor: CellEditor): DOMRect {
+export function editorRect(editor: RenderedEditor): DOMRect {
   return (editor.popup ? (editor.field.closest(".swt-cell-popup") ?? editor.cell) : editor.cell).getBoundingClientRect();
 }
 
@@ -374,23 +381,15 @@ export type NamingTarget =
   | { readonly kind: "column"; readonly column: number }
   | { readonly kind: "table" };
 
-export interface TableHost {
+/**
+ * What the core offers the modules (src/features/), in model terms: tables by
+ * their key, cells by their row in the markdown and their column; no element of
+ * the rendering (docs/silverware-table-isolation.md). A module may build its own
+ * UI in what the host gives it (panels, dialogs, menus, its floating elements).
+ */
+export interface ModelHost {
   readonly doc: Document;
   readonly bridge: Bridge;
-  infoOf(widget: HTMLElement): WidgetInfo | undefined;
-  /** The rendered table a key belongs to, if it is enhanced and on screen */
-  widgetForKey(key: string): HTMLElement | undefined;
-  /** The enhanced table an event target is in */
-  enhancedWidgetOf(target: EventTarget | null): [HTMLElement, WidgetInfo] | undefined;
-  /** The header or body cell an event target is in (not the filter or metadata row) */
-  tableCellOf(info: WidgetInfo, target: EventTarget | null): HTMLTableCellElement | undefined;
-  cellRef(info: WidgetInfo, cell: HTMLTableCellElement): CellRef | undefined;
-  /** The header or body cell an event target is in, in an enhanced table; with `key`, only in that table */
-  cellUnder(target: EventTarget | null, key?: string): CellHit | undefined;
-  /** The row of the markdown a row rendered is (the header 0) */
-  rowOf(info: WidgetInfo, tr: HTMLTableRowElement): number;
-  /** The header row and the shown body rows, in display order */
-  shownRows(info: WidgetInfo): HTMLTableRowElement[];
   /** Whether a node is one of Silverware Table's floating controls (toolbar, grips, menus) */
   isFloating(node: Node): boolean;
   /**
@@ -399,27 +398,25 @@ export interface TableHost {
    * back where it was; the cell editor stays open meanwhile
    */
   openDialog(options: DialogOptions): Dialog;
-  /** Re-reads the table, applies `change` and writes it back as one edit */
-  write(widget: HTMLElement, change: (table: Table) => Table | undefined, options?: WriteOptions): Promise<WriteResult>;
   /**
-   * The same for a table of the page by where it is (a WidgetInfo is one),
+   * The same for a table of the page by where it is (a TableInfo is one),
    * whether it is rendered or not: what modules write with
    */
   writeTable(target: TableTarget, change: (table: Table) => Table | undefined, options?: WriteOptions): Promise<WriteResult>;
   /** A table shown, by its key, as it is now (rendered anew after a write: its new info) */
-  tableFor(key: string): WidgetInfo | undefined;
+  tableFor(key: string): TableInfo | undefined;
   /** The tables shown on the page */
-  shownTables(): WidgetInfo[];
+  shownTables(): TableInfo[];
   /** The rows shown, in display order: the header (0) first, then the body rows (their rows in the markdown) as sorted and filtered */
-  shownOrder(info: WidgetInfo): number[];
+  shownOrder(info: TableInfo): number[];
   /** Whether a body row is hidden (filtered out) */
-  rowHidden(info: WidgetInfo, row: number): boolean;
+  rowHidden(info: TableInfo, row: number): boolean;
   /** A cell's text as its markdown renders (a link's text, a `${…}` result), before any feature's look; undefined: not rendered */
-  shownText(info: WidgetInfo, ref: CellRef): string | undefined;
+  shownText(info: TableInfo, ref: CellRef): string | undefined;
   /** A cell's value as sorting, filters and copying see it (a look's value, else its text shown; the edited cell's typed text) */
-  shownValue(info: WidgetInfo, ref: CellRef): string | undefined;
+  shownValue(info: TableInfo, ref: CellRef): string | undefined;
   /** What features want the table's cells to look like changed (Feature.looks): applied anew */
-  looksChanged(info: WidgetInfo): void;
+  looksChanged(info: TableInfo): void;
   /** What features want the tables to look like as a whole changed (Feature.tableLook: a setting): applied anew to every table shown */
   tableLooksChanged(): void;
   /** A small table for a feature's own UI, with this header and rows, looking as the page's tables do with `look` */
@@ -443,15 +440,15 @@ export interface TableHost {
   /** A state of a table for CSS while it lasts (class swt-<mark> on it: picking a cell in it), kept by its key: rendered anew, it has it again */
   tableMark(key: string, mark: string, on: boolean): void;
   /** A cell scrolled into view, the page and its table's box as needed */
-  revealCell(info: WidgetInfo, ref: CellRef): void;
+  revealCell(info: TableInfo, ref: CellRef): void;
   /** The rows shown from one row to another (of the markdown, in the order shown), both included; empty: either not shown */
-  shownBetween(info: WidgetInfo, a: number, b: number): number[];
+  shownBetween(info: TableInfo, a: number, b: number): number[];
   /**
    * Where a part of a table shown is in the window (for a feature's own UI by
    * it: a grip, a menu): a cell, a row (across its cells), a column (its header
    * cell), the table (as far as its box shows it); undefined: not rendered
    */
-  rectOf(info: WidgetInfo, part: { readonly row: number; readonly column: number } | { readonly row: number } | { readonly column: number } | "table"): Rect | undefined;
+  rectOf(info: TableInfo, part: { readonly row: number; readonly column: number } | { readonly row: number } | { readonly column: number } | "table"): Rect | undefined;
   /**
    * A block of rows (columns) dragged from a press `pressedAt` (its y, x): a
    * copy of them follows the pointer, the others make room where they would
@@ -459,17 +456,17 @@ export interface TableHost {
    * the edges it scrolls; the core's (the rendering's). `move` as the pointer
    * moves, `finish` where they go (the block's first line), none: cancelled
    */
-  dragLines(info: WidgetInfo, axis: "row" | "column", block: { readonly first: number; readonly last: number }, pressedAt: number, blockTo: (asked: number) => number): LineDrag | undefined;
+  dragLines(info: TableInfo, axis: "row" | "column", block: { readonly first: number; readonly last: number }, pressedAt: number, blockTo: (asked: number) => number): LineDrag | undefined;
   /**
    * The part of the area from one cell to another (their corners) in view:
    * cut to the table's box, the page's view and, for body cells, what is held
    * over the body (the header, rows pinned to the bottom); undefined: none of it
    */
-  areaRect(info: WidgetInfo, first: CellRef, last: CellRef): Rect | undefined;
+  areaRect(info: TableInfo, first: CellRef, last: CellRef): Rect | undefined;
   /** The cell of a table at a point of the window, by where its rows and columns are (whatever is over them); undefined: not on it */
-  cellAtPoint(info: WidgetInfo, x: number, y: number): CellRef | undefined;
+  cellAtPoint(info: TableInfo, x: number, y: number): CellRef | undefined;
   /** A column shown `width` pixels wide for now (undefined: as Feature.columnWidths has it), a width being dragged */
-  showColumnWidth(info: WidgetInfo, column: number, width: number | undefined): void;
+  showColumnWidth(info: TableInfo, column: number, width: number | undefined): void;
   /**
    * Hashtags in headers not shown, by name (a column type's): hidden from the
    * moment a table is rendered (before its looks apply); given again, they replace those of `owner`
@@ -497,32 +494,28 @@ export interface TableHost {
   /** Whether a click selects first (a feature's select mode), so that a second one acts: a cell's editor, a grip's menu */
   clickSelects(): boolean;
   /** The naming for a menu's title (Feature.menuNaming): the first feature's */
-  menuNaming(info: WidgetInfo, target: NamingTarget): MenuNaming | undefined;
+  menuNaming(info: TableInfo, target: NamingTarget): MenuNaming | undefined;
   /** Opens the table's ⋯ menu (of its toolbar), with `naming` its title's name field open (a name to type) */
-  openTableMenu(widget: HTMLElement, naming?: boolean): void;
+  openTableMenu(info: TableInfo, naming?: boolean): void;
   /** A header given a new name (escaped markdown) other than by its editor: with what features keep in it (Feature.headerRenamed) */
   headerRenamed(name: string, original: string): string;
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
-  openCellMenu(info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean;
+  openCellMenu(info: TableInfo, at: CellRef, point: { x: number; y: number }): boolean;
   /** A floating element (position: fixed) in the page, kept out of the editor's way */
   floating<K extends keyof HTMLElementTagNameMap>(tag: K, className: string): HTMLElementTagNameMap[K];
   /** Places a floating element at a point of the viewport, kept inside it sideways, and shows it */
   place(element: HTMLElement, left: number, top: number): void;
-  /** A table's visible box: the part of it not scrolled out of view */
-  innerBox(widget: HTMLElement): Rect;
   /**
    * Closes the cell editor for an edit that ends editing: `save` adds what the
    * editor held to that edit (undefined: the cell changed in the meantime)
    */
-  takeEditor():
-    | { readonly widget: HTMLElement; readonly row: number; readonly column: number; readonly save: (table: Table) => Table | undefined }
-    | undefined;
+  takeEditor(): { readonly key: string; readonly row: number; readonly column: number; readonly save: (table: Table) => Table | undefined } | undefined;
   /** Closes the cell editor saving, as leaving it does (an edit a feature holds stays held), the focus left where it is */
   saveEditing(): Promise<void>;
   /** Asks the user (SilverBullet's dialog, else the browser's) */
   ask(question: string): Promise<boolean>;
   /** The table as edited: its markdown with the edits features hold (pendingEdits), what a cell's editor starts from */
-  tableOf(info: WidgetInfo): Table;
+  tableOf(info: TableInfo): Table;
   /** The page's text as last read */
   readonly pageText: string;
   /** The name of the page shown */
@@ -530,29 +523,19 @@ export interface TableHost {
   /** The other pages a feature read for formulas (pageLinks); undefined: none reads them */
   otherPages(): OtherPages | undefined;
   /** Selects cells, where a feature selects (Feature.selectCells) */
-  selectCells(info: WidgetInfo, anchor: CellRef, focus: CellRef): void;
+  selectCells(info: TableInfo, anchor: CellRef, focus: CellRef): void;
   /**
    * Edits a cell of a table shown (a selected cell, from the keyboard), its
    * text as the setting says; "replace": the field starts empty, so what is
    * typed replaces the text; "select": the text selected (a paste replaces it)
    */
-  editCell(info: WidgetInfo, ref: CellRef, how?: "replace" | "select", popup?: boolean): void;
-  /**
-   * Edits a cell past the table's last row or column (`at`: row `info.rows` is
-   * the first row past it, column `info.columns` the first column), shown by
-   * the caller's element `cell` (a td of its own where that cell would be):
-   * Enter or Tab saves it, the table grown to hold it in the same edit (rows
-   * above those pinned to the bottom, named columns left of those pinned to
-   * the right), nothing written while it is empty; Esc drops it. Not while
-   * another cell is edited.
-   */
-  editBeyond(widget: HTMLElement, info: WidgetInfo, at: CellRef, cell: HTMLTableCellElement): void;
+  editCell(info: TableInfo, ref: CellRef, how?: "replace" | "select", popup?: boolean): void;
   /** The cell being edited goes on in its popup (a textarea, wrapped), what is typed kept */
   editInPopup(): void;
   /** Whether a feature selects cells (Feature.selectCells) */
   selectsCells(): boolean;
   /** The cells selected in a table, if a feature selects (Feature.selected) */
-  selectedCells(info: WidgetInfo): readonly CellRef[];
+  selectedCells(info: TableInfo): readonly CellRef[];
   /** The cells selected changed (the selection module): what follows them (the quiet + of a last row or column) follows */
   selectionChanged(): void;
   /**
@@ -560,35 +543,26 @@ export interface TableHost {
    * table (the selection module): whether a feature took the selection on past
    * it (Feature.selectionLeaves), so the table's selection ends
    */
-  selectionLeaves(info: WidgetInfo, from: CellRef, step: readonly [number, number]): boolean;
+  selectionLeaves(info: TableInfo, from: CellRef, step: readonly [number, number]): boolean;
   /** Whether a module is on (one feature serves another: pageLinks reads pages for formulas) */
   moduleOn(name: FeatureName): boolean;
   /** Tables changed outside the page (another page read anew): features check them again */
   tablesChanged(): void;
   /** What deleting a column also removes, by the features (names of rows and cells in it) */
-  columnDeleteWarnings(info: WidgetInfo, column: number): string[];
+  columnDeleteWarnings(info: TableInfo, column: number): string[];
   /** Attributes of hidden tags a copy of a row leaves out (names: one per page or table) */
   uniqueTags(): ReadonlySet<string>;
   /** What the features say the metadata of these tables holds (Remove metadata) */
   metadataParts(tables: readonly Table[]): MetadataPart[];
   /** What a feature's toolbar buttons show changed: the toolbar in view is shown again */
   toolbarChanged(): void;
-  /** A table changed its size (a column's width): what follows its layout (pinned columns' offsets, the held header, the controls, cut cells) follows */
-  tableResized(info: WidgetInfo): void;
-  /** Hands the keyboard back to SilverBullet's editor */
-  focusEditor(widget: HTMLElement): void;
   /** Whether a table is shown sorted or with rows hidden (filtered), so rows are not where the markdown has them */
-  rearranged(info: WidgetInfo): boolean;
+  rearranged(info: TableInfo): boolean;
   /**
    * Ends the view a table's metadata stored (its sorting, the features' state
    * read from it: filters), so the table shows its rows as written
    */
   forgetStoredView(key: string): void;
-  /**
-   * A feature changed what a table shows (its filters): the view applied
-   * anew, the row being edited placed with the others and held there
-   */
-  viewChanged(widget: HTMLElement, info: WidgetInfo): void;
   /** The same for the table with `key`, as it is shown now */
   viewChangedFor(key: string): void;
   /**
@@ -600,9 +574,73 @@ export interface TableHost {
   /** Why a cell's value is a feature's (Feature.keepsCell): pasting leaves it */
   cellKeptBy(cell: string): string | undefined;
   /** A feature's copy of a cell for another cell (Feature.fillCell), or undefined: copied as its value */
-  fillCell(info: WidgetInfo, cell: string, from: CellRef, to: CellRef): string | undefined;
+  fillCell(info: TableInfo, cell: string, from: CellRef, to: CellRef): string | undefined;
   /** Keyboard and input events from a field of a feature must not reach SilverBullet's editor */
   isolate(element: HTMLElement): void;
+  /**
+   * The entries features add to a column's menu (see Feature.columnMenuEntries);
+   * `open` shows other entries in the menu's place, e.g. a list to pick from
+   */
+  columnMenuEntries(info: TableInfo, column: number, open: (title: string, entries: readonly MenuEntry[]) => void): MenuEntry[];
+  /** The entries features put first in a column's menu's section of sorting and filtering (see Feature.columnMenuLeadEntries) */
+  columnMenuLeadEntries(info: TableInfo, column: number, open: (title: string, entries: readonly MenuEntry[]) => void): MenuEntry[];
+  /** The entries features add at the top of a column's menu (see Feature.columnMenuTopEntries) */
+  columnMenuTopEntries(info: TableInfo, column: number): MenuEntry[];
+  /** The entries features add with inserting and moving a column (see Feature.columnMenuInsertEntries) */
+  columnMenuInsertEntries(info: TableInfo, column: number): MenuEntry[];
+  /** The entries features add to a row's menu, for the cell in `column` (see Feature.rowMenuEntries) */
+  rowMenuEntries(info: TableInfo, row: number, column: number): MenuEntry[];
+  /** The entries features add first to the menu of rows (columns) `lines` (see Feature.lineMenuEntries) */
+  lineMenuEntries(info: TableInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
+  /** A setting's value, its default when unset or not valid */
+  setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>>;
+  /** The metadata setting as last read */
+  readonly metadataEnabled: boolean;
+  /** How a table is shown: sorting and filters */
+  viewOf(info: TableInfo): ViewState;
+  /** A view change that may change the sorting, which the metadata setting also stores */
+  setSort(info: TableInfo, view: ViewState): void;
+}
+
+/** What the core offers the adapter's modules (src/core/silverbullet/modules/): the model host and the rendering */
+export interface TableHost extends ModelHost {
+  infoOf(widget: HTMLElement): WidgetInfo | undefined;
+  /** The rendered table a key belongs to, if it is enhanced and on screen */
+  widgetForKey(key: string): HTMLElement | undefined;
+  /** The enhanced table an event target is in */
+  enhancedWidgetOf(target: EventTarget | null): [HTMLElement, WidgetInfo] | undefined;
+  /** The header or body cell an event target is in (not the filter or metadata row) */
+  tableCellOf(info: WidgetInfo, target: EventTarget | null): HTMLTableCellElement | undefined;
+  cellRef(info: WidgetInfo, cell: HTMLTableCellElement): CellRef | undefined;
+  /** The header or body cell an event target is in, in an enhanced table; with `key`, only in that table */
+  cellUnder(target: EventTarget | null, key?: string): CellHit | undefined;
+  /** The row of the markdown a row rendered is (the header 0) */
+  rowOf(info: WidgetInfo, tr: HTMLTableRowElement): number;
+  /** The header row and the shown body rows, in display order */
+  shownRows(info: WidgetInfo): HTMLTableRowElement[];
+  /** Re-reads the table, applies `change` and writes it back as one edit */
+  write(widget: HTMLElement, change: (table: Table) => Table | undefined, options?: WriteOptions): Promise<WriteResult>;
+  /** A table's visible box: the part of it not scrolled out of view */
+  innerBox(widget: HTMLElement): Rect;
+  /**
+   * Edits a cell past the table's last row or column (`at`: row `info.rows` is
+   * the first row past it, column `info.columns` the first column), shown by
+   * the caller's element `cell` (a td of its own where that cell would be):
+   * Enter or Tab saves it, the table grown to hold it in the same edit (rows
+   * above those pinned to the bottom, named columns left of those pinned to
+   * the right), nothing written while it is empty; Esc drops it. Not while
+   * another cell is edited.
+   */
+  editBeyond(widget: HTMLElement, info: WidgetInfo, at: CellRef, cell: HTMLTableCellElement): void;
+  /** A table changed its size (a column's width): what follows its layout (pinned columns' offsets, the held header, the controls, cut cells) follows */
+  tableResized(info: WidgetInfo): void;
+  /** Hands the keyboard back to SilverBullet's editor */
+  focusEditor(widget: HTMLElement): void;
+  /**
+   * A feature changed what a table shows (its filters): the view applied
+   * anew, the row being edited placed with the others and held there
+   */
+  viewChanged(widget: HTMLElement, info: WidgetInfo): void;
   /** A cell's value as sorting and filtering see it: a type's value, the edited cell's typed text */
   cellValue(cell: HTMLTableCellElement): string;
   /** A cell of a table as rendered, by its row in the markdown; hidden rows only with includeHidden */
@@ -646,33 +684,23 @@ export interface TableHost {
   heldBounds(info: WidgetInfo): Rect;
   /** The body rows as rendered, in the order of the markdown, hidden ones included */
   bodyRows(info: WidgetInfo): HTMLTableRowElement[];
-  /**
-   * The entries features add to a column's menu (see Feature.columnMenuEntries);
-   * `open` shows other entries in the menu's place, e.g. a list to pick from
-   */
-  columnMenuEntries(info: WidgetInfo, column: number, open: (title: string, entries: readonly MenuEntry[]) => void): MenuEntry[];
-  /** The entries features put first in a column's menu's section of sorting and filtering (see Feature.columnMenuLeadEntries) */
-  columnMenuLeadEntries(info: WidgetInfo, column: number, open: (title: string, entries: readonly MenuEntry[]) => void): MenuEntry[];
-  /** The entries features add at the top of a column's menu (see Feature.columnMenuTopEntries) */
-  columnMenuTopEntries(info: WidgetInfo, column: number): MenuEntry[];
-  /** The entries features add with inserting and moving a column (see Feature.columnMenuInsertEntries) */
-  columnMenuInsertEntries(info: WidgetInfo, column: number): MenuEntry[];
-  /** The entries features add to a row's menu, for the cell in `column` (see Feature.rowMenuEntries) */
-  rowMenuEntries(info: WidgetInfo, row: number, column: number): MenuEntry[];
-  /** The entries features add first to the menu of rows (columns) `lines` (see Feature.lineMenuEntries) */
-  lineMenuEntries(info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
-  /** A setting's value, its default when unset or not valid */
-  setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>>;
-  /** The metadata setting as last read */
-  readonly metadataEnabled: boolean;
-  /** How a table is shown: sorting and filters */
-  viewOf(info: WidgetInfo): ViewState;
   setView(widget: HTMLElement, info: WidgetInfo, view: ViewState): void;
-  /** A view change that may change the sorting, which the metadata setting also stores */
-  setSort(info: WidgetInfo, view: ViewState): void;
+  /** The element a table was rendered in */
+  widgetOf(info: WidgetInfo): HTMLElement;
+  /** The cell editor as rendered: its field, its cell */
+  rendered(editor: CellEditor): RenderedEditor;
+  /** A table shown, by its key, as rendered now */
+  tableFor(key: string): WidgetInfo | undefined;
+  /** The tables shown, as rendered */
+  shownTables(): WidgetInfo[];
+  /** The open cell editor as rendered, if any */
+  readonly editing: RenderedEditor | undefined;
+  /** Opens the table's ⋯ menu at its rendered table */
+  openTableMenu(target: TableInfo | HTMLElement, naming?: boolean): void;
 }
 
 /** A feature: every hook is optional */
+/** A module (src/features/): every hook is optional, all in model terms */
 export interface Feature {
   start?(): void;
   stop?(): void;
@@ -683,16 +711,14 @@ export interface Feature {
    * are), or an open menu (they stay in its table, cells hovered there still reported)
    */
   pointerBusy?(): "drag" | "menu" | undefined;
-  /** The pointer is over a cell, or the page moved under it */
-  cellHovered?(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void;
   /** The same in model terms: the cell of the table the pointer is over */
-  hovered?(info: WidgetInfo, ref: CellRef): void;
+  hovered?(info: TableInfo, ref: CellRef): void;
   /**
    * The cell menu asked for on a cell (a right click, a long press, the Menu
    * key, a tap on cells selected): true when the feature opens its own menu
    * there instead (the grips': rows or columns selected whole get theirs)
    */
-  cellMenu?(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean;
+  cellMenu?(info: TableInfo, at: CellRef, point: { x: number; y: number }): boolean;
   /** The cell menu opened (a tap or a press that sends no mouse event a feature sees): the feature's own menu closes */
   cellMenuOpened?(): void;
   /** No cell is hovered any more; with `closeMenus`, menus close too */
@@ -702,21 +728,19 @@ export interface Feature {
   /** Any left press, before Silverware Table handles it */
   beforeMouseDown?(e: MouseEvent): void;
   /** A press on a cell, before Silverware Table edits it; true: taken (e.g. pointing in a formula) */
-  beforeCellPress?(widget: HTMLElement, info: WidgetInfo, cell: CellRef, e: MouseEvent): boolean;
+  beforeCellPress?(info: TableInfo, cell: CellRef, e: MouseEvent): boolean;
   /** A press on a cell that Silverware Table took to edit it (not a link, not pointing in a formula) */
-  afterCellPress?(info: WidgetInfo, cell: CellRef, e: MouseEvent): void;
+  afterCellPress?(info: TableInfo, cell: CellRef, e: MouseEvent): void;
   /** A key, before Silverware Table handles it; true: handled, nothing else happens */
   keyDown?(e: KeyboardEvent): boolean;
   /** A table was enhanced, e.g. rendered again after a write */
-  enhanced?(widget: HTMLElement, info: WidgetInfo): void;
-  /** Marks on a table's cells, once its rows know their rows in the markdown (data-swt-row) */
-  decorate?(widget: HTMLElement, info: WidgetInfo): void;
+  enhanced?(info: TableInfo): void;
   /**
    * How the table's cells and headers look (in model terms; the renderer
    * applies it), asked when the table is rendered and when a feature says its
    * looks changed (TableHost.looksChanged); `table` is its markdown as shown
    */
-  looks?(info: WidgetInfo, table: Table): TableLooks | undefined;
+  looks?(info: TableInfo, table: Table): TableLooks | undefined;
   /**
    * How a table looks as a whole, from its metadata row (none: undefined);
    * asked as soon as the table is rendered (before it is laid out: the
@@ -727,16 +751,12 @@ export interface Feature {
    * Entries for a column's menu, after its sorting; `open` shows other
    * entries in the menu's place (they close the menu when run)
    */
-  columnMenuEntries?(
-    widget: HTMLElement,
-    info: WidgetInfo,
+  columnMenuEntries?(info: TableInfo,
     column: number,
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[];
   /** As columnMenuEntries, first in that section, before the sorting: what the column is (its type) */
-  columnMenuLeadEntries?(
-    widget: HTMLElement,
-    info: WidgetInfo,
+  columnMenuLeadEntries?(info: TableInfo,
     column: number,
     open: (title: string, entries: readonly MenuEntry[]) => void,
   ): MenuEntry[];
@@ -745,33 +765,33 @@ export interface Feature {
    * click, a long press or the Menu key, in groups; `order` places a group (0
    * naming, 1 editing, 2 viewing, 9 deleting, last). They close the menu when run.
    */
-  cellMenuEntries?(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | readonly CellMenuGroup[] | undefined;
+  cellMenuEntries?(info: TableInfo, cells: readonly CellRef[]): CellMenuGroup | readonly CellMenuGroup[] | undefined;
   /**
    * The cells the cell menu opened on `at` is for: the cells selected (as
    * shown) when the selection holds it, else `at`, now selected
    */
-  selectedCells?(info: WidgetInfo, at: CellRef): readonly CellRef[] | undefined;
+  selectedCells?(info: TableInfo, at: CellRef): readonly CellRef[] | undefined;
   /**
    * Selects the cells from `anchor` to `focus` (rows as shown): a row's or a
    * column's grip clicked, rows (columns) picked with the pointer
    */
-  selectCells?(info: WidgetInfo, anchor: CellRef, focus: CellRef): void;
+  selectCells?(info: TableInfo, anchor: CellRef, focus: CellRef): void;
   /** The cells selected in the table (as shown), if any */
-  selected?(info: WidgetInfo): readonly CellRef[] | undefined;
+  selected?(info: TableInfo): readonly CellRef[] | undefined;
   /** Entries at the top of a column's menu, before its sorting (naming the column); they close the menu when run */
-  columnMenuTopEntries?(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
+  columnMenuTopEntries?(info: TableInfo, column: number): MenuEntry[];
   /** Entries with inserting and moving the column in its menu, after them (a numbered column); they close the menu when run */
-  columnMenuInsertEntries?(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
+  columnMenuInsertEntries?(info: TableInfo, column: number): MenuEntry[];
   /** Entries at the top of a row's menu, about its cell in `column` (the one under the pointer or edited); they close the menu when run */
-  rowMenuEntries?(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[];
+  rowMenuEntries?(info: TableInfo, row: number, column: number): MenuEntry[];
   /**
    * Entries first in the menu of rows (columns): `lines`, those its grip acts
    * on (the lines selected whole that hold its own, else it), markdown rows or
    * columns; they close the menu when run (the clipboard's: copy, cut, paste)
    */
-  lineMenuEntries?(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
+  lineMenuEntries?(info: TableInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
   /** Buttons for the table's toolbar, shown while the pointer is over the table */
-  toolbarButtons?(widget: HTMLElement, info: WidgetInfo): ToolbarButton[];
+  toolbarButtons?(info: TableInfo): ToolbarButton[];
   /** Before a write reads the page's text: what it needs read first (other pages the tables written refer to) */
   prepareWrite?(info: TableTarget): Promise<void>;
   /**
@@ -779,7 +799,7 @@ export interface Feature {
    * feature keeps it (shows it, writes it later, through pendingEdits); the
    * editor goes on as if nothing was written
    */
-  holdCellEdit?(widget: HTMLElement, info: WidgetInfo, edit: HeldEdit): boolean;
+  holdCellEdit?(info: TableInfo, edit: HeldEdit): boolean;
   /** The edits the feature holds for a table, put into each of its writes (and into tableOf) */
   pendingEdits?(info: TableTarget): PendingEdits | undefined;
   /** Another page was loaded into the editor (`name`): what was held for the page left can no longer be written into the editor */
@@ -795,7 +815,7 @@ export interface Feature {
   /** SilverBullet indexed a page (it changed) */
   pageIndexed?(name: string): Promise<void> | void;
   /** What deleting a column of the table also removes, asked first: "the names of 2 rows pear and fig: …" */
-  columnDeleteWarning?(info: WidgetInfo, column: number): string | undefined;
+  columnDeleteWarning?(info: TableInfo, column: number): string | undefined;
   /** Attributes of the feature's hidden tags a copy of a row leaves out (a name is one cell's, one row's) */
   uniqueTags?(): readonly string[];
   /** What the feature keeps in these tables, for Remove metadata (which removes it) */
@@ -804,45 +824,29 @@ export interface Feature {
    * Body rows the feature hides (filters), as indexes into `values` (one array
    * of cell values per body row, values[0] being row 1); pinned rows are not hidden
    */
-  hiddenRows?(info: WidgetInfo, values: readonly (readonly string[])[]): ReadonlySet<number> | undefined;
+  hiddenRows?(info: TableInfo, values: readonly (readonly string[])[]): ReadonlySet<number> | undefined;
   /** Whether the feature hides rows of the table now (moving rows and pasting wait for that to end) */
-  hidesRows?(info: WidgetInfo): boolean;
+  hidesRows?(info: TableInfo): boolean;
   /** The table's view was applied: rows sorted and hidden, the header marked */
-  viewApplied?(widget: HTMLElement, info: WidgetInfo): void;
+  viewApplied?(info: TableInfo): void;
   /** The widths of a table's columns, in pixels (the widths module's); asked each time its view is applied */
-  columnWidths?(info: WidgetInfo): ReadonlyMap<number, number> | undefined;
+  columnWidths?(info: TableInfo): ReadonlyMap<number, number> | undefined;
   /**
    * A row of the feature's own UI under the table's header, asked each time
    * the view is applied (undefined: none): the same elements given again stay
    * where they are (a field typed in keeps its focus)
    */
-  headerRow?(info: WidgetInfo): HeaderRow | undefined;
-  /**
-   * SilverBullet put a table into the page, before the browser lays it out:
-   * its rows as rendered (the header first). A feature may take rows out of
-   * the document; Silverware Table keeps them (bodyRows, shownRows, cellAt still
-   * have them) and its features read them as before, but for their layout.
-   */
-  tableAdded?(widget: HTMLElement, table: HTMLTableElement, rows: readonly HTMLTableRowElement[]): void;
-  /**
-   * The body rows shown, in their order (sorted and filtered; not those pinned
-   * to the top or bottom), placed into the table's body by the feature instead
-   * of Silverware Table (true): e.g. only those in view, the others out of the document
-   */
-  placeRows?(widget: HTMLElement, info: WidgetInfo, body: HTMLTableSectionElement, shown: readonly HTMLTableRowElement[]): boolean;
-  /** A body row out of the document is needed (rowNeeded): the feature that took it out puts it back */
-  rowNeeded?(info: WidgetInfo, row: HTMLTableRowElement): void;
-  /** Body rows were put back into the document (rowsAttached): laid out now, they can be measured */
-  rowsAttached?(info: WidgetInfo, rows: readonly HTMLTableRowElement[]): void;
+  headerRow?(info: TableInfo): HeaderRow | undefined;
   /** The view a table's metadata stored ends (Remove metadata): state read from it goes */
   viewForgotten?(key: string): void;
   /** Columns of the table with `key` moved or were deleted (`map`: their new indexes, undefined: deleted) */
   columnsMoved?(key: string, map: (column: number) => number | undefined): void;
   /**
    * A click on an element the feature marked with data-swt-action in a table
-   * (clicks there reach Silverware Table only); true: it was the feature's
+   * (a header icon's `action`, or its own UI's element), with the column of its
+   * data-swt-column (clicks there reach Silverware Table only); true: it was the feature's
    */
-  action?(name: string, element: HTMLElement, widget: HTMLElement, info: WidgetInfo): boolean;
+  action?(name: string, info: TableInfo, column: number | undefined): boolean;
   /**
    * Before a write replaces a table (from..to of the page's text), with the
    * edit `change` (the part of the text it replaces); may return what to do
@@ -859,7 +863,7 @@ export interface Feature {
   /** The page or a table scrolled, or tables moved: floating elements follow */
   layoutChanged?(): void;
   /** What the cell editor shows for a cell's markdown (hidden tags and all); undefined: its text */
-  editorText?(info: WidgetInfo, cell: CellRef, original: string): string | undefined;
+  editorText?(info: TableInfo, cell: CellRef, original: string): string | undefined;
   editorOpened?(editor: CellEditor): void;
   /** What the cell editor holds changed (typed, pasted, set) */
   editorInput?(editor: CellEditor): void;
@@ -882,7 +886,7 @@ export interface Feature {
   /** A click selects first (select mode: the selection module's), a second click acts; false: a click acts at once */
   clickSelects?(): boolean;
   /** The name of what a menu is about (a cell, a row, a column, the table), shown in its title with a pencil to change it */
-  menuNaming?(widget: HTMLElement, info: WidgetInfo, target: NamingTarget): MenuNaming | undefined;
+  menuNaming?(info: TableInfo, target: NamingTarget): MenuNaming | undefined;
   /** A header given a new name other than by its editor (a paste): what it becomes (the column type's hashtag kept); undefined: as given */
   headerRenamed?(name: string, original: string): string | undefined;
   /**
@@ -902,7 +906,7 @@ export interface Feature {
    * references moved by as many rows and columns; undefined: not the
    * feature's cell (it is copied as its value)
    */
-  fillCell?(info: WidgetInfo, cell: string, from: CellRef, to: CellRef): string | undefined;
+  fillCell?(info: TableInfo, cell: string, from: CellRef, to: CellRef): string | undefined;
   /** The cells selected changed (the selection module): what goes with them follows */
   selectionChanged?(): void;
   /**
@@ -910,6 +914,31 @@ export interface Feature {
    * (`step`: rows and columns, one of them ±1): true, the feature selects on
    * past the edge (the sheet view's empty cells), the table's selection ends
    */
-  selectionLeaves?(info: WidgetInfo, from: CellRef, step: readonly [number, number]): boolean;
+  selectionLeaves?(info: TableInfo, from: CellRef, step: readonly [number, number]): boolean;
   editorClosed?(editor: CellEditor): void;
+}
+
+/** A module of the adapter (src/core/silverbullet/modules/): a module, and the hooks of the rendering */
+export interface AdapterFeature extends Feature {
+  /** The pointer is over a cell, or the page moved under it */
+  cellHovered?(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void;
+  /** Marks on a table's cells, once its rows know their rows in the markdown (data-swt-row) */
+  decorate?(widget: HTMLElement, info: WidgetInfo): void;
+  /**
+   * SilverBullet put a table into the page, before the browser lays it out:
+   * its rows as rendered (the header first). A feature may take rows out of
+   * the document; Silverware Table keeps them (bodyRows, shownRows, cellAt still
+   * have them) and its features read them as before, but for their layout.
+   */
+  tableAdded?(widget: HTMLElement, table: HTMLTableElement, rows: readonly HTMLTableRowElement[]): void;
+  /**
+   * The body rows shown, in their order (sorted and filtered; not those pinned
+   * to the top or bottom), placed into the table's body by the feature instead
+   * of Silverware Table (true): e.g. only those in view, the others out of the document
+   */
+  placeRows?(widget: HTMLElement, info: WidgetInfo, body: HTMLTableSectionElement, shown: readonly HTMLTableRowElement[]): boolean;
+  /** A body row out of the document is needed (rowNeeded): the feature that took it out puts it back */
+  rowNeeded?(info: WidgetInfo, row: HTMLTableRowElement): void;
+  /** Body rows were put back into the document (rowsAttached): laid out now, they can be measured */
+  rowsAttached?(info: WidgetInfo, rows: readonly HTMLTableRowElement[]): void;
 }

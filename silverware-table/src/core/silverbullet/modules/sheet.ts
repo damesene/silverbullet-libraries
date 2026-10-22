@@ -12,7 +12,7 @@
 // the table, and below it) draw their lines, right of the table along its rows
 // in view, below it along its columns. A press there finds the cell under it,
 // and a td of the module's own is laid over that cell for the cell editor.
-import type { CellEditor, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../../feature.ts";
+import type { AdapterFeature, CellRef, RenderedEditor, TableHost, ToolbarButton, WidgetInfo } from "../../feature.ts";
 import { oncePerFrame } from "../../frame.ts";
 import { STICKY_GAP } from "../../layout.ts";
 import { firstRowBelow } from "../../geometry.ts";
@@ -49,7 +49,7 @@ type Layout = {
   readonly rows: number;
 };
 
-export class Sheet implements Feature {
+export class Sheet implements AdapterFeature {
   private readonly over: OverWindow;
   // The empty cells, in the table's box: right of the table and below it
   private readonly grid: HTMLElement;
@@ -102,7 +102,8 @@ export class Sheet implements Feature {
     return this.letters.contains(node);
   }
 
-  toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: WidgetInfo): ToolbarButton[] {
+    const widget = this.host.widgetOf(info);
     const on = this.over.key === info.key;
     return [
       {
@@ -126,14 +127,16 @@ export class Sheet implements Feature {
     this.over.tableAdded(widget, table);
   }
 
-  enhanced(widget: HTMLElement, info: WidgetInfo): void {
+  enhanced(info: WidgetInfo): void {
+    const widget = this.host.widgetOf(info);
     this.over.enhanced(widget, info);
     if (widget !== this.over.widget) return;
     if (this.after?.grown) this.after.ready = true;
     this.queuePlace();
   }
 
-  viewApplied(widget: HTMLElement): void {
+  viewApplied(info: WidgetInfo): void {
+    const widget = this.host.widgetOf(info);
     this.over.viewApplied(widget);
     if (widget === this.over.widget) this.queuePlace();
   }
@@ -189,7 +192,7 @@ export class Sheet implements Feature {
    * Enter edits the cell below (the enterKey setting: else selects the cell
    * saved), Tab the next one, Shift the other way, Esc leaves the cell selected
    */
-  editorKeyDown(e: KeyboardEvent, editor: CellEditor): boolean {
+  editorKeyDown(e: KeyboardEvent, editor: RenderedEditor): boolean {
     if (!this.cell || editor.cell !== this.cell.element || e.ctrlKey || e.metaKey || e.altKey) return false;
     if (e.key !== "Enter" && e.key !== "Tab" && e.key !== "Escape") return false;
     const widget = this.over.widget;
@@ -251,7 +254,7 @@ export class Sheet implements Feature {
     if (this.chosen && info && this.host.selectedCells(info).length > 0) this.unselect();
   }
 
-  editorClosed(editor: CellEditor): void {
+  editorClosed(editor: RenderedEditor): void {
     if (!this.cell || editor.cell !== this.cell.element) return;
     this.chosen = undefined;
     this.dropCell();
@@ -336,7 +339,7 @@ export class Sheet implements Feature {
     if (!widget || !info || !cell) return;
     this.host.editBeyond(widget, info, at, cell);
     // (Read again: the editor opened, or did not)
-    if ((this.host.editing as CellEditor | undefined)?.cell !== cell) {
+    if ((this.host.editing as RenderedEditor | undefined)?.cell !== cell) {
       this.chosen = undefined;
       this.dropCell();
     }

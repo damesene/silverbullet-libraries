@@ -6,7 +6,7 @@
 // changed): then the formulas module checks the tables shown again.
 // Turned off, no page is read, and formulas referring to one keep their
 // results (formula/page.ts: pages not read are `unread`).
-import type { Feature, TableHost, TableTarget, WidgetInfo, WritePage } from "../core/feature.ts";
+import type { Feature, ModelHost, TableTarget, TableInfo, WritePage } from "../core/feature.ts";
 import { referredPages } from "../formulas/index.ts";
 import { tablesWritten } from "../formulas/page.ts";
 import { type OtherPages, type PageTable, pageTablesOf, parseTable, type Table } from "../markdown.ts";
@@ -20,14 +20,14 @@ export class PageLinks implements Feature {
   // Counts the pages read, so what formulas computed from them is computed anew
   private version = 0;
 
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: ModelHost) {}
 
   otherPages(): OtherPages {
     return { tables: (page) => this.pages.get(page), version: this.version };
   }
 
   /** A table shown: the pages its formulas read, if not read yet; then its formulas are checked again */
-  enhanced(_widget: HTMLElement, info: WidgetInfo): void {
+  enhanced(info: TableInfo): void {
     void this.load([parseTable(info.source)], false).then((read) => {
       if (read) this.host.tablesChanged();
     });

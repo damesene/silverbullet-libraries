@@ -2,7 +2,7 @@
 // or off by `silverware.table.modules.<name>.enabled`) and those always there. The
 // controller creates those turned on from this list and knows none of them.
 import type { FeatureName } from "./bridge.ts";
-import type { Feature, TableHost } from "./core/feature.ts";
+import type { AdapterFeature, Feature, TableHost } from "./core/feature.ts";
 import { AutoFill } from "./features/autofill.ts";
 import { Autoscroll } from "./core/silverbullet/modules/autoscroll.ts";
 import { ColumnTypes } from "./features/columntypes.ts";
@@ -28,12 +28,12 @@ import { Themes } from "./features/themes.ts";
 import { Widths } from "./features/widths.ts";
 
 /** A feature to create: a module (by its name), or one always there (no name) */
-export type FeatureEntry = { readonly name: FeatureName | undefined; readonly create: () => Feature };
+export type FeatureEntry = { readonly name: FeatureName | undefined; readonly create: () => AdapterFeature };
 
 /** The features in the order they get events; `metadata` is the controller's own (Remove metadata, also a page command) */
 export function featureEntries(host: TableHost, metadata: Feature): readonly FeatureEntry[] {
-  const optional = (name: FeatureName, create: () => Feature): FeatureEntry => ({ name, create });
-  const always = (create: () => Feature): FeatureEntry => ({ name: undefined, create });
+  const optional = (name: FeatureName, create: () => AdapterFeature): FeatureEntry => ({ name, create });
+  const always = (create: () => AdapterFeature): FeatureEntry => ({ name: undefined, create });
   return [
     // First: the header moves before what follows it
     optional("sticky", () => new Sticky(host)),

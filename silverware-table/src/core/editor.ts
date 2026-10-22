@@ -8,7 +8,7 @@ import { escapeCell, type Table, unescapeCell } from "../markdown.ts";
 import { columnAfterMove, moveColumn, moveRow, setCell } from "../ops.ts";
 import { appendRowAt, clampColumnMove, clampRowMove } from "../pins.ts";
 import { OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
-import type { CellEditor, CellField, CellRef, Feature, FocusTarget, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
+import type { AdapterFeature, CellField, CellRef, FocusTarget, RenderedEditor, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
 import { STICKY_GAP } from "./layout.ts";
 import { type Growth, growTo, insertRowWith, MOVE_BLOCKED } from "./structure.ts";
 import { withoutTags } from "../tags.ts";
@@ -32,7 +32,7 @@ const NAVIGATION_KEYS = new Set([
 export const PAGE_ROWS = 10;
 
 // The cell editor as features see it, and what it takes to put the cell back
-type ActiveEditor = CellEditor & {
+type ActiveEditor = RenderedEditor & {
   readonly kept: DocumentFragment;
   readonly cellStyle: string | null;
   // The popup's panel
@@ -53,7 +53,7 @@ const POPUP_MIN_WIDTH = 420;
 
 /** What the cell editor needs from the controller besides the host API */
 export type EditorContext = {
-  readonly features: readonly Feature[];
+  readonly features: readonly AdapterFeature[];
   // Keyboard and input events from the field must not reach SilverBullet's editor
   isolate(element: HTMLElement): void;
   // The hover controls go while a cell is edited
@@ -86,7 +86,7 @@ export class CellEditing {
     private readonly context: EditorContext,
   ) {}
 
-  get active(): CellEditor | undefined {
+  get active(): RenderedEditor | undefined {
     return this.editor;
   }
 
@@ -433,7 +433,7 @@ export class CellEditing {
     // A feature may keep a cell's edit to write it later (the lazy module); a header's name is written at once
     const info = changed && closed.row > 0 ? this.host.infoOf(closed.widget) : undefined;
     const edit = { row: closed.row, column: closed.column, original: closed.original, value: closed.value };
-    const held = !growth && !!info && this.context.features.some((f) => f.holdCellEdit?.(closed.widget, info, edit));
+    const held = !growth && !!info && this.context.features.some((f) => f.holdCellEdit?.(info, edit));
     if (changed && !held && !growth) {
       result = await this.host.write(closed.widget, (t) => this.withCellEdit(t, closed), { focus: sameTable ? next : undefined });
     }

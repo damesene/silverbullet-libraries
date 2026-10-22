@@ -10,7 +10,7 @@
 // page left first), the edits are written into that page's file; the tab going
 // to the background, they are written at once; the tab closing, too, and the
 // browser asks whether to leave.
-import type { CellEditor, Feature, HeldEdit, PendingEdits, TableHost, TableLooks, TableTarget, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { CellEditor, Feature, HeldEdit, PendingEdits, ModelHost, TableLooks, TableTarget, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import { locateBySource, parseTable, serializeTable, type Table, unescapeCell } from "../markdown.ts";
 import { setCell } from "../ops.ts";
@@ -59,7 +59,7 @@ export class Lazy implements Feature {
   // A navigation started: nothing is written into the editor until the page is loaded
   private leavingSince = 0;
 
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: ModelHost) {}
 
   start(): void {
     const win = this.host.doc.defaultView!;
@@ -77,7 +77,7 @@ export class Lazy implements Feature {
   }
 
   /** The switch: on, cells edited are written later; off, what is held is written at once */
-  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: TableInfo): ToolbarButton[] {
     const on = this.on.has(info.key);
     const unsaved = this.held.get(info.key)?.edits.size ?? 0;
     return [
@@ -113,7 +113,7 @@ export class Lazy implements Feature {
     await this.flush(key);
   }
 
-  holdCellEdit(_widget: HTMLElement, info: WidgetInfo, edit: HeldEdit): boolean {
+  holdCellEdit(info: TableInfo, edit: HeldEdit): boolean {
     if (!this.on.has(info.key)) return false;
     const held = this.held.get(info.key) ?? { page: this.host.currentPage, hint: info.hint, source: info.source, edits: new Map() };
     const id = cellId(edit);
@@ -178,7 +178,7 @@ export class Lazy implements Feature {
   }
 
   // A table rendered anew (an edit elsewhere, or back in view): where it is now; written after the delay, if a flush found it gone
-  enhanced(_widget: HTMLElement, info: WidgetInfo): void {
+  enhanced(info: TableInfo): void {
     const held = this.held.get(info.key);
     if (!held) return;
     held.hint = info.hint;
@@ -207,7 +207,7 @@ export class Lazy implements Feature {
   }
 
   /** The held cells show what was typed (as text: the markdown renders once written), marked */
-  looks(info: WidgetInfo): TableLooks | undefined {
+  looks(info: TableInfo): TableLooks | undefined {
     const edits = this.held.get(info.key)?.edits;
     if (!edits?.size) return undefined;
     return { cells: [...edits.values()].map((edit) => ({ row: edit.row, column: edit.column, display: unescapeCell(withoutTags(edit.value)), marks: ["lazy-pending"] })) };

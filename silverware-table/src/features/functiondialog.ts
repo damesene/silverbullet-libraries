@@ -2,9 +2,9 @@
 // function formulas can call, built-in and custom, found by its name or what
 // it does and by group, each with its syntax, what it does and an example.
 // The one picked goes into the formula being edited (Insert, Enter, a double
-// click); the dialog is the core's (TableHost.openDialog), so the cell editor
+// click); the dialog is the core's (ModelHost.openDialog), so the cell editor
 // stays open behind it.
-import type { Dialog, TableHost } from "../core/feature.ts";
+import type { Dialog, ModelHost } from "../core/feature.ts";
 import { findFunctions, FUNCTION_CATEGORIES, type FormulaFunction, type FunctionCategory } from "../formulas/index.ts";
 
 type Group = FunctionCategory | "custom" | undefined;
@@ -12,7 +12,7 @@ type Group = FunctionCategory | "custom" | undefined;
 export class FunctionDialog {
   private dialog: Dialog | undefined;
 
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: ModelHost) {}
 
   /** Opens the dialog; `formula`: the formula being edited (the caret marked), `insert` gets the name picked */
   open(formula: string, insert: (name: string) => void): void {

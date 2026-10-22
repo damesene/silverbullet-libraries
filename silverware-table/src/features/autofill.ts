@@ -2,7 +2,7 @@
 // corner of the cells selected. Dragged down or up (right or left), the cells
 // dragged over go on from the selected ones, column by column (row by row):
 // 1, 2 → 3, 4; Mon, Tue → Wed; Item 1 → Item 2; formulas with their references
-// moved (another module's copy: TableHost.fillCell); else the values repeat.
+// moved (another module's copy: ModelHost.fillCell); else the values repeat.
 // While dragging, what is filled is outlined, the handle goes to its corner and
 // the value the last cell will get shows by the pointer; the cells are written
 // as the drag ends, in one edit; Esc cancels. A double click fills down as far
@@ -25,8 +25,8 @@ import {
   type HandleLayer,
   type OutlineLayer,
   type Panel,
-  type TableHost,
-  type WidgetInfo,
+  type ModelHost,
+  type TableInfo,
 } from "../core/feature.ts";
 import { watchPress } from "../core/press.ts";
 import { ICONS } from "../icons.ts";
@@ -37,7 +37,7 @@ const HANDLE_TITLE = "Drag to fill the cells after these (1, 2 → 3, 4; Mon →
 
 /** The cells selected: their table, its body rows as shown (rows of the markdown) and where the selection is among them, its columns */
 type Selected = {
-  readonly info: WidgetInfo;
+  readonly info: TableInfo;
   readonly rows: readonly number[];
   readonly top: number;
   readonly bottom: number;
@@ -70,7 +70,7 @@ export class AutoFill implements Feature {
   // A touch while picking, until it is a tap or not
   private stopTap: (() => void) | undefined;
 
-  constructor(private readonly host: TableHost) {
+  constructor(private readonly host: ModelHost) {
     this.edges = host.outlineLayer("fill", (sides) => [`swt-fill-edge ${sides.map((side) => `swt-fill-${side}`).join(" ")}`]);
     this.handle = host.handleLayer(HANDLE_LAYER);
     this.tip = host.panel("swt-fill-tip");
@@ -146,7 +146,7 @@ export class AutoFill implements Feature {
   }
 
   /** AutoFill to… in the menu of the cells selected (body cells: a header is no value to go on from) */
-  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
+  cellMenuEntries(info: TableInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
     if (cells.some((ref) => ref.row === 0)) return undefined;
     const label = "AutoFill to…";
     if (this.host.rearranged(info)) {
@@ -172,7 +172,7 @@ export class AutoFill implements Feature {
   }
 
   // While picking, the cells a click would fill are outlined
-  hovered(info: WidgetInfo, ref: CellRef): void {
+  hovered(info: TableInfo, ref: CellRef): void {
     if (this.picking !== info.key) return;
     const selected = this.selection();
     const extent = selected ? this.extentTo(selected, ref) : undefined;
@@ -201,7 +201,7 @@ export class AutoFill implements Feature {
     this.handle.hide();
   }
 
-  private startPicking(info: WidgetInfo, press: string): void {
+  private startPicking(info: TableInfo, press: string): void {
     this.picking = info.key;
     this.pickingFrom = this.selectedNow();
     // The crosshair on that table's cells
@@ -389,7 +389,7 @@ export class AutoFill implements Feature {
     }));
   }
 
-  private fillCells(info: WidgetInfo) {
+  private fillCells(info: TableInfo) {
     return {
       claim: (cell: string, from: Cell, to: Cell) => this.host.fillCell(info, cell, from, to),
       keepTags: (value: string, from: string) => this.host.keepTags(value, from),
@@ -436,7 +436,7 @@ export class AutoFill implements Feature {
   }
 
   /** By the pointer: the value the farthest cell filled gets (else how many cells are filled) */
-  private showTip(selected: Selected, extent: Extent | undefined, table: ReturnType<TableHost["tableOf"]>, x: number, y: number): void {
+  private showTip(selected: Selected, extent: Extent | undefined, table: ReturnType<ModelHost["tableOf"]>, x: number, y: number): void {
     if (!extent) {
       this.tip.hide();
       return;

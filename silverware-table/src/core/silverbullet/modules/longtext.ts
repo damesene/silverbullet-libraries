@@ -11,13 +11,13 @@
 // --swt-cell-max-width / --swt-cell-max-height on the table. Off: cells show as
 // SilverBullet renders them, on one line, as wide as their text.
 import { SETTINGS } from "../../../bridge.ts";
-import type { Feature, TableHost } from "../../feature.ts";
+import type { AdapterFeature, TableHost, WidgetInfo } from "../../feature.ts";
 import { oncePerFrame } from "../../frame.ts";
 import { renderedTable, WIDGET_SELECTOR } from "../../../dom.ts";
 
 type Limits = { readonly overflow: "wrap" | "ellipsis"; readonly maxWidth: number; readonly maxHeight: number };
 
-export class LongText implements Feature {
+export class LongText implements AdapterFeature {
   private limits: Limits | undefined;
   private reading: Promise<void> | undefined;
   // Marking the cells cut, once in the next frame
@@ -46,7 +46,8 @@ export class LongText implements Feature {
   }
 
   // A table rendered (or its view applied): its limits, and a check once laid out
-  viewApplied(widget: HTMLElement): void {
+  viewApplied(info: WidgetInfo): void {
+    const widget = this.host.widgetOf(info);
     this.apply(widget);
     this.resizeObserver?.observe(widget);
     this.queueCheck();

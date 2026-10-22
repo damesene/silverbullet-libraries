@@ -10,7 +10,7 @@
 // table moving as it gets narrower, cannot feed back into it. The widths are
 // the module's (columnWidths); the core shows them, and the handles (a handle
 // layer per table, as every table's headers have them).
-import type { Feature, HandleLayer, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { Feature, HandleLayer, ModelHost, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
@@ -34,7 +34,7 @@ export class Widths implements Feature {
   // Each table's handles, by its key
   private readonly handles = new Map<string, HandleLayer>();
 
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: ModelHost) {}
 
   stop(): void {
     this.stopDrag?.();
@@ -46,7 +46,7 @@ export class Widths implements Feature {
   }
 
   /** The widths of a table's columns: those set for the view, else those stored */
-  private widthsOf(info: WidgetInfo): Map<number, number> {
+  private widthsOf(info: TableInfo): Map<number, number> {
     if (this.stored?.source !== info.source) {
       const read = new Map<number, number>();
       for (const [column, value] of columnMeta(parseTable(info.source), "width")) {
@@ -63,18 +63,18 @@ export class Widths implements Feature {
     return widths;
   }
 
-  columnWidths(info: WidgetInfo): ReadonlyMap<number, number> {
+  columnWidths(info: TableInfo): ReadonlyMap<number, number> {
     return this.widthsOf(info);
   }
 
   // ---- the handles ----------------------------------------------------------------
 
   /** A handle on each header cell's right edge (shown by CSS while the header is hovered, selected or edited) */
-  enhanced(_widget: HTMLElement, info: WidgetInfo): void {
+  enhanced(info: TableInfo): void {
     this.placeHandles(info, undefined);
   }
 
-  private placeHandles(info: WidgetInfo, active: number | undefined): void {
+  private placeHandles(info: TableInfo, active: number | undefined): void {
     let layer = this.handles.get(info.key);
     if (!layer) this.handles.set(info.key, (layer = this.host.handleLayer(`${LAYER}${info.key}`)));
     layer.place(
@@ -154,12 +154,12 @@ export class Widths implements Feature {
   }
 
   /** A column's width set (undefined: automatic) */
-  private set(info: WidgetInfo, column: number, width: number | undefined): Promise<void> {
+  private set(info: TableInfo, column: number, width: number | undefined): Promise<void> {
     return this.setAll(info, new Map([[column, width]]));
   }
 
   /** Columns' widths set (undefined: automatic): stored in the table where they can be, else for the view */
-  private async setAll(info: WidgetInfo, set: ReadonlyMap<number, number | undefined>): Promise<void> {
+  private async setAll(info: TableInfo, set: ReadonlyMap<number, number | undefined>): Promise<void> {
     const view = this.viewed.get(info.key) ?? new Map<number, number | undefined>();
     for (const [column, width] of set) view.set(column, width);
     this.viewed.set(info.key, view);
@@ -194,7 +194,7 @@ export class Widths implements Feature {
   // ---- the menus --------------------------------------------------------------------
 
   // Before Remove metadata (the widths module comes before it), which would remove them too
-  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: TableInfo): ToolbarButton[] {
     const widths = this.widthsOf(info);
     if (!widths.size) return [];
     return [
@@ -212,7 +212,7 @@ export class Widths implements Feature {
     ];
   }
 
-  columnMenuEntries(_widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
+  columnMenuEntries(info: TableInfo, column: number): MenuEntry[] {
     const width = this.widthsOf(info).get(column);
     if (width === undefined) return [];
     return [

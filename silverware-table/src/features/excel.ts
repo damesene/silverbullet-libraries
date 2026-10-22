@@ -14,7 +14,7 @@
 // user's are written by the templates of silverware.table.modules.excel.functions
 // ({1}, {2}… their arguments; false: as their values).
 import { writeClipboard } from "../clipboard.ts";
-import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { Feature, ModelHost, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { excelHtml, excelText } from "../excel/clipboard.ts";
 import { excelCell, excelFormula } from "../excel/formulas.ts";
 import type { ExcelTemplates } from "../excel/functions.ts";
@@ -102,10 +102,10 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export class Excel implements Feature {
   private opening = false;
 
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: ModelHost) {}
 
   /** Export to Excel… in the toolbar's menu */
-  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: TableInfo): ToolbarButton[] {
     return [
       {
         label: "Export to Excel…",
@@ -117,7 +117,7 @@ export class Excel implements Feature {
   }
 
   /** The dialog: both ways, with what they keep, and the outcome of the one taken */
-  private async open(shownInfo: WidgetInfo): Promise<void> {
+  private async open(shownInfo: TableInfo): Promise<void> {
     // Pressed again while the file is prepared: one dialog
     if (this.opening) return;
     this.opening = true;
@@ -267,7 +267,7 @@ export class Excel implements Feature {
   }
 
   /** The file: every row of the markdown in its place, formulas as Excel writes them, those it cannot as values */
-  private async workbook(info: WidgetInfo): Promise<Workbook> {
+  private async workbook(info: TableInfo): Promise<Workbook> {
     const exported = exportedTable(this.host, info, "all");
     // The markdown, edits held (lazy saving) included: the formulas
     const model = this.host.tableOf(info);

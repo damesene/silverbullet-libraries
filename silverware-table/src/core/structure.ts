@@ -34,7 +34,7 @@ import {
   pinRow,
   type RowZone,
 } from "../pins.ts";
-import type { CellRef, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
+import type { CellRef, ModelHost, TableInfo, WriteResult } from "./feature.ts";
 
 /**
  * What moving cells does with their hidden tags: the text and the tags a
@@ -42,7 +42,7 @@ import type { CellRef, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
  * cell's name) stay where they are, at both ends, so names keep naming their
  * rows and places
  */
-export function cellMoveRules(host: TableHost): MoveRules {
+export function cellMoveRules(host: ModelHost): MoveRules {
   // The tags no feature manages: those keepTags keeps from a cell
   const unmanaged = (cell: string) => new Set(cellTags(host.keepTags("", cell)));
   return {
@@ -59,11 +59,11 @@ export function cellMoveRules(host: TableHost): MoveRules {
  * Moves the cells (rows of the markdown and columns, as they are shown: row
  * by row) so that the first goes to `to`, in the table as it is (no rows or
  * columns added), as one edit; with `copy` they are copied instead, as
- * AutoFill copies (a formula with its references moved: TableHost.fillCell),
+ * AutoFill copies (a formula with its references moved: ModelHost.fillCell),
  * the names of the cells written over kept. Body cells only.
  */
 export function moveCellsTo(
-  host: TableHost, info: WidgetInfo,
+  host: ModelHost, info: TableInfo,
   cells: readonly (readonly CellRef[])[],
   to: CellRef,
   copy: boolean,
@@ -98,7 +98,7 @@ export function rowAfterInsert(at: number): IndexMap {
 
 /** Adds a row asked for at `at` (see insertRowAt) and edits it in `column`; `prepare` is part of the same edit */
 export function insertRowWith(
-  host: TableHost, info: WidgetInfo,
+  host: ModelHost, info: TableInfo,
   at: number,
   column: number,
   prepare: (t: Table) => Table | undefined = (t) => t,
@@ -121,7 +121,7 @@ export function insertRowWith(
   );
 }
 
-export function duplicateRowAt(host: TableHost, info: WidgetInfo, row: number): Promise<WriteResult> {
+export function duplicateRowAt(host: ModelHost, info: TableInfo, row: number): Promise<WriteResult> {
   // The copy goes below the row, or above it when the row is the last one pinned to the bottom
   const insert = insertRowAt(info.pins, info.rows, row + 1);
   return host.writeTable(
@@ -139,12 +139,12 @@ export function duplicateRowAt(host: TableHost, info: WidgetInfo, row: number): 
   );
 }
 
-export function deleteRowAt(host: TableHost, info: WidgetInfo, row: number): Promise<WriteResult> {
+export function deleteRowAt(host: ModelHost, info: TableInfo, row: number): Promise<WriteResult> {
   return deleteRowsAt(host, info, [row]);
 }
 
 /** Deletes rows (of the markdown; the header is not one of them), as one edit */
-export function deleteRowsAt(host: TableHost, info: WidgetInfo, rows: readonly number[]): Promise<WriteResult> {
+export function deleteRowsAt(host: ModelHost, info: TableInfo, rows: readonly number[]): Promise<WriteResult> {
   const doomed = [...new Set(rows.filter((r) => r > 0))].sort((a, b) => b - a);
   if (doomed.length === 0) return Promise.resolve("unchanged");
   // From the last up: the rows above keep their places, the pins count down zone by zone
@@ -157,7 +157,7 @@ export function deleteRowsAt(host: TableHost, info: WidgetInfo, rows: readonly n
 }
 
 /** Moves a row, within its zone when pinned, outside the zones when not */
-export function moveRowTo(host: TableHost, info: WidgetInfo, from: number, asked: number): Promise<WriteResult> {
+export function moveRowTo(host: ModelHost, info: TableInfo, from: number, asked: number): Promise<WriteResult> {
   const to = clampRowMove(info.pins, info.rows, from, asked);
   if (to === from) return Promise.resolve("unchanged");
   return host.writeTable(info, (t) => moveRow(t, from, to), { rowMap: (r) => columnAfterMove(r, from, to) });
@@ -176,24 +176,24 @@ function blockTo(clamp: (from: number, to: number) => number, first: number, las
 }
 
 /** Where body rows `first`..`last` asked to start at `asked` go: the first's index (`first`: they stay) */
-export function rowBlockTo(info: WidgetInfo, first: number, last: number, asked: number): number {
+export function rowBlockTo(info: TableInfo, first: number, last: number, asked: number): number {
   return blockTo((from, at) => clampRowMove(info.pins, info.rows, from, at), first, last, asked);
 }
 
 /** Where columns `first`..`last` asked to start at `asked` go: the first's index (`first`: they stay) */
-export function columnBlockTo(info: WidgetInfo, first: number, last: number, asked: number): number {
+export function columnBlockTo(info: TableInfo, first: number, last: number, asked: number): number {
   return blockTo((from, at) => clampColumnMove(info.pins, info.columns, from, at), first, last, asked);
 }
 
 /** Moves body rows `first`..`last` so that the first is at `asked` (within their zone), as one edit */
-export function moveRowsTo(host: TableHost, info: WidgetInfo, first: number, last: number, asked: number): Promise<WriteResult> {
+export function moveRowsTo(host: ModelHost, info: TableInfo, first: number, last: number, asked: number): Promise<WriteResult> {
   const to = rowBlockTo(info, first, last, asked);
   if (to === first) return Promise.resolve("unchanged");
   return host.writeTable(info, (t) => moveRows(t, first, last, to), { rowMap: (r) => lineAfterBlockMove(r, first, last, to) });
 }
 
 /** Moves columns `first`..`last` so that the first is at `asked` (within their zone), as one edit */
-export function moveColumnsTo(host: TableHost, info: WidgetInfo, first: number, last: number, asked: number): Promise<WriteResult> {
+export function moveColumnsTo(host: ModelHost, info: TableInfo, first: number, last: number, asked: number): Promise<WriteResult> {
   const to = columnBlockTo(info, first, last, asked);
   if (to === first) return Promise.resolve("unchanged");
   return host.writeTable(info, (t) => moveColumns(t, first, last, to), { columnMap: (c) => lineAfterBlockMove(c, first, last, to) });
@@ -216,7 +216,7 @@ export type Growth = {
  * columns (named, as an empty header is not shown) left of those pinned to
  * the right. Pins stay as they are.
  */
-export function growTo(info: WidgetInfo, at: CellRef): Growth {
+export function growTo(info: TableInfo, at: CellRef): Growth {
   const rows = Math.max(0, at.row - info.rows + 1);
   const columns = Math.max(0, at.column - info.columns + 1);
   const rowsAt = appendRowAt(info.pins, info.rows);
@@ -238,7 +238,7 @@ export function growTo(info: WidgetInfo, at: CellRef): Growth {
 }
 
 /** Adds a column asked for at `at` and edits its name */
-export function insertColumnWith(host: TableHost, info: WidgetInfo, at: number): Promise<WriteResult> {
+export function insertColumnWith(host: ModelHost, info: TableInfo, at: number): Promise<WriteResult> {
   const insert = insertColumnAt(info.pins, info.columns, at);
   return host.writeTable(info, (t) => insertColumn(t, insert.at), {
     focus: { row: 0, column: insert.at, select: true },
@@ -251,12 +251,12 @@ export function insertColumnWith(host: TableHost, info: WidgetInfo, at: number):
  * Deletes a column. What the features keep in it that goes with it (names of
  * rows and cells, which formulas use) is asked first.
  */
-export function deleteColumnAt(host: TableHost, info: WidgetInfo, column: number): Promise<WriteResult> {
+export function deleteColumnAt(host: ModelHost, info: TableInfo, column: number): Promise<WriteResult> {
   return deleteColumnsAt(host, info, [column]);
 }
 
 /** Deletes columns, as one edit; at least one stays (a table needs one) */
-export async function deleteColumnsAt(host: TableHost, info: WidgetInfo, columns: readonly number[]): Promise<WriteResult> {
+export async function deleteColumnsAt(host: ModelHost, info: TableInfo, columns: readonly number[]): Promise<WriteResult> {
   const doomed = [...new Set(columns)].sort((a, b) => b - a);
   if (doomed.length === 0) return "unchanged";
   if (doomed.length >= info.columns) {
@@ -278,21 +278,21 @@ export async function deleteColumnsAt(host: TableHost, info: WidgetInfo, columns
   });
 }
 
-export function moveColumnTo(host: TableHost, info: WidgetInfo, from: number, asked: number): Promise<WriteResult> {
+export function moveColumnTo(host: ModelHost, info: TableInfo, from: number, asked: number): Promise<WriteResult> {
   const to = clampColumnMove(info.pins, info.columns, from, asked);
   if (to === from) return Promise.resolve("unchanged");
   return host.writeTable(info, (t) => moveColumn(t, from, to), { columnMap: (c) => columnAfterMove(c, from, to) });
 }
 
 /** Pins a row to the top or bottom (moving it there), or unpins it; pinning needs the metadata setting */
-export async function pinRowAt(host: TableHost, info: WidgetInfo, row: number, pin: RowZone | undefined): Promise<void> {
+export async function pinRowAt(host: ModelHost, info: TableInfo, row: number, pin: RowZone | undefined): Promise<void> {
   if (pin && !(await host.setting("metadata"))) return;
   const { to, pins } = pinRow(info.pins, info.rows, row, pin);
   await host.writeTable(info, (t) => moveRow(t, row, to), { pins, rowMap: (r) => columnAfterMove(r, row, to) });
 }
 
 export async function pinColumnAt(
-  host: TableHost, info: WidgetInfo,
+  host: ModelHost, info: TableInfo,
   column: number,
   pin: ColumnZone | undefined,
 ): Promise<void> {

@@ -3,10 +3,10 @@
 // edited whose text does not fit its field (a long formula), gets a small
 // expand button at its top right corner. It opens the cell's editor in its
 // popup (core/editor.ts): the whole text, wrapped, to read and edit.
-import type { CellEditor, Feature, TableHost, WidgetInfo } from "../../feature.ts";
+import type { AdapterFeature, RenderedEditor, TableHost, WidgetInfo } from "../../feature.ts";
 import { ICONS } from "../../../icons.ts";
 
-export class CellPopup implements Feature {
+export class CellPopup implements AdapterFeature {
   private readonly button: HTMLButtonElement;
   // The cell the button is for
   private target: { readonly widget: HTMLElement; readonly info: WidgetInfo; readonly cell: HTMLTableCellElement } | undefined;
@@ -48,7 +48,7 @@ export class CellPopup implements Feature {
     else this.hide();
   }
 
-  editorOpened(editor: CellEditor): void {
+  editorOpened(editor: RenderedEditor): void {
     this.showFor(editor);
     // Typed past the field's end: the button shows
     editor.field.addEventListener("input", () => {
@@ -65,7 +65,7 @@ export class CellPopup implements Feature {
   }
 
   /** While a cell is edited in it: when its text does not fit, or the cell's did not */
-  private showFor(editor: CellEditor): void {
+  private showFor(editor: RenderedEditor): void {
     const info = this.host.infoOf(editor.widget);
     const field = editor.field;
     const overflows = field.scrollWidth > field.clientWidth + 1 || editor.cell.classList.contains("swt-cut");

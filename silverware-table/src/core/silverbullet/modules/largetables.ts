@@ -12,7 +12,7 @@
 // (placeRows), as the box scrolls, and put back when a row is needed
 // (rowNeeded: a cell edited or selected out of view).
 import { SETTINGS } from "../../../bridge.ts";
-import type { Feature, TableHost, WidgetInfo } from "../../feature.ts";
+import type { AdapterFeature, TableHost, WidgetInfo } from "../../feature.ts";
 import { UI_CLASS } from "../../../dom.ts";
 
 const LARGE_CLASS = "swt-large-table";
@@ -40,7 +40,7 @@ type State = {
   widthsKept: boolean;
 };
 
-export class LargeTables implements Feature {
+export class LargeTables implements AdapterFeature {
   private minRows: number = SETTINGS.largeTablesMinRows.default;
   private maxHeight = 0;
   private readonly states = new WeakMap<HTMLTableElement, State>();

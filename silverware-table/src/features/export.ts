@@ -2,7 +2,7 @@
 // menu. Copy as CSV: its header and its rows as shown (sorted, filtered),
 // cells as Ctrl+C copies them (host.shownValue).
 import { writeClipboard } from "../clipboard.ts";
-import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { Feature, ModelHost, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { currentTable, exportedTable } from "../export/table.ts";
 import { ICONS } from "../icons.ts";
 
@@ -13,10 +13,10 @@ export function csvText(values: readonly (readonly string[])[]): string {
 }
 
 export class Export implements Feature {
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: ModelHost) {}
 
   /** Copy as CSV in the toolbar's menu */
-  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: TableInfo): ToolbarButton[] {
     return [
       {
         label: "Copy as CSV",
@@ -27,7 +27,7 @@ export class Export implements Feature {
     ];
   }
 
-  private async copyCsv(shownInfo: WidgetInfo): Promise<void> {
+  private async copyCsv(shownInfo: TableInfo): Promise<void> {
     const info = currentTable(this.host, shownInfo);
     const table = exportedTable(this.host, info, "shown");
     try {

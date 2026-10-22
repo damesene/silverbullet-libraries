@@ -2,7 +2,7 @@
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
 import { type Bridge, type FeatureName, moduleOnByDefault, SETTINGS, type SettingValue } from "./bridge.ts";
-import { type CellEditor, type CellHit, type CellRef, editorRect, type ClipboardData, type LineDrag, type DragOptions, type Feature, type HandleLayer, type HandlePlace, type MarkLayer, type OutlineLayer, type Panel, type PanelAnchor, type PointerTarget, type Side, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
+import { type AdapterFeature, type CellEditor, type RenderedEditor, type TableInfo, type CellHit, type CellRef, editorRect, type ClipboardData, type LineDrag, type DragOptions, type HandleLayer, type HandlePlace, type MarkLayer, type OutlineLayer, type Panel, type PanelAnchor, type PointerTarget, type Side, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
 import { type Dialog, type DialogOptions, Dialogs } from "./core/dialog.ts";
 import { ViewAnchor } from "./core/anchor.ts";
 import { placeAtEnd, TableRows } from "./core/rows.ts";
@@ -150,7 +150,7 @@ export class Controller implements TableHost {
   private readonly insert: InsertControls;
   // Features that keep their own state and work through this controller
   // (core/feature.ts): those turned on, filled in when Silverware Table starts
-  private readonly features: Feature[] = [];
+  private readonly features: AdapterFeature[] = [];
   private featuresStarted: Promise<void> | undefined;
   // The modules turned on
   private readonly modulesOn = new Set<FeatureName>();
@@ -244,7 +244,7 @@ export class Controller implements TableHost {
       menu: this.tableMenu,
       hovered: () => this.hoverWidget,
       stopped: () => this.stopped,
-      buttons: (widget, info) => this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []),
+      buttons: (_widget, info) => this.features.flatMap((feature) => feature.toolbarButtons?.(info) ?? []),
       current: (widget, info) => this.current(widget, info),
       applySort: (widget, info) => void this.applySort(widget, info),
       showMarkdown: (info) => void this.showMarkdown(info),
@@ -673,7 +673,7 @@ export class Controller implements TableHost {
       this.anchor.keep(info.key, widget);
       this.cellEditor.takePending(widget, info);
       this.anchor.again(widget, info.key);
-      for (const feature of this.features) feature.enhanced?.(widget, info);
+      for (const feature of this.features) feature.enhanced?.(info);
       // The cell showing the move cursor was rendered anew (Ctrl+arrows saved a cell)
       if (this.navigating) this.markNavigating();
       this.insert.tableEnhanced(widget, info);
@@ -789,16 +789,16 @@ export class Controller implements TableHost {
   }
 
   menuNaming(info: WidgetInfo, target: NamingTarget): MenuNaming | undefined {
-    const widget = this.widgetOf(info);
     for (const feature of this.features) {
-      const naming = feature.menuNaming?.(widget, info, target);
+      const naming = feature.menuNaming?.(info, target);
       if (naming) return naming;
     }
     return undefined;
   }
 
-  openTableMenu(widget: HTMLElement, naming = false): void {
-    this.toolbar.openMenu(widget, naming);
+  openTableMenu(target: TableInfo | HTMLElement, naming = false): void {
+    const widget = "key" in target ? this.widgetForKey(target.key) : target;
+    if (widget) this.toolbar.openMenu(widget, naming);
   }
 
   headerRenamed(name: string, original: string): string {
@@ -1117,8 +1117,13 @@ export class Controller implements TableHost {
     this.doc.querySelector<HTMLElement>(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
 
-  get editing(): CellEditor | undefined {
+  get editing(): RenderedEditor | undefined {
     return this.cellEditor.active;
+  }
+
+  rendered(editor: CellEditor): RenderedEditor {
+    // The controller's editor is the one rendered (CellEditing's)
+    return editor as RenderedEditor;
   }
 
   takePress(): void {
@@ -1135,37 +1140,31 @@ export class Controller implements TableHost {
   }
 
   columnMenuEntries(info: WidgetInfo, column: number, open: (title: string, entries: readonly MenuEntry[]) => void): MenuEntry[] {
-    const widget = this.widgetOf(info);
-    return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
+    return this.features.flatMap((f) => f.columnMenuEntries?.(info, column, open) ?? []);
   }
 
   columnMenuLeadEntries(info: WidgetInfo, column: number, open: (title: string, entries: readonly MenuEntry[]) => void): MenuEntry[] {
-    const widget = this.widgetOf(info);
-    return this.features.flatMap((f) => f.columnMenuLeadEntries?.(widget, info, column, open) ?? []);
+    return this.features.flatMap((f) => f.columnMenuLeadEntries?.(info, column, open) ?? []);
   }
 
   columnMenuTopEntries(info: WidgetInfo, column: number): MenuEntry[] {
-    const widget = this.widgetOf(info);
-    return this.features.flatMap((f) => f.columnMenuTopEntries?.(widget, info, column) ?? []);
+    return this.features.flatMap((f) => f.columnMenuTopEntries?.(info, column) ?? []);
   }
 
   columnMenuInsertEntries(info: WidgetInfo, column: number): MenuEntry[] {
-    const widget = this.widgetOf(info);
-    return this.features.flatMap((f) => f.columnMenuInsertEntries?.(widget, info, column) ?? []);
+    return this.features.flatMap((f) => f.columnMenuInsertEntries?.(info, column) ?? []);
   }
 
   rowMenuEntries(info: WidgetInfo, row: number, column: number): MenuEntry[] {
-    const widget = this.widgetOf(info);
-    return this.features.flatMap((f) => f.rowMenuEntries?.(widget, info, row, column) ?? []);
+    return this.features.flatMap((f) => f.rowMenuEntries?.(info, row, column) ?? []);
   }
 
   lineMenuEntries(info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
-    const widget = this.widgetOf(info);
-    return this.features.flatMap((f) => f.lineMenuEntries?.(widget, info, axis, lines) ?? []);
+    return this.features.flatMap((f) => f.lineMenuEntries?.(info, axis, lines) ?? []);
   }
 
   /** The element a table's info was rendered in (the hooks that still take it: docs/silverware-table-isolation.md) */
-  private widgetOf(info: WidgetInfo): HTMLElement {
+  widgetOf(info: WidgetInfo): HTMLElement {
     return info.table.closest<HTMLElement>(WIDGET_SELECTOR) ?? info.table;
   }
 
@@ -1208,9 +1207,10 @@ export class Controller implements TableHost {
     return this.cellEditor.finish(true, undefined, false);
   }
 
-  takeEditor(): { widget: HTMLElement; row: number; column: number; save: (table: Table) => Table | undefined } | undefined {
+  takeEditor(): { key: string; row: number; column: number; save: (table: Table) => Table | undefined } | undefined {
     const closed = this.cellEditor.close();
-    return closed && { widget: closed.widget, row: closed.row, column: closed.column, save: (t) => this.cellEditor.withSaved(t, closed) };
+    const key = closed && this.infos.get(closed.widget)?.key;
+    return closed && key !== undefined ? { key, row: closed.row, column: closed.column, save: (t) => this.cellEditor.withSaved(t, closed) } : undefined;
   }
 
   /** The settings dialog (the table's ⋯ menu, the "Silverware Table: Settings" command) */
@@ -1470,7 +1470,7 @@ export class Controller implements TableHost {
       else cell.removeAttribute("aria-sort");
     });
 
-    for (const feature of this.features) feature.viewApplied?.(widget, info);
+    for (const feature of this.features) feature.viewApplied?.(info);
     // The columns' widths (the widths module's), once the cells are laid out (their content boxes made)
     this.adapter.applyColumnWidths(info, this.columnWidths(info));
     // The features' rows of their own UI under the header (the filter row)
@@ -1582,7 +1582,7 @@ export class Controller implements TableHost {
     if (!cell || this.cellEditor.active?.cell === cell) return;
     const ref = this.cellRef(info, cell);
     if (!ref) return;
-    for (const feature of this.features) if (feature.beforeCellPress?.(widget, info, ref, e)) return;
+    for (const feature of this.features) if (feature.beforeCellPress?.(info, ref, e)) return;
     // The selectOnClick setting selects the cell's text; Shift the reverse (where no feature took Shift+click to select cells)
     const select = e.shiftKey !== this.cellEditor.selectOnClick;
     if (this.cellEditor.active) void this.cellEditor.finish(true, { widget, ...ref, select });
@@ -1640,7 +1640,7 @@ export class Controller implements TableHost {
     }
     const hit = this.enhancedWidgetOf(e.target);
     if (!hit) return;
-    const [widget, info] = hit;
+    const [, info] = hit;
     const target = e.target as Element;
     if (e.altKey) {
       if (this.tableCellOf(info, target)) {
@@ -1657,7 +1657,7 @@ export class Controller implements TableHost {
       this.setSort(info, cycleSort(this.viewOf(info), Number(action.dataset.swtColumn)));
     } else if (action?.dataset.swtAction) {
       const name = action.dataset.swtAction;
-      if (this.features.some((f) => f.action?.(name, action, widget, info))) e.preventDefault();
+      if (this.features.some((f) => f.action?.(name, info, action.dataset.swtColumn === undefined ? undefined : Number(action.dataset.swtColumn)))) e.preventDefault();
     }
   };
 
@@ -2132,7 +2132,7 @@ export class Controller implements TableHost {
 
   private openCellMenuAt(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean {
     // A feature's own menu there instead (rows selected whole: theirs); the others' menus and picking end, as for the cell menu
-    const taker = this.features.find((f) => f.cellMenu?.(widget, info, at, point));
+    const taker = this.features.find((f) => f.cellMenu?.(info, at, point));
     if (taker) {
       for (const feature of this.features) if (feature !== taker) feature.cellMenuOpened?.();
       if (this.pressedWith === "touch") this.takePress();
@@ -2147,7 +2147,7 @@ export class Controller implements TableHost {
       }
     }
     const groups = this.features
-      .flatMap((f) => [f.cellMenuEntries?.(widget, info, cells) ?? []].flat())
+      .flatMap((f) => [f.cellMenuEntries?.(info, cells) ?? []].flat())
       .filter((group) => group.entries.length > 0)
       .sort((a, b) => a.order - b.order);
     if (groups.length === 0) return false;

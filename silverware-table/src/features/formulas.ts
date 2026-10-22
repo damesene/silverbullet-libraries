@@ -20,10 +20,10 @@ import type {
   MetadataPart,
   Panel,
   Rect,
-  TableHost,
+  ModelHost,
   TableLooks,
   ToolbarButton,
-  WidgetInfo,
+  TableInfo,
   WriteEdit,
 } from "../core/feature.ts";
 import {
@@ -128,7 +128,7 @@ export class Formulas implements Feature {
   // The page's tables for formulas, as of the page's text and the other pages read
   private source: { readonly key: string; readonly source: TableSource } | undefined;
 
-  constructor(private readonly host: TableHost) {
+  constructor(private readonly host: ModelHost) {
     this.formulaHint = host.panel("swt-formula-hint");
     this.functions = new FunctionDialog(host);
   }
@@ -194,7 +194,7 @@ export class Formulas implements Feature {
    * in every row, a calculated column (rows added later get it too). As many
    * as wanted. New formulas need the metadata setting.
    */
-  columnMenuInsertEntries(_widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
+  columnMenuInsertEntries(info: TableInfo, column: number): MenuEntry[] {
     const insert = insertColumnAt(info.pins, info.columns, column);
     const blocked = !this.host.metadataEnabled
       ? FORMULAS_NEED_METADATA
@@ -215,7 +215,7 @@ export class Formulas implements Feature {
     ];
   }
 
-  private insertNumbered(info: WidgetInfo, column: number): Promise<unknown> {
+  private insertNumbered(info: TableInfo, column: number): Promise<unknown> {
     const insert = insertColumnAt(info.pins, info.columns, column);
     return this.host.writeTable(
       this.host.tableFor(info.key) ?? info,
@@ -254,7 +254,7 @@ export class Formulas implements Feature {
   }
 
   /** A formula cell is edited as its formula; a text starting with "=" as '=…, so it stays text */
-  editorText(_info: WidgetInfo, cell: CellRef, original: string): string | undefined {
+  editorText(_info: TableInfo, cell: CellRef, original: string): string | undefined {
     if (cell.row === 0) return undefined;
     const stored = formulaOf(original);
     if (stored) return stored.formula;
@@ -371,7 +371,7 @@ export class Formulas implements Feature {
   }
 
   // While a formula waits for a reference, a press in its table inserts one
-  beforeCellPress(_widget: HTMLElement, info: WidgetInfo, cell: CellRef, e: MouseEvent): boolean {
+  beforeCellPress(info: TableInfo, cell: CellRef, e: MouseEvent): boolean {
     return this.pointReference(info, cell, e);
   }
 
@@ -383,7 +383,7 @@ export class Formulas implements Feature {
   // ---- formula cells in the table -------------------------------------------------
 
   /** Formula cells show that they hold one, and their formula (or error) on hover; a table whose results are out of date is noted */
-  looks(info: WidgetInfo): TableLooks | undefined {
+  looks(info: TableInfo): TableLooks | undefined {
     const model = parseTable(info.source);
     if (formulaCount(model) === 0) return undefined;
     const tables = this.tableSource();
@@ -397,7 +397,7 @@ export class Formulas implements Feature {
    * written. A new formula is metadata: without the setting it is copied as
    * its value.
    */
-  fillCell(info: WidgetInfo, cell: string, from: CellRef, to: CellRef): string | undefined {
+  fillCell(info: TableInfo, cell: string, from: CellRef, to: CellRef): string | undefined {
     const stored = formulaOf(cell);
     if (!stored || from.row === 0 || to.row === 0 || !this.host.metadataEnabled) return undefined;
     const table = parseTable(info.source);
@@ -406,7 +406,7 @@ export class Formulas implements Feature {
   }
 
   /** Insert function… in a body cell's menu: the cell edited (its formula, or a new one) and the Functions dialog for it */
-  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
+  cellMenuEntries(info: TableInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
     const [cell] = cells;
     if (cells.length !== 1 || !cell || cell.row === 0) return undefined;
     const hasFormula = formulaOf(parseTable(info.source).rows[cell.row]?.cells[cell.column] ?? "") !== undefined;
@@ -457,7 +457,7 @@ export class Formulas implements Feature {
    * A table rendered anew (it changed) may be one that others refer to: their
    * results are checked again, as SilverBullet keeps their widgets as they were
    */
-  enhanced(_widget: HTMLElement, info: WidgetInfo): void {
+  enhanced(info: TableInfo): void {
     this.recheck(info.key, false);
   }
 
@@ -487,7 +487,7 @@ export class Formulas implements Feature {
   }
 
   /** Recalculate, first in the toolbar of a table with formulas; highlighted when results are out of date */
-  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(info: TableInfo): ToolbarButton[] {
     if (formulaCount(parseTable(info.source)) === 0) return [];
     const known = this.stale.get(info.key);
     const stale = known?.source === info.source && known.stale;
@@ -587,7 +587,7 @@ export class Formulas implements Feature {
    * ([Qty]). Pointing again replaces the reference just inserted. Returns
    * whether the click was taken.
    */
-  private pointReference(info: WidgetInfo, cell: CellRef, e: MouseEvent): boolean {
+  private pointReference(info: TableInfo, cell: CellRef, e: MouseEvent): boolean {
     const active = this.host.editing;
     if (!active || active.key !== info.key) return false;
     const slot = this.pointingSlot(active);
@@ -693,7 +693,7 @@ export class Formulas implements Feature {
    * page's text), its own cells bare instead of as its table's, and its own
    * names as edited (the table only, so cheap whatever edits a feature holds)
    */
-  private namesFor(info: WidgetInfo): readonly FormulaChoice[] {
+  private namesFor(info: TableInfo): readonly FormulaChoice[] {
     const text = this.host.pageText;
     if (this.pageNames?.text !== text) this.pageNames = { text, choices: pageNameChoices(pageTablesOf(text)) };
     const table = this.host.tableOf(info);
@@ -870,7 +870,7 @@ export class Formulas implements Feature {
   }
 
   /** The body rows and columns a reference covers, within the table; undefined if none */
-  private referenceArea(info: WidgetInfo, table: Table, ref: Reference, row: number): Area | undefined {
+  private referenceArea(info: TableInfo, table: Table, ref: Reference, row: number): Area | undefined {
     // Another table's cells are not outlined in this one
     if (ref.table) return undefined;
     const lastRow = info.rows - 2;
@@ -897,7 +897,7 @@ export class Formulas implements Feature {
    * next to each other (sorting and filters can split an area), clipped to
    * what of the table is in view (the core's)
    */
-  private areaBoxes(info: WidgetInfo, area: Area): Rect[] {
+  private areaBoxes(info: TableInfo, area: Area): Rect[] {
     const boxes: Rect[] = [];
     let run: number[] = [];
     const flush = () => {
@@ -920,7 +920,7 @@ export class Formulas implements Feature {
   }
 
   /** The body cell (row in the markdown minus one, column) under a point, if any */
-  private bodyCellAt(info: WidgetInfo, x: number, y: number): { row: number; column: number } | undefined {
+  private bodyCellAt(info: TableInfo, x: number, y: number): { row: number; column: number } | undefined {
     const cell = this.host.cellAtPoint(info, x, y);
     return cell && cell.row > 0 ? { row: cell.row - 1, column: cell.column } : undefined;
   }

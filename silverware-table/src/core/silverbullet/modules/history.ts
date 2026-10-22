@@ -8,10 +8,10 @@
 // that starts right there (a row added at the end, nothing else changed)
 // would leave the cursor before what it inserts, in the table, which then
 // shows its markdown: the cursor goes right before the table instead.
-import type { Feature, TableHost } from "../../feature.ts";
+import type { AdapterFeature, TableHost } from "../../feature.ts";
 import { EDITOR_SELECTOR } from "../../../dom.ts";
 
-export class History implements Feature {
+export class History implements AdapterFeature {
   // Editor cursor positions set before table edits
   private readonly markers = new Set<number>();
 

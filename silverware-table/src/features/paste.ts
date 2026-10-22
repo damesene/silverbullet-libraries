@@ -18,8 +18,8 @@ import {
   type ClipboardData,
   type Feature,
   type OutlineLayer,
-  type TableHost,
-  type WidgetInfo,
+  type ModelHost,
+  type TableInfo,
 } from "../core/feature.ts";
 import type { MenuEntry } from "../menu.ts";
 import { cellMoveRules, growTo, moveRowsTo } from "../core/structure.ts";
@@ -65,7 +65,7 @@ export class Paste implements Feature {
   private cut: Cut | undefined;
   private readonly edges: OutlineLayer;
 
-  constructor(private readonly host: TableHost) {
+  constructor(private readonly host: ModelHost) {
     this.edges = host.outlineLayer("cut", (sides) => [`swt-cut-edge ${sides.map((side) => `swt-cut-${side}`).join(" ")}`]);
   }
 
@@ -152,14 +152,14 @@ export class Paste implements Feature {
   }
 
   // A table rendered anew: the cells copied or cut outlined again, or the outline (and a cut) ended where they changed
-  enhanced(_widget: HTMLElement, info: WidgetInfo): void {
+  enhanced(info: TableInfo): void {
     if (this.cut?.key !== info.key) return;
     if (this.clipFor(info)) this.markCut(info);
     else this.endCut();
   }
 
   /** Copy, Cut, Paste and Paste as new rows in the cell menu, a bar of icons first (pasted from the first cell) */
-  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
+  cellMenuEntries(info: TableInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
     const at = cells[0];
     if (!at) return undefined;
     const name = cells.length > 1 ? `${cells.length} cells` : "";
@@ -183,7 +183,7 @@ export class Paste implements Feature {
    * their first cell (a column's header: a column copied names it), rows also
    * as new rows.
    */
-  lineMenuEntries(_widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+  lineMenuEntries(info: TableInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
     const first = Math.min(...lines);
     if (!Number.isFinite(first)) return [];
     const rows = axis === "row" ? lines : this.host.shownOrder(info);
@@ -211,7 +211,7 @@ export class Paste implements Feature {
    * caption, their full names (Copy 3 rows) as tooltips; Paste from `at`
    */
   private clipboardBar(
-    info: WidgetInfo,
+    info: TableInfo,
     o: {
       readonly copied: readonly CellRef[];
       readonly cut: readonly CellRef[] | undefined;
@@ -268,7 +268,7 @@ export class Paste implements Feature {
   }
 
   /** The cells selected, in rows as shown, of the table they are in */
-  private selection(): { info: WidgetInfo; cells: CellRef[] } | undefined {
+  private selection(): { info: TableInfo; cells: CellRef[] } | undefined {
     for (const info of this.host.shownTables()) {
       const cells = this.host.selectedCells(info);
       if (cells.length) return { info, cells: [...cells] };
@@ -277,7 +277,7 @@ export class Paste implements Feature {
   }
 
   /** Cells as rows (as shown), and their values as Ctrl+C copies them */
-  private valuesOf(info: WidgetInfo, cells: readonly CellRef[]): { rows: CellRef[][]; values: string[][] } {
+  private valuesOf(info: TableInfo, cells: readonly CellRef[]): { rows: CellRef[][]; values: string[][] } {
     const byRow = new Map<number, CellRef[]>();
     for (const ref of cells) byRow.set(ref.row, [...(byRow.get(ref.row) ?? []), ref]);
     const rows = Array.from(byRow.values());
@@ -286,7 +286,7 @@ export class Paste implements Feature {
   }
 
   /** Copy (Cut) in the menu: the cells onto the clipboard, as Ctrl+C puts them; cut, they are marked to move */
-  private async copy(info: WidgetInfo, cells: readonly CellRef[], cutting: boolean): Promise<void> {
+  private async copy(info: TableInfo, cells: readonly CellRef[], cutting: boolean): Promise<void> {
     const { rows, values } = this.valuesOf(info, cells);
     const text = clipboardText(values);
     this.endCut();
@@ -320,7 +320,7 @@ export class Paste implements Feature {
   }
 
   /** The cells cut marked to move, said so (or why they are only copied) */
-  private cutCells(info: WidgetInfo, cells: readonly CellRef[], rows: CellRef[][], values: readonly (readonly string[])[], text: string): void {
+  private cutCells(info: TableInfo, cells: readonly CellRef[], rows: CellRef[][], values: readonly (readonly string[])[], text: string): void {
     this.endCut();
     const size = `${values.length} × ${values[0]?.length ?? 0} cells`;
     if (cells.some((ref) => ref.row === 0)) {
@@ -355,7 +355,7 @@ export class Paste implements Feature {
     this.startCut(selected.info, rows, clipboardText(values), false);
   }
 
-  private startCut(info: WidgetInfo, cells: CellRef[][], text: string, moves: boolean): void {
+  private startCut(info: TableInfo, cells: CellRef[][], text: string, moves: boolean): void {
     const table = this.host.tableOf(info);
     const held = cells.map((row) => row.map((ref) => table.rows[ref.row]?.cells[ref.column] ?? ""));
     this.cut = { moves, key: info.key, shape: this.shapeOf(table), cells, held, text: sameText(text) };
@@ -363,7 +363,7 @@ export class Paste implements Feature {
   }
 
   /** Cells cut to move, if they are this table's and still hold what they held (and the text pasted, given, is theirs) */
-  private cutFor(info: WidgetInfo, text?: string): Cut | undefined {
+  private cutFor(info: TableInfo, text?: string): Cut | undefined {
     const cut = this.clipFor(info, text);
     return cut?.moves ? cut : undefined;
   }
@@ -372,7 +372,7 @@ export class Paste implements Feature {
    * The cells copied or cut, if they are this table's and hold what they held
    * then (and, given the text pasted, that text is what was copied)
    */
-  private clipFor(info: WidgetInfo, text?: string): Cut | undefined {
+  private clipFor(info: TableInfo, text?: string): Cut | undefined {
     const cut = this.cut;
     if (!cut || cut.key !== info.key) return undefined;
     if (text !== undefined && sameText(text) !== cut.text) return undefined;
@@ -383,12 +383,12 @@ export class Paste implements Feature {
     return same ? cut : undefined;
   }
 
-  private shapeOf(table: ReturnType<TableHost["tableOf"]>): string {
+  private shapeOf(table: ReturnType<ModelHost["tableOf"]>): string {
     return `${table.rows.length}×${table.align.length}`;
   }
 
   /** The cells copied or cut outlined, dashed, as a spreadsheet marks them */
-  private markCut(info: WidgetInfo): void {
+  private markCut(info: TableInfo): void {
     const cut = this.cut;
     const first = cut?.cells[0];
     if (!cut || !first?.length) {
@@ -409,7 +409,7 @@ export class Paste implements Feature {
 
   /** The clipboard read (the browser may ask, or show its own Paste button), pasted from the cell; cells cut move there */
   /** The markdown rows `first`..`last` the cells cut are, when they are whole rows following each other; else nothing */
-  private cutRows(info: WidgetInfo, cut: Cut): { first: number; last: number } | undefined {
+  private cutRows(info: TableInfo, cut: Cut): { first: number; last: number } | undefined {
     const rows = cut.cells.map((row) => row[0]?.row ?? 0);
     const whole = cut.cells.every((row) => row.length === info.columns && row.every((ref, j) => ref.column === j));
     const first = Math.min(...rows);
@@ -422,7 +422,7 @@ export class Paste implements Feature {
    * with its header (what Copy column copies) goes there and names it; other
    * text (a spreadsheet's cells, cells cut) goes under it, the name kept
    */
-  private async pasteFromMenu(shownInfo: WidgetInfo, at: CellRef, insert: boolean, fromHeader = false): Promise<void> {
+  private async pasteFromMenu(shownInfo: TableInfo, at: CellRef, insert: boolean, fromHeader = false): Promise<void> {
     const clipboard = this.host.doc.defaultView!.navigator.clipboard;
     const cutBefore = this.cutFor(shownInfo);
     let text: string | undefined;
@@ -475,7 +475,7 @@ export class Paste implements Feature {
    * where the cells would go.
    */
   private async paste(
-    info: WidgetInfo,
+    info: TableInfo,
     at: CellRef,
     data: string[][],
     insert: boolean,

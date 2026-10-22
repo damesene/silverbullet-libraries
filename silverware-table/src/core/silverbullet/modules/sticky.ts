@@ -14,11 +14,11 @@
 // whose box is laid over the window (position: fixed: full screen) scrolls in
 // that box only, the page never moves it: its header and footer are sticky
 // against the box (`swt-sticky-box`), moved by the browser too.
-import type { Feature, TableHost } from "../../feature.ts";
+import type { AdapterFeature, TableHost } from "../../feature.ts";
 import { STICKY_GAP } from "../../layout.ts";
 import { renderedTable, WIDGET_SELECTOR } from "../../../dom.ts";
 
-export class Sticky implements Feature {
+export class Sticky implements AdapterFeature {
   constructor(private readonly host: TableHost) {}
 
   layoutChanged(): void {
