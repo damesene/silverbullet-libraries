@@ -23,6 +23,7 @@ import { Paste } from "./features/paste.ts";
 import { CellPopup } from "./core/silverbullet/modules/popup.ts";
 import { Selection } from "./features/selection.ts";
 import { Sheet } from "./core/silverbullet/modules/sheet.ts";
+import { Sheets } from "./features/sheets.ts";
 import { Sticky } from "./core/silverbullet/modules/sticky.ts";
 import { Themes } from "./features/themes.ts";
 import { Widths } from "./features/widths.ts";
@@ -62,6 +63,8 @@ export function featureEntries(host: TableHost, metadata: Feature): readonly Fea
     optional("export", () => new Export(host)),
     optional("excel", () => new Excel(host)),
     optional("sheet", () => new Sheet(host)),
+    // Its part in a table's menu: Add to sheet…, Remove from sheet
+    optional("sheet", () => new Sheets(host)),
     // Its icon last in the toolbar, before the menu
     optional("fullScreen", () => new FullScreen(host)),
     always(() => new Expressions(host)),

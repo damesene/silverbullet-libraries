@@ -25,7 +25,7 @@ export type SheetTable = {
 // The metadata row's attributes the sheet keeps
 export const SHEET_ATTRIBUTE = "sheet";
 export const AT_ATTRIBUTE = "at";
-const WIDTH_PREFIX = "sheet.width.";
+export const SHEET_WIDTH_PREFIX = "sheet.width.";
 
 // B3: a column's letters, a row's number
 const AT_RE = /^([A-Za-z]{1,3})([1-9]\d{0,6})$/;
@@ -83,8 +83,8 @@ export function sheetsOf(tables: readonly SheetTable[]): { readonly name: string
 export function sheetWidths(tables: readonly SheetTable[]): ReadonlyMap<number, number> {
   const widths = new Map<number, number>();
   for (const [name, value] of Object.entries(tables[0]?.table.meta ?? {})) {
-    if (!name.startsWith(WIDTH_PREFIX)) continue;
-    const at = parseAt(`${name.slice(WIDTH_PREFIX.length)}1`);
+    if (!name.startsWith(SHEET_WIDTH_PREFIX)) continue;
+    const at = parseAt(`${name.slice(SHEET_WIDTH_PREFIX.length)}1`);
     const width = Number(value);
     if (at && Number.isFinite(width) && width > 0) widths.set(at.column, width);
   }

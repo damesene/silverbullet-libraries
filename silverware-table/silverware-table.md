@@ -726,6 +726,10 @@ The sheet icon (a grid) in a table's toolbar shows the table like a spreadsheet,
 * **Rows pinned to the bottom stay last**: a new row goes above them, as Tab on the last cell does; a column, left of the columns pinned to the right.
 * **Close it** with the same icon (*Exit sheet view*) or Esc. *Full screen* stays as it was: the table over the window without empty cells.
 
+### Sheets of several tables
+
+A page's tables can share a sheet, as a spreadsheet's sheet holds several tables. *Add to sheet…* in a table's ⋯ menu puts it on one of the page's sheets or on a new one, and names it (the sheet's other tables refer to its cells by its name: `costs!B2`); it goes in column A, one empty row under the sheet's lowest table. The table keeps its place in the page, which shows it as before; its metadata row says which sheet it is on and where (`<meta name='costs' sheet='Budget' at='B3'>`). *Remove from sheet* takes it off again, its name kept. Both need the *Store table metadata* setting (or a metadata row the table has already).
+
 Everything else works as in the page: editing, selecting, menus, formulas. A table sorted or filtered shows a row added so where its sorting or filter puts it (or hides it); the rows' numbers past the table go on from the table's last row in the markdown. The empty cells are not cells yet: a selection, AutoFill or a drag stays within the table, a formula cannot refer to them, and the cell menu has nothing for them.
 
 ## Large tables
@@ -2429,6 +2433,47 @@ body.swt-resizing * {
 .swt-dialog-primary:disabled {
   opacity: 0.45;
   cursor: default;
+}
+/* The sheet module's Add to sheet… dialog */
+.swt-sheet-add {
+  display: grid;
+  gap: 10px;
+  min-width: min(360px, 80vw);
+}
+.swt-sheet-add-field {
+  display: grid;
+  gap: 4px;
+}
+.swt-sheet-add-field[hidden] {
+  display: none;
+}
+.swt-sheet-add-label {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.swt-sheet-add-hint {
+  font-size: 12px;
+  opacity: 0.6;
+}
+.swt-sheet-add-select,
+.swt-sheet-add-input {
+  padding: 5px 8px;
+  font: inherit;
+  color: inherit;
+  background: var(--root-background-color);
+  border: 1px solid var(--swt-dialog-line);
+  border-radius: 6px;
+}
+.swt-sheet-add-problem {
+  margin: 0;
+  min-height: 1em;
+  font-size: 12px;
+  color: var(--swt-invalid, #c62828);
+}
+.swt-sheet-add-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .swt-dialog-note {
   flex: 1;
