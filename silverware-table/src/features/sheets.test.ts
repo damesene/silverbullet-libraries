@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { flush, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { edits, flush, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 
 const PAGE = [
   "| Item | Qty |",
@@ -57,6 +57,19 @@ describe("Sheets: a table added to a sheet and removed from it", () => {
     expect(text).toBe(PAGE);
   });
 
+  it("hands the sheet's widths to a table added before its first, in the same edit", async () => {
+    await setup(`| X |\n|---|\n| 1 |\n\n${PAGE}`, { "silverware.table.metadata": true });
+    tableMenuItem(/Add to sheet/, 0)!.click();
+    await flush();
+    inputs()[1]!.value = "first";
+    button("Add to sheet").click();
+    await flush();
+    await flush();
+    expect(text).toContain("| <meta name='first' sheet='Budget' at='A5' sheet.width.B='140'> |");
+    expect(text).toContain("| <meta name='costs' sheet='Budget' at='A1'> |");
+    expect(edits).toBe(1);
+  });
+
   it("removes a table from its sheet, its name kept, the sheet's widths handed on to the next table", async () => {
     await setup(PAGE, { "silverware.table.metadata": true });
     expect(tableMenuItem(/Add to sheet/, 0)).toBeUndefined();
@@ -65,5 +78,7 @@ describe("Sheets: a table added to a sheet and removed from it", () => {
     await flush();
     expect(text).toContain("| <meta name='costs'> |");
     expect(text).toContain("| <meta name='notes' sheet='Budget' at='D1' sheet.width.B='140'> |");
+    // One edit: one Ctrl+Z undoes it all
+    expect(edits).toBe(1);
   });
 });

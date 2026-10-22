@@ -847,7 +847,11 @@ export interface Feature {
   prepareEdit?(edited: Table, page: WritePage): Promise<void>;
   /** A write step: the table edited, as the feature changes it in the same write (formulas recalculated, references following) */
   writeStep?(before: Table, after: Table, edit: WriteEdit): Table;
-  /** Other tables of the page the write changes too, in the same edit (formulas referring to the edited table) */
+  /**
+   * Other tables of the page the write changes too, in the same edit (formulas
+   * referring to the edited table); `edit.page.tables` has those features
+   * before it changed
+   */
   otherTablesWritten?(before: Table, after: Table, edit: WriteEdit): readonly PageTable[];
   /** Other pages read for formulas (the pageLinks module) */
   otherPages?(): OtherPages;

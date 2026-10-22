@@ -47,6 +47,7 @@ import {
   locateWithEmptyHeaders,
   minimalEdit,
   type OtherPages,
+  type PageTable,
   pageTablesOf,
   parseTable,
   serializeTable,
@@ -1972,12 +1973,18 @@ export class Controller implements TableHost {
       }
       // Other tables the features change with it (those whose formulas refer
       // to it), in the same edit: one Ctrl+Z undoes it all
-      const updates: { readonly range: TableRange; readonly markdown: string }[] = [{ range, markdown }];
+      // A table two features change: the later one sees the earlier one's change (the page's tables as changed so far)
+      const others = new Map<number, PageTable>();
+      let pageNow = page;
       for (const feature of this.features) {
-        for (const other of feature.otherTablesWritten?.(before, changed, edit) ?? []) {
-          updates.push({ range: other.range, markdown: serialize(other.table) });
+        for (const other of feature.otherTablesWritten?.(before, changed, { ...edit, page: pageNow }) ?? []) {
+          if (other.range.from === range.from) continue;
+          others.set(other.range.from, other);
+          pageNow = { ...pageNow, tables: pageNow.tables.map((t) => (t.range.from === other.range.from ? { range: t.range, table: other.table } : t)) };
         }
       }
+      const updates: { readonly range: TableRange; readonly markdown: string }[] = [{ range, markdown }];
+      for (const other of others.values()) updates.push({ range: other.range, markdown: serialize(other.table) });
       if (columnMap) {
         this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
         for (const feature of this.features) feature.columnsMoved?.(info.key, columnMap);

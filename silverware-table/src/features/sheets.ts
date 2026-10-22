@@ -5,12 +5,13 @@
 // in its metadata row (`<meta name='costs' sheet='Budget' at='B3'>`, sheet/page.ts)
 // and has a name: the sheet's other tables refer to its cells by it
 // (`costs!B2`). Added, it goes in column A, one empty row under the sheet's
-// lowest table; removed, its name stays (formulas may refer to it), and the
-// sheet's own data it carried as the sheet's first table (its columns'
-// widths) goes on to the next one.
-import type { Feature, ModelHost, TableInfo, ToolbarButton } from "../core/feature.ts";
+// lowest table; removed, its name stays (formulas may refer to it). The
+// sheet's own data (its columns' widths) is its first table's in the page:
+// any write that makes another table the first (adding one before it,
+// removing it) hands it over in the same edit (writeStep, otherTablesWritten).
+import type { Feature, ModelHost, TableInfo, ToolbarButton, WriteEdit } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
-import { findTables, locateBySource, parseTable, type Table, type TableRange } from "../markdown.ts";
+import { findTables, locateBySource, type PageTable, parseTable, type Table } from "../markdown.ts";
 import { metaName, sameTableName, tableNameProblem, withMeta, withMetaName } from "../meta.ts";
 import {
   AT_ATTRIBUTE,
@@ -18,10 +19,11 @@ import {
   placeBelow,
   SHEET_ATTRIBUTE,
   sameSheet,
-  SHEET_WIDTH_PREFIX,
+  sheetData,
   sheetNameProblem,
   sheetsOf,
   sheetTables,
+  sheetTablesOf,
 } from "../sheet/page.ts";
 
 // The choice of a new sheet in the dialog's list
@@ -143,32 +145,58 @@ export class Sheets implements Feature {
     });
   }
 
-  /**
-   * Off the sheet: its `sheet` and `at` go, its name stays. The sheet's first
-   * table hands the sheet's own data (sheet.width.*) on to the next one, in a
-   * second write.
-   */
+  /** Off the sheet: its `sheet` and `at` go, its name stays (the sheet's own data, if it kept it, goes on: writeStep) */
   private async remove(shown: TableInfo): Promise<void> {
-    const info = this.host.tableFor(shown.key) ?? shown;
-    const text = await this.host.bridge.getText();
-    const self = locateBySource(text, info.hint, info.source);
-    const tables = sheetTables(text);
-    const mine = tables.find((t) => t.range.from === self?.from);
-    const sheetData = Object.entries(mine?.table.meta ?? {}).filter(([name]) => name.startsWith(SHEET_WIDTH_PREFIX));
-    const next = mine && sheetData.length ? sheetsOf(tables).find((s) => sameSheet(s.name, mine.sheet))?.tables.find((t) => t !== mine) : undefined;
-    const result = await this.host.writeTable(info, (t: Table) => {
-      let out = withMeta(withMeta(t, SHEET_ATTRIBUTE, undefined), AT_ATTRIBUTE, undefined);
-      for (const [name] of sheetData) out = withMeta(out, name, undefined);
-      return out;
-    });
-    if (result === "failed" || !next) return;
-    await this.host.writeTable(rangeTarget(this.host.currentPage, next.range), (t: Table) => sheetData.reduce((out, [name, value]) => withMeta(out, name, value), t));
+    await this.host.writeTable(this.host.tableFor(shown.key) ?? shown, (t: Table) => withMeta(withMeta(t, SHEET_ATTRIBUTE, undefined), AT_ATTRIBUTE, undefined));
+  }
+
+  /** The table written: the sheet's own data taken, or handed on, where the write makes it the sheet's first table, or no longer */
+  writeStep(before: Table, after: Table, edit: WriteEdit): Table {
+    let out = after;
+    for (const move of handovers(before, after, edit)) {
+      if (move.from === edit.page.from) out = move.data.reduce((t, [name]) => withMeta(t, name, undefined), out);
+      if (move.to === edit.page.from) out = move.data.reduce((t, [name, value]) => withMeta(t, name, value), out);
+    }
+    return out;
+  }
+
+  /** The page's other tables that give or take the sheet's own data in the write */
+  otherTablesWritten(before: Table, after: Table, edit: WriteEdit): readonly PageTable[] {
+    const written: PageTable[] = [];
+    for (const move of handovers(before, after, edit)) {
+      for (const [from, take] of [
+        [move.from, false],
+        [move.to, true],
+      ] as const) {
+        const other = from !== edit.page.from && edit.page.tables.find((t) => t.range.from === from);
+        if (!other) continue;
+        const table = move.data.reduce((t, [name, value]) => withMeta(t, name, take ? value : undefined), other.table);
+        written.push({ range: other.range, table });
+      }
+    }
+    return written;
   }
 }
 
-/** A table of the page by where it is (written by its key, rendered or not) */
-function rangeTarget(page: string, range: TableRange): { key: string; source: string; hint: number } {
-  return { key: `${page}#${range.ordinal}`, source: range.text, hint: range.from };
+/**
+ * Where the sheet's own data goes in a write of a table (its sheet before or
+ * after it): from the sheet's first table before the write to its first
+ * after it, where they differ (by where they are in the page); none to go
+ * to: the sheet is gone with its data
+ */
+function handovers(before: Table, after: Table, edit: WriteEdit): { data: [string, string][]; from: number; to: number | undefined }[] {
+  const at = edit.page.from;
+  const withEdited = (table: Table) => edit.page.tables.map((t) => (t.range.from === at ? { range: t.range, table } : t));
+  const sheetsBefore = sheetsOf(sheetTablesOf(withEdited(before)));
+  const sheetsAfter = sheetsOf(sheetTablesOf(withEdited(after)));
+  const moves: { data: [string, string][]; from: number; to: number | undefined }[] = [];
+  for (const sheet of sheetsBefore) {
+    const first = sheet.tables[0]!;
+    const data = sheetData(first.table);
+    const next = sheetsAfter.find((s) => sameSheet(s.name, sheet.name))?.tables[0];
+    if (data.length && next?.range.from !== first.range.from) moves.push({ data, from: first.range.from, to: next?.range.from });
+  }
+  return moves;
 }
 
 /** Why another table of the page has the name already, if it does */

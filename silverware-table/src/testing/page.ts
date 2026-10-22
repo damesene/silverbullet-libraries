@@ -13,6 +13,8 @@ export let text: string;
 export let editor: HTMLElement;
 export let cursorMoves: number[];
 export let flashes: string[];
+// The edits written (each one replaceRange, one undo step)
+export let edits: number;
 export let controller: Controller;
 
 export const PAGE = "Intro\n\n| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| Fig | 2 |\n";
@@ -96,11 +98,13 @@ export async function setup(page: string, settings: Record<string, unknown> = {}
   document.body.append(editor);
   cursorMoves = [];
   flashes = [];
+  edits = 0;
   renderPage(text, editor, cursorMoves);
   const bridge: Bridge = {
     getText: () => text,
     replaceRange: (from, to, insert) => {
       text = text.slice(0, from) + insert + text.slice(to);
+      edits++;
       renderPage(text, editor, cursorMoves);
     },
     moveCursor: (pos) => cursorMoves.push(pos),

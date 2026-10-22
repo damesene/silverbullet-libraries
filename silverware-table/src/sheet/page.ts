@@ -5,7 +5,7 @@
 // kept); a sheet's own data (its columns' widths, `sheet.width.E='120'`) is in
 // its first table's metadata row, the first in the page's order.
 import { columnLetters } from "../formulas/index.ts";
-import { pageTablesOf, type Table, type TableRange } from "../markdown.ts";
+import { type PageTable, pageTablesOf, type Table, type TableRange } from "../markdown.ts";
 import { metaName } from "../meta.ts";
 
 /** A cell of a sheet, from 0: row 0 is the sheet's first row (1), column 0 its column A */
@@ -58,8 +58,13 @@ export function sheetNameProblem(name: string): string | undefined {
 
 /** The tables of a page that are on a sheet (with a sheet's name and a place), in the page's order */
 export function sheetTables(text: string): SheetTable[] {
+  return sheetTablesOf(pageTablesOf(text));
+}
+
+/** As sheetTables, of the page's tables parsed */
+export function sheetTablesOf(tables: readonly PageTable[]): SheetTable[] {
   const result: SheetTable[] = [];
-  for (const { range, table } of pageTablesOf(text)) {
+  for (const { range, table } of tables) {
     const sheet = table.meta?.[SHEET_ATTRIBUTE]?.trim();
     const at = parseAt(table.meta?.[AT_ATTRIBUTE]);
     if (!sheet || !at) continue;
@@ -77,6 +82,11 @@ export function sheetsOf(tables: readonly SheetTable[]): { readonly name: string
     else sheets.push({ name: t.sheet, tables: [t] });
   }
   return sheets;
+}
+
+/** The sheet's own data a table keeps in its metadata row (as the sheet's first table): its columns' widths */
+export function sheetData(table: Table): [string, string][] {
+  return Object.entries(table.meta ?? {}).filter(([name]) => name.startsWith(SHEET_WIDTH_PREFIX));
 }
 
 /** The widths a sheet's first table keeps for its columns (sheet.width.<letters>, in pixels) */
