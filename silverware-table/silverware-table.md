@@ -164,7 +164,7 @@ Then `Q3` filled down gives `Q4`, `Q1`, `Q2` (not `Q5`), and `todo`, `doing` giv
 * Your series are tried before the built-in ones (`dates`, `times`, `numbers`, `lists`, `numbered text`, in this order), so they can take values a built-in one would. One with a built-in series' name (in any case) replaces it, in its place (`lists`: your words instead of the days and months). Of two series of one name, the last defined counts.
 * They must give their results at once. A `match` that throws, or gives something else, is no match (the next series is tried); a result that is not a text or a number gives that cell the value repeated. Both are logged in the browser's console.
 * The helpers are `parseDate` (a date written as `2025-11-06` as `{ ms, time }`) and `formatDate` (written back).
-* Series are defined again whenever SilverBullet loads Space Lua again; a change of the file shows after reloading the page. A mistake in a definition is shown in a notification, with the pages whose `space-lua` blocks call `silverware.table.defineSeries`; the other series are defined.
+* Series are defined again whenever SilverBullet loads Space Lua again; a change of the file shows after reloading the page. A mistake in a definition is shown in a notification until you close it, with the pages whose `space-lua` blocks call `silverware.table.defineSeries` and a button opening each; the other series are defined.
 
 ## Cell menu
 
@@ -506,7 +506,7 @@ Then `=VAT([@price])` works in every table, and typing it shows its syntax and d
 * A function with a built-in function's name replaces it.
 * The helpers are the conversions the built-in functions use: `toNumber`, `toText`, `toBoolean` (an error for a value that is none), `numbers` (the numbers of all the arguments, ranges skipping empty cells and text), `flatten` (all the values of the arguments, ranges taken apart), `single` (a range's first value), `firstError`, `isError`, `isRange`, `toDate` / `parseDate` (a date as `{ ms, time }`), `formatDate` (written back), and `FormulaError` (`new FormulaError("#N/A", "why")`) and `TimeValue` (`new TimeValue(seconds)`). An error given to them comes back, so a function passes errors in its arguments on by returning it.
 * Functions are defined again whenever SilverBullet loads Space Lua again: a change of the file shows after reloading the page (the browser keeps a module it loaded). A formula calling a function that is not defined (its file missing, or not loaded) keeps the result written, and *Recalculate* in the toolbar is highlighted: an edit of that table writes `#NAME?` there.
-* A mistake in a definition (no `call`, a name formulas cannot write) is shown in a notification, with the pages whose `space-lua` blocks call `silverware.table.defineFunctions`; the other functions are defined.
+* A mistake in a definition (no `call`, a name formulas cannot write) is shown in a notification until you close it, with the pages whose `space-lua` blocks call `silverware.table.defineFunctions` and a button opening each; the other functions are defined.
 
 ### Errors
 
@@ -594,7 +594,7 @@ Then `| Outside #temp |` and `| Oven #temp-f |` show their cells so, the *Type* 
 * A type with a built-in type's name replaces it (its aliases too). Its own name comes before another type's alias, and its aliases before the built-in types' ones; of two types of one name, the last defined counts.
 * A method must give its result at once. One that throws, or gives something else, marks the cell in red with why; the table shows the rest as usual.
 * The helpers are those the built-in types use: `numberOf` (a cell's text as a number, as sorting reads it: `12,99`, `1 000`, `15 %`; else `undefined`), `notANumber` (a `check` for numbers), `formatNumber(n, locale, options)`, `numberFormat` and `dateTimeFormat` (`Intl` formatters, made once), `parseDate` (a date written as `2025-11-06` as `{ ms, time }`) and `lineIcon`.
-* Types are defined while SilverBullet loads Space Lua, before the page's tables show. A change of the file shows after reloading the page. A mistake in a definition is shown in a notification, with the pages whose `space-lua` blocks call `silverware.table.defineTypes`; the other types are defined.
+* Types are defined while SilverBullet loads Space Lua, before the page's tables show. A change of the file shows after reloading the page. A mistake in a definition is shown in a notification until you close it, with the pages whose `space-lua` blocks call `silverware.table.defineTypes` and a button opening each; the other types are defined.
 
 ## Rows and columns
 
@@ -880,7 +880,8 @@ if js and js.window then
   local silverwareTableJs = js.importFromSpace("Library/damesene/silverware-table.js")
   -- Space Lua is loaded (again): the scripts' definitions replace those of before (kept until then)
   silverwareTableJs.resetDefinitions()
-  -- The pages whose space-lua blocks call silverware.table.<api> (the definitions do not say where they come from)
+  -- The pages whose space-lua blocks call silverware.table.<api> (the definitions do not say where they come from),
+  -- each with its first such block's ref (Page@123)
   local function callers(api)
     local pages = {}
     local seen = {}
@@ -898,21 +899,30 @@ if js and js.window then
       if at then page = string.sub(page, 1, at - 1) end
       if calls and not defines and not seen[page] then
         seen[page] = true
-        pages[#pages + 1] = page
+        pages[#pages + 1] = { name = page, ref = block.ref }
       end
     end
     return pages
   end
-  -- The others are defined; a mistake is shown, with where it may come from, the rest of the script goes on
+  -- The others are defined; a mistake is shown until it is closed, with where it may come from and a way there,
+  -- the rest of the script goes on
   local function shown(problem, api)
     if problem then
       local pages = callers(api)
+      local names = {}
+      local actions = {}
+      for i, page in ipairs(pages) do
+        names[i] = page.name
+        if i <= 3 then
+          actions[#actions + 1] = { name = "Open " .. page.name, run = function() editor.navigate(page.ref) end }
+        end
+      end
       if #pages > 0 then
-        problem = problem .. " Called on " .. table.concat(pages, ", ") .. "."
+        problem = problem .. " Called on " .. table.concat(names, ", ") .. "."
       else
         problem = problem .. " Search the space for silverware.table." .. api .. " to find the script."
       end
-      editor.flashNotification(problem, "error")
+      editor.flashNotification(problem, "error", { timeout = 0, actions = actions })
     end
   end
   function silverware.table.defineFunctions(definitions)
