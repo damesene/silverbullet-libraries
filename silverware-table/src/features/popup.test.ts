@@ -112,6 +112,8 @@ describe("Long text in cells and the cell's popup", () => {
     set(document.querySelector("thead")!, new DOMRect(100, 50, 600, 40));
     Object.defineProperty(expand(), "offsetWidth", { configurable: true, value: 18 });
     Object.defineProperty(expand(), "offsetHeight", { configurable: true, value: 18 });
+    // Its text wider than its box, as the longText module measures it (its checks after a scroll keep it cut)
+    Object.defineProperty(cell(1, 1).querySelector(".swt-cell-content")!, "scrollWidth", { configurable: true, value: 800 });
     cell(1, 1).classList.add("swt-cut");
     cell(1, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     expect(expand().classList.contains("swt-visible")).toBe(true);
