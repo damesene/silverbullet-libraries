@@ -248,7 +248,8 @@ number, a text, an index query) and a `<meta>`:
 **Decided (2026-10-22): cells, not tables, and static HTML.**
 
 - The sheet draws the table, its rows and cells itself; a cell of plain text
-  (most: names, numbers, dates) it fills itself, at once. Only a cell with
+  (most: names, numbers, dates) is filled at once, without SilverBullet (by the
+  cell renderer, below, which tells the cells apart). Only a cell with
   something to render goes to SilverBullet: what counts as plain is told
   carefully, any character markdown or SilverBullet reads (`[ ] # * _ ~ \` $ <
   > & \ !` and the like) sends the cell to SilverBullet, so a mistake costs a
@@ -268,8 +269,8 @@ number, a text, an index query) and a `<meta>`:
   should those matter.
 - Clicks on `a[data-ref]` (page links, hashtags) go to SilverBullet's
   navigation (`editor.navigate`, through the bridge), not to the browser.
-- Without the syscalls (a SilverBullet before 2026-10-10): the sheet's own
-  plain rendering (text, links, hashtags, `${…}` as written).
+- Without the syscalls (a SilverBullet before 2026-10-10): a plain rendering
+  of Silverware Table's own (text, links, hashtags, `${…}` as written).
 - Probed the same day (page TaskProbe): a task in a cell is no task: `[ ] buy`
   and `[x] eaten` are text in SilverBullet's widget and in `markdownToHtml`
   alike (a checkbox only in a list, where `expand` also rewrites the task to a
@@ -279,14 +280,29 @@ number, a text, an index query) and a `<meta>`:
   tried: `widgets` was not defined in the test space's live environment).
 
 **The cell renderer: one interface, static first (decided 2026-10-22).**
-Rendering cells is one part of the sheet's adapter behind an interface (a
-`CellRenderer`), so that `renderToDom` can come later beside it, and a setting
-choose (`silverware.table.modules.sheet.cells`: `static` / `live`, or live only
-for cells with `${…}`), without the rest of the sheet changing (the table built,
-batching, clicks on links, the cells changed rendered again):
+Rendering cells is behind an interface (a `CellRenderer`), part of
+SilverBullet's adapter (`core/silverbullet/`, as it calls SilverBullet's
+syscalls), not of the sheet module: whatever in that adapter draws a table
+itself uses it (the sheet now; the theme preview, other pages' tables shown,
+could). Another adapter has a renderer of its own behind the same interface;
+the modules know none (they touch neither the DOM nor cells' content). So
+`renderToDom` can come later beside it, and a setting choose
+(`silverware.table.modules.sheet.cells`: `static` / `live`, or live only for
+cells with `${…}`), without what draws the table changing (the table built,
+clicks on links, the cells changed rendered again):
 
-- `render(cells)`: the markdown of the cells to render (of one table, in one
-  call) to their content as DOM nodes.
+- **Which cells go to SilverBullet is the renderer's decision**, not the
+  table's: it gets every cell and tells them apart itself, as what needs
+  SilverBullet depends on the renderer (the static one: any character markdown
+  reads; a live one: the cells with `${…}`, the others static; the plain one
+  for a SilverBullet without the syscalls: none). The plain rendering is
+  therefore one more renderer, not a branch of the sheet.
+- `render(cells)`: the markdown of a table's cells to their content as DOM
+  nodes, in two steps: at once what is ready (plain cells; a cell to render
+  shows its text meanwhile), then a promise filling in the cells rendered (one
+  call to SilverBullet for the table's cells that need it, each a row of a
+  table of their own); what draws the table puts the second in where it
+  concerns.
 - `release(nodes)`: what a cell rendered no longer shown lets go; nothing for
   the static renderer, but in the interface from the start, as a live one needs
   it. SilverBullet has no call for it (`destroyRenderTarget` is internal): before
