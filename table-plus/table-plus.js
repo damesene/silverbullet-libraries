@@ -9766,7 +9766,7 @@ var Grips = class {
   }
   /** No cell is hovered (editing, or the table left the view): the grips go, and with `closeMenus` an open menu */
   hoverEnded(closeMenus) {
-    if (closeMenus) this.closeMenu(false);
+    if (closeMenus && !this.menuAgain()) this.closeMenu(false);
     this.hideGrips();
   }
   gripButton(className, title) {
@@ -9943,6 +9943,7 @@ var Grips = class {
       const whole = this.wholeLinesSelected(info, axis).includes(line);
       const header = axis === "column" && at.row === 0 && !inSelection;
       if (!whole && !header) continue;
+      if (this.host.editing) void this.host.saveEditing();
       const cell = this.host.cellAt(info, at);
       if (!cell) return false;
       const target = { widget, info, column: at.column, ...at.row > 0 ? { row: at.row } : {} };
@@ -9950,14 +9951,30 @@ var Grips = class {
       this.closeMenu(false, false);
       if (!whole) this.select(target, axis);
       this.toggleMenu(axis, target, axis === "row" ? this.rowGrip : this.columnGrip, { cell, ...point });
+      if (this.menu) this.menu.again = { key: info.key, at, point };
       return true;
     }
     return false;
   }
+  /**
+   * A menu asked for on a cell whose table was rendered anew (an edit the press
+   * saved): opened again there, its entries for the table as it is now; true
+   * when it was (else it closes as the selection changed)
+   */
+  menuAgain() {
+    const menu = this.menu;
+    if (!menu?.again || menu.widget.isConnected) return false;
+    const { key: key2, at, point } = menu.again;
+    const widget = this.host.widgetForKey(key2);
+    const info = widget && this.host.infoOf(widget);
+    if (!widget || !info) return true;
+    this.closeMenu(false, false);
+    return this.cellMenu(widget, info, at, point);
+  }
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged() {
     this.linesSelected = void 0;
-    if (!this.selectingLines && this.menu) this.closeMenu(false, false);
+    if (!this.selectingLines && this.menu && !this.menuAgain()) this.closeMenu(false, false);
     this.markGrips();
   }
   // ---- Select rows (columns): the pointer picks the other end, a click ends it ----------
@@ -15262,7 +15279,7 @@ var Controller = class {
     const cell = this.hoverCell;
     if (cell && cell.isConnected && this.isShown(widget, info, cell)) {
       this.cellHovered(widget, info, cell);
-    } else this.endHover(true);
+    } else this.endHover(!cell || cell.isConnected);
     if (this.insertAt || this.inInsertBand) this.insertUnderPointer();
     if (this.navigating) this.markNavigating();
   }
@@ -16090,10 +16107,10 @@ var Controller = class {
     return true;
   }
   /** The cell a pointer event is on, in an enhanced table; not in the cell editor (its menu is the browser's) */
-  cellOfEvent(e) {
-    if (!(e.target instanceof Element) || e.target.closest(".tp-cell-editor")) return void 0;
-    const hit = this.enhancedWidgetOf(e.target);
-    const cell = hit && this.tableCellOf(hit[1], e.target);
+  cellOfEvent(target) {
+    if (!(target instanceof Element) || target.closest(".tp-cell-editor")) return void 0;
+    const hit = this.enhancedWidgetOf(target);
+    const cell = hit && this.tableCellOf(hit[1], target);
     const ref = hit && cell && this.cellRef(hit[1], cell);
     return hit && ref ? [hit[0], hit[1], ref] : void 0;
   }
@@ -16104,11 +16121,22 @@ var Controller = class {
       e.preventDefault();
       return;
     }
-    const hit = this.cellOfEvent(e);
-    if (hit && this.openCellMenu(hit[0], hit[1], hit[2], { x: e.clientX, y: e.clientY })) {
+    const point = { x: e.clientX, y: e.clientY };
+    const hit = this.cellOfEvent(e.target);
+    if (hit && this.openCellMenu(hit[0], hit[1], hit[2], point)) {
       e.preventDefault();
       e.stopPropagation();
+      return;
     }
+    const widget = !hit && e.target instanceof Element ? e.target.closest(WIDGET_SELECTOR) : null;
+    const table = widget && renderedTable(widget);
+    if (!widget || !table || this.infos.get(widget)?.table === table || this.ownTable(widget) || widget.dataset.tpUnsupported) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void this.enhance(widget, table).then(() => {
+      const again = this.cellOfEvent(this.doc.elementFromPoint?.(point.x, point.y) ?? null);
+      if (again) this.openCellMenu(again[0], again[1], again[2], point);
+    });
   };
   /** What pressed (pressedWith); a long press on a touch screen: the cell menu, where no right click is (iOS fires no contextmenu) */
   onPointerDown = (e) => {
@@ -16117,7 +16145,7 @@ var Controller = class {
     if (e.pointerType && root.dataset.tpPointer !== e.pointerType) root.dataset.tpPointer = e.pointerType;
     this.pressTakenAt = 0;
     if (e.pointerType !== "touch" || e.target instanceof Node && this.isFloating(e.target)) return;
-    const hit = this.cellOfEvent(e);
+    const hit = this.cellOfEvent(e.target);
     if (!hit) return;
     const win = this.doc.defaultView;
     const { clientX: x, clientY: y } = e;

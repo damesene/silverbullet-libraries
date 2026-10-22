@@ -286,10 +286,14 @@ describe("Pasting from a spreadsheet", () => {
       await flush();
       await flush();
       expect(text).toBe('| Name | Qty |\n|---|---|\n| | 3 |\n| Fig | 2 <meta f="=1+1"> |\n| | |\n| | Pear |\n');
-      // A header's menu is its column's: the column is cut, not its name alone
+      // A header's menu is its column's; with the header among the cells selected, its name is not cut
       await controller.scan();
       openMenu(cell(0, 0));
       expect(document.querySelector(".tp-menu-title")!.textContent).toBe("Column: Name");
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      controller.selectCells(controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!, { row: 0, column: 0 }, { row: 1, column: 0 });
+      openMenu(cell(0, 0));
+      expect(menuItem("Cut 2 cells")!.getAttribute("aria-disabled")).toBe("true");
     });
   });
 

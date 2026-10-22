@@ -1610,7 +1610,9 @@ export class Controller implements TableHost {
     const cell = this.hoverCell;
     if (cell && cell.isConnected && this.isShown(widget, info, cell)) {
       this.cellHovered(widget, info, cell);
-    } else this.endHover(true);
+    }
+    // A cell gone with its table rendered anew (an edit) did not leave the view: menus open on it stay (a header's, opened as the edit was saved)
+    else this.endHover(!cell || cell.isConnected);
     // The table moved under a pointer that did not: the + where the pointer is now
     if (this.insertAt || this.inInsertBand) this.insertUnderPointer();
     // Another cell under a pointer that did not move
@@ -2637,10 +2639,10 @@ export class Controller implements TableHost {
   }
 
   /** The cell a pointer event is on, in an enhanced table; not in the cell editor (its menu is the browser's) */
-  private cellOfEvent(e: Event): [HTMLElement, WidgetInfo, CellRef] | undefined {
-    if (!(e.target instanceof Element) || e.target.closest(".tp-cell-editor")) return undefined;
-    const hit = this.enhancedWidgetOf(e.target);
-    const cell = hit && this.tableCellOf(hit[1], e.target);
+  private cellOfEvent(target: EventTarget | null): [HTMLElement, WidgetInfo, CellRef] | undefined {
+    if (!(target instanceof Element) || target.closest(".tp-cell-editor")) return undefined;
+    const hit = this.enhancedWidgetOf(target);
+    const cell = hit && this.tableCellOf(hit[1], target);
     const ref = hit && cell && this.cellRef(hit[1], cell);
     return hit && ref ? [hit[0], hit[1], ref] : undefined;
   }
@@ -2653,11 +2655,23 @@ export class Controller implements TableHost {
       e.preventDefault();
       return;
     }
-    const hit = this.cellOfEvent(e);
-    if (hit && this.openCellMenu(hit[0], hit[1], hit[2], { x: e.clientX, y: e.clientY })) {
+    const point = { x: e.clientX, y: e.clientY };
+    const hit = this.cellOfEvent(e.target);
+    if (hit && this.openCellMenu(hit[0], hit[1], hit[2], point)) {
       e.preventDefault();
       e.stopPropagation();
+      return;
     }
+    // Its press saved a cell being edited and the table was rendered anew, not enhanced yet: the menu once it is
+    const widget = !hit && e.target instanceof Element ? e.target.closest<HTMLElement>(WIDGET_SELECTOR) : null;
+    const table = widget && renderedTable(widget);
+    if (!widget || !table || this.infos.get(widget)?.table === table || this.ownTable(widget) || widget.dataset.tpUnsupported) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void this.enhance(widget, table).then(() => {
+      const again = this.cellOfEvent(this.doc.elementFromPoint?.(point.x, point.y) ?? null);
+      if (again) this.openCellMenu(again[0], again[1], again[2], point);
+    });
   };
 
   /** What pressed (pressedWith); a long press on a touch screen: the cell menu, where no right click is (iOS fires no contextmenu) */
@@ -2670,7 +2684,7 @@ export class Controller implements TableHost {
     this.pressTakenAt = 0;
     // A feature's own element in a cell (the fill handle) is no long press on the cell
     if (e.pointerType !== "touch" || (e.target instanceof Node && this.isFloating(e.target))) return;
-    const hit = this.cellOfEvent(e);
+    const hit = this.cellOfEvent(e.target);
     if (!hit) return;
     const win = this.doc.defaultView!;
     const { clientX: x, clientY: y } = e;

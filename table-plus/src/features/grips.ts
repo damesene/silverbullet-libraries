@@ -73,6 +73,8 @@ export class Grips implements Feature {
         anchor: { readonly cell: HTMLElement; readonly dx: number; readonly dy: number; readonly width: number; readonly height: number };
         // Opened at a point in a cell, not by the grip: the grip is not marked as the menu's
         byPoint?: boolean;
+        // Asked for on a cell (cellMenu): opened again there when its table is rendered anew (an edit saved by the press)
+        again?: { readonly key: string; readonly at: CellRef; readonly point: { x: number; y: number } };
       }
     | undefined;
   private dragging = false;
@@ -241,7 +243,7 @@ export class Grips implements Feature {
 
   /** No cell is hovered (editing, or the table left the view): the grips go, and with `closeMenus` an open menu */
   hoverEnded(closeMenus: boolean): void {
-    if (closeMenus) this.closeMenu(false);
+    if (closeMenus && !this.menuAgain()) this.closeMenu(false);
     this.hideGrips();
   }
 
@@ -447,6 +449,10 @@ export class Grips implements Feature {
       const whole = this.wholeLinesSelected(info, axis).includes(line);
       const header = axis === "column" && at.row === 0 && !inSelection;
       if (!whole && !header) continue;
+      // A cell being edited is saved first, and the table rendered anew (its selection shown again, which
+      // would close a menu opened before): the menu opens then, asked for again (its header's name shown, not its field)
+      // A cell being edited is saved first (its name shown in the title, not its field)
+      if (this.host.editing) void this.host.saveEditing();
       const cell = this.host.cellAt(info, at);
       if (!cell) return false;
       const target: HandleTarget = { widget, info, column: at.column, ...(at.row > 0 ? { row: at.row } : {}) };
@@ -454,15 +460,33 @@ export class Grips implements Feature {
       this.closeMenu(false, false);
       if (!whole) this.select(target, axis);
       this.toggleMenu(axis, target, axis === "row" ? this.rowGrip : this.columnGrip, { cell, ...point });
+      if (this.menu) this.menu.again = { key: info.key, at, point };
       return true;
     }
     return false;
   }
 
+  /**
+   * A menu asked for on a cell whose table was rendered anew (an edit the press
+   * saved): opened again there, its entries for the table as it is now; true
+   * when it was (else it closes as the selection changed)
+   */
+  private menuAgain(): boolean {
+    const menu = this.menu;
+    if (!menu?.again || menu.widget.isConnected) return false;
+    const { key, at, point } = menu.again;
+    const widget = this.host.widgetForKey(key);
+    const info = widget && this.host.infoOf(widget);
+    // Not enhanced yet: the menu waits for it (its selection shown again then calls this again)
+    if (!widget || !info) return true;
+    this.closeMenu(false, false);
+    return this.cellMenu(widget, info, at, point);
+  }
+
   // The cells selected otherwise (a touch's handles, keys): the menu was for the lines selected before
   selectionChanged(): void {
     this.linesSelected = undefined;
-    if (!this.selectingLines && this.menu) this.closeMenu(false, false);
+    if (!this.selectingLines && this.menu && !this.menuAgain()) this.closeMenu(false, false);
     this.markGrips();
   }
 

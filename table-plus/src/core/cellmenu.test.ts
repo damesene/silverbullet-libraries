@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { bodyTexts, buttonLabel, cell, cellMenuItem, clickOn, controller, editor, flush, key, PAGE, press, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Cell menu", () => {
@@ -54,6 +54,24 @@ describe("Cell menu", () => {
     await flush();
     rightClick(cell(0, 0));
     expect(menu()!.querySelector(".tp-menu-title")!.textContent).toBe("2 cells");
+  });
+
+  it("gives a header's column menu once a cell being edited is saved, the table rendered anew", async () => {
+    await setup(PAGE);
+    // No frames: jsdom has no layout, so following the page's scroll after the write would take the table as out of view
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 0);
+    clickOn(cell(2, 0));
+    editor.querySelector<HTMLInputElement>(".tp-cell-editor")!.value = "apples";
+    // The pointer over the header, as a right click there has it
+    cell(0, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    rightClick(cell(0, 1));
+    expect(menu()?.querySelector(".tp-menu-title")?.textContent).toBe("Column: Qty");
+    // The edit written, the table rendered anew (the harness enhances it when scanned; SilverBullet's as it renders)
+    await vi.waitFor(() => expect(text).toContain("| apples | 10 |"));
+    await controller.scan();
+    // The menu is there, for the table as it is now
+    expect(menu()?.querySelector(".tp-menu-title")?.textContent).toBe("Column: Qty");
+    expect(cell(0, 1).isConnected).toBe(true);
   });
 
   it("filters by a cell's value, adding to the column's list; and leaves it out with ≠", async () => {

@@ -167,12 +167,12 @@ Then `Q3` filled down gives `Q4`, `Q1`, `Q2` (not `Q5`), and `todo`, `doing` giv
 
 ## Cell menu
 
-Right-click a cell (on a touch screen: press and hold it; in the cell editor: the Menu key or Shift+F10) for its menu: the cell is selected (marked, not edited), and stays so afterwards for Ctrl+C and Delete. Right-click a cell of a selection for the selection's menu. A header (right-click or press and hold it) gives its column's menu, the column selected, as its ⠿ grip does; with other cells selected along with it, the selection's menu. Shift+right-click, and a right click in the cell editor, give the browser's menu.
+Right-click a cell (on a touch screen: press and hold it; in the cell editor: the Menu key or Shift+F10) for its menu: the cell is selected (marked, not edited), and stays so afterwards for Ctrl+C and Delete. Right-click a cell of a selection for the selection's menu. A header (right-click or press and hold it, or the Menu key while its name is edited) gives its column's menu, the column selected, as its ⠿ grip does; with other cells selected along with it, the selection's menu. Shift+right-click, and a right click in the cell editor, give the browser's menu.
 
 | Item | What it does |
 |---|---|
 | *Copy* | Copies the cell (the cells selected) as Ctrl+C does. |
-| *Cut* | Cuts the cells as Ctrl+X does: copied and outlined, they move where they are pasted, see [[#Cut and paste]]. Not on a header (its name stays). |
+| *Cut* | Cuts the cells as Ctrl+X does: copied and outlined, they move where they are pasted, see [[#Cut and paste]]. Not with a header among the cells selected (a column's name stays). |
 | *Paste*, *Paste as new rows* | Pastes the clipboard from the cell (the top left one selected) as Ctrl+V (Ctrl+Shift+V) does, see [[#Pasting from a spreadsheet]]; with cells cut, *Paste (move N cells)* moves them. Greyed out where the page cannot read the clipboard or it holds nothing (cells cut move all the same). |
 | *Clear* | Empties the cell (the cells selected) as Delete does; a header keeps its name. |
 | *Move to…* | Moves the cells selected to the cell you click (tap) next, see [[#Moving cells]]. |
@@ -601,7 +601,7 @@ Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; m
   * Row: copy, cut, paste (also as new rows), clear, insert above or below, duplicate, move up or down, select rows, delete.
   * Column: copy (with its header), cut (the cells under it), paste, clear (the cells under it), sort, filter, type (see [[#Column types]]), align (left, center, right), insert left or right, move, select columns, delete.
   * With several rows (columns) selected, it acts on them all (*Copy 3 rows*, *Delete 3 rows*).
-  * With rows (columns) selected whole, a right click on one of their cells (on a touch screen: a tap or a long press) gives this menu too, not a cell's, as in a spreadsheet.
+  * With rows (columns) selected whole, a right click on one of their cells (on a touch screen: a tap or a long press) gives this menu too, not a cell's, as in a spreadsheet. A right click on a header (a long press) gives its column's menu, the column selected.
   * *Paste* in a column's menu pastes from its header a column copied with its header (*Copy column*), which names it; anything else (cells from a spreadsheet, cells cut) goes under the header, the column keeping its name. *Paste as new rows* with rows cut moves them there (as a spreadsheet inserts cut cells).
 * **Select rows** (*Select columns*) in the menu: from that row, the rows up to the one under the pointer are selected as you move it; a click anywhere in the table ends the selection there (without editing the cell). Esc keeps just the first row. **Shift+click on a grip** selects at once the rows from the one selected with a click (else the first of the rows or cells selected) to that one; Shift+click another grip to change where they end. A click on the grip of a selected row then opens its menu with *Delete N rows*.
 * **Drag a grip** to move the row or column: a copy follows the pointer and the others move aside to show where it goes; near the top or bottom of the view the page scrolls. Esc cancels the drag.
@@ -634,7 +634,7 @@ On a phone or a tablet:
 * Swiping scrolls a wide table sideways and the page up and down, as usual.
 * **Selecting more cells**: tap a cell, then drag one of the dots at the selection's corners (top left, bottom right) across other cells; near the edge of the screen the page scrolls along. Tap a row's or column's handle to select the whole row (column), then drag a dot to select more rows (columns): they stay whole. For whole rows (columns) the dots sit in the middle of what you see of them, on the first row's top and the last row's bottom (the first column's left, the last column's right), and stay there as the page or the table scrolls, as in a spreadsheet's app.
 * **Tap a cell of a selection** of several cells for their menu (copy, clear, delete the rows or columns, *Move to…*), as in a spreadsheet's app.
-* Press and hold a cell for its menu (copy, cut, paste, clear, filter by its value, name it).
+* Press and hold a cell for its menu (copy, cut, paste, clear, filter by its value, name it); a header for its column's menu.
 * **AutoFill**: select the cells to go on from, tap them for their menu, *AutoFill to…*, then tap the last cell to fill, see [[#AutoFill]]. The fill handle does not show after a touch: the corner's dot selects.
 * Not on touch screens: the keyboard shortcuts (unless the device has a keyboard) and middle-button scrolling.
 
