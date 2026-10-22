@@ -65,12 +65,16 @@ export class OverWindow {
   // The rows' numbers, over the room left of the rows (and right of them, numbersRight)
   private readonly numbers: readonly HTMLElement[];
   private readonly queueNumbers: () => void;
+  // With `shows`: the page watched while it is shown, for its table of the key being gone (undone, removed)
+  private watching: MutationObserver | undefined;
+  private readonly queueGoneCheck: () => void;
 
   constructor(
     private readonly host: TableHost,
     private readonly options: OverWindowOptions,
   ) {
     this.queueNumbers = oncePerFrame(host.doc, () => this.placeNumbers());
+    this.queueGoneCheck = oncePerFrame(host.doc, () => void this.missing());
     this.numbers = [host.floating("div", "swt-over-window-rows"), ...(options.numbersRight ? [host.floating("div", "swt-over-window-rows swt-at-right")] : [])];
     for (const layer of this.numbers) layer.setAttribute("aria-hidden", "true");
   }
@@ -113,6 +117,8 @@ export class OverWindow {
     clearTimeout(this.goneTimer);
     this.goneTimer = undefined;
     if (this.shownKey === undefined && !this.shownWidget) return;
+    this.watching?.disconnect();
+    this.watching = undefined;
     const widget = this.shownWidget;
     this.shownKey = undefined;
     this.shownWidget = undefined;
@@ -144,6 +150,35 @@ export class OverWindow {
     widget.classList.add(OVER_WINDOW_CLASS, this.options.className);
     for (const layer of this.numbers) layer.classList.add("swt-visible");
     this.queueNumbers();
+    if (this.options.shows && !this.watching) {
+      // No layout follows a table removed from the page (an undo): its going is seen in the page itself
+      this.watching = new MutationObserver(() => this.queueGoneCheck());
+      this.watching.observe(this.host.doc.body, { childList: true, subtree: true });
+    }
+  }
+
+  /**
+   * Whether the table shown so is missing (rendered anew, not enhanced yet; with
+   * `shows`, the page's own table of its key gone); missing for GONE_MS, the
+   * view ends
+   */
+  private missing(): boolean {
+    if (this.shownKey === undefined) return false;
+    const missing = !this.shownWidget?.isConnected || (!!this.options.shows && !this.pageTable());
+    if (!missing) return false;
+    this.goneTimer ??= setTimeout(() => {
+      this.goneTimer = undefined;
+      if (this.shownKey === undefined) return;
+      const gone = this.options.shows ? !this.pageTable() : !this.shownWidget?.isConnected && !this.host.widgetForKey(this.shownKey);
+      if (gone) this.end();
+    }, GONE_MS);
+    return true;
+  }
+
+  /** The page's own table of the key shown (one `shows` does not take), enhanced */
+  private pageTable(): boolean {
+    const shows = this.options.shows;
+    return this.widgets().some((widget) => !shows?.(widget) && widget.isConnected && this.host.infoOf(widget)?.key === this.shownKey);
   }
 
   private unmark(widget: HTMLElement): void {
@@ -206,13 +241,7 @@ export class OverWindow {
    */
   layoutChanged(numbers = true): boolean {
     if (this.shownKey === undefined) return false;
-    if (!this.shownWidget?.isConnected) {
-      this.goneTimer ??= setTimeout(() => {
-        this.goneTimer = undefined;
-        if (this.shownKey !== undefined && !this.shownWidget?.isConnected && !this.host.widgetForKey(this.shownKey)) this.end();
-      }, GONE_MS);
-      return false;
-    }
+    if (this.missing() && !this.shownWidget?.isConnected) return false;
     if (numbers) this.placeNumbers();
     return true;
   }

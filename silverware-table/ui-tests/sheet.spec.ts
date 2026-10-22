@@ -268,6 +268,19 @@ test.describe("Sheet view", () => {
     expect(await page.evaluate(() => (window as unknown as { stillHere?: boolean }).stillHere)).toBe(true);
   });
 
+  test("ends once the page's table is gone from the markdown (undone, removed)", async ({ page }) => {
+    // The page's only table: no other table of the page takes its key (a table's key is its place among them)
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
+    await openSheet(page);
+    await page.locator("#source").fill("# Test\n\nNo table now.\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    // Still shown for a moment (a table rendered anew is missing for as long), then gone
+    await expect(sheetTable(page)).toHaveCount(1);
+    await expect(sheetTable(page)).toHaveCount(0, { timeout: 5000 });
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");
