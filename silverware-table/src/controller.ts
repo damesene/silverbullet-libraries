@@ -53,7 +53,7 @@ import {
   type TableMeta,
   type TableRange,
 } from "./markdown.ts";
-import type { MenuEntry, MenuNaming } from "./menu.ts";
+import { floatingMenu, type MenuBack, type MenuEntry, type MenuNaming } from "./menu.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { keepTags } from "./tags.ts";
 import { nameEmptyHeaders, reorderRows } from "./ops.ts";
@@ -151,6 +151,8 @@ export class Controller implements TableHost {
   // Features that keep their own state and work through this controller
   // (core/feature.ts): those turned on, filled in when Silverware Table starts
   private readonly features: AdapterFeature[] = [];
+  // The floating elements the core made (floating, panels, menus): what isFloating tells
+  private readonly made = new WeakSet<Element>();
   private featuresStarted: Promise<void> | undefined;
   // The modules turned on
   private readonly modulesOn = new Set<FeatureName>();
@@ -238,7 +240,7 @@ export class Controller implements TableHost {
       // the keyboard shows as the next cell opens after a write (Enter)
       viewResized: () => this.anchor.drop(),
     });
-    this.tableMenu = new TableMenu(doc, (widget) => this.focusEditor(widget));
+    this.tableMenu = new TableMenu(doc, (widget) => this.focusEditor(widget), (title, entries, options) => this.floatingMenu(title, entries, options));
     this.toolbar = new Toolbar({
       host: this,
       menu: this.tableMenu,
@@ -590,7 +592,7 @@ export class Controller implements TableHost {
 
   /** A table in one of Silverware Table's floating elements (a theme's preview in a menu): not one of the page's */
   private ownTable(widget: HTMLElement): boolean {
-    return !!widget.closest(".swt-floating");
+    return this.isFloating(widget);
   }
 
   /** Enhances every rendered table that is not enhanced yet */
@@ -2041,6 +2043,7 @@ export class Controller implements TableHost {
   ): HTMLElementTagNameMap[K] {
     const element = this.doc.createElement(tag);
     element.className = `swt-floating ${className}`;
+    this.made.add(element);
     element.addEventListener("mousedown", (e) => {
       // keep the focus where it is (e.g. in a filter field); a field takes the press
       if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) e.preventDefault();
@@ -2063,11 +2066,16 @@ export class Controller implements TableHost {
     return this.dialogs.open(options);
   }
 
+  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void }): HTMLElement {
+    const menu = floatingMenu(this.doc, title, entries, options);
+    this.made.add(menu);
+    return menu;
+  }
+
   isFloating(node: Node): boolean {
-    // What the core made floating carries the class (floating, the panels, menus), whoever fills it;
-    // a dialog's backdrop and the adapter's marks inside cells do not
-    const element = node instanceof Element ? node : node.parentElement;
-    return !!element?.closest(".swt-floating") || this.dialogs.contains(node) || this.adapter.owns(node);
+    // In what the core made floating (floating, the panels, menus), whoever fills it; a dialog, the adapter's marks inside cells
+    for (let el: Node | null = node; el; el = el.parentNode) if (el instanceof Element && this.made.has(el)) return true;
+    return this.dialogs.contains(node) || this.adapter.owns(node);
   }
 
   place(element: HTMLElement, left: number, top: number): void {

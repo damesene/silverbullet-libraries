@@ -21,7 +21,7 @@ import {
 } from "../core/structure.ts";
 import { ICONS } from "../icons.ts";
 import { type Align, parseTable, type Table } from "../markdown.ts";
-import { floatingMenu, focusMenu, type MenuEntry, namingThatCloses, wrapRuns } from "../menu.ts";
+import { focusMenu, type MenuEntry, namingThatCloses, wrapRuns } from "../menu.ts";
 import { setAlign } from "../ops.ts";
 import { columnZone, insertColumnAt, insertRowAt, rowZone } from "../pins.ts";
 import { type ViewState, withoutSort, withSort } from "../view.ts";
@@ -566,7 +566,7 @@ export class Grips implements Feature {
     const header = this.host.shownText(info, { row: 0, column: target.column }) || String(target.column + 1);
     const title = axis === "row" ? (naming?.name ? `Row: ${naming.name}` : `Row ${target.row}`) : `Column: ${naming?.name ?? header}`;
     const entries = axis === "row" ? this.rowMenu(info, target.row!, target.column) : this.columnMenu(info, target.column);
-    const element = floatingMenu(doc, title, entries, { naming, close: () => this.closeMenu(true) });
+    const element = this.host.floatingMenu(title, entries, { naming, close: () => this.closeMenu(true) });
     doc.body.append(element);
     const selected = this.selectionOf(info);
     if (at) {
@@ -594,7 +594,7 @@ export class Grips implements Feature {
     const previous = menu.element;
     const closing = entries.map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry));
     const back = { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) };
-    this.swapMenu(floatingMenu(this.host.doc, title, closing, { back, close: () => this.closeMenu(true) }));
+    this.swapMenu(this.host.floatingMenu(title, closing, { back, close: () => this.closeMenu(true) }));
   }
 
   /** Puts `element` in the open menu's place */

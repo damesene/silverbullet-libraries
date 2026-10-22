@@ -1,7 +1,7 @@
 // The open menu of a table's toolbar (⋯, below its button) or of cells (at
 // the pointer): one at a time. Its items close it when run; Esc, its × or a
 // press elsewhere close it (the controller routes those).
-import { floatingMenu, focusMenu, type MenuBack, type MenuEntry, type MenuNaming, namingThatCloses, startNaming, wrapRuns } from "../menu.ts";
+import { focusMenu, type MenuBack, type MenuEntry, type MenuNaming, namingThatCloses, startNaming, wrapRuns } from "../menu.ts";
 
 export type MenuKind = "table" | "cell";
 
@@ -15,6 +15,8 @@ export class TableMenu {
     private readonly doc: Document,
     // Hands the keyboard back to SilverBullet's editor (a menu closed from the keyboard)
     private readonly focusEditor: (widget: HTMLElement) => void,
+    // A floating menu, made by the core (TableHost.floatingMenu)
+    private readonly floatingMenu: (title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void }) => HTMLElement,
   ) {}
 
   /** Which menu is open, if any */
@@ -33,7 +35,7 @@ export class TableMenu {
       this.close(false);
       run();
     });
-    const element = floatingMenu(this.doc, title, closing, {
+    const element = this.floatingMenu(title, closing, {
       back,
       naming: namingThatCloses(naming, () => this.close(false)),
       close: () => this.close(true),

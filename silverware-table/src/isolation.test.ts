@@ -26,6 +26,8 @@ describe("isolation", () => {
     expect(matches(features, /from "\.\.\/(core\/silverbullet\/|dom\.ts|controller\.ts|core\/(adapter|rows|geometry|overwindow|insert|toolbar)\.ts)/)).toEqual([]);
     // Their own UI only: no table's rows or cells looked for, nothing of SilverBullet's or CodeMirror's
     expect(matches(features, /(querySelector\w*|closest)\([^)]*(["'`](td|th|tr|table)\b|\bsb-|\bcm-)/)).toEqual([]);
+    // Floating UI made by the core (host.floating, panel, floatingMenu), which tells it so: not made apart
+    expect(matches(features, /(?<!host\.)\bfloatingMenu\(|\bswt-floating\b/)).toEqual([]);
   });
 
   it("the core and the adapter name no module", () => {

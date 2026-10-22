@@ -9,7 +9,7 @@ export type { Dialog, DialogOptions } from "./dialog.ts";
 export type { Rect } from "./geometry.ts";
 import type { IndexMap } from "../ops.ts";
 import type { OtherPages, PageTable, Table, TableMeta } from "../markdown.ts";
-import type { MenuEntry, MenuNaming } from "../menu.ts";
+import type { MenuBack, MenuEntry, MenuNaming } from "../menu.ts";
 import type { Pins, ViewState } from "../view.ts";
 
 /** A table shown, in model terms (what modules get): where it is in the page, its shape, its pins */
@@ -390,7 +390,7 @@ export type NamingTarget =
 export interface ModelHost {
   readonly doc: Document;
   readonly bridge: Bridge;
-  /** Whether a node is one of Silverware Table's floating controls (toolbar, grips, menus) */
+  /** Whether a node is in one of Silverware Table's floating controls (toolbar, grips, menus): one the core made */
   isFloating(node: Node): boolean;
   /**
    * Opens a feature's modal dialog over the page (one at a time): its keys and
@@ -501,6 +501,8 @@ export interface ModelHost {
   headerRenamed(name: string, original: string): string;
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
   openCellMenu(info: TableInfo, at: CellRef, point: { x: number; y: number }): boolean;
+  /** A menu floating over the page (menu.ts), one of the core's floating elements: to put into the page and focus once placed */
+  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void }): HTMLElement;
   /** A floating element (position: fixed) in the page, kept out of the editor's way */
   floating<K extends keyof HTMLElementTagNameMap>(tag: K, className: string): HTMLElementTagNameMap[K];
   /** Places a floating element at a point of the viewport, kept inside it sideways, and shows it */
