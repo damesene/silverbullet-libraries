@@ -270,8 +270,35 @@ number, a text, an index query) and a `<meta>`:
   navigation (`editor.navigate`, through the bridge), not to the browser.
 - Without the syscalls (a SilverBullet before 2026-10-10): the sheet's own
   plain rendering (text, links, hashtags, `${…}` as written).
-- Open, to probe before building: tasks (`[ ]`) in cells and interactive
-  widgets in `${…}`, which SilverBullet's widget handles with its own handlers.
+- Probed the same day (page TaskProbe): a task in a cell is no task: `[ ] buy`
+  and `[x] eaten` are text in SilverBullet's widget and in `markdownToHtml`
+  alike (a checkbox only in a list, where `expand` also rewrites the task to a
+  ref of its place, `Page@0`: no matter for cells). A `widgets.button` in
+  `${…}` is `<button>Go</button>` in the static HTML, with no handler: it looks
+  like a button and does nothing (in SilverBullet's widget it could not be
+  tried: `widgets` was not defined in the test space's live environment).
+
+**The cell renderer: one interface, static first (decided 2026-10-22).**
+Rendering cells is one part of the sheet's adapter behind an interface (a
+`CellRenderer`), so that `renderToDom` can come later beside it, and a setting
+choose (`silverware.table.modules.sheet.cells`: `static` / `live`, or live only
+for cells with `${…}`), without the rest of the sheet changing (the table built,
+batching, clicks on links, the cells changed rendered again):
+
+- `render(cells)`: the markdown of the cells to render (of one table, in one
+  call) to their content as DOM nodes.
+- `release(nodes)`: what a cell rendered no longer shown lets go; nothing for
+  the static renderer, but in the interface from the start, as a live one needs
+  it. SilverBullet has no call for it (`destroyRenderTarget` is internal): before
+  a live renderer is offered, a probe must show whether live cells let go keep
+  updating.
+- Whether its cells need rendering again after the page is indexed (the
+  static renderer: those with `${…}`; a live one updates itself).
+- A cache, if any, is the renderer's: static HTML by a cell's text (without
+  `${…}`); a live node cannot be in two places.
+
+The first renderer is `markdownToHtml` with `expand`; the setting comes with a
+second one.
 
 Open before step 4: how today's modules (selection, clipboard, AutoFill,
 widths, pins) work on the sheet's drawing. (A) The sheet makes its own: the
