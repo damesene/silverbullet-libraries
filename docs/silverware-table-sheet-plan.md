@@ -123,3 +123,9 @@ other pages on a sheet.
     The sheet ends only when no table has the key.
   - Task states, command buttons and interactive widgets in the sheet's cells
     do nothing (static HTML; tasks in cells are text anyway).
+- 2026-10-22: phase 1 checked in the local SilverBullet (the sheet: its own
+  table over the window, cells rendered through the Lua bridge, SilverBullet's
+  look, a cell edited and the table drawn anew, growth, a link by
+  SilverBullet's navigation, the sheet ended with the page left; the earlier
+  23 steps of every module again) and merged into `main`. Next: phase 2 on
+  branch `sheet-tables`.
