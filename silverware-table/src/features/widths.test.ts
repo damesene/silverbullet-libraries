@@ -15,6 +15,19 @@ describe("Column widths", () => {
     window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 100 + (moves.at(-1) ?? 0), detail: 1 }));
   };
 
+  it("lights the handle pressed while it is dragged, the same element as the one pressed, one per column", async () => {
+    await setup(PAGE);
+    const pressed = handle(0);
+    Object.defineProperty(cell(0, 0), "getBoundingClientRect", { configurable: true, value: () => new DOMRect(0, 0, 120, 30) });
+    pressed.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, clientX: 100, detail: 1 }));
+    expect(pressed.isConnected).toBe(true);
+    expect(pressed.classList.contains("swt-active")).toBe(true);
+    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 100, detail: 1 }));
+    expect(pressed.isConnected).toBe(true);
+    expect(pressed.classList.contains("swt-active")).toBe(false);
+    expect(cell(0, 0).querySelectorAll(".swt-col-resize")).toHaveLength(1);
+  });
+
   it("sets a column's width by dragging its header's edge, from the width at the press, stored in the table", async () => {
     await setup(PAGE, { "silverware.table.metadata": true });
     expect(handle(1)).not.toBeNull();

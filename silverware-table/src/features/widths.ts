@@ -81,7 +81,8 @@ export class Widths implements Feature {
       info.key,
       Array.from({ length: info.columns }, (_, column) => ({
         // One handle per column (a layer's handles are told apart by their classes), the one dragged lit
-        className: `${HANDLE_CLASS} ${HANDLE_CLASS}-${column}${column === active ? " swt-active" : ""}`,
+        className: `${HANDLE_CLASS} ${HANDLE_CLASS}-${column}`,
+        active: column === active,
         row: 0,
         column,
         title: HANDLE_TITLE,

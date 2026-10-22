@@ -217,7 +217,16 @@ export interface OutlineLayer {
  * as a spreadsheet's app puts the handles of whole rows (columns); where no
  * cell of the line is in view there, in its cell
  */
-export type HandlePlace = { readonly className: string; readonly row: number; readonly column: number; readonly mid?: "row" | "column"; readonly title?: string };
+export type HandlePlace = {
+  // What tells it apart in its layer (and styles it): the same class places the same element again
+  readonly className: string;
+  readonly row: number;
+  readonly column: number;
+  readonly mid?: "row" | "column";
+  readonly title?: string;
+  // In use (dragged): swt-active, on the same element
+  readonly active?: boolean;
+};
 
 /** Handles in cells (the selection's, the fill handle): placed by the adapter, kept by table, pressed: TableHost.targetOf says which */
 export interface HandleLayer {
