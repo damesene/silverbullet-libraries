@@ -20,8 +20,10 @@
 // (`sheet.width.<letters>` in its first table, else the widest of the tables'
 // columns there). After every write the page's text is read again and the
 // tables whose markdown changed are drawn anew; links in them go to
-// SilverBullet's navigation.
-import type { AdapterFeature, CellRef, RenderedEditor, TableHost, ToolbarButton, WidgetInfo } from "../../feature.ts";
+// SilverBullet's navigation. Formulas of the board's tables read in the
+// sheet's addresses (addressFrame): a reference is to a record, so sorting a
+// table changes the address shown, not the value.
+import type { AdapterFeature, AddressFrame, CellArea, CellRef, RenderedEditor, TableHost, TableInfo, ToolbarButton, WidgetInfo } from "../../feature.ts";
 import { oncePerFrame } from "../../frame.ts";
 import { claimWindow, releaseWindow } from "../../overwindow.ts";
 import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
@@ -438,6 +440,52 @@ export class Sheet implements AdapterFeature {
     // Nothing written (Esc, nothing typed): on at once, as the cells are now
     if (this.after && !this.after.grown) this.after.ready = true;
     this.queuePlace();
+  }
+
+  // ---- the sheet's addresses -------------------------------------------------------------
+
+  /**
+   * A table of the board's addresses for formulas: a sheet's row is its row as
+   * shown (the header at the table's `at`), a table's body row its row in the
+   * markdown. Other tables are those of the board, by their names.
+   */
+  addressFrame(info: TableInfo): AddressFrame | undefined {
+    const board = this.board;
+    if (!board?.tables.has(info.key)) return undefined;
+    const named = (name: string) => [...board.tables.values()].find((p) => metaName(parseTable(p.range.text))?.toLowerCase() === name.toLowerCase());
+    return {
+      outward: (table, area) => {
+        const placed = table === undefined ? board.tables.get(info.key) : named(table);
+        const shown = placed && this.infoOfKey(placed.key);
+        if (!placed || !shown) return undefined;
+        const order = this.shownOrder(shown);
+        // Its rows one after another as shown, in the markdown's order (a range in a sorted table is not)
+        const top = order.indexOf(area.top + 1);
+        if (top < 1) return undefined;
+        for (let r = area.top; r <= area.bottom; r++) if (order[top + r - area.top] !== r + 1) return undefined;
+        if (area.right >= shown.columns) return undefined;
+        return { top: placed.at.row + top, left: placed.at.column + area.left, bottom: placed.at.row + top + area.bottom - area.top, right: placed.at.column + area.right };
+      },
+      inward: (area) => this.inward(info.key, area),
+    };
+  }
+
+  /** The table of the board holding a sheet's area whole, as one area of its body rows (in the markdown's order) */
+  private inward(key: string, area: CellArea): { table: string | undefined; area: CellArea } | undefined {
+    const first = this.tableAt({ row: area.top, column: area.left });
+    if (!first || first.ref.row === 0) return undefined;
+    const rows: number[] = [];
+    for (let r = area.top; r <= area.bottom; r++) {
+      const hit = this.tableAt({ row: r, column: area.right });
+      if (!hit || hit.info.key !== first.info.key || hit.ref.row === 0) return undefined;
+      rows.push(hit.ref.row);
+    }
+    // One area of the table: rows one after another in the markdown, as on the sheet
+    if (rows.some((row, i) => row !== rows[0]! + i)) return undefined;
+    const name = first.info.key === key ? undefined : metaName(parseTable(first.info.source));
+    if (first.info.key !== key && !name) return undefined;
+    const left = first.ref.column;
+    return { table: name, area: { top: rows[0]! - 1, left, bottom: rows[rows.length - 1]! - 1, right: left + area.right - area.left } };
   }
 
   // ---- the sheet's cells ------------------------------------------------------------------

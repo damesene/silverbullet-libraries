@@ -732,6 +732,8 @@ A page's tables can share a sheet, as a spreadsheet's sheet holds several tables
 
 The sheet view of a table on a sheet shows all the sheet's tables, each at its place (its `at` cell), however far apart they are in the page. The sheet's rows have one height, and each column is as wide as the widest of the tables' columns in it. An empty cell right of a table (in its rows) or below it (in its columns) grows that table, as for a table alone; a growth that would reach into another table is refused, and a cell that is neither right of nor below a table takes nothing yet. In the sheet view a table's header and pinned rows and columns scroll with the sheet, as a spreadsheet's cells do.
 
+In the sheet view formulas read in the sheet's addresses, as the letters and numbers show them: in a table at `D1`, whose own `A1` is the sheet's `D2`, `=prices!B1*2` reads `=B2*2` where `prices` is at `A1`, and a formula typed or pointed at there is stored in its tables' addresses again (`=B3*2` as `prices!B2*2`). A reference stays on its row: sorting a table changes the address shown, not the value. A reference to a table on no sheet, or on another page, reads as stored; one to the sheet's empty cells is written as `#REF!`. Out of the sheet view a formula reads as stored.
+
 Everything else works as in the page: editing, selecting, menus, formulas. A table sorted or filtered shows a row added so where its sorting or filter puts it (or hides it); the rows' numbers are the sheet's. The empty cells are not cells yet: a selection, AutoFill or a drag stays within the table, a formula cannot refer to them, and the cell menu has nothing for them.
 
 ## Large tables

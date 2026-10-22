@@ -8,9 +8,9 @@ const sheetTable = (page: Page) => page.locator(".sb-table-widget.swt-table.swt-
 /** A body cell of the sheet's table by its row in the markdown and its column */
 const sheetCell = (page: Page, row: number, column: number) => sheetTable(page).locator(`tr[data-swt-row="${row}"] > td`).nth(column);
 
-/** As rendersAnew, for the sheet's (first) table: drawn anew from the markdown written, and enhanced */
-async function sheetRendersAnew(page: Page, action: () => Promise<unknown>): Promise<void> {
-  await sheetTable(page).first().locator("table").evaluate((t) => t.setAttribute("data-test-old", ""));
+/** As rendersAnew, for a table of the sheet (index: the first): drawn anew from the markdown written, and enhanced */
+async function sheetRendersAnew(page: Page, action: () => Promise<unknown>, index = 0): Promise<void> {
+  await sheetTable(page).nth(index).locator("table").evaluate((t) => t.setAttribute("data-test-old", ""));
   await action();
   await expect(page.locator(".swt-drawn table[data-test-old]")).toHaveCount(0);
   await expect(sheetTable(page).locator("table:not([data-test-old]) tr[data-swt-row]").first()).toBeAttached();
@@ -354,6 +354,43 @@ test.describe("Sheet view", () => {
     await page.keyboard.type("Fig");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
     expect(await markdown(page)).toMatch(/\| Pear +\| 3 +\|\n\| Fig +\| +\|/);
+  });
+
+  test("a formula reads in the sheet's addresses there and is stored in its table's", async ({ page }) => {
+    await page
+      .locator("#source")
+      .fill(
+        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 25 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n\n| Item | Total |\n|---|---|\n| Pear | 24 <meta f='=prices!B1*2'> |\n| <meta name='totals' sheet='Plan' at='D1'> |\n",
+      );
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
+    await openSheet(page);
+    const totals = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").nth(1);
+    const total = totals.locator("tr[data-swt-row='1'] > td").nth(1);
+    // prices!B1 (its first row, under its header in row 1 of the sheet) is B2 there
+    await expect(total).toHaveAttribute("title", "=B2*2");
+    await total.dblclick();
+    const field = totals.locator(".swt-cell-editor");
+    await expect(field).toHaveValue("=B2*2");
+    // B3: Fig's price; D2: the formula's own table's Pear
+    await field.fill("=B3*2&D2");
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
+    expect(await markdown(page)).toContain("<meta f='=prices!B2*2&amp;A1'>");
+    // Pointing at a cell of the table inserts its sheet's address, its outline on it
+    await totals.locator("tr[data-swt-row='1'] > td").nth(1).dblclick();
+    await totals.locator(".swt-cell-editor").fill("=");
+    const pear = totals.locator("tr[data-swt-row='1'] > td").first();
+    await pear.click();
+    await expect(totals.locator(".swt-cell-editor")).toHaveValue("=D2");
+    const outline = (await page.locator(".swt-ref-mark.swt-visible").first().boundingBox())!;
+    const cellBox = (await pear.boundingBox())!;
+    expect(Math.abs(outline.x - cellBox.x)).toBeLessThan(3);
+    expect(Math.abs(outline.y - cellBox.y)).toBeLessThan(3);
+    // A cell no table holds: #REF!, said so
+    await totals.locator(".swt-cell-editor").fill("=H9");
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
+    await expect(page.locator("#flash > div", { hasText: "H9 is no table's cells here" })).toBeVisible();
+    await expect.poll(() => markdown(page)).toContain("<meta f='=#REF!'>");
   });
 
   test("Esc closes it", async ({ page }) => {

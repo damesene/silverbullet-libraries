@@ -13,6 +13,7 @@
 import { columnIdOf } from "../columns.ts";
 import { CELL_MENU_ORDER } from "../core/feature.ts";
 import type {
+  AddressFrame,
   CellEditor,
   CellMenuGroup,
   CellRef,
@@ -38,6 +39,7 @@ import {
   formulaCount,
   formulaErrors,
   formulaHelp,
+  type Fixed,
   formulaOf,
   formulasAfterEdit,
   followTable,
@@ -59,8 +61,11 @@ import {
   referredTableNames,
   references,
   referenceSlot,
+  REF_ERROR,
   type TableSource,
+  withAreasWritten,
   withColumnKeys,
+  writtenArea,
 } from "../formulas/index.ts";
 import { addAffected, affectedBy, isAffected, ownNameChoices, pageNameChoices, pageTables, referredBy } from "../formulas/page.ts";
 import { functionNamed } from "../formulas/registry.ts";
@@ -106,6 +111,54 @@ function choiceHelp(choice: FormulaChoice): FormulaHelp {
 // Colors of the references of the formula being edited, in the order they are written
 const REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
 
+/** A cell edited, as one string */
+const editKey = (key: string, cell: CellRef) => `${key}\u0000${cell.row}\u0000${cell.column}`;
+
+/** Whether a reference's table is the table named `own` on the formula's page */
+const isOwn = (table: { readonly name: string; readonly page?: string } | undefined, own: string | undefined) =>
+  !!table && table.page === undefined && !!own && table.name.toLowerCase() === own.toLowerCase();
+
+/**
+ * A stored formula in a frame's addresses (TableHost.addressFrame: the sheet
+ * view): each reference to a table of the page as the frame shows it, without
+ * a table's name; one to cells the frame does not show as one area (rows
+ * filtered out, a range in a sorted table) with its table's name, as stored.
+ * Undefined where that would need the formula's own table's name, and it has
+ * none.
+ */
+function framedOut(formula: string, frame: AddressFrame, own: string | undefined): string | undefined {
+  let lost = false;
+  const text = withAreasWritten(formula, (ref) => {
+    if (ref.table?.page !== undefined) return undefined;
+    const area = frame.outward(ref.table && !isOwn(ref.table, own) ? ref.table.name : undefined, ref.area);
+    if (area) return writtenArea(area, ref.fixed);
+    // Another table's (one the frame does not show: as written), the table's own (by its name)
+    if (ref.table) return undefined;
+    if (!own) lost = true;
+    return own ? writtenArea(ref.area, ref.fixed, own) : undefined;
+  });
+  return lost ? undefined : text;
+}
+
+/**
+ * A formula typed in a frame's addresses as stored: each reference without a
+ * table's name read in the frame (the table holding its cells, by its name
+ * unless it is the formula's own); one to no one table's cells is #REF!
+ * (`refused` gets it). One with its table's name stays, the own table's name
+ * left out.
+ */
+function framedIn(formula: string, frame: AddressFrame, own: string | undefined, refused: string[]): string {
+  return withAreasWritten(formula, (ref) => {
+    if (ref.table) return isOwn(ref.table, own) ? writtenArea(ref.area, ref.fixed) : undefined;
+    const hit = frame.inward(ref.area);
+    if (!hit) {
+      refused.push(writtenArea(ref.area));
+      return REF_ERROR;
+    }
+    return writtenArea(hit.area, ref.fixed, isOwn(hit.table === undefined ? undefined : { name: hit.table }, own) ? undefined : hit.table);
+  });
+}
+
 export class Formulas implements Feature {
   private readonly formulaHint: Panel;
   private referenceMarks: HTMLElement[] = [];
@@ -127,6 +180,9 @@ export class Formulas implements Feature {
   private pointing: string | undefined;
   // The page's tables for formulas, as of the page's text and the other pages read
   private source: { readonly key: string; readonly source: TableSource } | undefined;
+  // The cell edited whose formula shows in its table's addresses though a frame lays the table out (editKey):
+  // the frame could not show it
+  private unframed: string | undefined;
 
   constructor(private readonly host: ModelHost) {
     this.formulaHint = host.panel("swt-formula-hint");
@@ -254,9 +310,17 @@ export class Formulas implements Feature {
   }
 
   /** A formula cell is edited as its formula; a text starting with "=" as '=…, so it stays text */
-  editorText(_info: TableInfo, cell: CellRef, original: string): string | undefined {
+  editorText(info: TableInfo, cell: CellRef, original: string): string | undefined {
+    this.unframed = undefined;
     if (cell.row === 0) return undefined;
     const stored = formulaOf(original);
+    // Where a feature lays the table out on a grid of its own (the sheet view), in that grid's addresses
+    const frame = stored && this.host.addressFrame(info);
+    if (stored && frame) {
+      const shown = framedOut(stored.formula, frame, metaName(parseTable(info.source)));
+      if (shown === undefined) this.unframed = editKey(info.key, cell);
+      return shown ?? stored.formula;
+    }
     if (stored) return stored.formula;
     const text = unescapeCell(withoutTags(original));
     return text.startsWith("=") ? `'${text}` : undefined;
@@ -347,7 +411,14 @@ export class Formulas implements Feature {
       const slips = autofixFormula(typed.trim());
       // Names of other tables' cells written bare, as before a name was its table's: prices!vat
       const info = this.host.tableFor(editor.key);
-      const names = info ? qualifyCellNames(slips.formula, this.host.tableOf(info), this.tableSource()) : { formula: slips.formula, fixes: [] };
+      // Typed in a frame's addresses (the sheet view): stored in the table's
+      const frame = info && this.frameFor(info, editor);
+      const refused: string[] = [];
+      const read = info && frame ? framedIn(slips.formula, frame, metaName(parseTable(info.source)), refused) : slips.formula;
+      if (refused.length) {
+        void this.host.bridge.flash(`Silverware Table: ${refused.join(", ")} ${refused.length > 1 ? "are" : "is"} no table's cells here: written as #REF!`, "info");
+      }
+      const names = info ? qualifyCellNames(read, this.host.tableOf(info), this.tableSource()) : { formula: read, fixes: [] };
       const formula = names.formula;
       const fixes = [...slips.fixes, ...names.fixes];
       if (fixes.length) void this.host.bridge.flash(`Silverware Table: formula fixed: ${fixes.join(", ")}`, "info");
@@ -358,6 +429,7 @@ export class Formulas implements Feature {
   }
 
   editorClosed(): void {
+    this.unframed = undefined;
     this.functions.close();
     this.stopPointing?.();
     this.pointed = undefined;
@@ -385,7 +457,29 @@ export class Formulas implements Feature {
     const tables = this.tableSource();
     // Checked for each rendering, not once per text: TODAY() and NOW() move on while the markdown stays
     if (!this.stale.has(info)) this.stale.set(info, recalculate(model, tables) !== model);
-    return { cells: this.formulaLooks(model, tables) };
+    return { cells: this.formulaLooks(model, tables, this.host.addressFrame(info)) };
+  }
+
+  /** The frame the edited formula reads in (TableHost.addressFrame), unless it could not show the formula so */
+  private frameFor(info: TableInfo, cell: CellRef): AddressFrame | undefined {
+    return this.unframed === editKey(info.key, cell) ? undefined : this.host.addressFrame(info);
+  }
+
+  /** A reference of the formula edited, as its table's: undefined for one in a frame's addresses of another table's cells */
+  private tableReference(info: TableInfo, active: CellEditor, ref: Reference): Reference | undefined {
+    const frame = this.frameFor(info, active);
+    if (!frame || ref.kind !== "area" || ref.table) return ref;
+    const hit = frame.inward(ref.area);
+    return hit && hit.table === undefined ? { ...ref, area: hit.area } : undefined;
+  }
+
+  /** An area of the table edited as the formula edited writes it: in a frame's addresses where one lays the table out */
+  private areaWritten(info: TableInfo, active: CellEditor, area: Area, fixed?: Fixed): string {
+    const frame = this.frameFor(info, active);
+    const out = frame?.outward(undefined, area);
+    if (!frame || out) return areaText(out ?? area, fixed);
+    // Not one area there (a range in a sorted table): by the table's name, as stored
+    return writtenArea(area, fixed, metaName(parseTable(info.source)));
   }
 
   /**
@@ -434,7 +528,8 @@ export class Formulas implements Feature {
   }
 
   /** Formula cells marked, with their formulas and the reasons of their errors as their titles */
-  private formulaLooks(model: Table, tables: TableSource): { row: number; column: number; marks: string[]; title: string }[] {
+  private formulaLooks(model: Table, tables: TableSource, frame: AddressFrame | undefined): { row: number; column: number; marks: string[]; title: string }[] {
+    const own = metaName(model);
     // The reasons of errors evaluate the table again: only once a cell shows one
     let errors: Map<string, string> | undefined;
     const looks: { row: number; column: number; marks: string[]; title: string }[] = [];
@@ -444,7 +539,9 @@ export class Formulas implements Feature {
         const stored = formulaOf(raw);
         if (!stored) return;
         const error = isErrorText(stored.value) ? (errors ??= formulaErrors(model, tables)).get(`${row},${column}`) : undefined;
-        looks.push({ row, column, marks: error ? ["formula", "formula-error"] : ["formula"], title: error ? `${stored.formula}\n${error}` : stored.formula });
+        // In a frame's addresses where one lays the table out (the sheet view), as its editor shows it
+        const formula = (frame && framedOut(stored.formula, frame, own)) ?? stored.formula;
+        looks.push({ row, column, marks: error ? ["formula", "formula-error"] : ["formula"], title: error ? `${formula}\n${error}` : formula });
       });
     });
     return looks;
@@ -536,7 +633,8 @@ export class Formulas implements Feature {
     this.referenceMarks = [];
     const table = parseTable(info.source);
     refs.forEach((ref, index) => {
-      const area = this.referenceArea(info, table, ref, active.row - 1);
+      const own = this.tableReference(info, active, ref);
+      const area = own && this.referenceArea(info, table, own, active.row - 1);
       if (!area) return;
       const color = REFERENCE_COLORS[index % REFERENCE_COLORS.length]!;
       const boxes = this.areaBoxes(info, area);
@@ -618,7 +716,7 @@ export class Formulas implements Feature {
       bottom: Math.max(anchor.row, to.row),
       right: Math.max(anchor.column, to.column),
     });
-    put(areaText(areaTo({ row: cell.row - 1, column: cell.column })), anchor);
+    put(this.areaWritten(info, active, areaTo({ row: cell.row - 1, column: cell.column })), anchor);
     // Dragging with the button held makes it a range; it ends with the button,
     // a key, the window losing focus or the editor closing
     const end = () => {
@@ -634,7 +732,7 @@ export class Formulas implements Feature {
           return;
         }
         const to = this.bodyCellAt(info, at.x, at.y);
-        const text = to && areaText(areaTo(to));
+        const text = to && this.areaWritten(info, active, areaTo(to));
         if (text && text !== active.text.slice(span.from, span.to)) put(text, anchor);
       },
       onKey: end,
@@ -936,7 +1034,8 @@ export class Formulas implements Feature {
     // Not prevented: the mousedown that follows is (swt-floating), which keeps the focus in the field
     e.stopPropagation();
     const originalFormula = active.text;
-    const ref = references(originalFormula)[index];
+    const written = references(originalFormula)[index];
+    const ref = written && this.tableReference(info, active, written);
     const table = parseTable(info.source);
     const headers = table.rows[0]?.cells ?? [];
     const start = this.bodyCellAt(info, e.clientX, e.clientY);
@@ -956,7 +1055,9 @@ export class Formulas implements Feature {
       }
       // Its $ kept, moved or resized (on the edges as written)
       if (mode === "resize") {
-        return areaText(
+        return this.areaWritten(
+          info,
+          active,
           {
             top: Math.min(startArea.top, cell.row),
             left: Math.min(startArea.left, cell.column),
@@ -970,7 +1071,7 @@ export class Formulas implements Feature {
       const width = startArea.right - startArea.left;
       const top = clamp(startArea.top + dRow, lastRow - height);
       const left = clamp(startArea.left + dColumn, lastColumn - width);
-      return areaText({ top, left, bottom: top + height, right: left + width }, ref.fixed);
+      return this.areaWritten(info, active, { top, left, bottom: top + height, right: left + width }, ref.fixed);
     };
 
     const stop = this.host.drag(e, {

@@ -37,6 +37,23 @@ export type TableTarget = Pick<WidgetInfo, "key" | "source" | "hint">;
 // A cell by its row in the markdown (header 0) and its column
 export type CellRef = { readonly row: number; readonly column: number };
 
+// Cells from a top left to a bottom right one, inclusive
+export type CellArea = { readonly top: number; readonly left: number; readonly bottom: number; readonly right: number };
+
+/**
+ * Where a feature lays the page's tables out on a grid of its own (the sheet
+ * view): the addresses their cells have there, as formulas write them. A
+ * table's area is in its body rows in the markdown's order (row 0: its first
+ * under the header, A1 of its formulas); the frame's in its own rows and
+ * columns (row 0 written 1).
+ */
+export type AddressFrame = {
+  /** A table's area (`table`: another table's name; undefined: the one the frame is for) in the frame: undefined if it is not there as one area */
+  outward(table: string | undefined, area: CellArea): CellArea | undefined;
+  /** The table holding an area of the frame whole, as one area (its name; undefined: the one the frame is for), and the area in it */
+  inward(area: CellArea): { readonly table: string | undefined; readonly area: CellArea } | undefined;
+};
+
 /** What a cell shows in place of what its markdown renders to: a text, or a link (opened in a new tab) */
 export type CellDisplay = string | { readonly text: string; readonly href: string };
 
@@ -566,6 +583,8 @@ export interface ModelHost {
    * it (Feature.selectionLeaves), so the table's selection ends
    */
   selectionLeaves(info: TableInfo, from: CellRef, step: readonly [number, number]): boolean;
+  /** The addresses a table's cells have where a feature lays it out on a grid of its own (Feature.addressFrame), if one does */
+  addressFrame(info: TableInfo): AddressFrame | undefined;
   /** Whether a module is on (one feature serves another: pageLinks reads pages for formulas) */
   moduleOn(name: FeatureName): boolean;
   /** Tables changed outside the page (another page read anew): features check them again */
@@ -935,6 +954,8 @@ export interface Feature {
    * past the edge (the sheet view's empty cells), the table's selection ends
    */
   selectionLeaves?(info: TableInfo, from: CellRef, step: readonly [number, number]): boolean;
+  /** The addresses the table's cells have where the feature lays it out on a grid of its own (the sheet view) */
+  addressFrame?(info: TableInfo): AddressFrame | undefined;
   editorClosed?(editor: CellEditor): void;
 }
 
