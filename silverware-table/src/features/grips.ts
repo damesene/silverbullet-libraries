@@ -156,10 +156,6 @@ export class Grips implements Feature {
     this.columnGrip.remove();
   }
 
-  owns(node: Node): boolean {
-    return this.rowGrip.contains(node) || this.columnGrip.contains(node) || !!this.menu?.element.contains(node);
-  }
-
   // While a grip is dragged the hover controls stay; with a menu open the grips stay in its table
   pointerBusy(): "drag" | "menu" | undefined {
     return this.dragging ? "drag" : this.menu ? "menu" : undefined;

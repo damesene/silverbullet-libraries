@@ -307,11 +307,6 @@ export class CellEditing {
     for (const feature of this.context.features) feature.editorInput?.(editor);
   }
 
-  /** Whether a node is the editor's (its popup) */
-  owns(node: Node): boolean {
-    return !!this.editor?.panel?.contains(node);
-  }
-
   /**
    * F2 (or the expand button): the cell edited in its editor in the cell goes
    * on in its popup, with what was typed and where the cursor was; nothing is

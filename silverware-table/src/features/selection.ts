@@ -162,10 +162,6 @@ export class Selection implements Feature {
     this.host.pageMark("select-mode", !this.editMode);
   }
 
-  owns(node: Node): boolean {
-    return this.tip.element.contains(node);
-  }
-
   /**
    * A press on a handle is the handle's (a mouse's, after a touch has shown
    * them): not the cell's. On the selection's edge it drags the cells; while

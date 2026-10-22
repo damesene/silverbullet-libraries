@@ -89,10 +89,6 @@ export class AutoFill implements Feature {
     this.tip.remove();
   }
 
-  owns(node: Node): boolean {
-    return this.tip.element.contains(node);
-  }
-
   /** Whether a press is on the fill handle */
   private onHandle(target: EventTarget | null): boolean {
     const on = this.host.targetOf(target);

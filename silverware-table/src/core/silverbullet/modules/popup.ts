@@ -28,10 +28,6 @@ export class CellPopup implements AdapterFeature {
     this.button.remove();
   }
 
-  owns(node: Node): boolean {
-    return this.button.contains(node);
-  }
-
   cellHovered(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void {
     const editing = this.host.editing;
     if (editing) {

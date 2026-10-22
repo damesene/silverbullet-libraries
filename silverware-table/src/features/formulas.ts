@@ -321,10 +321,6 @@ export class Formulas implements Feature {
     }
   }
 
-  owns(node: Node): boolean {
-    return this.formulaHint.element.contains(node);
-  }
-
   /**
    * Whether the edited cell may hold a formula: with the metadata setting on,
    * or when it holds one already (a table with formulas keeps using them, as

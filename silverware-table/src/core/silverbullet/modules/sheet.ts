@@ -98,10 +98,6 @@ export class Sheet implements AdapterFeature {
     this.letters.remove();
   }
 
-  owns(node: Node): boolean {
-    return this.letters.contains(node);
-  }
-
   toolbarButtons(info: WidgetInfo): ToolbarButton[] {
     const widget = this.host.widgetOf(info);
     const on = this.over.key === info.key;

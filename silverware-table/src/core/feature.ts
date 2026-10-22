@@ -704,8 +704,6 @@ export interface TableHost extends ModelHost {
 export interface Feature {
   start?(): void;
   stop?(): void;
-  /** Whether a node is one of the feature's floating elements (a grip, a menu) */
-  owns?(node: Node): boolean;
   /**
    * Something holds the pointer: a drag (the hover controls stay where they
    * are), or an open menu (they stay in its table, cells hovered there still reported)

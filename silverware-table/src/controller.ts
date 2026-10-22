@@ -2064,16 +2064,10 @@ export class Controller implements TableHost {
   }
 
   isFloating(node: Node): boolean {
-    return (
-      this.toolbar.owns(node) ||
-      this.insert.owns(node) ||
-      this.cellEditor.owns(node) ||
-      this.dialogs.contains(node) ||
-      this.tableMenu.owns(node) ||
-      this.panels.owns(node) ||
-      this.adapter.owns(node) ||
-      this.features.some((f) => f.owns?.(node))
-    );
+    // What the core made floating carries the class (floating, the panels, menus), whoever fills it;
+    // a dialog's backdrop and the adapter's marks inside cells do not
+    const element = node instanceof Element ? node : node.parentElement;
+    return !!element?.closest(".swt-floating") || this.dialogs.contains(node) || this.adapter.owns(node);
   }
 
   place(element: HTMLElement, left: number, top: number): void {

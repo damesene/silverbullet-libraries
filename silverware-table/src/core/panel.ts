@@ -93,12 +93,6 @@ export class Panels {
     for (const panel of this.panels) panel.place();
   }
 
-  /** Whether a node is in one of the panels */
-  owns(node: Node): boolean {
-    for (const panel of this.panels) if (panel.element.contains(node)) return true;
-    return false;
-  }
-
   removeAll(): void {
     for (const panel of [...this.panels]) panel.remove();
   }

@@ -105,10 +105,6 @@ export class InsertControls {
     for (const el of [this.mark, this.line, ...Object.values(this.quietMarks)]) el.remove();
   }
 
-  owns(node: Node): boolean {
-    return [this.mark, this.line, ...Object.values(this.quietMarks)].some((el) => el.contains(node));
-  }
-
   // ---- presses -------------------------------------------------------------
 
   /** Any press, first: only the press that inserted has its end swallowed */
