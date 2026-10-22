@@ -8186,7 +8186,26 @@ var Filters = class {
     input.value = this.filtersOf(info)[column] ?? "";
     input.addEventListener("blur", (e) => this.left(key2, input, e));
     const anchor = () => this.table(key2)?.[1].table.rows[0]?.cells[column];
-    this.showBubble(key2, column, input, anchor, box);
+    const { doc } = this.host;
+    const head = doc.createElement("div");
+    head.className = "tp-filter-popover-head";
+    const close = doc.createElement("button");
+    close.type = "button";
+    close.tabIndex = -1;
+    close.className = "tp-filter-close";
+    close.title = "Close";
+    close.setAttribute("aria-label", "Close");
+    close.innerHTML = ICONS.clear;
+    close.addEventListener("click", (e) => {
+      e.preventDefault();
+      input.blur();
+      if (this.bubble?.input === input) {
+        this.hideBubble();
+        this.scheduleStore(key2);
+      }
+    });
+    head.append(box, close);
+    this.showBubble(key2, column, input, anchor, head);
     this.bubble?.element.classList.toggle("tp-filter-typed", input.value !== "");
     input.focus({ preventScroll: true });
     input.setSelectionRange(input.value.length, input.value.length);

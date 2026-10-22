@@ -38,6 +38,10 @@ describe("Filters", () => {
     expect(bodyTexts()).toEqual(["Pear", "apple"]);
     clickOn(cell(0, 1).querySelector(".tp-filter-mark")!);
     expect(popoverField()!.value).toBe(">2");
+    // The × beside the field closes it too, the filter kept
+    document.querySelector<HTMLElement>(".tp-filter-popover .tp-filter-close")!.click();
+    expect(bubble()).toBeNull();
+    expect(bodyTexts()).toEqual(["Pear", "apple"]);
     // The chip's cross clears the filters
     chip()!.querySelector<HTMLElement>(".tp-chip-clear")!.click();
     await flush();

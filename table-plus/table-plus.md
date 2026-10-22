@@ -241,7 +241,7 @@ A plain click edits a cell and no longer switches the table to its markdown. To 
 
 ## Filtering
 
-* **One column**: the filter icon after *Filter* in its column menu opens its filter in a bubble under the header, nothing in the table moves; the × beside it removes the column's filter (greyed out while the column has none). While a column filters, its header shows a filter icon: click it to change the filter.
+* **One column**: the filter icon after *Filter* in its column menu opens its filter in a bubble under the header, nothing in the table moves; the × beside it removes the column's filter (greyed out while the column has none). In the bubble, the × in the field clears what is typed, the × beside the field closes the bubble (as Esc does), the filter kept. While a column filters, its header shows a filter icon: click it to change the filter.
 * **All columns**: the filter icon in the table's toolbar shows a filter field under each header; click it again to hide them. Hidden, the filters still apply.
 * While filtered, the toolbar shows *3 of 10 rows*; its × clears all filters. A field's × clears that one.
 * Under the field you type in, a bubble shows what it understands (click one to put it in the field) and, for a column with up to 12 different values, those values with how many rows have each: tick them to show only those rows (`=open|blocked`).
@@ -2659,6 +2659,35 @@ html[data-theme="dark"] .tp-excel-error {
 .tp-filter-popover .tp-filter-box {
   padding: 4px 6px;
   font-size: 13px;
+}
+/* A column's filter on its own: its field, and a × closing it beside */
+.tp-filter-popover-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tp-filter-popover-head .tp-filter-box {
+  flex: 1;
+  min-width: 0;
+}
+.tp-filter-close {
+  display: inline-flex;
+  flex: none;
+  padding: 3px;
+  color: inherit;
+  opacity: 0.6;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tp-filter-close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--ui-accent-color) 14%, transparent);
+}
+.tp-filter-close svg {
+  width: 14px;
+  height: 14px;
 }
 .tp-filter-bubble-body {
   display: flex;

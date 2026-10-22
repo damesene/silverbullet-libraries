@@ -527,7 +527,28 @@ export class Filters implements Feature {
     input.addEventListener("blur", (e) => this.left(key, input, e));
     // Under the header as rendered now: a write renders the table anew
     const anchor = () => this.table(key)?.[1].table.rows[0]?.cells[column];
-    this.showBubble(key, column, input, anchor, box);
+    // A × beside the field closes it, as Esc does (the field's own × clears the filter)
+    const { doc } = this.host;
+    const head = doc.createElement("div");
+    head.className = "tp-filter-popover-head";
+    const close = doc.createElement("button");
+    close.type = "button";
+    close.tabIndex = -1;
+    close.className = "tp-filter-close";
+    close.title = "Close";
+    close.setAttribute("aria-label", "Close");
+    close.innerHTML = ICONS.clear;
+    close.addEventListener("click", (e) => {
+      e.preventDefault();
+      // Leaving the field closes it and stores the filters
+      input.blur();
+      if (this.bubble?.input === input) {
+        this.hideBubble();
+        this.scheduleStore(key);
+      }
+    });
+    head.append(box, close);
+    this.showBubble(key, column, input, anchor, head);
     this.bubble?.element.classList.toggle("tp-filter-typed", input.value !== "");
     input.focus({ preventScroll: true });
     input.setSelectionRange(input.value.length, input.value.length);
