@@ -93,6 +93,14 @@ export class OverWindow {
   begin(widget: HTMLElement, info: WidgetInfo): void {
     const other = current.get(this.host.doc);
     if (other && other !== this) other.end();
+    // The other's table may have gone with it (the sheet's own drawing): the one that stands for the key now
+    if (!widget.isConnected) {
+      const now = this.host.widgetForKey(info.key);
+      const nowInfo = now && this.host.infoOf(now);
+      if (!now || !nowInfo) return;
+      widget = now;
+      info = nowInfo;
+    }
     current.set(this.host.doc, this);
     if (this.shownWidget && this.shownWidget !== widget) this.unmark(this.shownWidget);
     this.shownKey = info.key;

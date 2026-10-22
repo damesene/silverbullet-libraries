@@ -196,6 +196,15 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-sheet-grid")).toHaveCount(0);
   });
 
+  test("full screen from the sheet's toolbar: the sheet ends, the page's table shows over the window", async ({ page }) => {
+    await openSheet(page);
+    await hoverCell(page, sheetCell(page, 1, 0));
+    await page.locator('.swt-bar button[aria-label="Full screen"]').click();
+    await expect(sheetTable(page)).toHaveCount(0);
+    await expect(table(page)).toHaveClass(/swt-fullscreen/);
+    await expect(table(page)).toBeVisible();
+  });
+
   test("full screen keeps room right of the table: the + of a new column there, clear of the toolbar, the rows numbered on both sides", async ({ page }) => {
     await hoverCell(page, cell(page, 1, 0));
     await page.locator('.swt-bar button[aria-label="Full screen"]').click();
