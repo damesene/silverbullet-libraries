@@ -76,7 +76,8 @@ export class CellPopup implements Feature {
   /**
    * At the top right corner of the part of the cell in view: the table's box
    * may be scrolled sideways, the page up or down, and a body cell may be
-   * partly under the header held at the top. Where too little of it shows,
+   * partly under what is held over the body (the header, pinned rows and
+   * columns: `shownPart`). Where too little of it shows,
    * the button waits (hidden) for the cell to come into view.
    */
   private place(): void {
@@ -87,22 +88,16 @@ export class CellPopup implements Feature {
     }
     const { widget, info, cell } = target;
     const rect = cell.getBoundingClientRect();
-    const shown = this.host.shownRect(widget, info);
-    const view = this.host.viewBounds(widget);
-    const head = info.table.tHead;
-    const under = head && cell.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity;
-    const left = Math.max(rect.left, shown.left, view.left);
-    const right = Math.min(rect.right, shown.right, view.right);
-    const top = Math.max(rect.top, shown.top, view.top, under);
-    const bottom = Math.min(rect.bottom, shown.bottom, view.bottom);
+    const part = this.host.shownPart(widget, info, cell);
     // Shown before it is measured: hidden, it has no size (it would sit its width too far right)
     this.button.classList.add("tp-visible");
     const size = Math.max(this.button.offsetWidth, this.button.offsetHeight);
-    // Not laid out (in tests): no size to compare
-    if (rect.width > 0 && (right - left < size + 4 || bottom - top < size + 4)) {
+    // Not laid out (in tests): no size to compare, the cell's box
+    if (rect.width > 0 && (!part || part.right - part.left < size + 4 || part.bottom - part.top < size + 4)) {
       this.button.classList.remove("tp-visible");
       return;
     }
+    const { right, top } = part ?? rect;
     this.host.place(this.button, right - this.button.offsetWidth - 2, top + 2);
   }
 

@@ -108,6 +108,37 @@ export function startNaming(menu: HTMLElement): void {
   menu.querySelector<HTMLButtonElement>(".tp-menu-rename:not([aria-disabled])")?.click();
 }
 
+/**
+ * A menu floating over the page (Table Plus' controls, not SilverBullet's
+ * content), to put into the page and focus (focusMenu) once placed: a press in
+ * it keeps the focus where it is, its × closes it with `close`
+ */
+export function floatingMenu(
+  doc: Document,
+  title: string,
+  entries: readonly MenuEntry[],
+  options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void },
+): HTMLElement {
+  const menu = renderMenu(doc, title, entries, options.back, options.naming);
+  menu.classList.add("tp-floating", "tp-menu", "tp-visible");
+  keepFocus(menu);
+  onMenuClose(menu, options.close);
+  return menu;
+}
+
+/** A menu's naming whose save also closes the menu, once the name is saved */
+export function namingThatCloses(naming: MenuNaming | undefined, close: () => void): MenuNaming | undefined {
+  if (!naming) return undefined;
+  return {
+    ...naming,
+    save: async (name) => {
+      const why = await naming.save(name);
+      if (why === undefined) close();
+      return why;
+    },
+  };
+}
+
 export function renderMenu(doc: Document, title: string, entries: readonly MenuEntry[], back?: MenuBack, naming?: MenuNaming): HTMLElement {
   const menu = doc.createElement("div");
   menu.setAttribute("role", "menu");

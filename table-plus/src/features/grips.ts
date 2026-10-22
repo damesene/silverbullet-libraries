@@ -4,6 +4,8 @@
 // column menu, a drag moves the row or column. Shift+click on another grip
 // selects the rows (columns) between.
 import type { CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import { scrollNearEdge } from "../core/geometry.ts";
+import { LONG_PRESS_MS } from "../core/press.ts";
 import {
   columnBlockTo,
   deleteColumnsAt,
@@ -21,7 +23,7 @@ import {
 import { cellText } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import { type Align, parseTable, type Table } from "../markdown.ts";
-import { focusMenu, keepFocus, type MenuEntry, type MenuNaming, onMenuClose, renderMenu, wrapRuns } from "../menu.ts";
+import { floatingMenu, focusMenu, type MenuEntry, namingThatCloses, wrapRuns } from "../menu.ts";
 import { setAlign } from "../ops.ts";
 import { columnZone, insertColumnAt, insertRowAt, rowZone } from "../pins.ts";
 import { type ViewState, withoutSort, withSort } from "../view.ts";
@@ -45,13 +47,6 @@ const TOUCH_DRAG_THRESHOLD = 10;
 const GRIP_THICKNESS = 12;
 const ROW_GRIP_LENGTH = 32;
 const COLUMN_GRIP_LENGTH = 44;
-
-// While a row is dragged near the top or bottom of the view, the page scrolls by this much a move
-const AUTOSCROLL_EDGE = 40;
-const AUTOSCROLL_STEP = 12;
-
-// A press this long on a grip, on a touch screen, opens its menu (as a long press on a cell)
-const LONG_PRESS_MS = 550;
 
 const PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 
@@ -273,7 +268,7 @@ export class Grips implements Feature {
     const threshold = e.pointerType === "touch" ? TOUCH_DRAG_THRESHOLD : DRAG_THRESHOLD;
     // Selected before this press: in select mode its click opens the menu (else it selects only)
     const wasSelected = this.wholeLinesSelected(target.info, axis).includes(line);
-    // A long press on a touch screen: the menu at once (iOS fires no contextmenu)
+    // A long press on a touch screen: the menu at once, as on a cell (iOS fires no contextmenu)
     let pressedLong = false;
     const longPress =
       e.pointerType === "touch"
@@ -384,7 +379,7 @@ export class Grips implements Feature {
     const cellLines = cells.map((ref) => (axis === "row" ? ref.row : ref.column)).filter((l) => axis === "column" || l > 0);
     const ends = lines.length > 0 ? lines : cellLines;
     // Rows by where they show (sorted), columns by their place
-    const shown = axis === "row" ? this.host.shownRows(info).map((tr) => Number(tr.dataset.tpRow)) : [];
+    const shown = axis === "row" ? this.host.shownRows(info).map((tr) => this.host.rowOf(info, tr)) : [];
     const place = (l: number) => (axis === "row" ? shown.indexOf(l) : l);
     const first = ends[0];
     const last = ends[ends.length - 1];
@@ -403,7 +398,7 @@ export class Grips implements Feature {
         return;
       }
       const shown = this.host.shownRows(info);
-      const last = Number(shown[shown.length - 1]?.dataset.tpRow ?? 0);
+      const last = this.host.rowOf(info, shown[shown.length - 1]!);
       this.host.selectCells(info, { row: 0, column: from }, { row: last, column: to });
     } finally {
       this.selectingLines = false;
@@ -593,7 +588,7 @@ export class Grips implements Feature {
         const shift = i > end && i <= target + count - 1 ? -carriedSize : i < index && i >= target ? carriedSize : 0;
         for (const cell of cells) cell.style.transform = shift ? (axis === "row" ? `translateY(${shift}px)` : `translateX(${shift}px)`) : "";
       });
-      this.autoscroll(widget, ev);
+      scrollNearEdge(widget, ev.clientX, ev.clientY, axis === "column");
     };
     const finish = (commit: boolean) => {
       for (const cells of items) for (const cell of cells) cell.style.transform = "";
@@ -647,15 +642,6 @@ export class Grips implements Feature {
     return ghost;
   }
 
-  /** Near the top or bottom edge of the box the page scrolls in, it scrolls on */
-  private autoscroll(widget: HTMLElement, ev: PointerEvent): void {
-    const scroller = this.host.scrollParentOf(widget);
-    if (!scroller) return;
-    const view = scroller.getBoundingClientRect();
-    if (ev.clientY < view.top + AUTOSCROLL_EDGE) scroller.scrollTop -= AUTOSCROLL_STEP;
-    else if (ev.clientY > view.bottom - AUTOSCROLL_EDGE) scroller.scrollTop += AUTOSCROLL_STEP;
-  }
-
   // ---- menus ----------------------------------------------------------------------
 
   // A click on the grip whose menu is open closes it; on another grip, that grip's menu opens instead
@@ -674,21 +660,11 @@ export class Grips implements Feature {
     const { widget, info } = target;
     // The line's name in the title, a pencil to change it (the names module's); saved, the menu closes
     const named = this.host.menuNaming(widget, info, axis === "row" ? { kind: "row", row: line } : { kind: "column", column: line });
-    const naming: MenuNaming | undefined = named && {
-      ...named,
-      save: async (name) => {
-        const why = await named.save(name);
-        if (why === undefined) this.closeMenu(false);
-        return why;
-      },
-    };
+    const naming = namingThatCloses(named, () => this.closeMenu(false));
     const header = cellText(info.table.rows[0]!.cells[target.column]!) || String(target.column + 1);
     const title = axis === "row" ? (naming?.name ? `Row: ${naming.name}` : `Row ${target.row}`) : `Column: ${naming?.name ?? header}`;
     const entries = axis === "row" ? this.rowMenu(widget, info, target.row!, target.column) : this.columnMenu(widget, info, target.column);
-    const element = renderMenu(doc, title, entries, undefined, naming);
-    element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    keepFocus(element);
-    onMenuClose(element, () => this.closeMenu(true));
+    const element = floatingMenu(doc, title, entries, { naming, close: () => this.closeMenu(true) });
     doc.body.append(element);
     if (at) {
       // By the point pressed, following its cell as the page scrolls
@@ -714,11 +690,8 @@ export class Grips implements Feature {
     if (!menu) return;
     const previous = menu.element;
     const closing = entries.map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry));
-    const element = renderMenu(this.host.doc, title, closing, { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) });
-    element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    keepFocus(element);
-    onMenuClose(element, () => this.closeMenu(true));
-    this.swapMenu(element);
+    const back = { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) };
+    this.swapMenu(floatingMenu(this.host.doc, title, closing, { back, close: () => this.closeMenu(true) }));
   }
 
   /** Puts `element` in the open menu's place */

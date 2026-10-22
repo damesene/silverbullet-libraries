@@ -3,8 +3,10 @@
 // state and listeners and works through the host.
 import type { Bridge, FeatureName, SETTINGS, SettingValue } from "../bridge.ts";
 import type { Dialog, DialogOptions } from "./dialog.ts";
+import type { Rect } from "./geometry.ts";
 
 export type { Dialog, DialogOptions } from "./dialog.ts";
+export type { Rect } from "./geometry.ts";
 import type { IndexMap } from "../ops.ts";
 import type { OtherPages, PageTable, Table } from "../markdown.ts";
 import type { MenuEntry, MenuNaming } from "../menu.ts";
@@ -28,6 +30,9 @@ export type WidgetInfo = {
 
 // A cell by its row in the markdown (header 0) and its column
 export type CellRef = { readonly row: number; readonly column: number };
+
+/** A cell of a table shown, as an event found it: its table, the cell rendered and where it is in the markdown */
+export type CellHit = { readonly widget: HTMLElement; readonly info: WidgetInfo; readonly cell: HTMLTableCellElement; readonly ref: CellRef };
 
 // A cell to edit once the table is rendered again; `select` selects its text
 export type FocusTarget = CellRef & { readonly select?: boolean };
@@ -157,6 +162,10 @@ export interface TableHost {
   /** The header or body cell an event target is in (not the filter or metadata row) */
   tableCellOf(info: WidgetInfo, target: EventTarget | null): HTMLTableCellElement | undefined;
   cellRef(info: WidgetInfo, cell: HTMLTableCellElement): CellRef | undefined;
+  /** The header or body cell an event target is in, in an enhanced table; with `key`, only in that table */
+  cellUnder(target: EventTarget | null, key?: string): CellHit | undefined;
+  /** The row of the markdown a row rendered is (the header 0) */
+  rowOf(info: WidgetInfo, tr: HTMLTableRowElement): number;
   /** The header row and the shown body rows, in display order */
   shownRows(info: WidgetInfo): HTMLTableRowElement[];
   /** Whether a node is one of Table Plus' floating controls (toolbar, grips, menus) */
@@ -203,7 +212,7 @@ export interface TableHost {
   /** Places a floating element at a point of the viewport, kept inside it sideways, and shows it */
   place(element: HTMLElement, left: number, top: number): void;
   /** A table's visible box: the part of it not scrolled out of view */
-  innerBox(widget: HTMLElement): { left: number; right: number; top: number; bottom: number };
+  innerBox(widget: HTMLElement): Rect;
   /**
    * Closes the cell editor for an edit that ends editing: `save` adds what the
    * editor held to that edit (undefined: the cell changed in the meantime)
@@ -305,15 +314,21 @@ export interface TableHost {
    * editor's top bar, also while the page is too short to scroll), or the
    * window, cut to what an on-screen keyboard leaves visible
    */
-  viewBounds(element: HTMLElement): { left: number; right: number; top: number; bottom: number };
+  viewBounds(element: HTMLElement): Rect;
   /**
    * The part of a cell in view: cut to the table's box, the page in view and,
    * for a body cell, what is held over the body (the header, pinned rows and
    * columns); undefined when none of it is
    */
-  shownPart(widget: HTMLElement, info: WidgetInfo, cell: HTMLElement): { left: number; right: number; top: number; bottom: number } | undefined;
+  shownPart(widget: HTMLElement, info: WidgetInfo, cell: HTMLElement): Rect | undefined;
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
-  shownRect(widget: HTMLElement, info: WidgetInfo): { left: number; right: number; top: number; bottom: number };
+  shownRect(widget: HTMLElement, info: WidgetInfo): Rect;
+  /**
+   * Where the body shows between what is held over it (the header, rows
+   * pinned to the bottom, columns pinned left and right); a side with nothing
+   * held is infinite
+   */
+  heldBounds(info: WidgetInfo): Rect;
   /** The body rows as rendered, in the order of the markdown, hidden ones included */
   bodyRows(info: WidgetInfo): HTMLTableRowElement[];
   /**

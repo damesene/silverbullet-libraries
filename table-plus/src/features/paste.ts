@@ -11,8 +11,9 @@
 // and the menu's side.
 import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from "../clipboard.ts";
 import type { CellEditor, CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import { Outline } from "../core/outline.ts";
 import type { MenuEntry } from "../menu.ts";
-import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
+import { cellValue, WIDGET_SELECTOR } from "../dom.ts";
 import { cellMoveRules, moveRowsTo } from "../core/structure.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
@@ -54,9 +55,11 @@ export class Paste implements Feature {
   private stopped = false;
   // Cells copied or cut (waiting to be moved by a paste); their outline
   private cut: Cut | undefined;
-  private edges: HTMLElement[] = [];
+  private readonly edges: Outline;
 
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: TableHost) {
+    this.edges = new Outline(host.doc, (sides) => [`tp-cut-edge ${sides.map((side) => `tp-cut-${side}`).join(" ")}`]);
+  }
 
   /**
    * Where the browser says the page may read the clipboard without asking,
@@ -183,7 +186,7 @@ export class Paste implements Feature {
   lineMenuEntries(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
     const first = Math.min(...lines);
     if (!Number.isFinite(first)) return [];
-    const rows = axis === "row" ? lines : this.host.shownRows(info).map((tr) => (tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow)));
+    const rows = axis === "row" ? lines : this.host.shownRows(info).map((tr) => this.host.rowOf(info, tr));
     const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : [...lines].sort((a, b) => a - b);
     const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
     const body = cells.filter((ref) => ref.row > 0);
@@ -391,28 +394,16 @@ export class Paste implements Feature {
     return `${table.rows.length}×${table.align.length}`;
   }
 
-  /** The cells copied or cut outlined, dashed, as a spreadsheet marks them: a piece in each cell on the area's edge */
+  /** The cells copied or cut outlined, dashed, as a spreadsheet marks them */
   private markCut(info: WidgetInfo): void {
     this.unmarkCut();
     const cut = this.cut;
     if (!cut) return;
-    const last = cut.cells.length - 1;
-    cut.cells.forEach((row, i) =>
-      row.forEach((ref, j) => {
-        const sides = [i === 0 && "top", i === last && "bottom", j === 0 && "left", j === row.length - 1 && "right"].filter(Boolean);
-        const cell = sides.length ? this.host.cellAt(info, ref, true) : undefined;
-        if (!cell) return;
-        const edge = this.host.doc.createElement("span");
-        edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-cut-edge ${sides.map((s) => `tp-cut-${s}`).join(" ")}`;
-        cell.append(edge);
-        this.edges.push(edge);
-      }),
-    );
+    this.edges.show(cut.cells.length, cut.cells[0]?.length ?? 0, (i, j) => this.host.cellAt(info, cut.cells[i]![j]!, true));
   }
 
   private unmarkCut(): void {
-    for (const edge of this.edges) edge.remove();
-    this.edges = [];
+    this.edges.clear();
   }
 
   private endCut(): void {

@@ -12,6 +12,9 @@
 // their edge, dragged with a mouse (with Ctrl: copied), or with Move to… in
 // their menu and a click (a tap) on the cell to move them to.
 import type { CellMenuGroup, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import { intersect, isEmpty, scrollNearEdge } from "../core/geometry.ts";
+import { Outline } from "../core/outline.ts";
+import { watchPress } from "../core/press.ts";
 import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from "../clipboard.ts";
 import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
 import { PAGE_ROWS } from "../core/editor.ts";
@@ -26,6 +29,7 @@ import {
   rowBlockTo,
 } from "../core/structure.ts";
 import { lineAfterBlockMove } from "../ops.ts";
+import { columnLetters } from "../formulas/index.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
@@ -38,17 +42,6 @@ const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "H
 
 const EDIT_MODE_KEY = "tablePlus.editMode";
 
-// A handle dragged near an edge of the view (of a table's box that scrolls sideways) scrolls it by this much a move
-const AUTOSCROLL_EDGE = 40;
-const AUTOSCROLL_STEP = 12;
-
-/** A column's letters, as formulas name it (A, B … Z, AA) */
-function columnLetters(column: number): string {
-  let letters = "";
-  for (let n = column + 1; n > 0; n = Math.floor((n - 1) / 26)) letters = String.fromCharCode(65 + ((n - 1) % 26)) + letters;
-  return letters;
-}
-
 /** The cells selected, to move: their table, rows as shown (index in shownRows) and columns, and the cells by row */
 type Block = {
   readonly widget: HTMLElement;
@@ -60,10 +53,6 @@ type Block = {
   readonly width: number;
   readonly cells: readonly (readonly CellRef[])[];
 };
-
-// A touch shorter than this (a long press opens the menu anyway), moved no further, is a tap
-const TAP_MS = 500;
-const TAP_MOVE = 10;
 
 /** Edit mode as this browser keeps it (off: select mode, the default) */
 function readEditMode(): boolean {
@@ -99,8 +88,8 @@ export class Selection implements Feature {
   // A touch on cells selected, until it is a tap (their menu) or not
   private stopTap: (() => void) | undefined;
   // The band on the selection's edge a mouse drags it by; the outline where it goes, and its address
-  private edges: HTMLElement[] = [];
-  private targetEdges: HTMLElement[] = [];
+  private readonly edges: Outline;
+  private readonly targetEdges: Outline;
   private readonly tip: HTMLElement;
   // Move to…: the table whose cells selected move to the cell pressed next
   private moving: string | undefined;
@@ -121,6 +110,9 @@ export class Selection implements Feature {
     };
     this.handles = [handle("start"), handle("end")];
     this.tip = host.floating("div", "tp-move-tip");
+    // A band per side, which a mouse drags the cells by
+    this.edges = new Outline(host.doc, (sides) => sides.map((side) => `tp-select-edge tp-select-edge-${side}`));
+    this.targetEdges = new Outline(host.doc, (sides) => [`tp-move-edge ${sides.map((side) => `tp-move-${side}`).join(" ")}`]);
   }
 
   start(): void {
@@ -152,7 +144,7 @@ export class Selection implements Feature {
   }
 
   owns(node: Node): boolean {
-    return this.handles.some((handle) => handle.contains(node)) || this.edges.some((edge) => edge.contains(node)) || this.tip.contains(node);
+    return this.handles.some((handle) => handle.contains(node)) || this.edges.contains(node) || this.tip.contains(node);
   }
 
   /**
@@ -232,9 +224,7 @@ export class Selection implements Feature {
         end();
         return;
       }
-      const hit = this.host.enhancedWidgetOf(ev.target);
-      const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], ev.target) : undefined;
-      const ref = hit && cell ? this.host.cellRef(hit[1], cell) : undefined;
+      const ref = this.host.cellUnder(ev.target, key)?.ref;
       if (!ref) return;
       const current = this.selection;
       if (!current) {
@@ -359,8 +349,7 @@ export class Selection implements Feature {
     const info = widget && this.host.infoOf(widget);
     if (!selection || !info) return undefined;
     const shown = this.host.shownRows(info);
-    const rowOf = (tr: HTMLTableRowElement) => (tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow));
-    const at = shown.findIndex((tr) => rowOf(tr) === selection.focus.row);
+    const at = shown.findIndex((tr) => this.host.rowOf(info, tr) === selection.focus.row);
     if (at < 0) return undefined;
     const ctrl = e.ctrlKey;
     let r = at;
@@ -379,7 +368,7 @@ export class Selection implements Feature {
     else if (e.key === "PageDown" && !ctrl) r = r + PAGE_ROWS;
     else return undefined;
     const tr = shown[Math.max(0, Math.min(shown.length - 1, r))]!;
-    return { row: rowOf(tr), column: Math.max(0, Math.min(info.columns - 1, column)) };
+    return { row: this.host.rowOf(info, tr), column: Math.max(0, Math.min(info.columns - 1, column)) };
   }
 
   /** The selection's last cell to `to`; without `extend` the selection is just that cell */
@@ -454,7 +443,7 @@ export class Selection implements Feature {
 
   /** Clear in the menu of rows (columns): their cells (a column's header keeps its name), after the clipboard's entries */
   lineMenuEntries(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
-    const rows = axis === "row" ? lines : this.host.bodyRows(info).map((tr) => Number(tr.dataset.tpRow));
+    const rows = axis === "row" ? lines : this.host.bodyRows(info).map((tr) => this.host.rowOf(info, tr));
     const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : lines;
     const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
     const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis}${lines.length > 1 ? "s" : ""}`;
@@ -569,7 +558,7 @@ export class Selection implements Feature {
     if (!selection || !info) return undefined;
     const shown = this.host.shownRows(info);
     const index = (row: number) =>
-      shown.findIndex((tr) => (row === 0 ? tr === info.table.rows[0] : tr.dataset.tpRow === String(row)));
+      shown.findIndex((tr) => this.host.rowOf(info, tr) === row);
     const a = index(selection.anchor.row);
     const b = index(selection.focus.row);
     if (a < 0 || b < 0) return undefined;
@@ -628,13 +617,9 @@ export class Selection implements Feature {
    * False when no cell of the lines is in view there.
    */
   private placeMidHandles(widget: HTMLElement, info: WidgetInfo, cells: readonly (readonly HTMLTableCellElement[])[], axis: "row" | "column"): boolean {
-    const box = this.host.shownRect(widget, info);
-    const view = this.host.viewBounds(widget);
-    const left = Math.max(box.left, view.left);
-    const right = Math.min(box.right, view.right);
-    const top = Math.max(box.top, view.top);
-    const bottom = Math.min(box.bottom, view.bottom);
-    if (left >= right || top >= bottom) return false;
+    const shown = intersect(this.host.shownRect(widget, info), this.host.viewBounds(widget));
+    if (isEmpty(shown)) return false;
+    const { left, right, top, bottom } = shown;
     const middle = axis === "row" ? (left + right) / 2 : (top + bottom) / 2;
     // The cell of a line that the middle is in, and where in it
     const at = (line: readonly HTMLTableCellElement[]) => {
@@ -705,16 +690,14 @@ export class Selection implements Feature {
     const timer = win.setInterval(() => last && move(last), 50);
     const move = (ev: PointerEvent) => {
       last = ev;
-      this.autoscroll(widget, ev);
-      const under = doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null;
-      const hit = this.host.enhancedWidgetOf(under);
-      const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], under) : undefined;
-      const ref = hit && cell ? this.host.cellRef(hit[1], cell) : undefined;
-      if (!hit || !ref) return;
+      scrollNearEdge(widget, ev.clientX, ev.clientY);
+      const hit = this.host.cellUnder(doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null, key);
+      if (!hit) return;
+      const { ref } = hit;
       const focus = { row: wholeColumns ? dragged.row : ref.row, column: wholeRows ? dragged.column : ref.column };
       const now = this.selection;
       if (now?.key === key && now.anchor === anchor && now.focus.row === focus.row && now.focus.column === focus.column) return;
-      this.selectCells(hit[1], anchor, focus);
+      this.selectCells(hit.info, anchor, focus);
     };
     const end = () => {
       win.clearInterval(timer);
@@ -745,49 +728,19 @@ export class Selection implements Feature {
     }
     const selection = this.selection;
     if (e.pointerType !== "touch" || e.button !== 0 || !selection || (e.target instanceof Node && this.owns(e.target))) return;
-    const hit = this.host.enhancedWidgetOf(e.target);
-    if (!hit || hit[1].key !== selection.key) return;
-    const [widget, info] = hit;
-    const cell = this.host.tableCellOf(info, e.target);
-    const ref = cell && this.host.cellRef(info, cell);
+    const hit = this.host.cellUnder(e.target, selection.key);
+    if (!hit) return;
+    const { widget, info, ref } = hit;
     const refs = this.refs(info);
-    if (!ref || refs.length < 2 || !refs.some((r) => r.row === ref.row && r.column === ref.column)) return;
-    const { clientX: x, clientY: y } = e;
-    const at = Date.now();
-    const win = this.host.doc.defaultView!;
-    const move = (ev: PointerEvent) => {
-      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE) stop();
-    };
-    const up = () => {
-      stop();
-      if (Date.now() - at < TAP_MS && !this.host.pressTaken()) this.host.openCellMenu(widget, info, ref, { x, y });
-    };
-    const stop = () => {
-      win.removeEventListener("pointermove", move, true);
-      win.removeEventListener("pointerup", up, true);
-      win.removeEventListener("pointercancel", stop, true);
-      this.stopTap = undefined;
-    };
-    win.addEventListener("pointermove", move, true);
-    win.addEventListener("pointerup", up, true);
-    win.addEventListener("pointercancel", stop, true);
-    this.stopTap = stop;
+    if (refs.length < 2 || !refs.some((r) => r.row === ref.row && r.column === ref.column)) return;
+    const point = { x: e.clientX, y: e.clientY };
+    // A long press opens the menu anyway (the core's): a tap does here
+    this.stopTap = watchPress(this.host.doc.defaultView!, e, {
+      tap: () => {
+        if (!this.host.pressTaken()) this.host.openCellMenu(widget, info, ref, point);
+      },
+    });
   };
-
-  /** Near an edge the box scrolls: the table's own (Maximum table height, full screen) up and down, else the page's; the table's sideways */
-  private autoscroll(widget: HTMLElement, ev: PointerEvent): void {
-    const scroller = widget.scrollHeight > widget.clientHeight ? widget : this.host.scrollParentOf(widget);
-    if (scroller) {
-      const view = scroller.getBoundingClientRect();
-      if (ev.clientY < view.top + AUTOSCROLL_EDGE) scroller.scrollTop -= AUTOSCROLL_STEP;
-      else if (ev.clientY > view.bottom - AUTOSCROLL_EDGE) scroller.scrollTop += AUTOSCROLL_STEP;
-    }
-    if (widget.scrollWidth > widget.clientWidth) {
-      const box = widget.getBoundingClientRect();
-      if (ev.clientX < box.left + AUTOSCROLL_EDGE) widget.scrollLeft -= AUTOSCROLL_STEP;
-      else if (ev.clientX > box.right - AUTOSCROLL_EDGE) widget.scrollLeft += AUTOSCROLL_STEP;
-    }
-  }
 
   private clear(): void {
     this.selection = undefined;
@@ -798,8 +751,7 @@ export class Selection implements Feature {
   private unmark(): void {
     for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected", "tp-selected-alone");
     for (const handle of this.handles) handle.remove();
-    for (const edge of this.edges) edge.remove();
-    this.edges = [];
+    this.edges.clear();
   }
 
   // ---- moving the cells selected ---------------------------------------------
@@ -824,21 +776,9 @@ export class Selection implements Feature {
    * pointer); none where the cells cannot move
    */
   private placeEdges(rows: readonly (readonly HTMLTableCellElement[])[]): void {
-    for (const edge of this.edges) edge.remove();
-    this.edges = [];
+    this.edges.clear();
     if (!this.block()) return;
-    const last = rows.length - 1;
-    rows.forEach((row, i) =>
-      row.forEach((cell, j) => {
-        const sides = [i === 0 && "top", i === last && "bottom", j === 0 && "left", j === row.length - 1 && "right"].filter(Boolean);
-        for (const side of sides) {
-          const edge = this.host.doc.createElement("span");
-          edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-select-edge tp-select-edge-${side}`;
-          cell.append(edge);
-          this.edges.push(edge);
-        }
-      }),
-    );
+    this.edges.show(rows.length, rows[0]?.length ?? 0, (i, j) => rows[i]![j]);
   }
 
   /** Where the block goes with its first cell at the row (as shown) and column given, kept within the table's body */
@@ -851,24 +791,12 @@ export class Selection implements Feature {
 
   /** The cells where the block would go outlined, dashed, and its address (A1 as formulas count rows) by the pointer */
   private showTarget(block: Block, at: { row: number; column: number } | undefined, copy: boolean, x: number, y: number): void {
-    for (const edge of this.targetEdges) edge.remove();
-    this.targetEdges = [];
+    this.targetEdges.clear();
     if (!at || (at.row === block.top && at.column === block.left)) {
       this.tip.classList.remove("tp-visible");
       return;
     }
-    for (let i = 0; i < block.height; i++) {
-      const tr = block.shown[at.row + i];
-      for (let j = 0; j < block.width; j++) {
-        const sides = [i === 0 && "top", i === block.height - 1 && "bottom", j === 0 && "left", j === block.width - 1 && "right"].filter(Boolean);
-        const cell = sides.length ? tr?.cells[at.column + j] : undefined;
-        if (!cell) continue;
-        const edge = this.host.doc.createElement("span");
-        edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-move-edge ${sides.map((s) => `tp-move-${s}`).join(" ")}`;
-        cell.append(edge);
-        this.targetEdges.push(edge);
-      }
-    }
+    this.targetEdges.show(block.height, block.width, (i, j) => block.shown[at.row + i]?.cells[at.column + j]);
     const name = (row: number, column: number) => `${columnLetters(column)}${row}`;
     const range = block.height * block.width > 1 ? `${name(at.row, at.column)}:${name(at.row + block.height - 1, at.column + block.width - 1)}` : name(at.row, at.column);
     this.tip.textContent = copy ? `+ ${range}` : range;
@@ -894,9 +822,7 @@ export class Selection implements Feature {
     doc.body.classList.add("tp-moving-cells");
     const move = (ev: MouseEvent) => {
       copy = ev.ctrlKey || ev.metaKey;
-      const under = doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null;
-      const hit = this.host.enhancedWidgetOf(under);
-      const cell = hit && hit[1].key === block.info.key ? this.host.tableCellOf(hit[1], under) : undefined;
+      const cell = this.host.cellUnder(doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null, block.info.key)?.cell;
       if (cell) {
         const row = block.shown.indexOf(cell.parentElement as HTMLTableRowElement);
         if (row >= 0) at = this.placeOf(block, row - pressedRow, cell.cellIndex - pressedColumn);
@@ -935,7 +861,7 @@ export class Selection implements Feature {
 
   /** The block moved (copied) to start at a row as shown and a column; selected there, before the write (shown again once rendered) */
   private async moveBlock(block: Block, at: { row: number; column: number }, copy: boolean): Promise<void> {
-    const rowOf = (shown: number) => Number(block.shown[shown]!.dataset.tpRow);
+    const rowOf = (shown: number) => this.host.rowOf(block.info, block.shown[shown]!);
     const to = { row: rowOf(at.row), column: at.column };
     this.selectCells(block.info, to, { row: rowOf(at.row + block.height - 1), column: at.column + block.width - 1 });
     const result = await moveCellsTo(this.host, block.widget, block.info, block.cells, to, copy);
@@ -957,8 +883,7 @@ export class Selection implements Feature {
     this.moveAt = undefined;
     this.host.doc.body.classList.remove("tp-move-picking");
     this.host.doc.defaultView!.removeEventListener("mousemove", this.showMoveTarget, true);
-    for (const edge of this.targetEdges) edge.remove();
-    this.targetEdges = [];
+    this.targetEdges.clear();
     this.tip.classList.remove("tp-visible");
   }
 
@@ -974,11 +899,10 @@ export class Selection implements Feature {
       this.endMoving();
       return;
     }
-    const hit = this.host.enhancedWidgetOf(e.target);
-    const cell = hit && hit[1].key === block.info.key ? this.host.tableCellOf(hit[1], e.target) : undefined;
+    const cell = this.host.cellUnder(e.target, block.info.key)?.cell;
     const row = cell ? block.shown.indexOf(cell.parentElement as HTMLTableRowElement) : -1;
     const at = cell && row >= 1 ? this.placeOf(block, row, cell.cellIndex) : undefined;
-    const same = at && this.moveAt && at.row === this.moveAt.row && at.column === this.moveAt.column && this.targetEdges.every((edge) => edge.isConnected);
+    const same = at && this.moveAt && at.row === this.moveAt.row && at.column === this.moveAt.column && this.targetEdges.shown;
     this.moveAt = at;
     if (same) this.host.place(this.tip, e.clientX + 14, e.clientY + 14);
     else this.showTarget(block, at, false, e.clientX, e.clientY);
@@ -1005,26 +929,12 @@ export class Selection implements Feature {
    */
   private touchMove(e: PointerEvent): void {
     if (e.pointerType !== "touch" || e.button !== 0 || !e.isPrimary) return;
-    const { clientX: x, clientY: y, target } = e;
-    const at = Date.now();
-    const win = this.host.doc.defaultView!;
-    const move = (ev: PointerEvent) => {
-      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE) stop();
-    };
-    const up = () => {
-      stop();
-      if (Date.now() - at < TAP_MS && this.moving) this.moveCellsAt(target);
-    };
-    const stop = () => {
-      win.removeEventListener("pointermove", move, true);
-      win.removeEventListener("pointerup", up, true);
-      win.removeEventListener("pointercancel", stop, true);
-      this.stopTap = undefined;
-    };
-    win.addEventListener("pointermove", move, true);
-    win.addEventListener("pointerup", up, true);
-    win.addEventListener("pointercancel", stop, true);
-    this.stopTap = stop;
+    const target = e.target;
+    this.stopTap = watchPress(this.host.doc.defaultView!, e, {
+      tap: () => {
+        if (this.moving) this.moveCellsAt(target);
+      },
+    });
   }
 
   /** Move to… ends; on a body cell of the table, the cells move there (true: the press is taken, its mouse events with it) */
@@ -1032,8 +942,7 @@ export class Selection implements Feature {
     const key = this.moving;
     this.endMoving();
     const block = this.block();
-    const hit = this.host.enhancedWidgetOf(target);
-    const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], target) : undefined;
+    const cell = key === undefined ? undefined : this.host.cellUnder(target, key)?.cell;
     const row = cell && block ? block.shown.indexOf(cell.parentElement as HTMLTableRowElement) : -1;
     if (!block || block.info.key !== key || !cell || row < 1) return false;
     // Its click would follow a link in the cell, its mouse events select the cell

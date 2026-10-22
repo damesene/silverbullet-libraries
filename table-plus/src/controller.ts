@@ -2,36 +2,22 @@
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
 import { type Bridge, type FeatureName, moduleOnByDefault, SETTINGS, type SettingValue } from "./bridge.ts";
-import type { CellEditor, CellRef, Feature, RowHold, TableHost, ToolbarButton, WidgetInfo, WriteOptions, WritePage, WriteResult, WriteStep, MetadataPart, NamingTarget } from "./core/feature.ts";
+import type { CellEditor, CellHit, CellRef, Feature, RowHold, TableHost, WidgetInfo, WriteOptions, WritePage, WriteResult, WriteStep, MetadataPart, NamingTarget } from "./core/feature.ts";
 import { type Dialog, type DialogOptions, Dialogs } from "./core/dialog.ts";
+import { ViewAnchor } from "./core/anchor.ts";
+import { placeAtEnd, TableRows } from "./core/rows.ts";
 import { CellEditing } from "./core/editor.ts";
-import { insertColumnWith, insertRowWith } from "./core/structure.ts";
+import { InsertControls, type PointerAt } from "./core/insert.ts";
+import { TableMenu } from "./core/tablemenu.ts";
+import { Toolbar } from "./core/toolbar.ts";
+import { oncePerFrame } from "./core/frame.ts";
+import { watchPress } from "./core/press.ts";
+import { heldBounds, innerBox, isShown, overScrollbar, type Rect, scrollParentOf, scrollsInside, shownPart, shownRect, viewBounds } from "./core/geometry.ts";
 import { TouchKeyboard } from "./core/touch-keyboard.ts";
 import { CONFIG_PAGE, withConfigSettings } from "./configpage.ts";
 import { SettingsDialog } from "./settings.ts";
-import { Autoscroll } from "./features/autoscroll.ts";
-import { ColumnTypes } from "./features/columntypes.ts";
-import { Excel } from "./features/excel.ts";
-import { Export } from "./features/export.ts";
-import { Expressions } from "./features/expressions.ts";
-import { PageLinks } from "./features/pagelinks.ts";
-import { Filters } from "./features/filters.ts";
-import { Formulas } from "./features/formulas.ts";
-import { Grips } from "./features/grips.ts";
-import { History } from "./features/history.ts";
-import { Widths } from "./features/widths.ts";
-import { FullScreen } from "./features/fullscreen.ts";
-import { LargeTables } from "./features/largetables.ts";
-import { LongText } from "./features/longtext.ts";
-import { CellPopup } from "./features/popup.ts";
 import { Metadata } from "./features/metadata.ts";
-import { Names } from "./features/names.ts";
-import { Lazy } from "./features/lazy.ts";
-import { Themes } from "./features/themes.ts";
-import { Paste } from "./features/paste.ts";
-import { Selection } from "./features/selection.ts";
-import { AutoFill } from "./features/autofill.ts";
-import { Sticky } from "./features/sticky.ts";
+import { featureEntries } from "./modules.ts";
 import {
   caretTextOffset,
   cellText,
@@ -43,7 +29,6 @@ import {
   NATIVE_ACTION_SELECTOR,
   positionHint,
   renderedTable,
-  SCROLLER_SELECTOR,
   UI_CLASS,
   WIDGET_SELECTOR,
 } from "./dom.ts";
@@ -61,16 +46,13 @@ import {
   type Table,
   type TableRange,
 } from "./markdown.ts";
-import { focusMenu, keepFocus, type MenuBack, type MenuEntry, type MenuNaming, onMenuClose, renderMenu, startNaming, wrapRuns } from "./menu.ts";
+import type { MenuEntry, MenuNaming } from "./menu.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
-import { appendColumnAt, appendRowAt } from "./pins.ts";
 import { keepTags } from "./tags.ts";
 import { nameEmptyHeaders, reorderRows } from "./ops.ts";
 import {
   cycleSort,
   DEFAULT_VIEW,
-  hasPins,
-  NO_PINS,
   withPins,
   remapColumns,
   type ViewState,
@@ -80,7 +62,6 @@ import {
 } from "./view.ts";
 
 // The cell editor as features see it, and what it takes to put the cell back
-
 
 const STOPPED_EVENTS = [
   "keydown",
@@ -98,57 +79,10 @@ const STOPPED_EVENTS = [
 
 const SORT_GLYPH = { asc: "▲", desc: "▼", none: "⇅" } as const;
 
-
-// Toolbar distance above the header: clear of the column grip on the header's top edge
-const BAR_GAP = 12;
-// How far the toolbar keeps left of the table's right edge: clear of the +
-// adding a column there (in its lane above the header, as high as the toolbar)
-const BAR_CLEAR = 15;
-
-// How near the table's end a column border must be to count as in view
-const INSERT_REACH = 6;
-// The + inserting a row (column) has a lane of its own beside the grips (which
-// sit on the table's left edge and on the header's top edge, 12px thick): its
-// centre this far out from the edge, shown while the pointer is past the grip,
-// in a band reaching this far out (and this far past the table's last row or
-// column), on the border nearest the pointer
-const INSERT_LANE_AT = 17;
-const INSERT_LANE_FROM = 7;
-const INSERT_LANE_BAND = 32;
-const INSERT_LANE_PAST = 16;
-
-// A press this long on a touch screen opens the cell menu
-const LONG_PRESS_MS = 550;
-
 // A sorting is stored (metadata setting) once the clicks have settled
 const STORE_SORT_DELAY_MS = 400;
 
-// After a write, how long a table rendered anew is kept where it was in the
-// page's view, against the editor's own scrolling as it measures the new
-// rendering (until the user scrolls, presses or types)
-const ANCHOR_MS = 1000;
-
-// The click that ends a press that inserted (the + takes the press, the table
-// is rendered anew under the pointer) is swallowed within this time
-const INSERT_CLICK_MS = 1000;
-
-
-
 const NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
-
-/**
- * Puts the rows at the end of `parent`, in this order, moving only those out
- * of place: rows already in order keep their DOM node where it is (moving the
- * row of a focused cell editor would take its focus).
- */
-function placeAtEnd(parent: Element, rows: readonly HTMLTableRowElement[]): void {
-  let next: Node | null = null;
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const tr = rows[i]!;
-    if (tr.parentElement !== parent || tr.nextSibling !== next) parent.insertBefore(tr, next);
-    next = tr;
-  }
-}
 
 // The element under the pointer while Ctrl is held in a cell editor (the move cursor, CSS)
 const NAVIGATING_CLASS = "tp-navigating-here";
@@ -170,12 +104,8 @@ export class Controller implements TableHost {
   private readonly scrollLefts = new Map<string, number>();
   // The same for tables taller than the maximum height setting, scrolled inside
   private readonly scrollTops = new Map<string, number>();
-  // A table being written, and where it was in the page's view (its top below
-  // the scroller's): the editor renders it anew and may scroll the page while
-  // it measures the new rendering, which would leave the user elsewhere
-  private anchor: { readonly key: string; readonly scroller: HTMLElement; offset: number; readonly until: number } | undefined;
-  // When a press inserted with the +: the click that ends it is no click on what is under the pointer then
-  private insertPressAt = 0;
+  // A table being written stays where it was in the page's view
+  private readonly anchor: ViewAnchor;
   private readonly cellEditor: CellEditing;
   // The settings dialog while open, and while it reads the settings to open
   private settingsDialog: SettingsDialog | undefined;
@@ -190,7 +120,9 @@ export class Controller implements TableHost {
   private navigating = false;
   private navigatingAt: HTMLElement | undefined;
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
-  private scanQueued = false;
+  // Once per frame (oncePerFrame): looking for tables rendered; what follows scrolling
+  private readonly queueScan: () => void;
+  private readonly queueStickyUpdate: () => void;
   // Set by stop(): work already scheduled then does nothing
   private stopped = false;
   // Rows are being rearranged: a cell editor losing its focus to that is not left
@@ -204,43 +136,25 @@ export class Controller implements TableHost {
   private readonly sortTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Tables whose sorting is stored once their cell editor closes
   private readonly sortsWaiting = new Set<string>();
-  private stickyQueued = false;
   private warnedIncompatible = false;
   private observer: MutationObserver | undefined;
-  private readonly bar: HTMLElement;
+  private readonly toolbar: Toolbar;
   // Inserting rows and columns: a + on a border of the table, and the border marked
-  private readonly insertMark: HTMLButtonElement;
-  private readonly insertLine: HTMLElement;
-  private insertAt: { readonly key: string; readonly axis: "row" | "column"; readonly at: number; readonly beside: RowHold } | undefined;
-  // Quiet + buttons under the last row and right of the last column, shown
-  // while that row (column) is hovered, selected or edited; lit up under the
-  // pointer. A + the pointer brings up on the same axis takes their place.
-  private readonly quietMarks: Readonly<Record<"row" | "column", HTMLButtonElement>>;
-  // The quiet + under the pointer: its line shows
-  private quietHovered: "row" | "column" | undefined;
+  private readonly insert: InsertControls;
   // Features that keep their own state and work through this controller
   // (core/feature.ts): those turned on, filled in when Table Plus starts
   private readonly features: Feature[] = [];
   private featuresStarted: Promise<void> | undefined;
   // The modules turned on
   private readonly modulesOn = new Set<FeatureName>();
-  // The toolbar's open ⋯ menu
   // The open menu of a table's toolbar (⋯, at its button) or of cells (at the pointer)
-  private tableMenu:
-    | { element: HTMLElement; widget: HTMLElement; kind: "table" | "cell"; anchor?: HTMLElement; point?: { x: number; y: number } }
-    | undefined;
+  private readonly tableMenu: TableMenu;
   // When a press was last taken (a cell menu a touch opened, a feature's: takePress): its mouse events after it are no click on the cell
   private pressTakenAt = 0;
   private stopLongPress: (() => void) | undefined;
   private readonly metadata: Metadata;
-  // Each table's rows as SilverBullet rendered them (the header first), whether
-  // a feature took some of them out of the document or not; its body rows; and
-  // the rows shown, in display order, as the view last placed them
-  private readonly renderedRows = new WeakMap<HTMLTableElement, HTMLTableRowElement[]>();
-  private readonly bodyRowsOf = new WeakMap<HTMLTableElement, HTMLTableRowElement[]>();
-  private readonly shownOrder = new WeakMap<HTMLTableElement, HTMLTableRowElement[]>();
-  // A row each table keeps in the document whatever a feature takes out (a row being dragged)
-  private readonly heldRows = new WeakMap<HTMLTableElement, HTMLTableRowElement>();
+  // Each table's rows as SilverBullet rendered them, in the document or not
+  private readonly rows = new TableRows();
   // Steps every write goes through after the edit, in this order
   private readonly writeSteps: readonly WriteStep[] = [metadataAfterEdit];
 
@@ -249,6 +163,7 @@ export class Controller implements TableHost {
     public bridge: Bridge,
   ) {
     this.dialogs = new Dialogs(doc);
+    this.anchor = new ViewAnchor(doc, (key) => this.widgetForKey(key));
     this.metadata = new Metadata(this);
     this.cellEditor = new CellEditing(this, {
       features: this.features,
@@ -272,15 +187,38 @@ export class Controller implements TableHost {
       revealEditing: () => this.cellEditor.revealActive(),
       // The cell being edited wins over keeping a table written in its place:
       // the keyboard shows as the next cell opens after a write (Enter)
-      viewResized: () => this.dropAnchor(),
+      viewResized: () => this.anchor.drop(),
     });
-    this.bar = this.floating("div", "tp-bar");
-    this.insertMark = this.floatingButton("tp-insert", "Insert here", ICONS.plus);
-    this.quietMarks = {
-      row: this.floatingButton("tp-insert tp-quiet", "Add a row", ICONS.plus),
-      column: this.floatingButton("tp-insert tp-quiet", "Add a column", ICONS.plus),
-    };
-    this.insertLine = this.floating("div", "tp-insert-line");
+    this.tableMenu = new TableMenu(doc, (widget) => this.focusEditor(widget));
+    this.toolbar = new Toolbar({
+      host: this,
+      menu: this.tableMenu,
+      hovered: () => this.hoverWidget,
+      stopped: () => this.stopped,
+      buttons: (widget, info) => this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []),
+      current: (widget, info) => this.current(widget, info),
+      applySort: (widget, info) => void this.applySort(widget, info),
+      showMarkdown: (info) => void this.showMarkdown(info),
+      openSettings: () => void this.openSettings(),
+    });
+    this.insert = new InsertControls({
+      host: this,
+      hovered: () => ({ widget: this.hoverWidget, cell: this.hoverCell }),
+      hoverTable: (widget) => {
+        this.hoverWidget = widget;
+      },
+      hoverAt: (widget, info, cell) => this.hoverAt(widget, info, cell),
+      pointer: () => this.lastPointer,
+      busy: () => this.pointerBusy(),
+      menuOpen: () => this.tableMenu.kind !== undefined,
+      floatingButton: (className, title, icon) => this.floatingButton(className, title, icon),
+    });
+    this.queueScan = oncePerFrame(doc, () => {
+      void this.scan();
+      // The page changed (e.g. the Configuration Manager opened or closed): settings may have too
+      this.queueSettingsRefresh();
+    });
+    this.queueStickyUpdate = oncePerFrame(doc, () => this.followLayout());
   }
 
   setBridge(bridge: Bridge): void {
@@ -305,24 +243,8 @@ export class Controller implements TableHost {
     this.doc.addEventListener("pointerout", this.onPointerOut, { passive: true });
     win.addEventListener("mouseup", this.onMouseUp, true);
     // The user scrolls: a table written is no longer kept in its place
-    win.addEventListener("wheel", this.dropAnchor, { capture: true, passive: true });
-    win.addEventListener("touchstart", this.dropAnchor, { capture: true, passive: true });
-
-    // A click without a press (the keyboard); a press is taken in onMouseDown
-    this.insertMark.addEventListener("click", () => this.insertHere());
-    for (const axis of ["row", "column"] as const) {
-      const mark = this.quietMarks[axis];
-      mark.addEventListener("click", () => this.insertAtEnd(axis));
-      // Lit up under the pointer (the CSS), with the line where it adds
-      mark.addEventListener("pointerenter", () => {
-        this.quietHovered = axis;
-        this.lineAtEnd(axis);
-      });
-      mark.addEventListener("pointerleave", () => {
-        if (this.quietHovered === axis) this.quietHovered = undefined;
-        if (!this.insertAt) this.insertLine.classList.remove("tp-visible");
-      });
-    }
+    win.addEventListener("wheel", this.anchor.drop, { capture: true, passive: true });
+    win.addEventListener("touchstart", this.anchor.drop, { capture: true, passive: true });
 
     this.observer = new MutationObserver((records) => {
       this.tablesAdded(records);
@@ -340,42 +262,7 @@ export class Controller implements TableHost {
    * page is loaded again.
    */
   private async startFeatures(): Promise<void> {
-    const optional = (name: FeatureName, create: () => Feature) => ({ name, create });
-    const always = (create: () => Feature) => ({ name: undefined, create });
-    // In the order they get events
-    const all = [
-      // First: the header moves before what follows it
-      optional("sticky", () => new Sticky(this)),
-      // Before what takes presses: a press while picking where AutoFill to… fills to ends picking (or fills) first;
-      // before the selection too: Esc while dragging the fill handle cancels the fill, the selection stays
-      optional("autofill", () => new AutoFill(this)),
-      optional("autoscroll", () => new Autoscroll(this)),
-      optional("handles", () => new Grips(this)),
-      optional("widths", () => new Widths(this)),
-      optional("longText", () => new LongText(this)),
-      // Before what places rows into the table: it takes them out of the document first
-      optional("largeTables", () => new LargeTables(this)),
-      // Recalculate first in the toolbar
-      optional("formulas", () => new Formulas(this)),
-      optional("pageLinks", () => new PageLinks(this)),
-      // Before types: Filter right after the sorting in the column menu
-      optional("filters", () => new Filters(this)),
-      // After formulas: a formula's result is shown in its column's type
-      optional("columnTypes", () => new ColumnTypes(this)),
-      optional("names", () => new Names(this)),
-      always(() => this.metadata),
-      optional("paste", () => new Paste(this)),
-      optional("selection", () => new Selection(this)),
-      optional("lazy", () => new Lazy(this)),
-      optional("themes", () => new Themes(this)),
-      optional("export", () => new Export(this)),
-      optional("excel", () => new Excel(this)),
-      // Its icon last in the toolbar, before the menu
-      optional("fullScreen", () => new FullScreen(this)),
-      always(() => new Expressions(this)),
-      always(() => new History(this)),
-      always(() => new CellPopup(this)),
-    ];
+    const all = featureEntries(this, this.metadata);
     const enabled = await Promise.all(all.map(({ name }) => (name ? this.featureEnabled(name) : true)));
     if (this.stopped) return;
     all.forEach(({ name }, i) => {
@@ -417,15 +304,16 @@ export class Controller implements TableHost {
     win.removeEventListener("mouseup", this.onMouseUp, true);
     // An editor open in its popup (in the page's body) goes too
     this.cellEditor.close();
-    win.removeEventListener("wheel", this.dropAnchor, true);
-    win.removeEventListener("touchstart", this.dropAnchor, true);
+    win.removeEventListener("wheel", this.anchor.drop, true);
+    win.removeEventListener("touchstart", this.anchor.drop, true);
     this.touchKeyboard.stop();
-    this.anchor = undefined;
+    this.anchor.drop();
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
-    this.closeTableMenu(false);
-    for (const el of [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)]) el.remove();
+    this.tableMenu.close(false);
+    this.toolbar.remove();
+    this.insert.remove();
     this.settingsDialog?.close();
     this.dialogs.close();
   }
@@ -537,29 +425,7 @@ export class Controller implements TableHost {
   }
 
   toolbarChanged(): void {
-    const widget = this.hoverWidget;
-    const info = widget && this.infos.get(widget);
-    if (widget && info && this.bar.classList.contains("tp-visible")) this.showTableControls(widget, info, false);
-  }
-
-  /**
-   * The toolbar placed again, once in the next frame: placing it measures the
-   * table, and measured right after each change (a write applies the view more
-   * than once) the browser would lay out a large table again each time
-   */
-  private queuePlaceBar(): void {
-    if (this.barPlaceQueued) return;
-    this.barPlaceQueued = true;
-    const run = () => {
-      this.barPlaceQueued = false;
-      const widget = this.hoverWidget;
-      const info = widget && this.infos.get(widget);
-      if (this.stopped || !widget || !info || renderedTable(widget) !== info.table || !this.bar.classList.contains("tp-visible")) return;
-      this.placeBar(widget, info);
-    };
-    const win = this.doc.defaultView;
-    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
+    this.toolbar.changed();
   }
 
   /**
@@ -638,27 +504,6 @@ export class Controller implements TableHost {
 
   // ---- discovering rendered tables --------------------------------------
 
-  private queueScan(): void {
-    if (this.scanQueued) return;
-    this.scanQueued = true;
-    const run = () => {
-      this.scanQueued = false;
-      void this.scan();
-      // The page changed (e.g. the Configuration Manager opened or closed): settings may have too
-      this.queueSettingsRefresh();
-    };
-    const win = this.doc.defaultView;
-    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
-  }
-
-  /** A table's rows as rendered (the header first), kept from when it was first seen */
-  private rowsOf(table: HTMLTableElement): HTMLTableRowElement[] {
-    let rows = this.renderedRows.get(table);
-    if (!rows) this.renderedRows.set(table, (rows = Array.from(table.rows)));
-    return rows;
-  }
-
   /**
    * Tables SilverBullet just put into the page (a mutation observer's callback
    * runs before the browser lays them out): their rows kept, and the features
@@ -673,8 +518,8 @@ export class Controller implements TableHost {
         const tables = node instanceof HTMLTableElement ? [node] : node.closest("table") ? [] : Array.from(node.getElementsByTagName("table"));
         for (const table of tables) {
           const widget = table.closest<HTMLElement>(WIDGET_SELECTOR);
-          if (!widget || this.renderedRows.has(table) || this.ownTable(widget)) continue;
-          const rows = this.rowsOf(table);
+          if (!widget || this.rows.knows(table) || this.ownTable(widget)) continue;
+          const rows = this.rows.renderedRows(table);
           for (const feature of this.features) feature.tableAdded?.(widget, table, rows);
         }
       }
@@ -717,7 +562,7 @@ export class Controller implements TableHost {
         this.markUnsupported(widget, true);
         return;
       }
-      const rendered = this.rowsOf(table);
+      const rendered = this.rows.renderedRows(table);
       const header = rendered[0]!;
       const shape = {
         rows: rendered.length,
@@ -763,13 +608,13 @@ export class Controller implements TableHost {
       const scrollTop = this.scrollTops.get(info.key);
       if (scrollTop) widget.scrollTop = scrollTop;
       // Where it was in the page's view, then the cell to edit next scrolled into view from there
-      this.keepAnchor(info.key, widget);
+      this.anchor.keep(info.key, widget);
       this.cellEditor.takePending(widget, info);
-      this.anchorAgain(widget, info.key);
+      this.anchor.again(widget, info.key);
       for (const feature of this.features) feature.enhanced?.(widget, info);
       // The cell showing the move cursor was rendered anew (Ctrl+arrows saved a cell)
       if (this.navigating) this.markNavigating();
-      this.reshowInsert(widget, info);
+      this.insert.tableEnhanced(widget, info);
       this.queueStickyUpdate();
       void this.refreshSettings();
     } catch (e) {
@@ -829,9 +674,9 @@ export class Controller implements TableHost {
 
   private decorate(widget: HTMLElement, info: WidgetInfo): void {
     widget.classList.add("tp-table");
-    const rows = [...this.rowsOf(info.table)];
+    const rows = [...this.rows.renderedRows(info.table)];
     const metaRow = info.metaRow ? rows.pop() : undefined;
-    this.bodyRowsOf.set(info.table, rows.slice(1));
+    this.rows.setBodyRows(info.table, rows.slice(1));
     metaRow?.classList.add("tp-meta-row");
     // Pinned rows and columns carry the pin icon of their menu item
     const mark = (icon: string, title: string) => {
@@ -886,21 +731,8 @@ export class Controller implements TableHost {
     return undefined;
   }
 
-  /** A menu's naming whose save closes the menu once saved */
-  private closingNaming(naming: MenuNaming | undefined): MenuNaming | undefined {
-    if (!naming) return undefined;
-    return {
-      ...naming,
-      save: async (name) => {
-        const why = await naming.save(name);
-        if (why === undefined) this.closeTableMenu(false);
-        return why;
-      },
-    };
-  }
-
   openTableMenu(widget: HTMLElement, naming = false): void {
-    if (this.openMore?.widget === widget) this.openMore.open(naming);
+    this.toolbar.openMenu(widget, naming);
   }
 
   headerRenamed(name: string, original: string): string {
@@ -1133,12 +965,7 @@ export class Controller implements TableHost {
   }
 
   bodyRows(info: WidgetInfo): HTMLTableRowElement[] {
-    // In the document or not (a feature may keep only the rows in view there)
-    const kept = this.bodyRowsOf.get(info.table);
-    if (kept) return [...kept];
-    return Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]")).sort(
-      (a, b) => Number(a.dataset.tpRow) - Number(b.dataset.tpRow),
-    );
+    return this.rows.bodyRows(info);
   }
 
   rowNeeded(info: WidgetInfo, row: HTMLTableRowElement): void {
@@ -1147,12 +974,11 @@ export class Controller implements TableHost {
   }
 
   holdInDocument(info: WidgetInfo, row: HTMLTableRowElement | undefined): void {
-    if (row) this.heldRows.set(info.table, row);
-    else this.heldRows.delete(info.table);
+    this.rows.holdInDocument(info, row);
   }
 
   heldInDocument(info: WidgetInfo): HTMLTableRowElement | undefined {
-    return this.heldRows.get(info.table);
+    return this.rows.heldInDocument(info);
   }
 
   rowsAttached(info: WidgetInfo, rows: readonly HTMLTableRowElement[]): void {
@@ -1286,7 +1112,7 @@ export class Controller implements TableHost {
     const editing = this.cellEditor.active?.widget === widget ? this.cellEditor.active : undefined;
     const selection = editing && [editing.field.selectionStart, editing.field.selectionEnd];
     const shownBody = order.map((i) => rows[i]!);
-    this.shownOrder.set(info.table, [info.table.rows[0]!, ...rows.slice(0, top), ...shownBody, ...rows.slice(rows.length - bottom)]);
+    this.rows.setShownRows(info.table, [info.table.rows[0]!, ...rows.slice(0, top), ...shownBody, ...rows.slice(rows.length - bottom)]);
     this.movingRows = true;
     try {
       const head = info.table.tHead;
@@ -1322,7 +1148,7 @@ export class Controller implements TableHost {
     widget.classList.toggle("tp-rearranged", this.rearranged(info));
     // A taller table scrolls inside its own box (the table box already has overflow: auto)
     widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
-    if (this.hoverWidget === widget) this.showTableControls(widget, info, false);
+    if (this.hoverWidget === widget) this.toolbar.show(widget, info, false);
   }
 
   /**
@@ -1339,7 +1165,7 @@ export class Controller implements TableHost {
     const { left, right } = info.pins;
     if (left + right === 0) return;
     const header = info.table.rows[0]!;
-    const rows = this.rowsOf(info.table).filter((tr) => !tr.classList.contains("tp-meta-row"));
+    const rows = this.rows.renderedRows(info.table).filter((tr) => !tr.classList.contains("tp-meta-row"));
     // Read before the cells are written: a read between writes lays the whole table out again
     const widths = Array.from(header.cells, (cell) => cell.getBoundingClientRect().width);
     const pin = (column: number, side: "left" | "right", offset: number, edge: boolean) => {
@@ -1387,9 +1213,8 @@ export class Controller implements TableHost {
   }
 
   private onMouseDown = (e: MouseEvent): void => {
-    this.dropAnchor();
-    // Only the press that inserted has its end swallowed
-    this.insertPressAt = 0;
+    this.anchor.drop();
+    this.insert.pressStarted();
     // The mouse events of a press taken, as a touch screen fires them after a tap (they would close the menu it opened, or select or edit the cell)
     if (this.pressTaken()) {
       e.preventDefault();
@@ -1397,32 +1222,10 @@ export class Controller implements TableHost {
       return;
     }
     // A press anywhere but the toolbar or its menu closes the menu
-    if (this.tableMenu && e.target instanceof Node && !this.tableMenu.element.contains(e.target) && !this.bar.contains(e.target)) {
-      this.closeTableMenu(false);
-    }
+    if (e.target instanceof Node && !this.tableMenu.owns(e.target) && !this.toolbar.owns(e.target)) this.tableMenu.close(false);
     for (const feature of this.features) if (feature.mouseDown?.(e)) return;
-    // A press on the +, or in the band beside the table that misses it (or where none shows), is the +'s:
-    // SilverBullet would put the cursor into the table and show its markdown. It inserts at once, and the
-    // click that ends it is swallowed: the table rendered anew (the page maybe scrolled) puts something
-    // else under the pointer, e.g. a link, which the click would follow
-    const quietAxis = (["row", "column"] as const).find((axis) => e.target instanceof Node && this.quietMarks[axis].contains(e.target));
-    if (e.button === 0 && quietAxis) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.insertPressAt = Date.now();
-      this.insertAtEnd(quietAxis);
-      return;
-    }
-    const onMark = e.target instanceof Node && this.insertMark.contains(e.target);
-    if (e.button === 0 && (onMark || (this.inInsertBand && !(e.target instanceof Node && this.isFloating(e.target))))) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (this.insertAt) {
-        this.insertPressAt = Date.now();
-        this.insertHere();
-      }
-      return;
-    }
+    // A press on a + or in the band beside the table is the +'s (SilverBullet would show the table's markdown)
+    if (this.insert.mouseDown(e)) return;
     if (e.button !== 0) return;
     for (const feature of this.features) feature.beforeMouseDown?.(e);
     if (e.altKey) {
@@ -1486,7 +1289,7 @@ export class Controller implements TableHost {
       e.stopPropagation();
       return;
     }
-    if (e.button !== 0 || !this.insertPressAt || Date.now() - this.insertPressAt > INSERT_CLICK_MS) return;
+    if (!this.insert.endsInsertingPress(e)) return;
     e.preventDefault();
     e.stopPropagation();
   };
@@ -1499,8 +1302,7 @@ export class Controller implements TableHost {
       return;
     }
     // detail 0: a click from the keyboard, no press
-    if (e.button === 0 && e.detail !== 0 && this.insertPressAt && Date.now() - this.insertPressAt <= INSERT_CLICK_MS) {
-      this.insertPressAt = 0;
+    if (e.detail !== 0 && this.insert.endsInsertingPress(e)) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -1543,55 +1345,7 @@ export class Controller implements TableHost {
       this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
       this.scrollTops.set(scrolled.key, e.target.scrollTop);
     }
-    // The editor scrolled the page while it measured a table written: it goes back
-    if (this.anchor && e.target === this.anchor.scroller) this.keepAnchor(this.anchor.key);
-  };
-
-  // ---- keeping a table written in its place ----------------------------------
-
-  /** Before a write: where the table is in the page's view */
-  private anchorAt(widget: HTMLElement, key: string): void {
-    const scroller = widget.isConnected ? this.scrollParentOf(widget) : undefined;
-    this.anchor = scroller && {
-      key,
-      scroller,
-      offset: widget.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
-      until: Date.now() + ANCHOR_MS,
-    };
-  }
-
-  /** The table rendered anew is scrolled to where it was, so the row edited stays under the user's eyes */
-  private keepAnchor(key: string, widget = this.widgetForKey(key)): void {
-    const anchor = this.anchor;
-    if (!anchor || anchor.key !== key || !widget) return;
-    if (Date.now() > anchor.until || !anchor.scroller.isConnected) {
-      this.anchor = undefined;
-      return;
-    }
-    const offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
-    if (Math.abs(offset - anchor.offset) >= 1) anchor.scroller.scrollTop += offset - anchor.offset;
-  }
-
-  /**
-   * After the table's own scrolling (the cell to edit next revealed): kept
-   * there, also once the editor has measured the new rendering, in the next
-   * frames
-   */
-  private anchorAgain(widget: HTMLElement, key: string): void {
-    const anchor = this.anchor;
-    if (!anchor || anchor.key !== key) return;
-    anchor.offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
-    const keep = () => this.keepAnchor(key);
-    const win = this.doc.defaultView!;
-    win.requestAnimationFrame?.(() => {
-      keep();
-      win.requestAnimationFrame(keep);
-    });
-    setTimeout(keep, 100);
-  }
-
-  private dropAnchor = (): void => {
-    this.anchor = undefined;
+    this.anchor.scrolled(e.target);
   };
 
   /**
@@ -1602,117 +1356,58 @@ export class Controller implements TableHost {
     if (this.features.some((f) => f.pointerBusy?.() === "drag")) return;
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
-    if (!widget || !info || renderedTable(widget) !== info.table || !this.isShown(widget, info, info.table)) {
+    if (!widget || !info || renderedTable(widget) !== info.table || !isShown(widget, info, info.table)) {
       this.hideFloating(true);
       return;
     }
-    this.showTableControls(widget, info);
+    this.toolbar.show(widget, info);
     const cell = this.hoverCell;
-    if (cell && cell.isConnected && this.isShown(widget, info, cell)) {
+    if (cell && cell.isConnected && isShown(widget, info, cell)) {
       this.cellHovered(widget, info, cell);
     }
     // A cell gone with its table rendered anew (an edit) did not leave the view: menus open on it stay (a header's, opened as the edit was saved)
     else this.endHover(!cell || cell.isConnected);
     // The table moved under a pointer that did not: the + where the pointer is now
-    if (this.insertAt || this.inInsertBand) this.insertUnderPointer();
+    this.insert.followPointer();
     // Another cell under a pointer that did not move
     if (this.navigating) this.markNavigating();
   }
 
-  shownPart(widget: HTMLElement, info: WidgetInfo, cell: HTMLElement): { left: number; right: number; top: number; bottom: number } | undefined {
-    if (!cell.isConnected) return undefined;
-    const rect = cell.getBoundingClientRect();
-    const shown = this.shownRect(widget, info);
-    const view = this.viewBounds(widget);
-    // A body cell scrolls under what is held over the body; a pinned column's cell is itself held
-    const held = cell.closest("tbody") ? this.heldBounds(info) : undefined;
-    const pinned = cell.classList.contains("tp-pin-left") || cell.classList.contains("tp-pin-right");
-    const part = {
-      left: Math.max(rect.left, shown.left, view.left, held && !pinned ? held.left : -Infinity),
-      right: Math.min(rect.right, shown.right, view.right, held && !pinned ? held.right : Infinity),
-      top: Math.max(rect.top, shown.top, view.top, held ? held.top : -Infinity),
-      bottom: Math.min(rect.bottom, shown.bottom, view.bottom, held ? held.bottom : Infinity),
-    };
-    return part.right > part.left && part.bottom > part.top ? part : undefined;
-  }
-
-  /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
-  private isShown(widget: HTMLElement, info: WidgetInfo, element: Element): boolean {
-    // Out of the document while its table is in it (a large table's row out of view)
-    if (!element.isConnected && info.table.isConnected) return false;
-    const rect = element.getBoundingClientRect();
-    const view = this.viewBounds(widget);
-    const box = this.innerBox(widget);
-    const head = info.table.tHead;
-    // A body cell under the header held at the top is out of view
-    const top = Math.max(view.top, box.top, head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity);
-    // ... and one under the rows held at the bottom
-    const bottom = Math.min(view.bottom, box.bottom, element.closest("tbody") ? this.heldBounds(info).bottom : Infinity);
-    return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
+  shownPart(widget: HTMLElement, info: WidgetInfo, cell: HTMLElement): Rect | undefined {
+    return shownPart(widget, info, cell);
   }
 
   // ---- layout: what follows scrolling ------------------------------------------
 
-  /** Once per frame after scrolling or rendering: the sticky header, then what points at it */
-  private barPlaceQueued = false;
-
-  private queueStickyUpdate(): void {
-    if (this.stickyQueued) return;
-    this.stickyQueued = true;
-    const run = () => {
-      this.stickyQueued = false;
-      if (this.stopped) return;
-      // The cell's popup stays over its cell, before what is placed by it (a formula's help)
-      this.cellEditor.placePopup();
-      for (const feature of this.features) feature.layoutChanged?.();
-      this.showQuietMarks();
-      // After the header has moved: controls that point at it follow
-      this.followScroll();
-    };
-    const win = this.doc.defaultView;
-    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
+  /** After scrolling or rendering (queued once per frame): the sticky header, then what points at it */
+  private followLayout(): void {
+    if (this.stopped) return;
+    // The cell's popup stays over its cell, before what is placed by it (a formula's help)
+    this.cellEditor.placePopup();
+    for (const feature of this.features) feature.layoutChanged?.();
+    this.insert.showQuiet();
+    // After the header has moved: controls that point at it follow
+    this.followScroll();
   }
 
-  /** Where the table's box shows its content: without its border and scrollbars */
-  innerBox(widget: HTMLElement): { left: number; right: number; top: number; bottom: number } {
-    const rect = widget.getBoundingClientRect();
-    const left = rect.left + widget.clientLeft;
-    const top = rect.top + widget.clientTop;
-    // Before layout (and in tests) clientWidth is 0: the whole box then
-    const width = widget.clientWidth || rect.width;
-    const height = widget.clientHeight || rect.height;
-    return { left, right: left + width, top, bottom: top + height };
+  innerBox(widget: HTMLElement): Rect {
+    return innerBox(widget);
   }
 
-  /** Whether a table is taller than its box (the maximum height setting) and scrolls inside it */
   scrollsInside(widget: HTMLElement): boolean {
-    return widget.scrollHeight > widget.clientHeight + 1;
+    return scrollsInside(widget);
   }
 
   scrollParentOf(element: HTMLElement): HTMLElement | undefined {
-    const win = this.doc.defaultView!;
-    for (let el = element.parentElement; el; el = el.parentElement) {
-      if (/(auto|scroll)/.test(win.getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight) return el;
-    }
-    return undefined;
+    return scrollParentOf(element);
   }
 
-  viewBounds(element: HTMLElement): { left: number; right: number; top: number; bottom: number } {
-    const win = this.doc.defaultView!;
-    // A table whose box is laid over the window (position: fixed, e.g. shown full screen) is in view across the window
-    const widget = element.closest<HTMLElement>(WIDGET_SELECTOR);
-    const overWindow = !!widget && win.getComputedStyle(widget).position === "fixed";
-    // A page too short to scroll has no scroll parent, but its view still starts below the top bar
-    const scroller = overWindow ? undefined : (this.scrollParentOf(element) ?? element.closest<HTMLElement>(SCROLLER_SELECTOR) ?? undefined);
-    const rect = scroller?.getBoundingClientRect();
-    // Not laid out (in tests): the window
-    const view = rect && rect.height > 0 ? rect : { left: 0, right: win.innerWidth, top: 0, bottom: win.innerHeight };
-    // An on-screen keyboard that only shrinks the visual viewport covers the page's bottom
-    const visual = win.visualViewport;
-    const visibleBottom = visual && visual.height > 0 ? visual.offsetTop + visual.height : Infinity;
-    const visibleTop = visual && visual.height > 0 ? visual.offsetTop : -Infinity;
-    return { left: view.left, right: view.right, top: Math.max(view.top, visibleTop), bottom: Math.min(view.bottom, visibleBottom) };
+  viewBounds(element: HTMLElement): Rect {
+    return viewBounds(element);
+  }
+
+  heldBounds(info: WidgetInfo): Rect {
+    return heldBounds(info);
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -1720,13 +1415,13 @@ export class Controller implements TableHost {
     if (e.target instanceof Node && this.dialogs.contains(e.target)) return;
     if (this.settingsDialog?.isOpen && e.target instanceof Node && this.settingsDialog.contains(e.target)) return;
     // Keys may scroll (PageDown, a cell editor moving to the next cell): a table written is not held in place against them
-    this.dropAnchor();
+    this.anchor.drop();
     // A name typed in a menu's title: its keys are the field's (Esc leaves the name, not the menu)
     if (e.target instanceof HTMLInputElement && e.target.closest(".tp-menu")) return;
-    if (e.key === "Escape" && this.tableMenu) {
+    if (e.key === "Escape" && this.tableMenu.kind) {
       e.preventDefault();
       e.stopPropagation();
-      this.closeTableMenu(true);
+      this.tableMenu.close(true);
       return;
     }
     // A menu's keys are its own (arrows go along it, Enter runs a button): not the selection's under it; Esc closes a feature's menu
@@ -1739,19 +1434,14 @@ export class Controller implements TableHost {
     if (e.key === "Control") this.cellEditor.setNavigating(false);
   };
 
-  // Over the band around the table where a + inserts: as over the table, its controls stay
-  private inInsertBand = false;
-  // Where a hovering pointer was last, and the table a + inserted into, to show the + again once it is rendered anew
-  private lastPointer: { readonly pointerType: string; readonly clientX: number; readonly clientY: number } | undefined;
-  private insertedIn: string | undefined;
-  // The ⋯ menu of the toolbar shown last, for a feature to open (TableHost.openTableMenu)
-  private openMore: { readonly widget: HTMLElement; readonly open: (naming: boolean) => void } | undefined;
+  // Where a hovering pointer was last
+  private lastPointer: PointerAt | undefined;
 
   // The pointer left the window: the + goes (no move tells it so)
   private onPointerOut = (e: PointerEvent): void => {
     if (e.relatedTarget !== null) return;
     this.lastPointer = undefined;
-    this.inInsertBand = this.hideInsert();
+    this.insert.pointerLeft();
   };
 
   /**
@@ -1774,23 +1464,22 @@ export class Controller implements TableHost {
   private onPointerMove = (e: PointerEvent): void => {
     this.lastPointer = { pointerType: e.pointerType, clientX: e.clientX, clientY: e.clientY };
     if (this.navigating) this.markNavigating();
-    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
-    this.inInsertBand = !this.tableMenu && busy !== "drag" ? this.showInsert(e, !busy) : this.hideInsert();
+    this.insert.pointerMoved(e);
   };
 
   private onMouseMove = (e: MouseEvent): void => {
     // A pressed button: dragging a scrollbar or selecting; the controls stay where they are
-    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
+    const busy = this.pointerBusy();
     // The toolbar's ⋯ menu keeps the controls where they are; with a cell's menu open the grips follow the pointer
-    if (this.tableMenu?.kind === "table" || busy === "drag" || e.buttons !== 0) return;
+    if (this.tableMenu.kind === "table" || busy === "drag" || e.buttons !== 0) return;
     const target = e.target;
-    if ((target instanceof Node && this.isFloating(target)) || this.inInsertBand) {
+    if ((target instanceof Node && this.isFloating(target)) || this.insert.inBand) {
       this.cancelHide();
       return;
     }
     const hit = this.enhancedWidgetOf(target);
     if (!hit) {
-      if (!busy && !this.overScrollbar(e)) this.scheduleHide();
+      if (!busy && !overScrollbar(e)) this.scheduleHide();
       return;
     }
     const [widget, info] = hit;
@@ -1799,7 +1488,7 @@ export class Controller implements TableHost {
       // A menu open: the controls stay in its table (its grips follow the pointer there)
       if (busy) return;
       this.hoverWidget = widget;
-      this.showTableControls(widget, info);
+      this.toolbar.show(widget, info);
     }
     // The grips stay with the edited cell (hoverEdited)
     if (this.cellEditor.active) return;
@@ -1811,34 +1500,28 @@ export class Controller implements TableHost {
     }
   };
 
-  /** Whether the pointer is over the scrollbar of the element under it */
-  private overScrollbar(e: MouseEvent): boolean {
-    const el = e.target;
-    if (!(el instanceof Element)) return false;
-    const rect = el.getBoundingClientRect();
-    const x = e.clientX - rect.left - el.clientLeft;
-    const y = e.clientY - rect.top - el.clientTop;
-    return (el.clientWidth > 0 && x >= el.clientWidth) || (el.clientHeight > 0 && y >= el.clientHeight);
-  }
-
   // ---- cell editing ------------------------------------------------------
 
   cellRef(info: WidgetInfo, cell: HTMLTableCellElement): CellRef | undefined {
-    const tr = cell.parentElement as HTMLTableRowElement | null;
-    if (!tr) return undefined;
-    const row = tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow);
-    return Number.isInteger(row) ? { row, column: cell.cellIndex } : undefined;
+    return this.rows.cellRef(info, cell);
+  }
+
+  cellUnder(target: EventTarget | null, key?: string): CellHit | undefined {
+    const hit = this.enhancedWidgetOf(target);
+    if (!hit || (key !== undefined && hit[1].key !== key)) return undefined;
+    const [widget, info] = hit;
+    const cell = this.tableCellOf(info, target);
+    const ref = cell && this.cellRef(info, cell);
+    return cell && ref ? { widget, info, cell, ref } : undefined;
+  }
+
+  rowOf(info: WidgetInfo, tr: HTMLTableRowElement): number {
+    return this.rows.rowOf(info, tr);
   }
 
   /** The header row and the shown body rows, in display order */
   shownRows(info: WidgetInfo): HTMLTableRowElement[] {
-    // As the view placed them, also those a feature keeps out of the document
-    const placed = this.shownOrder.get(info.table);
-    if (placed) return [...placed];
-    return [
-      info.table.rows[0]!,
-      ...Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-tp-row]:not(.tp-hidden)")),
-    ];
+    return this.rows.shownRows(info);
   }
 
   /** A setting's value, falling back to its default when unset or not valid */
@@ -1856,9 +1539,7 @@ export class Controller implements TableHost {
   }
 
   cellAt(info: WidgetInfo, ref: CellRef, includeHidden = false): HTMLTableCellElement | undefined {
-    const tr = ref.row === 0 ? info.table.rows[0] : this.bodyRows(info)[ref.row - 1];
-    if (!tr || (tr.classList.contains("tp-hidden") && !includeHidden)) return undefined;
-    return tr.cells[ref.column];
+    return this.rows.cellAt(info, ref, includeHidden);
   }
 
   focusEditor(widget: HTMLElement): void {
@@ -1943,7 +1624,7 @@ export class Controller implements TableHost {
         const then = await feature.beforeWrite?.(text, spanFrom, spanTo, replace);
         if (then) after.push(then);
       }
-      this.anchorAt(widget, info.key);
+      this.anchor.set(widget, info.key);
       await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
       this.pageText = written;
       for (const pending of held) pending.written();
@@ -1969,94 +1650,9 @@ export class Controller implements TableHost {
     await this.bridge.moveCursor(range.from + offset);
   }
 
-  // ---- inserting rows and columns: a + on a border --------------------------
-
-  /**
-   * A pointer that hovers (a mouse, a pen) near a border of the table shown:
-   * on a border between rows (or under the last), left of the table, or between
-   * columns (or right of the last), above the header, a + inserts one there.
-   * A finger does not hover: it inserts from the row and column menus.
-   * Whether the pointer is in that band around the table.
-   */
-  // `mark` false (a menu open): the grips follow the pointer along the edges, no + is shown
-  private showInsert(e: Pick<PointerEvent, "pointerType" | "buttons" | "target" | "clientX" | "clientY">, mark = true): boolean {
-    const widget = this.hoverWidget;
-    const info = widget && this.infos.get(widget);
-    if (e.pointerType === "touch" || e.buttons !== 0 || !widget || !info || renderedTable(widget) !== info.table) return this.hideInsert();
-    if (e.target instanceof Node && this.insertMark.contains(e.target)) return true;
-    if (e.target instanceof Node && this.isFloating(e.target)) return this.hideInsert();
-    const shown = this.shownRect(widget, info);
-    const header = info.table.rows[0]!.getBoundingClientRect();
-    const { clientX: x, clientY: y } = e;
-    // Left of the table: the borders under the header and under each row shown;
-    // over the row grip (on the edge) the band, but no +; left of it, the +
-    // on the border nearest the pointer, so it needs no aiming
-    if (x >= shown.left - INSERT_LANE_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + INSERT_LANE_PAST) {
-      // Body rows as far as they show between the rows held over them (the
-      // header held at the top, rows pinned there or to the bottom): one that
-      // scrolled under them gets no grip, its border no +
-      const held = this.heldBounds(info);
-      const body = (tr: HTMLTableRowElement) => tr.parentElement?.tagName === "TBODY";
-      const span = (tr: HTMLTableRowElement) => {
-        const r = tr.getBoundingClientRect();
-        // (A DOMRect's fields are getters: spreading it copies none)
-        return body(tr) ? { top: Math.max(r.top, held.top), bottom: Math.min(r.bottom, held.bottom), edge: r.bottom } : { top: r.top, bottom: r.bottom, edge: r.bottom };
-      };
-      const rows = this.shownRows(info).filter((tr) => span(tr).bottom > span(tr).top + 1);
-      // The row grip goes to the row beside the pointer
-      const beside = rows.find((tr, i) => i > 0 && y >= span(tr).top && y < span(tr).bottom);
-      if (beside) this.hoverAt(widget, info, beside.cells[this.hoverCell?.cellIndex ?? 0] ?? beside.cells[0]);
-      // The borders under the rows shown, where they show
-      const edges = rows
-        .map((tr, i) => ({ edge: span(tr).edge, i }))
-        .filter(({ edge, i }) => !body(rows[i]!) || (edge >= held.top - 1 && edge <= held.bottom + 1));
-      if (mark && x <= shown.left - INSERT_LANE_FROM && edges.length) {
-        const { edge, i } = edges.reduce((best, e) => (Math.abs(y - e.edge) < Math.abs(y - best.edge) ? e : best));
-        const next = rows[i + 1];
-        const below = next && Number(next.dataset.tpRow);
-        const above = i > 0 ? Number(rows[i]!.dataset.tpRow) : undefined;
-        // Above the row shown below the border; under the last one, at the end (above rows pinned to the bottom)
-        const at = below !== undefined && below > 0 ? below : appendRowAt(info.pins, info.rows);
-        const beside: RowHold = below !== undefined && below > 0 ? { before: below } : above !== undefined ? { after: above } : {};
-        this.markInsert(widget, info, { key: info.key, axis: "row", at, beside }, edge, shown);
-        return true;
-      }
-      return this.hideInsert(true);
-    }
-    // Above the header: the borders between columns, and right of the last; over
-    // the column grip (on the header's top edge) the band, but no +; above it,
-    // the + on the border nearest the pointer, as for rows
-    if (y >= header.top - INSERT_LANE_BAND && y <= header.top + 2 && x >= shown.left - INSERT_REACH && x <= shown.right + INSERT_LANE_PAST) {
-      const cells = Array.from(info.table.rows[0]!.cells);
-      const pinned = (c: HTMLTableCellElement) => c.classList.contains("tp-pin-left") || c.classList.contains("tp-pin-right");
-      // The column grip goes to the column under the pointer (in the row hovered last): a pinned
-      // column over one the table scrolled sideways under it
-      const under = cells.filter((c) => x >= c.getBoundingClientRect().left && x < c.getBoundingClientRect().right);
-      const column = (under.find(pinned) ?? under[0])?.cellIndex ?? -1;
-      const row = (this.hoverCell?.parentElement as HTMLTableRowElement | undefined) ?? info.table.rows[0]!;
-      if (column >= 0 && row.closest("table") === info.table) this.hoverAt(widget, info, row.cells[column]);
-      // The borders in view (a wide table scrolls sideways, under its pinned
-      // columns), by the column they insert at: a pinned column's, and the
-      // others' between the pinned ones
-      const held = this.heldBounds(info);
-      const edges = cells
-        .flatMap((c, i) => {
-          const r = c.getBoundingClientRect();
-          return [
-            { edge: r.left, i, pinned: pinned(c) },
-            { edge: r.right, i: i + 1, pinned: pinned(c) },
-          ];
-        })
-        .filter(({ edge, pinned }) => (pinned || (edge >= held.left - 1 && edge <= held.right + 1)) && edge >= shown.left - INSERT_REACH && edge <= shown.right + INSERT_REACH);
-      if (mark && y <= header.top - INSERT_LANE_FROM && edges.length) {
-        const { edge, i } = edges.reduce((best, e) => (Math.abs(x - e.edge) < Math.abs(x - best.edge) ? e : best));
-        const at = i < cells.length ? i : appendColumnAt(info.pins, info.columns);
-        this.markInsert(widget, info, { key: info.key, axis: "column", at, beside: {} }, edge, shown);
-        return true;
-      }
-      return this.hideInsert(true);
-    }
-    return this.hideInsert();
+  /** What holds the pointer, if anything (Feature.pointerBusy): a drag, a menu open */
+  private pointerBusy(): "drag" | "menu" | undefined {
+    return this.features.map((f) => f.pointerBusy?.()).find(Boolean);
   }
 
   /** As if the pointer were over this cell: the grips go to its row and column */
@@ -2066,199 +1662,15 @@ export class Controller implements TableHost {
     this.cellHovered(widget, info, cell);
   }
 
-  private markInsert(
-    _widget: HTMLElement,
-    info: WidgetInfo,
-    at: NonNullable<Controller["insertAt"]>,
-    edge: number,
-    shown: { left: number; right: number; top: number; bottom: number },
-  ): void {
-    this.insertAt = at;
-    const mark = this.insertMark;
-    mark.title = at.axis === "row" ? "Insert a row here" : "Insert a column here";
-    mark.setAttribute("aria-label", mark.title);
-    mark.classList.add("tp-visible");
-    this.placeInsert(mark, info, at.axis, edge, shown);
-    // The quiet + on its axis gives way
-    this.showQuietMarks();
-  }
-
-  /**
-   * A + and the line it inserts at: a row's left of the row grips, the line
-   * across the table; a column's above the column grips, the line down the
-   * table
-   */
-  private placeInsert(
-    mark: HTMLElement,
-    info: WidgetInfo,
-    axis: "row" | "column",
-    edge: number,
-    shown: { left: number; right: number; top: number; bottom: number },
-    // The line is one for all the +: drawn for the one it belongs to (the pointer's, or the quiet one under the pointer)
-    withLine = true,
-  ): void {
-    const line = this.insertLine;
-    if (withLine) line.classList.add("tp-visible");
-    if (axis === "row") {
-      const center = shown.left - INSERT_LANE_AT;
-      if (withLine) Object.assign(line.style, { left: `${center}px`, top: `${edge - 1}px`, width: `${shown.right - center}px`, height: "2px" });
-      this.place(mark, center - mark.offsetWidth / 2, edge - mark.offsetHeight / 2);
-    } else {
-      const center = info.table.rows[0]!.getBoundingClientRect().top - INSERT_LANE_AT;
-      if (withLine) Object.assign(line.style, { left: `${edge - 1}px`, top: `${center}px`, width: "2px", height: `${shown.bottom - center}px` });
-      this.place(mark, edge - mark.offsetWidth / 2, center - mark.offsetHeight / 2);
-    }
-  }
-
-  /**
-   * The + the pointer brought up goes (the quiet ones come back); `inBand`:
-   * the pointer is still in the band around the table (the table's controls
-   * stay)
-   */
-  private hideInsert(inBand = false): boolean {
-    this.insertAt = undefined;
-    this.insertMark.classList.remove("tp-visible");
-    this.insertLine.classList.remove("tp-visible");
-    this.showQuietMarks();
-    return inBand;
-  }
-
   /** A cell is hovered or edited (or the page moved under it): the features follow it; the quiet + of a last row or column */
   private cellHovered(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void {
     for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
-    this.showQuietMarks();
+    this.insert.showQuiet();
   }
 
   selectionChanged(): void {
-    this.showQuietMarks();
+    this.insert.showQuiet();
     for (const feature of this.features) feature.selectionChanged?.();
-  }
-
-  /**
-   * The table whose last row or column has the cell edited, the cell hovered
-   * or a selected cell (in this order), and which of the two
-   */
-  private quietTarget(): { widget: HTMLElement; info: WidgetInfo; row: boolean; column: boolean } | undefined {
-    const editing = this.cellEditor.active?.cell;
-    const hovered = this.hoverCell?.isConnected ? this.hoverCell : undefined;
-    const selected = Array.from(this.doc.querySelectorAll<HTMLTableCellElement>(".tp-selected"));
-    const first = editing ?? hovered ?? selected[0];
-    const hit = first && this.enhancedWidgetOf(first);
-    if (!hit) return undefined;
-    const [widget, info] = hit;
-    const rows = this.shownRows(info);
-    const lastRow = rows.length > 1 ? rows[rows.length - 1] : undefined;
-    const lastColumn = info.table.rows[0]!.cells.length - 1;
-    const cells = [editing, hovered, ...selected].filter((cell) => cell?.closest("table") === info.table);
-    const row = cells.some((cell) => cell!.parentElement === lastRow);
-    const column = cells.some((cell) => cell!.cellIndex === lastColumn);
-    return row || column ? { widget, info, row, column } : undefined;
-  }
-
-  /** Where a row (column) is added at the end: its edge, and the insert there */
-  private endOf(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column") {
-    const shown = this.shownRect(widget, info);
-    if (axis === "row") {
-      const rows = this.shownRows(info);
-      const last = rows[rows.length - 1]!;
-      const at = { key: info.key, axis, at: appendRowAt(info.pins, info.rows), beside: { after: Number(last.dataset.tpRow) } };
-      return { at, edge: last.getBoundingClientRect().bottom, shown };
-    }
-    const cells = info.table.rows[0]!.cells;
-    const at = { key: info.key, axis, at: appendColumnAt(info.pins, info.columns), beside: {} };
-    return { at, edge: cells[cells.length - 1]!.getBoundingClientRect().right, shown };
-  }
-
-  /** The quiet + of the last row and column (quietTarget), but on an axis where the pointer brought up a +, or out of view */
-  private showQuietMarks(): void {
-    const target = this.quietTarget();
-    for (const axis of ["row", "column"] as const) {
-      const mark = this.quietMarks[axis];
-      if (!target || !target[axis] || this.insertAt?.axis === axis) {
-        mark.classList.remove("tp-visible");
-        continue;
-      }
-      const { widget, info } = target;
-      const end = this.endOf(widget, info, axis);
-      const view = this.viewBounds(widget);
-      // Where it goes: the border under the last row, the header's top at the last column
-      const y = axis === "row" ? end.edge : info.table.rows[0]!.getBoundingClientRect().top - INSERT_LANE_AT;
-      // A last body row scrolled under the rows held at the top has its border there too: out of view
-      const held = this.heldBounds(info);
-      const inView =
-        y >= view.top && y <= view.bottom && (axis === "row" ? end.edge >= held.top - 1 : end.edge <= end.shown.right + INSERT_REACH);
-      if (!inView) {
-        mark.classList.remove("tp-visible");
-        continue;
-      }
-      // Shown before it is placed: hidden, it has no size to centre by
-      mark.classList.add("tp-visible");
-      this.placeInsert(mark, info, axis, end.edge, end.shown, false);
-    }
-    // The line: the pointer's +'s (left as it is), else the quiet + under the pointer's, else none
-    if (this.insertAt) return;
-    const hovered = this.quietHovered;
-    if (hovered && this.quietMarks[hovered].classList.contains("tp-visible")) this.lineAtEnd(hovered);
-    else this.insertLine.classList.remove("tp-visible");
-  }
-
-  /** The pointer on a quiet +: the line where it adds */
-  private lineAtEnd(axis: "row" | "column"): void {
-    const target = this.quietTarget();
-    if (!target || this.insertAt) return;
-    const end = this.endOf(target.widget, target.info, axis);
-    this.placeInsert(this.quietMarks[axis], target.info, axis, end.edge, end.shown);
-  }
-
-  /** A quiet + pressed: a row (column) added at the end, its first cell (name) edited */
-  private insertAtEnd(axis: "row" | "column"): void {
-    const target = this.quietTarget();
-    if (!target) return;
-    const { widget, info } = target;
-    const { at } = this.endOf(widget, info, axis);
-    this.insertedIn = info.key;
-    if (axis === "row") void insertRowWith(this, widget, info, at.at, this.firstVisibleColumn(widget, info), undefined, at.beside);
-    else void insertColumnWith(this, widget, info, at.at);
-  }
-
-  /** The + clicked: a row (column) inserted there, its first cell (name) edited */
-  private insertHere(): void {
-    const at = this.insertAt;
-    const widget = at && this.widgetForKey(at.key);
-    const info = widget && this.infos.get(widget);
-    if (!at || !widget || !info) return;
-    // The table rendered anew shows the + again under the pointer (reshowInsert): another click inserts another
-    this.insertedIn = at.key;
-    if (at.axis === "row") void insertRowWith(this, widget, info, at.at, this.firstVisibleColumn(widget, info), undefined, at.beside);
-    else void insertColumnWith(this, widget, info, at.at);
-  }
-
-  /** A table rendered anew after a + inserted into it: the + where the pointer still is */
-  private reshowInsert(widget: HTMLElement, info: WidgetInfo): void {
-    if (this.insertedIn !== info.key || !this.lastPointer) return;
-    this.insertedIn = undefined;
-    this.hoverWidget = widget;
-    this.insertUnderPointer();
-  }
-
-  /** The + where the pointer is now, as a move there would show it */
-  private insertUnderPointer(): void {
-    const pointer = this.lastPointer;
-    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
-    if (!pointer || this.tableMenu || busy === "drag") {
-      this.inInsertBand = this.hideInsert();
-      return;
-    }
-    const target = this.doc.elementFromPoint?.(pointer.clientX, pointer.clientY) ?? null;
-    this.inInsertBand = this.showInsert({ ...pointer, buttons: 0, target }, !busy);
-  }
-
-  /** The leftmost column in view, so editing a new row does not scroll a wide table back */
-  private firstVisibleColumn(widget: HTMLElement, info: WidgetInfo): number {
-    const left = widget.getBoundingClientRect().left;
-    const cells = Array.from(info.table.rows[0]!.cells);
-    const index = cells.findIndex((cell) => cell.getBoundingClientRect().left >= left - 1);
-    return Math.max(0, index);
   }
 
   // ---- floating UI: the toolbar ----------------------------------------------
@@ -2293,10 +1705,11 @@ export class Controller implements TableHost {
 
   isFloating(node: Node): boolean {
     return (
-      [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)].some((el) => el.contains(node)) ||
+      this.toolbar.owns(node) ||
+      this.insert.owns(node) ||
       this.cellEditor.owns(node) ||
       this.dialogs.contains(node) ||
-      !!this.tableMenu?.element.contains(node) ||
+      this.tableMenu.owns(node) ||
       this.features.some((f) => f.owns?.(node))
     );
   }
@@ -2328,265 +1741,18 @@ export class Controller implements TableHost {
   /** No cell is hovered: the grips go, and with `closeMenus` an open menu */
   private endHover(closeMenus: boolean): void {
     this.hoverCell = undefined;
-    this.showQuietMarks();
+    this.insert.showQuiet();
     for (const feature of this.features) feature.hoverEnded?.(closeMenus);
   }
 
   private hideFloating(closeMenus = false): void {
     this.endHover(closeMenus);
-    this.closeTableMenu(false);
-    for (const el of [this.bar, this.insertMark, this.insertLine]) el.classList.remove("tp-visible");
-    this.insertAt = undefined;
+    this.tableMenu.close(false);
+    this.toolbar.hide();
+    this.insert.hidePointers();
     this.hoverWidget = undefined;
     // A selected cell's quiet + stays
-    this.showQuietMarks();
-  }
-
-  /**
-   * The toolbar above the table and the add-row / add-column buttons; placed
-   * now, or (`placeNow` false: after a change of the table) in the next frame
-   */
-  private showTableControls(widget: HTMLElement, info: WidgetInfo, placeNow = true): void {
-    const view = this.viewOf(info);
-    const bar = this.bar;
-    bar.replaceChildren();
-    // A button with its label, or (with an icon) the icon alone, the label its accessible name
-    const button = (item: ToolbarButton, className?: string): HTMLButtonElement => {
-      const b = this.doc.createElement("button");
-      b.type = "button";
-      b.tabIndex = -1;
-      b.title = item.title;
-      if (className) b.className = className;
-      if (item.place === "icon" && item.icon) {
-        b.classList.add("tp-bar-icon");
-        b.setAttribute("aria-label", item.label);
-        b.innerHTML = item.icon;
-      } else b.textContent = item.label;
-      if (item.attention) b.classList.add("tp-attention");
-      if (item.pressed !== undefined) b.setAttribute("aria-pressed", String(item.pressed));
-      b.addEventListener("click", (e) => {
-        e.preventDefault();
-        item.run();
-      });
-      bar.append(b);
-      return b;
-    };
-    const featureButtons = this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []);
-    // At the left, what the table is and how it is shown: its name, its sorting, its rows filtered
-    for (const item of featureButtons.filter((b) => b.place === "label")) button(item, "tp-bar-label");
-    // How the table is shown, each a chip whose × ends it: the sorting, the features' (filters)
-    const chips: ToolbarButton[] = [];
-    if (view.sort) {
-      const { column, direction } = view.sort;
-      const name = cellText(info.table.rows[0]!.cells[column]!) || `column ${column + 1}`;
-      chips.push({
-        label: `Sorted by ${name} ${direction === "asc" ? "↑" : "↓"}`,
-        title: "Clear sorting: show the rows as written",
-        place: "chip",
-        run: () => {
-          const [w, i] = this.current(widget, info);
-          this.setSort(w, i, withoutSort(this.viewOf(i)));
-        },
-        // Apply: the rows are sorted in the markdown, and the sorting view ends
-        actions: [{ icon: ICONS.applySort, title: "Sort the rows in the markdown this way", run: () => void this.applySort(widget, info) }],
-      });
-    }
-    for (const item of [...chips, ...featureButtons.filter((b) => b.place === "chip")]) {
-      const chip = this.doc.createElement("span");
-      chip.className = "tp-status tp-chip";
-      if (item.icon) chip.innerHTML = item.icon;
-      chip.append(item.label);
-      const small = (className: string, title: string, icon: string, run: () => void) => {
-        const b = this.doc.createElement("button");
-        b.type = "button";
-        b.tabIndex = -1;
-        b.className = className;
-        b.title = title;
-        b.setAttribute("aria-label", title);
-        b.innerHTML = icon;
-        b.addEventListener("click", (e) => {
-          e.preventDefault();
-          run();
-        });
-        return b;
-      };
-      for (const action of item.actions ?? []) chip.append(small("tp-chip-apply", action.title, action.icon, action.run));
-      chip.append(small("tp-chip-clear", item.title, ICONS.clear, item.run));
-      bar.append(chip);
-    }
-    // At the right, icons always in the same places: the features' (Recalculate, Filter), and the menu
-    for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
-    const menuItems = [
-      ...featureButtons.filter((b) => (b.place ?? "menu") === "menu"),
-      // Pinned rows and columns are at the edges already: unpinned, they stay where they are
-      ...(hasPins(info.pins)
-        ? [
-            {
-              label: "Unpin all",
-              title: "Unpin all rows and columns: they stay where they are, and scroll and sort with the others",
-              icon: ICONS.unpin,
-              run: () => {
-                const [w] = this.current(widget, info);
-                void this.write(w, (t) => t, { pins: NO_PINS });
-              },
-            },
-          ]
-        : []),
-      // Aligned already, it writes nothing
-      {
-        label: "Format table",
-        title: "Align the table's markdown: its columns padded to one width",
-        icon: ICONS.format,
-        run: () => {
-          const [w] = this.current(widget, info);
-          void this.write(w, (t) => ({ ...t, padded: true }));
-        },
-      },
-      {
-        label: "Edit markdown",
-        title: "Show this table as markdown",
-        icon: ICONS.markdown,
-        run: () => void this.showMarkdown(this.current(widget, info)[1]),
-      },
-      // Last before the destructive ones: not about this table
-      {
-        label: "Table Plus settings…",
-        title: "Settings for every table in the space (not just this one): SilverBullet's configuration",
-        icon: ICONS.settings,
-        run: () => void this.openSettings(),
-      },
-    ];
-    const more = button(
-      {
-        label: "More",
-        title: "More for this table",
-        place: "icon",
-        icon: ICONS.more,
-        run: () => (this.tableMenu?.kind === "table" ? this.closeTableMenu(true) : this.showTableMenu(widget, more, menuItems)),
-      },
-      "tp-bar-more",
-    );
-    // A feature opens it too (the table's name at the toolbar's left: its name to type)
-    this.openMore = { widget, open: (naming) => this.showTableMenu(widget, more, menuItems, naming) };
-    if (this.tableMenu?.kind === "table") {
-      // Shown again (a write, a change of the table's state): the open menu stays, at the new button
-      more.classList.add("tp-active");
-      this.tableMenu.anchor = more;
-    }
-    // Shown already: it stays where it is until placed
-    if (placeNow || !bar.classList.contains("tp-visible")) this.placeBar(widget, info);
-    else this.queuePlaceBar();
-  }
-
-  /** The toolbar placed above the table's header (or over its right end), and the open table menu with it */
-  private placeBar(widget: HTMLElement, info: WidgetInfo): void {
-    const bar = this.bar;
-    const rect = widget.getBoundingClientRect();
-    const tableRect = info.table.getBoundingClientRect();
-    // The header as shown, which may be held at the top of the view
-    const headerRect = info.table.rows[0]!.getBoundingClientRect();
-    // The page's view: below SilverBullet's top bar, also on a page too short to scroll
-    const shown = this.viewBounds(widget);
-    bar.classList.add("tp-visible");
-    const above = headerRect.top - bar.offsetHeight - BAR_GAP;
-    // No room above the header: over the header's right end instead. A header
-    // held at the top of the view has the room (STICKY_GAP): the toolbar goes
-    // there, so it never covers a column's name while the page scrolls
-    const held = info.table.tHead?.classList.contains("tp-stuck") ?? false;
-    const fits = held || above >= shown.top + 2;
-    const top = fits ? Math.max(above, shown.top) : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
-    // At the table's right edge, or its box's when the table scrolls in it,
-    // as far as it is in view: the page around a wide table may scroll
-    // sideways too, taking the box's edge along. A box wider than its table
-    // (a renderer's block) does not take the toolbar past the table.
-    this.place(bar, Math.min(rect.right, tableRect.right, shown.right) - bar.offsetWidth - (fits ? BAR_CLEAR : 6), top);
-    this.positionTableMenu();
-  }
-
-  /**
-   * The toolbar's ⋯ menu: the table's actions that are not used all the time,
-   * the destructive ones last, after a separator
-   */
-  private showTableMenu(widget: HTMLElement, anchor: HTMLElement, items: readonly ToolbarButton[], startNamed = false): void {
-    const place = { kind: "table" as const, anchor };
-    // An item with choices shows them in the menu's place, the back arrow (or ArrowLeft) the menu again
-    const back = { icon: ICONS.arrowLeft, run: () => this.showTableMenu(widget, anchor, items) };
-    const entry = (item: ToolbarButton): MenuEntry => ({
-      kind: "item",
-      label: item.label,
-      icon: item.icon ?? "",
-      hint: item.title,
-      ...(item.value ? { value: { text: item.value } } : {}),
-      ...(item.danger ? { danger: true } : {}),
-      run: item.choices ? () => this.showMenu(widget, item.choices!.title, item.choices!.entries(), place, back) : item.run,
-    });
-    const safe = items.filter((item) => !item.danger).map(entry);
-    const danger = items.filter((item) => item.danger).map(entry);
-    // The table's name in the title, a pencil to change it (the names module's)
-    const info = this.infoOf(widget);
-    const naming = info && this.closingNaming(this.menuNaming(widget, info, { kind: "table" }));
-    const title = naming?.name ? `Table: ${naming.name}` : "Table";
-    this.showMenu(widget, title, [...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], place, undefined, naming);
-    if (startNamed && this.tableMenu) startNaming(this.tableMenu.element);
-  }
-
-  /** A menu of the toolbar or of cells: its items close it when run; Escape or a press elsewhere closes it */
-  private showMenu(
-    widget: HTMLElement,
-    title: string,
-    entries: readonly MenuEntry[],
-    place: { readonly kind: "table" | "cell"; readonly anchor?: HTMLElement; readonly point?: { x: number; y: number } },
-    back?: MenuBack,
-    naming?: MenuNaming,
-  ): void {
-    this.closeTableMenu(false);
-    const close = (run: () => void) => () => {
-      this.closeTableMenu(false);
-      run();
-    };
-    const closing = wrapRuns(entries, close);
-    const element = renderMenu(this.doc, title, closing, back, naming);
-    element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    keepFocus(element);
-    onMenuClose(element, () => this.closeTableMenu(true));
-    this.doc.body.append(element);
-    this.tableMenu = { element, widget, ...place };
-    place.anchor?.classList.add("tp-active");
-    this.positionTableMenu();
-    focusMenu(element);
-  }
-
-  /** Below the ⋯ button, its right edge at the button's; at the pointer; always inside the window */
-  private positionTableMenu(): void {
-    if (!this.tableMenu) return;
-    const { element, anchor, point } = this.tableMenu;
-    const win = this.doc.defaultView!;
-    const m = element.getBoundingClientRect();
-    let left: number;
-    let top: number;
-    if (anchor) {
-      const a = anchor.getBoundingClientRect();
-      left = a.right - m.width;
-      top = a.bottom + 4;
-      if (top + m.height > win.innerHeight - 4) top = a.top - m.height - 4;
-    } else {
-      left = point?.x ?? 0;
-      top = point?.y ?? 0;
-      if (top + m.height > win.innerHeight - 4) top -= m.height;
-      if (left + m.width > win.innerWidth - 4) left -= m.width;
-    }
-    element.style.left = `${Math.round(Math.max(4, Math.min(left, win.innerWidth - m.width - 4)))}px`;
-    element.style.top = `${Math.round(Math.max(4, top))}px`;
-  }
-
-  private closeTableMenu(refocus: boolean): void {
-    const menu = this.tableMenu;
-    if (!menu) return;
-    this.tableMenu = undefined;
-    const hadFocus = menu.element.contains(this.doc.activeElement);
-    menu.element.remove();
-    menu.anchor?.classList.remove("tp-active");
-    if (refocus && hadFocus) this.focusEditor(menu.widget);
+    this.insert.showQuiet();
   }
 
   // ---- the cell menu: right click, a long press, the Menu key ------------------
@@ -2623,7 +1789,7 @@ export class Controller implements TableHost {
     // One cell: its name (a header's: its column's) in the title, a pencil to change it
     const naming =
       cells.length === 1
-        ? this.closingNaming(this.menuNaming(widget, info, at.row === 0 ? { kind: "column", column: at.column } : { kind: "cell", row: at.row, column: at.column }))
+        ? this.menuNaming(widget, info, at.row === 0 ? { kind: "column", column: at.column } : { kind: "cell", row: at.row, column: at.column })
         : undefined;
     const title =
       cells.length > 1
@@ -2641,22 +1807,20 @@ export class Controller implements TableHost {
     if (cell && !this.cellEditor.active && cell !== this.hoverCell) {
       if (this.hoverWidget !== widget) {
         this.hoverWidget = widget;
-        this.showTableControls(widget, info);
+        this.toolbar.show(widget, info);
       }
       this.hoverCell = cell;
       this.cellHovered(widget, info, cell);
     }
-    this.showMenu(widget, title, entries, { kind: "cell", point }, undefined, naming);
+    this.tableMenu.show(widget, title, entries, { kind: "cell", point }, undefined, naming);
     return true;
   }
 
   /** The cell a pointer event is on, in an enhanced table; not in the cell editor (its menu is the browser's) */
   private cellOfEvent(target: EventTarget | null): [HTMLElement, WidgetInfo, CellRef] | undefined {
     if (!(target instanceof Element) || target.closest(".tp-cell-editor")) return undefined;
-    const hit = this.enhancedWidgetOf(target);
-    const cell = hit && this.tableCellOf(hit[1], target);
-    const ref = hit && cell && this.cellRef(hit[1], cell);
-    return hit && ref ? [hit[0], hit[1], ref] : undefined;
+    const hit = this.cellUnder(target);
+    return hit && [hit.widget, hit.info, hit.ref];
   }
 
   /** Right click (Shift+right click: the browser's menu) */
@@ -2698,27 +1862,12 @@ export class Controller implements TableHost {
     if (e.pointerType !== "touch" || (e.target instanceof Node && this.isFloating(e.target))) return;
     const hit = this.cellOfEvent(e.target);
     if (!hit) return;
-    const win = this.doc.defaultView!;
-    const { clientX: x, clientY: y } = e;
-    const timer = setTimeout(() => {
-      stop();
-      if (this.tableMenu?.kind === "cell") return;
-      this.openCellMenu(hit[0], hit[1], hit[2], { x, y });
-    }, LONG_PRESS_MS);
-    const move = (ev: PointerEvent) => {
-      if (Math.hypot(ev.clientX - x, ev.clientY - y) > 10) stop();
-    };
-    const stop = () => {
-      clearTimeout(timer);
-      win.removeEventListener("pointermove", move, true);
-      win.removeEventListener("pointerup", stop, true);
-      win.removeEventListener("pointercancel", stop, true);
-      this.stopLongPress = undefined;
-    };
-    win.addEventListener("pointermove", move, true);
-    win.addEventListener("pointerup", stop, true);
-    win.addEventListener("pointercancel", stop, true);
-    this.stopLongPress = stop;
+    const point = { x: e.clientX, y: e.clientY };
+    this.stopLongPress = watchPress(this.doc.defaultView!, e, {
+      longPress: () => {
+        if (this.tableMenu.kind !== "cell") this.openCellMenu(hit[0], hit[1], hit[2], point);
+      },
+    });
   };
 
   /** The Menu key or Shift+F10 in a cell editor: the menu of the edited cell (or of the cells selected) */
@@ -2734,37 +1883,7 @@ export class Controller implements TableHost {
     return true;
   }
 
-  /** Where a table is in view: the table, cut to the box that scrolls it sideways */
-  /**
-   * Where the body shows between what is held over it as the page and the
-   * table scroll: below the header (with the rows pinned to the top), above
-   * the rows pinned to the bottom, between the columns pinned left and right.
-   * What scrolls under those is out of view.
-   */
-  private heldBounds(info: WidgetInfo): { left: number; right: number; top: number; bottom: number } {
-    const { tHead: head, tFoot: foot } = info.table;
-    const header = Array.from(info.table.rows[0]!.cells);
-    const lefts = header.filter((c) => c.classList.contains("tp-pin-left")).map((c) => c.getBoundingClientRect().right);
-    const rights = header.filter((c) => c.classList.contains("tp-pin-right")).map((c) => c.getBoundingClientRect().left);
-    return {
-      top: head ? head.getBoundingClientRect().bottom : -Infinity,
-      bottom: foot?.rows.length ? foot.getBoundingClientRect().top : Infinity,
-      left: lefts.length ? Math.max(...lefts) : -Infinity,
-      right: rights.length ? Math.min(...rights) : Infinity,
-    };
-  }
-
-  shownRect(
-    widget: HTMLElement,
-    info: WidgetInfo,
-  ): { left: number; right: number; top: number; bottom: number } {
-    const box = this.innerBox(widget);
-    const table = info.table.getBoundingClientRect();
-    return {
-      left: Math.max(box.left, table.left),
-      right: Math.min(box.right, table.right),
-      top: Math.max(box.top, table.top),
-      bottom: Math.min(box.bottom, table.bottom),
-    };
+  shownRect(widget: HTMLElement, info: WidgetInfo): Rect {
+    return shownRect(widget, info);
   }
 }

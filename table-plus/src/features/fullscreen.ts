@@ -14,6 +14,7 @@
 // a layer over the room at the left, placed by the rows shown after each
 // scroll (in the frame the core updates what follows the layout).
 import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import { oncePerFrame } from "../core/frame.ts";
 import { OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
 import { columnLetters } from "../formulas/index.ts";
 import { ICONS } from "../icons.ts";
@@ -30,9 +31,10 @@ export class FullScreen implements Feature {
   private guessed: HTMLElement | undefined;
   // The rows' numbers, over the room left of the rows
   private readonly numbers: HTMLElement;
-  private numbersQueued = false;
+  private readonly queueNumbers: () => void;
 
   constructor(private readonly host: TableHost) {
+    this.queueNumbers = oncePerFrame(host.doc, () => this.placeNumbers());
     this.numbers = host.floating("div", "tp-fullscreen-rows");
     this.numbers.setAttribute("aria-hidden", "true");
   }
@@ -149,18 +151,6 @@ export class FullScreen implements Feature {
     this.placeNumbers();
   }
 
-  private queueNumbers(): void {
-    if (this.numbersQueued) return;
-    this.numbersQueued = true;
-    const win = this.host.doc.defaultView!;
-    const run = () => {
-      this.numbersQueued = false;
-      this.placeNumbers();
-    };
-    if (win.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
-  }
-
   /** A number beside each row in view, below the header (held or not), above the box's bottom */
   private placeNumbers(): void {
     const widget = this.widget;
@@ -172,7 +162,7 @@ export class FullScreen implements Feature {
     layer.style.top = `${top}px`;
     layer.style.height = `${Math.max(0, bottom - top)}px`;
     // The rows as shown (in their order, their tops going down): the first in view found by halving
-    const rows = this.host.shownRows(info).filter((tr) => tr.dataset.tpRow !== undefined && tr.isConnected);
+    const rows = this.host.shownRows(info).filter((tr) => this.host.rowOf(info, tr) > 0 && tr.isConnected);
     let low = 0;
     let high = rows.length;
     while (low < high) {
@@ -190,7 +180,7 @@ export class FullScreen implements Feature {
         layer.append(label);
       }
       label.hidden = false;
-      label.textContent = rows[i]!.dataset.tpRow!;
+      label.textContent = String(this.host.rowOf(info, rows[i]!));
       label.style.top = `${rect.top - top}px`;
       label.style.height = `${rect.height}px`;
       shown++;

@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, vi } from "vitest";
 import type { Bridge } from "../bridge.ts";
 import { Controller } from "../controller.ts";
+import type { InsertControls, InsertTarget } from "../core/insert.ts";
 import { findTables, parseTable } from "../markdown.ts";
 
 export let text: string;
@@ -189,3 +190,16 @@ export const menuButtons = (within: ParentNode = document) =>
 
 /** What a menu's button is called: an item's text, an icon button's full name (its aria-label) */
 export const buttonLabel = (button: Element) => button.getAttribute("aria-label") ?? button.textContent ?? "";
+
+/** The controller's + controls (jsdom has no layout to hover them: their state is set as the pointer would) */
+const insertControls = () => (controller as unknown as { insert: InsertControls }).insert;
+
+/** A + shown where the pointer would bring it up (undefined: none), the pointer in the band around the table or not */
+export function pointInsert(at: InsertTarget | undefined, inBand = false): void {
+  const insert = insertControls();
+  insert.at = at;
+  insert.inBand = inBand;
+}
+
+/** Whether the pointer counts as in the band around the table where a + inserts */
+export const inInsertBand = () => insertControls().inBand;

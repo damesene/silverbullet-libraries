@@ -1703,6 +1703,242 @@ var Dialogs = class {
   }
 };
 
+// table-plus/src/core/geometry.ts
+var EVERYWHERE = { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity };
+function intersect(...rects) {
+  return rects.reduce(
+    (a, b) => ({
+      left: Math.max(a.left, b.left),
+      right: Math.min(a.right, b.right),
+      top: Math.max(a.top, b.top),
+      bottom: Math.min(a.bottom, b.bottom)
+    }),
+    EVERYWHERE
+  );
+}
+function isEmpty(rect) {
+  return !(rect.right > rect.left && rect.bottom > rect.top);
+}
+function innerBox(widget) {
+  const rect = widget.getBoundingClientRect();
+  const left = rect.left + widget.clientLeft;
+  const top = rect.top + widget.clientTop;
+  const width = widget.clientWidth || rect.width;
+  const height = widget.clientHeight || rect.height;
+  return { left, right: left + width, top, bottom: top + height };
+}
+function scrollsInside(widget) {
+  return widget.scrollHeight > widget.clientHeight + 1;
+}
+function scrollParentOf(element) {
+  const win = element.ownerDocument.defaultView;
+  for (let el = element.parentElement; el; el = el.parentElement) {
+    if (/(auto|scroll)/.test(win.getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight) return el;
+  }
+  return void 0;
+}
+function viewBounds(element) {
+  const win = element.ownerDocument.defaultView;
+  const widget = element.closest(WIDGET_SELECTOR);
+  const overWindow = !!widget && win.getComputedStyle(widget).position === "fixed";
+  const scroller = overWindow ? void 0 : scrollParentOf(element) ?? element.closest(SCROLLER_SELECTOR) ?? void 0;
+  const rect = scroller?.getBoundingClientRect();
+  const view = rect && rect.height > 0 ? rect : { left: 0, right: win.innerWidth, top: 0, bottom: win.innerHeight };
+  const visual = win.visualViewport;
+  const visibleBottom = visual && visual.height > 0 ? visual.offsetTop + visual.height : Infinity;
+  const visibleTop = visual && visual.height > 0 ? visual.offsetTop : -Infinity;
+  return { left: view.left, right: view.right, top: Math.max(view.top, visibleTop), bottom: Math.min(view.bottom, visibleBottom) };
+}
+function shownRect(widget, info) {
+  return intersect(innerBox(widget), info.table.getBoundingClientRect());
+}
+function heldBounds(info) {
+  const { tHead: head, tFoot: foot } = info.table;
+  const header = Array.from(info.table.rows[0].cells);
+  const lefts = header.filter((c) => c.classList.contains("tp-pin-left")).map((c) => c.getBoundingClientRect().right);
+  const rights = header.filter((c) => c.classList.contains("tp-pin-right")).map((c) => c.getBoundingClientRect().left);
+  return {
+    top: head ? head.getBoundingClientRect().bottom : -Infinity,
+    bottom: foot?.rows.length ? foot.getBoundingClientRect().top : Infinity,
+    left: lefts.length ? Math.max(...lefts) : -Infinity,
+    right: rights.length ? Math.min(...rights) : Infinity
+  };
+}
+function shownPart(widget, info, cell) {
+  if (!cell.isConnected) return void 0;
+  const held = cell.closest("tbody") ? heldBounds(info) : EVERYWHERE;
+  const pinned = cell.classList.contains("tp-pin-left") || cell.classList.contains("tp-pin-right");
+  const part = intersect(
+    cell.getBoundingClientRect(),
+    shownRect(widget, info),
+    viewBounds(widget),
+    pinned ? { ...held, left: -Infinity, right: Infinity } : held
+  );
+  return isEmpty(part) ? void 0 : part;
+}
+function isShown(widget, info, element) {
+  if (!element.isConnected && info.table.isConnected) return false;
+  const rect = element.getBoundingClientRect();
+  const box = innerBox(widget);
+  const held = element.closest("tbody") ? heldBounds(info) : EVERYWHERE;
+  const view = intersect(viewBounds(widget), box, { ...EVERYWHERE, top: held.top, bottom: held.bottom });
+  return rect.bottom > view.top && rect.top < view.bottom && rect.right > box.left && rect.left < box.right;
+}
+function overScrollbar(e) {
+  const el = e.target;
+  if (!(el instanceof Element)) return false;
+  const rect = el.getBoundingClientRect();
+  const x = e.clientX - rect.left - el.clientLeft;
+  const y = e.clientY - rect.top - el.clientTop;
+  return el.clientWidth > 0 && x >= el.clientWidth || el.clientHeight > 0 && y >= el.clientHeight;
+}
+var AUTOSCROLL_EDGE = 40;
+var AUTOSCROLL_STEP = 12;
+function scrollNearEdge(widget, x, y, sideways = true) {
+  const scroller = scrollsInside(widget) ? widget : scrollParentOf(widget);
+  if (scroller) {
+    const view = scroller.getBoundingClientRect();
+    if (y < view.top + AUTOSCROLL_EDGE) scroller.scrollTop -= AUTOSCROLL_STEP;
+    else if (y > view.bottom - AUTOSCROLL_EDGE) scroller.scrollTop += AUTOSCROLL_STEP;
+  }
+  if (sideways && widget.scrollWidth > widget.clientWidth) {
+    const box = widget.getBoundingClientRect();
+    if (x < box.left + AUTOSCROLL_EDGE) widget.scrollLeft -= AUTOSCROLL_STEP;
+    else if (x > box.right - AUTOSCROLL_EDGE) widget.scrollLeft += AUTOSCROLL_STEP;
+  }
+}
+
+// table-plus/src/core/anchor.ts
+var ANCHOR_MS = 1e3;
+var ViewAnchor = class {
+  constructor(doc, widgetForKey) {
+    this.doc = doc;
+    this.widgetForKey = widgetForKey;
+  }
+  doc;
+  widgetForKey;
+  // The table being written (its key), its scroller and its top's offset below the scroller's top
+  anchor;
+  /** A table about to be written: where it is in the page's view */
+  set(widget, key2) {
+    const scroller = widget.isConnected ? scrollParentOf(widget) : void 0;
+    this.anchor = scroller && {
+      key: key2,
+      scroller,
+      offset: widget.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+      until: Date.now() + ANCHOR_MS
+    };
+  }
+  /** The table rendered anew is scrolled to where it was, so the row edited stays under the user's eyes */
+  keep(key2, widget = this.widgetForKey(key2)) {
+    const anchor = this.anchor;
+    if (!anchor || anchor.key !== key2 || !widget) return;
+    if (Date.now() > anchor.until || !anchor.scroller.isConnected) {
+      this.anchor = void 0;
+      return;
+    }
+    const offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
+    if (Math.abs(offset - anchor.offset) >= 1) anchor.scroller.scrollTop += offset - anchor.offset;
+  }
+  /**
+   * After the table's own scrolling (the cell to edit next revealed): kept
+   * there, also once the editor has measured the new rendering, in the next
+   * frames
+   */
+  again(widget, key2) {
+    const anchor = this.anchor;
+    if (!anchor || anchor.key !== key2) return;
+    anchor.offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
+    const keep = () => this.keep(key2);
+    const win = this.doc.defaultView;
+    win.requestAnimationFrame?.(() => {
+      keep();
+      win.requestAnimationFrame(keep);
+    });
+    setTimeout(keep, 100);
+  }
+  /** Something scrolled: the editor scrolling the page while it measured a table written, which goes back */
+  scrolled(target) {
+    if (this.anchor && target === this.anchor.scroller) this.keep(this.anchor.key);
+  }
+  /** The user scrolls, presses or types: the table is no longer kept in place (a listener) */
+  drop = () => {
+    this.anchor = void 0;
+  };
+};
+
+// table-plus/src/core/rows.ts
+var TableRows = class {
+  // The rows as rendered (the header first), taken as SilverBullet put the table in, before any was taken out
+  rendered = /* @__PURE__ */ new WeakMap();
+  // The body rows, in the order of the markdown
+  body = /* @__PURE__ */ new WeakMap();
+  // The rows shown, in display order, as the view last placed them
+  shown = /* @__PURE__ */ new WeakMap();
+  // A row each table keeps in the document whatever a feature takes out (a row being dragged)
+  held = /* @__PURE__ */ new WeakMap();
+  /** The rows of a table as rendered, the header first (taken now if they were not yet) */
+  renderedRows(table) {
+    let rows = this.rendered.get(table);
+    if (!rows) this.rendered.set(table, rows = Array.from(table.rows));
+    return rows;
+  }
+  /** Whether the rows of a table were taken already (it is not new) */
+  knows(table) {
+    return this.rendered.has(table);
+  }
+  setBodyRows(table, rows) {
+    this.body.set(table, rows);
+  }
+  setShownRows(table, rows) {
+    this.shown.set(table, rows);
+  }
+  /** The body rows as rendered, in the order of the markdown, hidden ones included */
+  bodyRows(info) {
+    const kept = this.body.get(info.table);
+    if (kept) return [...kept];
+    return Array.from(info.table.querySelectorAll("tr[data-tp-row]")).sort((a, b) => Number(a.dataset.tpRow) - Number(b.dataset.tpRow));
+  }
+  /** The header row and the shown body rows, in display order */
+  shownRows(info) {
+    const placed = this.shown.get(info.table);
+    if (placed) return [...placed];
+    return [info.table.rows[0], ...Array.from(info.table.querySelectorAll("tr[data-tp-row]:not(.tp-hidden)"))];
+  }
+  /** A cell by its row in the markdown; hidden rows only with includeHidden */
+  cellAt(info, ref, includeHidden = false) {
+    const tr = ref.row === 0 ? info.table.rows[0] : this.bodyRows(info)[ref.row - 1];
+    if (!tr || tr.classList.contains("tp-hidden") && !includeHidden) return void 0;
+    return tr.cells[ref.column];
+  }
+  /** The row of the markdown a row rendered is (the header 0) */
+  rowOf(info, tr) {
+    return tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow);
+  }
+  /** Where a cell rendered is in the markdown; undefined for a row that is none of its (the filter row) */
+  cellRef(info, cell) {
+    const tr = cell.parentElement;
+    if (!tr) return void 0;
+    const row = this.rowOf(info, tr);
+    return Number.isInteger(row) ? { row, column: cell.cellIndex } : void 0;
+  }
+  holdInDocument(info, row) {
+    if (row) this.held.set(info.table, row);
+    else this.held.delete(info.table);
+  }
+  heldInDocument(info) {
+    return this.held.get(info.table);
+  }
+};
+function placeAtEnd(parent, rows) {
+  let next = null;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const tr = rows[i];
+    if (tr.parentElement !== parent || tr.nextSibling !== next) parent.insertBefore(tr, next);
+    next = tr;
+  }
+}
+
 // table-plus/src/pins.ts
 function rowZone(pins, rows, row) {
   if (row >= 1 && row <= pins.top) return "top";
@@ -2501,6 +2737,994 @@ var CellEditing = class {
   }
 };
 
+// table-plus/src/core/insert.ts
+var INSERT_REACH = 6;
+var INSERT_LANE_AT = 17;
+var INSERT_LANE_FROM = 7;
+var INSERT_LANE_BAND = 32;
+var INSERT_LANE_PAST = 16;
+var INSERT_CLICK_MS = 1e3;
+var InsertControls = class {
+  constructor(context) {
+    this.context = context;
+    this.mark = context.floatingButton("tp-insert", "Insert here", ICONS.plus);
+    this.quietMarks = {
+      row: context.floatingButton("tp-insert tp-quiet", "Add a row", ICONS.plus),
+      column: context.floatingButton("tp-insert tp-quiet", "Add a column", ICONS.plus)
+    };
+    this.line = context.host.floating("div", "tp-insert-line");
+    this.mark.addEventListener("click", () => this.insertHere());
+    for (const axis of ["row", "column"]) {
+      const mark = this.quietMarks[axis];
+      mark.addEventListener("click", () => this.insertAtEnd(axis));
+      mark.addEventListener("pointerenter", () => {
+        this.quietHovered = axis;
+        this.lineAtEnd(axis);
+      });
+      mark.addEventListener("pointerleave", () => {
+        if (this.quietHovered === axis) this.quietHovered = void 0;
+        if (!this.at) this.line.classList.remove("tp-visible");
+      });
+    }
+  }
+  context;
+  // The + the pointer brought up, and the line it inserts at (one for all the +)
+  mark;
+  line;
+  // Quiet + buttons under the last row and right of the last column, shown
+  // while that row (column) is hovered, selected or edited; lit up under the
+  // pointer. A + the pointer brings up on the same axis takes their place.
+  quietMarks;
+  // The quiet + under the pointer: its line shows
+  quietHovered;
+  /** Where the + the pointer brought up inserts */
+  at;
+  /** The pointer is over the band around the table where a + inserts: as over the table, its controls stay */
+  inBand = false;
+  // When a press inserted: the click that ends it is no click on what is under the pointer then
+  pressAt = 0;
+  // The table a + inserted into, to show the + again once it is rendered anew
+  insertedIn;
+  remove() {
+    for (const el of [this.mark, this.line, ...Object.values(this.quietMarks)]) el.remove();
+  }
+  owns(node) {
+    return [this.mark, this.line, ...Object.values(this.quietMarks)].some((el) => el.contains(node));
+  }
+  // ---- presses -------------------------------------------------------------
+  /** Any press, first: only the press that inserted has its end swallowed */
+  pressStarted() {
+    this.pressAt = 0;
+  }
+  /**
+   * A press (after the features'): on a +, or in the band beside the table that
+   * misses it (or where none shows), it is the +'s: it inserts at once. True: taken.
+   */
+  mouseDown(e) {
+    if (e.button !== 0) return false;
+    const quietAxis = ["row", "column"].find((axis) => e.target instanceof Node && this.quietMarks[axis].contains(e.target));
+    if (quietAxis) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.pressAt = Date.now();
+      this.insertAtEnd(quietAxis);
+      return true;
+    }
+    const onMark = e.target instanceof Node && this.mark.contains(e.target);
+    if (onMark || this.inBand && !(e.target instanceof Node && this.context.host.isFloating(e.target))) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.at) {
+        this.pressAt = Date.now();
+        this.insertHere();
+      }
+      return true;
+    }
+    return false;
+  }
+  /** Whether a mouseup or click (not from the keyboard) ends a press that inserted: it reaches nothing */
+  endsInsertingPress(e) {
+    if (e.button !== 0 || !this.pressAt || Date.now() - this.pressAt > INSERT_CLICK_MS) return false;
+    if (e.type === "click") this.pressAt = 0;
+    return true;
+  }
+  // ---- the pointer ---------------------------------------------------------
+  /** The pointer moved: the + where it is (none while a menu is open or something is dragged) */
+  pointerMoved(e) {
+    const busy = this.context.busy();
+    this.inBand = !this.context.menuOpen() && busy !== "drag" ? this.show(e, !busy) : this.hide();
+  }
+  /** The pointer left the window: the + goes (no move tells it so) */
+  pointerLeft() {
+    this.inBand = this.hide();
+  }
+  /** The table moved under a pointer that did not: the + where the pointer is now */
+  followPointer() {
+    if (this.at || this.inBand) this.showUnderPointer();
+  }
+  /** A table rendered anew after a + inserted into it: the + where the pointer still is */
+  tableEnhanced(widget, info) {
+    if (this.insertedIn !== info.key || !this.context.pointer()) return;
+    this.insertedIn = void 0;
+    this.context.hoverTable(widget);
+    this.showUnderPointer();
+  }
+  /** The table's controls are hidden: the pointer's + too (a selected cell's quiet + stays) */
+  hidePointers() {
+    this.mark.classList.remove("tp-visible");
+    this.line.classList.remove("tp-visible");
+    this.at = void 0;
+  }
+  /** The + where the pointer is now, as a move there would show it */
+  showUnderPointer() {
+    const pointer = this.context.pointer();
+    const busy = this.context.busy();
+    if (!pointer || this.context.menuOpen() || busy === "drag") {
+      this.inBand = this.hide();
+      return;
+    }
+    const target = this.context.host.doc.elementFromPoint?.(pointer.clientX, pointer.clientY) ?? null;
+    this.inBand = this.show({ ...pointer, buttons: 0, target }, !busy);
+  }
+  /**
+   * A pointer that hovers (a mouse, a pen) near a border of the table shown:
+   * on a border between rows (or under the last), left of the table, or between
+   * columns (or right of the last), above the header, a + inserts one there.
+   * Whether the pointer is in that band around the table. `mark` false (a menu
+   * open): the grips follow the pointer along the edges, no + is shown.
+   */
+  show(e, mark = true) {
+    const { host } = this.context;
+    const { widget, cell: hoverCell } = this.context.hovered();
+    const info = widget && host.infoOf(widget);
+    if (e.pointerType === "touch" || e.buttons !== 0 || !widget || !info || renderedTable(widget) !== info.table) return this.hide();
+    if (e.target instanceof Node && this.mark.contains(e.target)) return true;
+    if (e.target instanceof Node && host.isFloating(e.target)) return this.hide();
+    const shown = host.shownRect(widget, info);
+    const header = info.table.rows[0].getBoundingClientRect();
+    const { clientX: x, clientY: y } = e;
+    if (x >= shown.left - INSERT_LANE_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + INSERT_LANE_PAST) {
+      const held = heldBounds(info);
+      const body = (tr) => tr.parentElement?.tagName === "TBODY";
+      const span = (tr) => {
+        const r = tr.getBoundingClientRect();
+        return body(tr) ? { top: Math.max(r.top, held.top), bottom: Math.min(r.bottom, held.bottom), edge: r.bottom } : { top: r.top, bottom: r.bottom, edge: r.bottom };
+      };
+      const rows = host.shownRows(info).filter((tr) => span(tr).bottom > span(tr).top + 1);
+      const besideRow = rows.find((tr, i) => i > 0 && y >= span(tr).top && y < span(tr).bottom);
+      if (besideRow) this.context.hoverAt(widget, info, besideRow.cells[hoverCell?.cellIndex ?? 0] ?? besideRow.cells[0]);
+      const edges = rows.map((tr, i) => ({ edge: span(tr).edge, i })).filter(({ edge, i }) => !body(rows[i]) || edge >= held.top - 1 && edge <= held.bottom + 1);
+      if (mark && x <= shown.left - INSERT_LANE_FROM && edges.length) {
+        const { edge, i } = edges.reduce((best, e2) => Math.abs(y - e2.edge) < Math.abs(y - best.edge) ? e2 : best);
+        const next = rows[i + 1];
+        const below = next && host.rowOf(info, next);
+        const above = i > 0 ? host.rowOf(info, rows[i]) : void 0;
+        const at = below !== void 0 && below > 0 ? below : appendRowAt(info.pins, info.rows);
+        const beside = below !== void 0 && below > 0 ? { before: below } : above !== void 0 ? { after: above } : {};
+        this.markAt(info, { key: info.key, axis: "row", at, beside }, edge, shown);
+        return true;
+      }
+      return this.hide(true);
+    }
+    if (y >= header.top - INSERT_LANE_BAND && y <= header.top + 2 && x >= shown.left - INSERT_REACH && x <= shown.right + INSERT_LANE_PAST) {
+      const cells = Array.from(info.table.rows[0].cells);
+      const pinned = (c) => c.classList.contains("tp-pin-left") || c.classList.contains("tp-pin-right");
+      const under = cells.filter((c) => x >= c.getBoundingClientRect().left && x < c.getBoundingClientRect().right);
+      const column = (under.find(pinned) ?? under[0])?.cellIndex ?? -1;
+      const row = hoverCell?.parentElement ?? info.table.rows[0];
+      if (column >= 0 && row.closest("table") === info.table) this.context.hoverAt(widget, info, row.cells[column]);
+      const held = heldBounds(info);
+      const edges = cells.flatMap((c, i) => {
+        const r = c.getBoundingClientRect();
+        return [
+          { edge: r.left, i, pinned: pinned(c) },
+          { edge: r.right, i: i + 1, pinned: pinned(c) }
+        ];
+      }).filter(({ edge, pinned: pinned2 }) => (pinned2 || edge >= held.left - 1 && edge <= held.right + 1) && edge >= shown.left - INSERT_REACH && edge <= shown.right + INSERT_REACH);
+      if (mark && y <= header.top - INSERT_LANE_FROM && edges.length) {
+        const { edge, i } = edges.reduce((best, e2) => Math.abs(x - e2.edge) < Math.abs(x - best.edge) ? e2 : best);
+        const at = i < cells.length ? i : appendColumnAt(info.pins, info.columns);
+        this.markAt(info, { key: info.key, axis: "column", at, beside: {} }, edge, shown);
+        return true;
+      }
+      return this.hide(true);
+    }
+    return this.hide();
+  }
+  markAt(info, at, edge, shown) {
+    this.at = at;
+    const mark = this.mark;
+    mark.title = at.axis === "row" ? "Insert a row here" : "Insert a column here";
+    mark.setAttribute("aria-label", mark.title);
+    mark.classList.add("tp-visible");
+    this.place(mark, info, at.axis, edge, shown);
+    this.showQuiet();
+  }
+  /**
+   * A + and the line it inserts at: a row's left of the row grips, the line
+   * across the table; a column's above the column grips, the line down the
+   * table
+   */
+  place(mark, info, axis, edge, shown, withLine = true) {
+    const { host } = this.context;
+    const line = this.line;
+    if (withLine) line.classList.add("tp-visible");
+    if (axis === "row") {
+      const center = shown.left - INSERT_LANE_AT;
+      if (withLine) Object.assign(line.style, { left: `${center}px`, top: `${edge - 1}px`, width: `${shown.right - center}px`, height: "2px" });
+      host.place(mark, center - mark.offsetWidth / 2, edge - mark.offsetHeight / 2);
+    } else {
+      const center = info.table.rows[0].getBoundingClientRect().top - INSERT_LANE_AT;
+      if (withLine) Object.assign(line.style, { left: `${edge - 1}px`, top: `${center}px`, width: "2px", height: `${shown.bottom - center}px` });
+      host.place(mark, edge - mark.offsetWidth / 2, center - mark.offsetHeight / 2);
+    }
+  }
+  /**
+   * The + the pointer brought up goes (the quiet ones come back); `inBand`:
+   * the pointer is still in the band around the table (the table's controls
+   * stay)
+   */
+  hide(inBand = false) {
+    this.at = void 0;
+    this.mark.classList.remove("tp-visible");
+    this.line.classList.remove("tp-visible");
+    this.showQuiet();
+    return inBand;
+  }
+  // ---- the quiet + of the last row and column --------------------------------
+  /**
+   * The table whose last row or column has the cell edited, the cell hovered
+   * or a selected cell (in this order), and which of the two
+   */
+  quietTarget() {
+    const { host } = this.context;
+    const editing = host.editing?.cell;
+    const hoverCell = this.context.hovered().cell;
+    const hovered = hoverCell?.isConnected ? hoverCell : void 0;
+    const selected = Array.from(host.doc.querySelectorAll(".tp-selected"));
+    const first = editing ?? hovered ?? selected[0];
+    const hit = first && host.enhancedWidgetOf(first);
+    if (!hit) return void 0;
+    const [widget, info] = hit;
+    const rows = host.shownRows(info);
+    const lastRow = rows.length > 1 ? rows[rows.length - 1] : void 0;
+    const lastColumn = info.table.rows[0].cells.length - 1;
+    const cells = [editing, hovered, ...selected].filter((cell) => cell?.closest("table") === info.table);
+    const row = cells.some((cell) => cell.parentElement === lastRow);
+    const column = cells.some((cell) => cell.cellIndex === lastColumn);
+    return row || column ? { widget, info, row, column } : void 0;
+  }
+  /** Where a row (column) is added at the end: its edge, and the insert there */
+  endOf(widget, info, axis) {
+    const { host } = this.context;
+    const shown = host.shownRect(widget, info);
+    if (axis === "row") {
+      const rows = host.shownRows(info);
+      const last = rows[rows.length - 1];
+      const at2 = { key: info.key, axis, at: appendRowAt(info.pins, info.rows), beside: { after: host.rowOf(info, last) } };
+      return { at: at2, edge: last.getBoundingClientRect().bottom, shown };
+    }
+    const cells = info.table.rows[0].cells;
+    const at = { key: info.key, axis, at: appendColumnAt(info.pins, info.columns), beside: {} };
+    return { at, edge: cells[cells.length - 1].getBoundingClientRect().right, shown };
+  }
+  /** The quiet + of the last row and column (quietTarget), but on an axis where the pointer brought up a +, or out of view */
+  showQuiet() {
+    const target = this.quietTarget();
+    for (const axis of ["row", "column"]) {
+      const mark = this.quietMarks[axis];
+      if (!target || !target[axis] || this.at?.axis === axis) {
+        mark.classList.remove("tp-visible");
+        continue;
+      }
+      const { widget, info } = target;
+      const end = this.endOf(widget, info, axis);
+      const view = this.context.host.viewBounds(widget);
+      const y = axis === "row" ? end.edge : info.table.rows[0].getBoundingClientRect().top - INSERT_LANE_AT;
+      const held = heldBounds(info);
+      const inView = y >= view.top && y <= view.bottom && (axis === "row" ? end.edge >= held.top - 1 : end.edge <= end.shown.right + INSERT_REACH);
+      if (!inView) {
+        mark.classList.remove("tp-visible");
+        continue;
+      }
+      mark.classList.add("tp-visible");
+      this.place(mark, info, axis, end.edge, end.shown, false);
+    }
+    if (this.at) return;
+    const hovered = this.quietHovered;
+    if (hovered && this.quietMarks[hovered].classList.contains("tp-visible")) this.lineAtEnd(hovered);
+    else this.line.classList.remove("tp-visible");
+  }
+  /** The pointer on a quiet +: the line where it adds */
+  lineAtEnd(axis) {
+    const target = this.quietTarget();
+    if (!target || this.at) return;
+    const end = this.endOf(target.widget, target.info, axis);
+    this.place(this.quietMarks[axis], target.info, axis, end.edge, end.shown);
+  }
+  // ---- inserting -------------------------------------------------------------
+  /** A quiet + pressed: a row (column) added at the end, its first cell (name) edited */
+  insertAtEnd(axis) {
+    const target = this.quietTarget();
+    if (!target) return;
+    const { widget, info } = target;
+    this.insert(widget, info, this.endOf(widget, info, axis).at);
+  }
+  /** The + clicked: a row (column) inserted there, its first cell (name) edited */
+  insertHere() {
+    const at = this.at;
+    const widget = at && this.context.host.widgetForKey(at.key);
+    const info = widget && this.context.host.infoOf(widget);
+    if (at && widget && info) this.insert(widget, info, at);
+  }
+  insert(widget, info, at) {
+    const { host } = this.context;
+    this.insertedIn = info.key;
+    if (at.axis === "row") void insertRowWith(host, widget, info, at.at, firstVisibleColumn(widget, info), void 0, at.beside);
+    else void insertColumnWith(host, widget, info, at.at);
+  }
+};
+function firstVisibleColumn(widget, info) {
+  const left = widget.getBoundingClientRect().left;
+  const cells = Array.from(info.table.rows[0].cells);
+  const index = cells.findIndex((cell) => cell.getBoundingClientRect().left >= left - 1);
+  return Math.max(0, index);
+}
+
+// table-plus/src/menu.ts
+function wrapRuns(entries, wrap) {
+  return entries.map(
+    (entry) => entry.kind === "item" ? { ...entry, run: wrap(entry.run) } : entry.kind === "segmented" || entry.kind === "actions" ? { ...entry, options: entry.options.map((option) => ({ ...option, run: wrap(option.run) })) } : entry
+  );
+}
+function keepFocus(menu) {
+  menu.addEventListener("mousedown", (e) => {
+    if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+  });
+}
+var MENU_CLOSE = "tp-menu-close";
+function onMenuClose(menu, close) {
+  menu.addEventListener(MENU_CLOSE, close);
+}
+function startNaming(menu) {
+  menu.querySelector(".tp-menu-rename:not([aria-disabled])")?.click();
+}
+function floatingMenu(doc, title, entries, options) {
+  const menu = renderMenu(doc, title, entries, options.back, options.naming);
+  menu.classList.add("tp-floating", "tp-menu", "tp-visible");
+  keepFocus(menu);
+  onMenuClose(menu, options.close);
+  return menu;
+}
+function namingThatCloses(naming, close) {
+  if (!naming) return void 0;
+  return {
+    ...naming,
+    save: async (name) => {
+      const why = await naming.save(name);
+      if (why === void 0) close();
+      return why;
+    }
+  };
+}
+function renderMenu(doc, title, entries, back, naming) {
+  const menu = doc.createElement("div");
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", title);
+  if (back) menu.dataset.tpList = "";
+  const heading = doc.createElement("div");
+  heading.className = "tp-menu-title";
+  if (back) {
+    const arrow = doc.createElement("button");
+    arrow.type = "button";
+    arrow.className = "tp-menu-back";
+    arrow.title = "Back";
+    arrow.setAttribute("aria-label", "Back");
+    arrow.innerHTML = back.icon;
+    arrow.addEventListener("click", (e) => {
+      e.preventDefault();
+      back.run();
+    });
+    heading.append(arrow);
+  }
+  const titleText = doc.createElement("span");
+  titleText.className = "tp-menu-title-text";
+  titleText.textContent = title;
+  heading.append(titleText);
+  menu.append(heading);
+  if (naming) addNaming(doc, menu, heading, naming);
+  const close = doc.createElement("button");
+  close.type = "button";
+  close.className = "tp-menu-close";
+  close.title = "Close";
+  close.setAttribute("aria-label", "Close");
+  close.innerHTML = CLOSE;
+  close.addEventListener("click", (e) => {
+    e.preventDefault();
+    menu.dispatchEvent(new Event(MENU_CLOSE));
+  });
+  heading.append(close);
+  let bubble;
+  const showDetail = (item, detail) => {
+    if (!bubble) {
+      bubble = doc.createElement("div");
+      bubble.className = "tp-menu-detail";
+      bubble.setAttribute("role", "tooltip");
+      menu.append(bubble);
+    }
+    const title2 = doc.createElement("div");
+    title2.className = "tp-menu-detail-title";
+    title2.textContent = detail.title;
+    const parts = [title2];
+    if (detail.code?.length) {
+      const code = doc.createElement("div");
+      code.className = "tp-menu-detail-code";
+      for (const form of detail.code) {
+        const c = doc.createElement("code");
+        c.textContent = form;
+        code.append(c);
+      }
+      parts.push(code);
+    }
+    if (detail.text) {
+      const text = doc.createElement("p");
+      text.textContent = detail.text;
+      parts.push(text);
+    }
+    for (const note of detail.notes ?? []) {
+      const p = doc.createElement("p");
+      p.className = "tp-menu-detail-note";
+      p.textContent = note;
+      parts.push(p);
+    }
+    if (detail.content) parts.push(detail.content());
+    bubble.replaceChildren(...parts);
+    bubble.hidden = false;
+    bubble.classList.remove("tp-left");
+    bubble.style.top = `${item.offsetTop}px`;
+    const view = doc.defaultView;
+    if (view && bubble.getBoundingClientRect().right > view.innerWidth - 8) bubble.classList.add("tp-left");
+    const below = view ? bubble.getBoundingClientRect().bottom - (view.innerHeight - 8) : 0;
+    if (below > 0) bubble.style.top = `${item.offsetTop - below}px`;
+  };
+  const hideDetail = () => {
+    if (bubble) bubble.hidden = true;
+  };
+  const button = (className, run, disabled) => {
+    const b = doc.createElement("button");
+    b.type = "button";
+    b.className = className;
+    if (disabled) {
+      b.setAttribute("aria-disabled", "true");
+      b.title = disabled;
+    }
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!disabled) run();
+    });
+    return b;
+  };
+  for (const entry of entries) {
+    if (entry.kind === "separator") {
+      const separator = doc.createElement("div");
+      separator.className = "tp-menu-separator";
+      separator.setAttribute("role", "separator");
+      menu.append(separator);
+    } else if (entry.kind === "item") {
+      const item = button("tp-menu-item", entry.run, entry.disabled);
+      item.setAttribute("role", entry.checked === void 0 ? "menuitem" : "menuitemcheckbox");
+      if (entry.checked !== void 0) item.setAttribute("aria-checked", String(entry.checked));
+      if (entry.danger) item.classList.add("tp-danger");
+      const detail = entry.detail;
+      if (detail && !entry.disabled) {
+        item.addEventListener("mouseenter", () => showDetail(item, detail));
+        item.addEventListener("focus", () => showDetail(item, detail));
+        item.addEventListener("mouseleave", hideDetail);
+        item.addEventListener("blur", hideDetail);
+      } else if (entry.hint && !entry.disabled) item.title = entry.hint;
+      item.innerHTML = `<span class="tp-icon">${entry.icon}</span>`;
+      const label = doc.createElement("span");
+      label.className = "tp-label";
+      label.textContent = entry.label;
+      if (entry.value) {
+        label.append(": ");
+        if (entry.value.icon) {
+          const icon = doc.createElement("span");
+          icon.className = "tp-menu-value-icon";
+          icon.innerHTML = entry.value.icon;
+          label.append(icon);
+        }
+        label.append(entry.value.text);
+      }
+      item.append(label);
+      menu.append(item);
+    } else if (entry.kind === "actions") {
+      const bar = doc.createElement("div");
+      bar.className = "tp-menu-actions";
+      bar.setAttribute("role", "group");
+      for (const option of entry.options) {
+        const b = button("tp-action", option.run, option.disabled);
+        b.setAttribute("role", "menuitem");
+        b.setAttribute("aria-label", option.title);
+        b.title = option.disabled ? `${option.title}: ${option.disabled}` : option.title;
+        b.innerHTML = `<span class="tp-icon">${option.icon}</span>`;
+        const caption = doc.createElement("span");
+        caption.className = "tp-action-caption";
+        caption.textContent = option.caption;
+        b.append(caption);
+        bar.append(b);
+      }
+      menu.append(bar);
+    } else {
+      const row = doc.createElement("div");
+      row.className = "tp-menu-segmented";
+      const label = doc.createElement("span");
+      label.className = "tp-label";
+      label.textContent = entry.label;
+      const group = doc.createElement("div");
+      group.className = "tp-segments";
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-label", entry.label);
+      for (const option of entry.options) {
+        const b = button("tp-segment", option.run, option.disabled);
+        if (option.active === void 0) b.setAttribute("role", "menuitem");
+        else {
+          b.setAttribute("role", "menuitemradio");
+          b.setAttribute("aria-checked", String(option.active));
+        }
+        b.title = option.disabled ? `${option.title}: ${option.disabled}` : option.title;
+        b.setAttribute("aria-label", option.title);
+        b.innerHTML = option.icon;
+        group.append(b);
+      }
+      row.append(label, group);
+      menu.append(row);
+    }
+  }
+  menu.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.target instanceof HTMLInputElement) return;
+    const buttons = Array.from(
+      menu.querySelectorAll("button:not([aria-disabled]):not(.tp-menu-rename):not(.tp-menu-close)")
+    );
+    const index = buttons.indexOf(doc.activeElement);
+    const focus = (i) => buttons[(i + buttons.length) % buttons.length]?.focus({ preventScroll: true });
+    const inRow = index >= 0 && (buttons[index].classList.contains("tp-segment") || buttons[index].classList.contains("tp-action"));
+    if (e.key === "ArrowDown" || e.key === "ArrowRight" && inRow) {
+      e.preventDefault();
+      focus(index + 1);
+    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft" && inRow) {
+      e.preventDefault();
+      focus(index < 0 ? -1 : index - 1);
+    } else if (e.key === "ArrowLeft" && back) {
+      e.preventDefault();
+      back.run();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      focus(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      focus(-1);
+    }
+  });
+  return menu;
+}
+function addNaming(doc, menu, heading, naming) {
+  const pencil = doc.createElement("button");
+  pencil.type = "button";
+  pencil.className = "tp-menu-rename";
+  pencil.innerHTML = PENCIL;
+  pencil.setAttribute("aria-label", naming.label);
+  pencil.title = naming.disabled ? `${naming.label}: ${naming.disabled}` : naming.label;
+  if (naming.disabled) pencil.setAttribute("aria-disabled", "true");
+  heading.append(pencil);
+  let saving = false;
+  pencil.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (naming.disabled) return;
+    const field = doc.createElement("input");
+    field.type = "text";
+    field.className = "tp-menu-name";
+    field.value = naming.name ?? "";
+    field.placeholder = "name";
+    field.setAttribute("aria-label", naming.label);
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    const problem = doc.createElement("div");
+    problem.className = "tp-menu-name-problem";
+    problem.id = `tp-menu-name-problem-${++problemIds}`;
+    problem.setAttribute("role", "alert");
+    problem.hidden = true;
+    field.setAttribute("aria-describedby", problem.id);
+    const titled = Array.from(heading.childNodes);
+    heading.replaceChildren(field);
+    heading.after(problem);
+    heading.classList.add("tp-naming");
+    const leave = () => {
+      heading.classList.remove("tp-naming");
+      heading.replaceChildren(...titled);
+      problem.remove();
+      menu.focus({ preventScroll: true });
+    };
+    field.addEventListener("keydown", (ev) => {
+      if (ev.isComposing || ev.keyCode === 229) return;
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        leave();
+      } else if (ev.key === "Enter" && !saving) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        saving = true;
+        problem.hidden = true;
+        field.removeAttribute("aria-invalid");
+        void naming.save(field.value.trim()).then((why) => {
+          saving = false;
+          if (why === void 0 || !field.isConnected) return;
+          problem.textContent = why;
+          problem.hidden = false;
+          field.setAttribute("aria-invalid", "true");
+          field.focus();
+        });
+      }
+    });
+    field.focus();
+    field.select();
+  });
+}
+var problemIds = 0;
+var CLOSE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+var PENCIL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg>';
+function focusMenu(menu) {
+  const current = menu.dataset.tpList !== void 0 ? menu.querySelector('.tp-menu-item[aria-checked="true"]') : null;
+  if (!current) {
+    menu.tabIndex = -1;
+    menu.focus({ preventScroll: true });
+    return;
+  }
+  menu.classList.add("tp-menu-still");
+  current.classList.add("tp-menu-current");
+  current.focus({ preventScroll: true });
+  menu.addEventListener("pointermove", () => menu.classList.remove("tp-menu-still"), { once: true });
+  current.addEventListener("blur", () => current.classList.remove("tp-menu-current"), { once: true });
+}
+
+// table-plus/src/core/tablemenu.ts
+var TableMenu = class {
+  constructor(doc, focusEditor) {
+    this.doc = doc;
+    this.focusEditor = focusEditor;
+  }
+  doc;
+  focusEditor;
+  open;
+  /** Which menu is open, if any */
+  get kind() {
+    return this.open?.kind;
+  }
+  owns(node) {
+    return !!this.open?.element.contains(node);
+  }
+  /** Shows a menu (the one open before goes); `naming`: its title named, a save closing it */
+  show(widget, title, entries, place, back, naming) {
+    this.close(false);
+    const closing = wrapRuns(entries, (run) => () => {
+      this.close(false);
+      run();
+    });
+    const element = floatingMenu(this.doc, title, closing, {
+      back,
+      naming: namingThatCloses(naming, () => this.close(false)),
+      close: () => this.close(true)
+    });
+    this.doc.body.append(element);
+    this.open = { element, widget, ...place };
+    place.anchor?.classList.add("tp-active");
+    this.position();
+    focusMenu(element);
+  }
+  /** The menu's title as a field, its name to type */
+  startNaming() {
+    if (this.open) startNaming(this.open.element);
+  }
+  /** The toolbar's ⋯ menu stays open at its button shown anew (the toolbar is made again on each change) */
+  reanchor(anchor) {
+    if (this.open?.kind !== "table") return;
+    anchor.classList.add("tp-active");
+    this.open.anchor = anchor;
+  }
+  /** Below the ⋯ button, its right edge at the button's; at the pointer; always inside the window */
+  position() {
+    if (!this.open) return;
+    const { element, anchor, point } = this.open;
+    const win = this.doc.defaultView;
+    const m = element.getBoundingClientRect();
+    let left;
+    let top;
+    if (anchor) {
+      const a = anchor.getBoundingClientRect();
+      left = a.right - m.width;
+      top = a.bottom + 4;
+      if (top + m.height > win.innerHeight - 4) top = a.top - m.height - 4;
+    } else {
+      left = point?.x ?? 0;
+      top = point?.y ?? 0;
+      if (top + m.height > win.innerHeight - 4) top -= m.height;
+      if (left + m.width > win.innerWidth - 4) left -= m.width;
+    }
+    element.style.left = `${Math.round(Math.max(4, Math.min(left, win.innerWidth - m.width - 4)))}px`;
+    element.style.top = `${Math.round(Math.max(4, top))}px`;
+  }
+  /** Closes the open menu; `refocus`: the editor gets the keyboard back if the menu had it */
+  close(refocus) {
+    const menu = this.open;
+    if (!menu) return;
+    this.open = void 0;
+    const hadFocus = menu.element.contains(this.doc.activeElement);
+    menu.element.remove();
+    menu.anchor?.classList.remove("tp-active");
+    if (refocus && hadFocus) this.focusEditor(menu.widget);
+  }
+};
+
+// table-plus/src/core/frame.ts
+function oncePerFrame(doc, run) {
+  let queued = false;
+  const frame = () => {
+    queued = false;
+    run();
+  };
+  return () => {
+    if (queued) return;
+    queued = true;
+    const win = doc.defaultView;
+    if (win?.requestAnimationFrame) win.requestAnimationFrame(frame);
+    else setTimeout(frame, 0);
+  };
+}
+
+// table-plus/src/core/toolbar.ts
+var BAR_GAP = 12;
+var BAR_CLEAR = 15;
+var Toolbar = class {
+  constructor(context) {
+    this.context = context;
+    this.bar = context.host.floating("div", "tp-bar");
+    this.queuePlace = oncePerFrame(context.host.doc, () => this.placeHovered());
+  }
+  context;
+  bar;
+  // The ⋯ menu of the toolbar shown last, for a feature to open (TableHost.openTableMenu)
+  openMore;
+  queuePlace;
+  remove() {
+    this.bar.remove();
+  }
+  owns(node) {
+    return this.bar.contains(node);
+  }
+  get shown() {
+    return this.bar.classList.contains("tp-visible");
+  }
+  hide() {
+    this.bar.classList.remove("tp-visible");
+  }
+  /** What a feature's buttons show changed: the toolbar in view is made again */
+  changed() {
+    const widget = this.context.hovered();
+    const info = widget && this.context.host.infoOf(widget);
+    if (widget && info && this.shown) this.show(widget, info, false);
+  }
+  /** Opens the table's ⋯ menu (its toolbar shown), with its title's name field open */
+  openMenu(widget, naming) {
+    if (this.openMore?.widget === widget) this.openMore.open(naming);
+  }
+  /** The toolbar for a table; placed now, or (`placeNow` false: after a change of the table) in the next frame */
+  show(widget, info, placeNow = true) {
+    const { host, menu } = this.context;
+    const doc = host.doc;
+    const view = host.viewOf(info);
+    const bar = this.bar;
+    bar.replaceChildren();
+    const button = (item, className) => {
+      const b = doc.createElement("button");
+      b.type = "button";
+      b.tabIndex = -1;
+      b.title = item.title;
+      if (className) b.className = className;
+      if (item.place === "icon" && item.icon) {
+        b.classList.add("tp-bar-icon");
+        b.setAttribute("aria-label", item.label);
+        b.innerHTML = item.icon;
+      } else b.textContent = item.label;
+      if (item.attention) b.classList.add("tp-attention");
+      if (item.pressed !== void 0) b.setAttribute("aria-pressed", String(item.pressed));
+      b.addEventListener("click", (e) => {
+        e.preventDefault();
+        item.run();
+      });
+      bar.append(b);
+      return b;
+    };
+    const featureButtons = this.context.buttons(widget, info);
+    for (const item of featureButtons.filter((b) => b.place === "label")) button(item, "tp-bar-label");
+    const chips = [];
+    if (view.sort) {
+      const { column, direction } = view.sort;
+      const name = cellText(info.table.rows[0].cells[column]) || `column ${column + 1}`;
+      chips.push({
+        label: `Sorted by ${name} ${direction === "asc" ? "\u2191" : "\u2193"}`,
+        title: "Clear sorting: show the rows as written",
+        place: "chip",
+        run: () => {
+          const [w, i] = this.context.current(widget, info);
+          host.setSort(w, i, withoutSort(host.viewOf(i)));
+        },
+        // Apply: the rows are sorted in the markdown, and the sorting view ends
+        actions: [{ icon: ICONS.applySort, title: "Sort the rows in the markdown this way", run: () => this.context.applySort(widget, info) }]
+      });
+    }
+    for (const item of [...chips, ...featureButtons.filter((b) => b.place === "chip")]) {
+      const chip = doc.createElement("span");
+      chip.className = "tp-status tp-chip";
+      if (item.icon) chip.innerHTML = item.icon;
+      chip.append(item.label);
+      const small = (className, title, icon, run) => {
+        const b = doc.createElement("button");
+        b.type = "button";
+        b.tabIndex = -1;
+        b.className = className;
+        b.title = title;
+        b.setAttribute("aria-label", title);
+        b.innerHTML = icon;
+        b.addEventListener("click", (e) => {
+          e.preventDefault();
+          run();
+        });
+        return b;
+      };
+      for (const action of item.actions ?? []) chip.append(small("tp-chip-apply", action.title, action.icon, action.run));
+      chip.append(small("tp-chip-clear", item.title, ICONS.clear, item.run));
+      bar.append(chip);
+    }
+    for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
+    const menuItems = [...featureButtons.filter((b) => (b.place ?? "menu") === "menu"), ...this.coreMenuItems(widget, info)];
+    const more = button(
+      {
+        label: "More",
+        title: "More for this table",
+        place: "icon",
+        icon: ICONS.more,
+        run: () => menu.kind === "table" ? menu.close(true) : this.showMenu(widget, more, menuItems)
+      },
+      "tp-bar-more"
+    );
+    this.openMore = { widget, open: (naming) => this.showMenu(widget, more, menuItems, naming) };
+    menu.reanchor(more);
+    if (placeNow || !this.shown) this.place(widget, info);
+    else this.queuePlace();
+  }
+  /** The core's items of the ⋯ menu, after the features' */
+  coreMenuItems(widget, info) {
+    const { host } = this.context;
+    return [
+      // Pinned rows and columns are at the edges already: unpinned, they stay where they are
+      ...hasPins(info.pins) ? [
+        {
+          label: "Unpin all",
+          title: "Unpin all rows and columns: they stay where they are, and scroll and sort with the others",
+          icon: ICONS.unpin,
+          run: () => {
+            const [w] = this.context.current(widget, info);
+            void host.write(w, (t) => t, { pins: NO_PINS });
+          }
+        }
+      ] : [],
+      // Aligned already, it writes nothing
+      {
+        label: "Format table",
+        title: "Align the table's markdown: its columns padded to one width",
+        icon: ICONS.format,
+        run: () => {
+          const [w] = this.context.current(widget, info);
+          void host.write(w, (t) => ({ ...t, padded: true }));
+        }
+      },
+      {
+        label: "Edit markdown",
+        title: "Show this table as markdown",
+        icon: ICONS.markdown,
+        run: () => this.context.showMarkdown(this.context.current(widget, info)[1])
+      },
+      // Last before the destructive ones: not about this table
+      {
+        label: "Table Plus settings\u2026",
+        title: "Settings for every table in the space (not just this one): SilverBullet's configuration",
+        icon: ICONS.settings,
+        run: () => this.context.openSettings()
+      }
+    ];
+  }
+  /** The toolbar placed again, if it is shown for the table hovered */
+  placeHovered() {
+    const widget = this.context.hovered();
+    const info = widget && this.context.host.infoOf(widget);
+    if (this.context.stopped() || !widget || !info || renderedTable(widget) !== info.table || !this.shown) return;
+    this.place(widget, info);
+  }
+  /** The toolbar placed above the table's header (or over its right end), and the open table menu with it */
+  place(widget, info) {
+    const { host } = this.context;
+    const bar = this.bar;
+    const rect = widget.getBoundingClientRect();
+    const tableRect = info.table.getBoundingClientRect();
+    const headerRect = info.table.rows[0].getBoundingClientRect();
+    const shown = host.viewBounds(widget);
+    bar.classList.add("tp-visible");
+    const above = headerRect.top - bar.offsetHeight - BAR_GAP;
+    const held = info.table.tHead?.classList.contains("tp-stuck") ?? false;
+    const fits = held || above >= shown.top + 2;
+    const top = fits ? Math.max(above, shown.top) : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
+    host.place(bar, Math.min(rect.right, tableRect.right, shown.right) - bar.offsetWidth - (fits ? BAR_CLEAR : 6), top);
+    this.context.menu.position();
+  }
+  /**
+   * The toolbar's ⋯ menu: the table's actions that are not used all the time,
+   * the destructive ones last, after a separator
+   */
+  showMenu(widget, anchor, items, startNamed = false) {
+    const { host, menu } = this.context;
+    const place = { kind: "table", anchor };
+    const back = { icon: ICONS.arrowLeft, run: () => this.showMenu(widget, anchor, items) };
+    const entry = (item) => ({
+      kind: "item",
+      label: item.label,
+      icon: item.icon ?? "",
+      hint: item.title,
+      ...item.value ? { value: { text: item.value } } : {},
+      ...item.danger ? { danger: true } : {},
+      run: item.choices ? () => menu.show(widget, item.choices.title, item.choices.entries(), place, back) : item.run
+    });
+    const safe = items.filter((item) => !item.danger).map(entry);
+    const danger = items.filter((item) => item.danger).map(entry);
+    const info = host.infoOf(widget);
+    const naming = info && host.menuNaming(widget, info, { kind: "table" });
+    const title = naming?.name ? `Table: ${naming.name}` : "Table";
+    menu.show(widget, title, [...safe, ...safe.length && danger.length ? [{ kind: "separator" }] : [], ...danger], place, void 0, naming);
+    if (startNamed) menu.startNaming();
+  }
+};
+
+// table-plus/src/core/press.ts
+var TAP_MS = 500;
+var TAP_MOVE = 10;
+var LONG_PRESS_MS = 550;
+function watchPress(win, down, on) {
+  const { clientX: x, clientY: y } = down;
+  const at = Date.now();
+  const timer = on.longPress ? setTimeout(() => {
+    stop();
+    on.longPress();
+  }, LONG_PRESS_MS) : void 0;
+  const move = (e) => {
+    if (Math.hypot(e.clientX - x, e.clientY - y) > TAP_MOVE) stop();
+  };
+  const up = () => {
+    stop();
+    if (Date.now() - at < TAP_MS) on.tap?.();
+  };
+  const stop = () => {
+    clearTimeout(timer);
+    win.removeEventListener("pointermove", move, true);
+    win.removeEventListener("pointerup", up, true);
+    win.removeEventListener("pointercancel", stop, true);
+  };
+  win.addEventListener("pointermove", move, true);
+  win.addEventListener("pointerup", up, true);
+  win.addEventListener("pointercancel", stop, true);
+  return stop;
+}
+
 // table-plus/src/core/touch-keyboard.ts
 var HOLD_MS = 600;
 function virtualKeyboard(win) {
@@ -2941,6 +4165,572 @@ var SettingsDialog = class {
       return;
     }
     this.context.saved();
+  }
+};
+
+// table-plus/src/features/metadata.ts
+function withoutMetadata(table) {
+  const { meta: _meta, metaSource: _source, ...rest } = table;
+  return { ...rest, rows: table.rows.map((row) => row.cells.some(hasTags) ? { ...row, cells: row.cells.map(withoutTags) } : row) };
+}
+var hasTags = (cell) => cellTags(cell).length > 0;
+function hasMetadata(table) {
+  return table.meta !== void 0 || table.rows.some((row) => row.cells.some(hasTags));
+}
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+function described(parts, tables, form) {
+  const told = new Set(parts.flatMap((part) => part.tags));
+  const untold = tables.some(
+    (table) => table.rows.some((row) => row.cells.some((cell) => cellTags(cell).some((tag) => attributesOf(tag).some((name) => !told.has(name)))))
+  );
+  return [...parts.map(form), ...untold ? [`${parts.length ? "other " : ""}hidden data in cells`] : []];
+}
+var Metadata = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  toolbarButtons(widget, info) {
+    if (!hasMetadata(parseTable(info.source))) return [];
+    return [
+      {
+        label: "Remove metadata",
+        icon: ICONS.trash,
+        danger: true,
+        title: "Remove this table's <meta> tags: its stored settings (sorting, filters, pinning, name, theme, stripes) and what its cells keep (formulas, which keep their results, names)",
+        run: () => void this.removeFromTable(widget, info)
+      }
+    ];
+  }
+  /**
+   * Removes a table's metadata, once confirmed: its metadata row (a sorting
+   * stored there goes with it: the rows show as written) and the formulas of
+   * its cells, which keep their results as plain values
+   */
+  async removeFromTable(shownWidget, shownInfo) {
+    const shown = parseTable(shownInfo.source);
+    const removed = [
+      ...shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name, theme, stripes)"] : [],
+      ...described(this.host.metadataParts([shown]), [shown], (p) => `its ${plural(p.count, p.what)}${p.note ? `: ${p.note}` : ""}`)
+    ];
+    if (!await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    const info = this.host.infoOf(widget) ?? shownInfo;
+    if (parseTable(info.source).meta) this.host.forgetStoredView(info.key);
+    await this.host.write(widget, withoutMetadata);
+    this.host.focusEditor(widget);
+  }
+  /** Removes the metadata of all tables on the current page, once confirmed */
+  async removeFromPage() {
+    const { bridge } = this.host;
+    const text = await bridge.getText();
+    const tables = findTables(text).filter((range) => {
+      return hasMetadata(parseTable(range.text));
+    }).reverse();
+    if (tables.length === 0) {
+      void bridge.flash("Table Plus: no table on this page has metadata", "info");
+      return;
+    }
+    const models = tables.map((range) => parseTable(range.text));
+    const parts = described(this.host.metadataParts(models), models, (p) => `${plural(p.count, p.what)}${p.note ? ` (${p.note})` : ""}`);
+    const question = `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` + (parts.length ? `, including ${parts.join(" and ")}` : "") + "? Ctrl+Z brings it back.";
+    if (!await this.host.ask(question)) return;
+    const from = tables[tables.length - 1].from;
+    const to = tables[0].to;
+    let span = text.slice(from, to);
+    const page = await bridge.getCurrentPage();
+    for (const range of tables) {
+      const table = parseTable(range.text);
+      if (table.meta) this.host.forgetStoredView(`${page}#${range.ordinal}`);
+      span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(table)) + span.slice(range.to - from);
+    }
+    const edit = minimalEdit(text.slice(from, to), span);
+    await bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
+    this.host.doc.querySelector(EDITOR_SELECTOR)?.focus({ preventScroll: true });
+    void bridge.flash(`Table Plus: removed the metadata of ${tables.length} table(s)`, "info");
+  }
+};
+
+// table-plus/src/core/outline.ts
+var Outline = class {
+  /**
+   * `classes` gives the classes of the pieces a cell on the edge gets for the
+   * sides it is on: one piece per string (e.g. one for all its sides, or one per side)
+   */
+  constructor(doc, classes) {
+    this.doc = doc;
+    this.classes = classes;
+  }
+  doc;
+  classes;
+  pieces = [];
+  /**
+   * Outlines an area of `height` rows and `width` columns, the outline before
+   * it gone; `cellAt(i, j)` is its cell in row i, column j (undefined: none
+   * there, e.g. a row out of the document). Only the cells on the edge are visited.
+   */
+  show(height, width, cellAt) {
+    this.clear();
+    for (let i = 0; i < height; i++) {
+      const edgeRow = i === 0 || i === height - 1;
+      for (let j = 0; j < width; j = edgeRow || j === width - 1 ? j + 1 : width - 1) {
+        const sides = [];
+        if (i === 0) sides.push("top");
+        if (i === height - 1) sides.push("bottom");
+        if (j === 0) sides.push("left");
+        if (j === width - 1) sides.push("right");
+        const cell = cellAt(i, j);
+        if (!cell) continue;
+        for (const classes of this.classes(sides)) {
+          const piece = this.doc.createElement("span");
+          piece.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} ${classes}`;
+          cell.append(piece);
+          this.pieces.push(piece);
+        }
+      }
+    }
+  }
+  clear() {
+    for (const piece of this.pieces) piece.remove();
+    this.pieces = [];
+  }
+  /** Whether a node is (in) one of the pieces */
+  contains(node) {
+    return this.pieces.some((piece) => piece.contains(node));
+  }
+  /** Whether the outline is still in the table shown (not rendered anew since): none is */
+  get shown() {
+    return this.pieces.every((piece) => piece.isConnected);
+  }
+};
+
+// table-plus/src/features/autofill.ts
+var AutoFill = class {
+  constructor(host) {
+    this.host = host;
+    this.edges = new Outline(host.doc, (sides) => [`tp-fill-edge ${sides.map((side) => `tp-fill-${side}`).join(" ")}`]);
+    this.handle = host.doc.createElement("div");
+    this.handle.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-fill-handle`;
+    this.handle.title = "Drag to fill the cells after these (1, 2 \u2192 3, 4; Mon \u2192 Tue), double-click to fill down";
+    this.tip = host.floating("div", "tp-fill-tip");
+    this.handle.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.drag();
+    });
+  }
+  host;
+  handle;
+  tip;
+  // The outline of what a drag fills
+  edges;
+  outlined = "";
+  // The extent the tip's value is for, in the drag going on
+  tipFor = "";
+  // Ends the drag (Esc: without filling)
+  endDrag;
+  // AutoFill to…: the table whose cells selected fill to the cell clicked next, and those cells (as the markdown has them)
+  picking;
+  pickingFrom = "";
+  // A touch while picking, until it is a tap or not
+  stopTap;
+  start() {
+    this.host.doc.defaultView.addEventListener("pointerdown", this.onTouch, true);
+  }
+  stop() {
+    this.host.doc.defaultView.removeEventListener("pointerdown", this.onTouch, true);
+    this.stopTap?.();
+    this.endDrag?.(false);
+    this.endPicking();
+    this.handle.remove();
+    this.tip.remove();
+  }
+  owns(node) {
+    return this.handle.contains(node) || this.tip.contains(node);
+  }
+  /**
+   * A press on the handle is the handle's, not its cell's: a drag, or with a
+   * double click a fill down. While picking where to fill to, a press on a
+   * cell of the table fills to it (before the selection ends: the press is
+   * taken), a press elsewhere ends picking.
+   */
+  mouseDown(e) {
+    if (this.picking) return this.picked(e);
+    if (!(e.target instanceof Node) || !this.handle.contains(e.target)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.button !== 0) return true;
+    if (e.detail === 2) this.fillDown();
+    else if (e.detail < 2) this.drag();
+    return true;
+  }
+  // Esc while dragging or picking cancels the fill (before the selection module takes Esc: the cells stay selected)
+  keyDown(e) {
+    if (e.key !== "Escape" || !this.endDrag && !this.picking) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    this.endDrag?.(false);
+    this.endPicking();
+    return true;
+  }
+  // Other cells selected: what was picking for them is over (the same shown again, the table rendered anew, goes on)
+  selectionChanged() {
+    if (this.picking && this.selectedNow() !== this.pickingFrom) this.endPicking();
+    this.placeHandle();
+  }
+  // The cell menu opened (a long press): picking ends, the menu is for the cells
+  cellMenuOpened() {
+    this.endPicking();
+  }
+  /** The cells selected, as the markdown has them, with their table ("": none to fill from) */
+  selectedNow() {
+    const selected = this.selection();
+    if (!selected) return "";
+    return `${selected.info.key} ${this.rowOf(selected, selected.top)}-${this.rowOf(selected, selected.bottom)} ${selected.left}-${selected.right}`;
+  }
+  /** AutoFill to… in the menu of the cells selected (body cells: a header is no value to go on from) */
+  cellMenuEntries(widget, info, cells) {
+    if (cells.some((ref) => ref.row === 0)) return void 0;
+    const label = "AutoFill to\u2026";
+    if (this.host.rearranged(info)) {
+      const disabled = "Not while the table is sorted or filtered: the rows shown are not where the cells would go";
+      return { order: 1.5, entries: [{ kind: "item", label, icon: ICONS.autofill, disabled, run: () => {
+      } }] };
+    }
+    const selected = this.selection();
+    if (!selected || selected.info.key !== info.key) return void 0;
+    const press = this.host.pressedWith === "touch" ? "tap" : "click";
+    return {
+      // After copying and clearing: it changes the cells selected too
+      order: 1.5,
+      entries: [
+        {
+          kind: "item",
+          label,
+          icon: ICONS.autofill,
+          hint: `Then ${press} the last cell to fill: the cells up to it go on from these, as dragging the fill handle fills them`,
+          run: () => this.startPicking(widget, info, press)
+        }
+      ]
+    };
+  }
+  // While picking, the cells a click would fill are outlined
+  cellHovered(_widget, info, cell) {
+    if (this.picking !== info.key) return;
+    const selected = this.selection();
+    const ref = this.host.cellRef(info, cell);
+    const extent = selected && ref ? this.extentTo(selected, ref) : void 0;
+    if (selected) this.outline(selected, extent && this.areaOf(selected, extent));
+  }
+  hoverEnded() {
+    if (this.picking) this.clearOutline();
+  }
+  // A table rendered anew (the selection shown again; picking goes on there), sorted or filtered, or rows back in the document
+  enhanced(widget, info) {
+    if (this.picking === info.key) widget.classList.add("tp-fill-picking");
+    this.placeHandle();
+  }
+  viewApplied() {
+    this.placeHandle();
+  }
+  rowsAttached() {
+    this.placeHandle();
+  }
+  editorOpened() {
+    this.endPicking();
+    this.handle.remove();
+  }
+  startPicking(widget, info, press) {
+    this.picking = info.key;
+    this.pickingFrom = this.selectedNow();
+    (this.host.widgetForKey(info.key) ?? widget).classList.add("tp-fill-picking");
+    const cancel = press === "tap" ? "a tap outside the table cancels" : "Esc cancels";
+    void this.host.bridge.flash(`Table Plus: ${press} the last cell to fill to; ${cancel}`, "info");
+  }
+  endPicking() {
+    if (!this.picking) return;
+    this.picking = void 0;
+    for (const widget of Array.from(this.host.doc.querySelectorAll(".tp-fill-picking"))) widget.classList.remove("tp-fill-picking");
+    this.clearOutline();
+  }
+  /** A press while picking: on a cell of the table, the fill to it (taken); elsewhere, picking ends and the press goes on */
+  picked(e) {
+    if (e.button !== 0) {
+      this.endPicking();
+      return false;
+    }
+    const taken = this.pick(e.target);
+    if (taken) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.host.takePress();
+    }
+    return taken;
+  }
+  /**
+   * A touch while picking: a tap is a press (told by its pointer events: a
+   * browser may fire no mouse events for a tap after scrolling); a touch that
+   * moves scrolls the page, picking goes on
+   */
+  onTouch = (e) => {
+    this.stopTap?.();
+    if (!this.picking || e.pointerType !== "touch" || e.button !== 0 || !e.isPrimary) return;
+    const target = e.target;
+    this.stopTap = watchPress(this.host.doc.defaultView, e, {
+      // Its mouse events would select the cell tapped: the fill selects what it filled
+      tap: () => {
+        if (this.pick(target)) this.host.takePress();
+      }
+    });
+  };
+  /** Picking ends; on a body cell of the table, the fill to it (true: the press is taken; a header's goes on: its sorting, its filter) */
+  pick(target) {
+    const key2 = this.picking;
+    this.endPicking();
+    const ref = key2 === void 0 ? void 0 : this.host.cellUnder(target, key2)?.ref;
+    if (!ref || ref.row === 0) return false;
+    const selected = this.selection();
+    const extent = selected && selected.info.key === key2 ? this.extentTo(selected, ref) : void 0;
+    if (selected && extent) void this.apply(selected, extent);
+    else void this.host.bridge.flash("Table Plus: nothing to fill there: pick a cell below, above or beside the cells selected", "info");
+    return true;
+  }
+  /** The cells selected in a table shown, if they are body cells of a table shown as written */
+  selection() {
+    for (const widget of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+      const info = this.host.infoOf(widget);
+      const refs = info ? this.host.selectedCells(info) : [];
+      if (!info || refs.length === 0) continue;
+      if (refs.some((ref) => ref.row === 0) || this.host.rearranged(info)) return void 0;
+      const rows = this.host.shownRows(info).slice(1);
+      const index = new Map(rows.map((tr, i) => [this.host.rowOf(info, tr), i]));
+      let [top, bottom, left, right] = [Infinity, -Infinity, Infinity, -Infinity];
+      for (const ref of refs) {
+        const at = index.get(ref.row);
+        if (at === void 0) return void 0;
+        [top, bottom, left, right] = [Math.min(top, at), Math.max(bottom, at), Math.min(left, ref.column), Math.max(right, ref.column)];
+      }
+      const { pins } = info;
+      const zone = (at, first, last, before, after) => at < first + before ? [first, first + before - 1] : at > last - after ? [last - after + 1, last] : [first + before, last - after];
+      return {
+        widget,
+        info,
+        rows,
+        top,
+        bottom,
+        left,
+        right,
+        rowZone: zone(bottom, 0, rows.length - 1, pins.top, pins.bottom),
+        columnZone: zone(right, 0, info.columns - 1, pins.left, pins.right)
+      };
+    }
+    return void 0;
+  }
+  /** The markdown's row (the header 0) of a body row as shown */
+  rowOf(selected, shown) {
+    return this.host.rowOf(selected.info, selected.rows[shown]);
+  }
+  /** The cell of a body row as shown, while it is in the document */
+  cellOf(selected, shown, column) {
+    const cell = this.host.cellAt(selected.info, { row: this.rowOf(selected, shown), column });
+    return cell?.isConnected ? cell : void 0;
+  }
+  /** The handle in the bottom right cell of the selection (none while a cell is edited, or a drag places it) */
+  placeHandle() {
+    if (this.endDrag) return;
+    const selected = this.host.editing ? void 0 : this.selection();
+    if (selected) this.handleAt(selected, selected.bottom, selected.right);
+    else this.handle.remove();
+  }
+  /**
+   * The handle in a cell, on its corner; inside it on the table's last row or
+   * column, where the table's box would cut the part past its edge (a box
+   * that scrolls: its clip cannot be widened) and leave it half to grab
+   */
+  handleAt(selected, shown, column) {
+    const cell = this.cellOf(selected, shown, column);
+    if (!cell) {
+      this.handle.remove();
+      return;
+    }
+    this.handle.classList.toggle("tp-fill-last-row", shown === selected.rows.length - 1);
+    this.handle.classList.toggle("tp-fill-last-column", column === selected.info.columns - 1);
+    if (this.handle.parentElement !== cell) cell.append(this.handle);
+  }
+  /** The selection with the cells a drag fills */
+  areaOf(selected, extent) {
+    const { top, bottom, left, right } = selected;
+    if (!extent) return { top, bottom, left, right };
+    return extent.axis === "rows" ? { top: Math.min(top, extent.to), bottom: Math.max(bottom, extent.to), left, right } : { top, bottom, left: Math.min(left, extent.to), right: Math.max(right, extent.to) };
+  }
+  /** An area outlined (again only when it changed) */
+  outline(selected, area) {
+    const key2 = area ? `${area.top},${area.bottom},${area.left},${area.right}` : "";
+    if (key2 === this.outlined) return;
+    this.clearOutline();
+    this.outlined = key2;
+    if (!area) return;
+    this.edges.show(area.bottom - area.top + 1, area.right - area.left + 1, (i, j) => this.cellOf(selected, area.top + i, area.left + j));
+  }
+  clearOutline() {
+    this.edges.clear();
+    this.outlined = "";
+  }
+  /**
+   * How far the pointer at x, y fills: along the axis it went further out of
+   * the selection on, to the row or column under it, within the selection's zone
+   */
+  extentAt(selected, x, y) {
+    const rects = selected.rows.map((tr) => tr.isConnected ? tr.getBoundingClientRect() : void 0);
+    let row = rects.findIndex((r) => r && y >= r.top && y < r.bottom);
+    if (row < 0) {
+      const measured = rects.map((r, i) => ({ r, i })).filter((m) => m.r);
+      if (measured.length === 0) return void 0;
+      row = y < measured[0].r.top ? measured[0].i : measured[measured.length - 1].i;
+    }
+    const cells = Array.from(selected.rows[selected.bottom]?.cells ?? []).map((c) => c.getBoundingClientRect());
+    let column = cells.findIndex((r) => x >= r.left && x < r.right);
+    if (column < 0) column = cells.length && x < cells[0].left ? 0 : cells.length - 1;
+    return this.extentFor(selected, row, column);
+  }
+  /** How far a fill to a cell goes (none for a header cell, nor one in the selection) */
+  extentTo(selected, ref) {
+    const row = selected.rows.findIndex((tr) => this.host.rowOf(selected.info, tr) === ref.row);
+    return row < 0 ? void 0 : this.extentFor(selected, row, ref.column);
+  }
+  /**
+   * How far a fill to a row (as shown) and column goes: along the axis it is
+   * further out of the selection on, within the selection's zone
+   */
+  extentFor(selected, row, column) {
+    const down = row > selected.bottom ? row - selected.bottom : row < selected.top ? selected.top - row : 0;
+    const across = column > selected.right ? column - selected.right : column < selected.left ? selected.left - column : 0;
+    if (down === 0 && across === 0) return void 0;
+    const clamp = (n, [lo, hi]) => Math.max(lo, Math.min(hi, n));
+    if (down >= across) {
+      const to2 = clamp(row, selected.rowZone);
+      return to2 > selected.bottom || to2 < selected.top ? { axis: "rows", to: to2 } : void 0;
+    }
+    const to = clamp(column, selected.columnZone);
+    return to > selected.right || to < selected.left ? { axis: "columns", to } : void 0;
+  }
+  /** The lines a fill writes: each column (row) of the selection, its cells selected and those dragged over, nearest first */
+  lines(selected, extent) {
+    const { top, bottom, left, right } = selected;
+    const cell = (shown, column) => ({ row: this.rowOf(selected, shown), column });
+    const span = (from, to) => Array.from({ length: Math.abs(to - from) + 1 }, (_, i) => from <= to ? from + i : from - i);
+    if (extent.axis === "rows") {
+      const backward2 = extent.to < top;
+      const targets2 = backward2 ? span(top - 1, extent.to) : span(bottom + 1, extent.to);
+      return span(left, right).map((column) => ({
+        sources: span(top, bottom).map((r) => cell(r, column)),
+        targets: targets2.map((r) => cell(r, column)),
+        backward: backward2
+      }));
+    }
+    const backward = extent.to < left;
+    const targets = backward ? span(left - 1, extent.to) : span(right + 1, extent.to);
+    return span(top, bottom).map((r) => ({
+      sources: span(left, right).map((column) => cell(r, column)),
+      targets: targets.map((column) => cell(r, column)),
+      backward
+    }));
+  }
+  fillCells(info) {
+    return {
+      claim: (cell, from, to) => this.host.fillCell(info, cell, from, to),
+      keepTags: (value, from) => this.host.keepTags(value, from)
+    };
+  }
+  /** The handle dragged: what it fills outlined, the handle at its corner, the last value by the pointer; written as it is let go */
+  drag() {
+    const selected = this.selection();
+    if (!selected) return;
+    const win = this.host.doc.defaultView;
+    const table = this.host.tableOf(selected.info);
+    let extent;
+    this.tipFor = "";
+    this.host.doc.body.classList.add("tp-filling");
+    const move = (ev) => {
+      extent = this.extentAt(selected, ev.clientX, ev.clientY);
+      const area = this.areaOf(selected, extent);
+      this.outline(selected, extent && area);
+      this.handleAt(selected, area.bottom, area.right);
+      this.showTip(selected, extent, table, ev.clientX, ev.clientY);
+    };
+    const finish = (apply) => {
+      win.removeEventListener("pointermove", move, true);
+      win.removeEventListener("pointerup", up, true);
+      win.removeEventListener("pointercancel", cancel, true);
+      win.removeEventListener("blur", cancel);
+      this.endDrag = void 0;
+      this.host.doc.body.classList.remove("tp-filling");
+      this.outline(selected, void 0);
+      this.tip.classList.remove("tp-visible");
+      if (apply && extent) void this.apply(selected, extent);
+      else this.placeHandle();
+    };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    this.endDrag = finish;
+    win.addEventListener("pointermove", move, true);
+    win.addEventListener("pointerup", up, true);
+    win.addEventListener("pointercancel", cancel, true);
+    win.addEventListener("blur", cancel);
+  }
+  /** By the pointer: the value the farthest cell filled gets (else how many cells are filled) */
+  showTip(selected, extent, table, x, y) {
+    if (!extent) {
+      this.tip.classList.remove("tp-visible");
+      return;
+    }
+    const key2 = `${extent.axis} ${extent.to}`;
+    if (key2 !== this.tipFor) {
+      this.tipFor = key2;
+      const lines = this.lines(selected, extent);
+      const cells = lines[0] ? fillLine(table, lines[0], this.fillCells(selected.info)) : [];
+      const value = cells.length ? cellValue(cells[cells.length - 1]) : "";
+      const count = lines.reduce((n, l) => n + l.targets.length, 0);
+      this.tip.textContent = value || `${count} ${count === 1 ? "cell" : "cells"}`;
+    }
+    this.host.place(this.tip, x + 14, y + 14);
+  }
+  /** Double click: down as far as the column beside the selection (left, else right) has values */
+  fillDown() {
+    const selected = this.selection();
+    if (!selected) return;
+    const table = this.host.tableOf(selected.info);
+    const columns = table.rows[0]?.cells.length ?? 0;
+    const beside = [selected.left - 1, selected.right + 1].filter((c) => c >= 0 && c < columns);
+    const last = selected.rowZone[1];
+    const filledBeside = (column, shown) => shown <= last && cellValue(table.rows[this.rowOf(selected, shown)]?.cells[column] ?? "") !== "";
+    let to = selected.bottom;
+    for (const column of beside) {
+      if (!filledBeside(column, selected.bottom + 1)) continue;
+      while (filledBeside(column, to + 1)) to++;
+      break;
+    }
+    if (to > selected.bottom) void this.apply(selected, { axis: "rows", to });
+  }
+  /**
+   * The cells filled, in one edit, and selected with the ones they were
+   * filled from: selected before the write (the table rendered anew shows the
+   * selection again), the selection put back when nothing is written
+   */
+  async apply(selected, extent) {
+    const { info, widget } = selected;
+    const lines = this.lines(selected, extent);
+    const area = this.areaOf(selected, extent);
+    const corner = (shown, column) => ({ row: this.rowOf(selected, shown), column });
+    this.host.selectCells(info, corner(area.top, area.left), corner(area.bottom, area.right));
+    const result = await this.host.write(widget, (t) => filled(t, lines, this.fillCells(info)));
+    if (result === "written") return;
+    const now2 = this.host.widgetForKey(info.key);
+    const nowInfo = now2 && this.host.infoOf(now2);
+    if (nowInfo) this.host.selectCells(nowInfo, corner(selected.top, selected.left), corner(selected.bottom, selected.right));
   }
 };
 
@@ -3639,7 +5429,7 @@ var ColumnTypes = class {
         headerCell.insertBefore(icon, headerCell.querySelector(`:scope > .${UI_CLASS}`));
       }
       for (const tr of rows) {
-        const raw = model.rows[Number(tr.dataset.tpRow)]?.cells[column];
+        const raw = model.rows[this.host.rowOf(info, tr)]?.cells[column];
         const cell = tr.cells[column];
         if (raw === void 0 || !cell) continue;
         const text = unescapeCell(withoutTags(raw)).trim();
@@ -4442,7 +6232,7 @@ function numberOf2(cell) {
   const time = asTime(cell);
   return time ? time.seconds / DAY_SECONDS : void 0;
 }
-var isEmpty = (cell) => cell === null || typeof cell === "string" && cell.trim() === "";
+var isEmpty2 = (cell) => cell === null || typeof cell === "string" && cell.trim() === "";
 var ORDER = {
   "=": (o) => o === 0,
   "<>": (o) => o !== 0,
@@ -4457,7 +6247,7 @@ function criterion(value) {
   const op = m[1] ?? "=";
   const rest = m[2];
   const order2 = ORDER[op];
-  if (rest === "") return op === "<>" ? (cell) => !isEmpty(cell) : op === "=" ? isEmpty : () => false;
+  if (rest === "") return op === "<>" ? (cell) => !isEmpty2(cell) : op === "=" ? isEmpty2 : () => false;
   const date = parseDate(rest);
   if (date) {
     return (cell) => {
@@ -4474,7 +6264,7 @@ function criterion(value) {
   }
   if (op === "=" || op === "<>") {
     const re = wildcardRegExp(rest, true);
-    const text = (cell) => typeof cell === "boolean" ? cell ? "TRUE" : "FALSE" : typeof cell === "string" && !isEmpty(cell) ? cell.trim() : void 0;
+    const text = (cell) => typeof cell === "boolean" ? cell ? "TRUE" : "FALSE" : typeof cell === "string" && !isEmpty2(cell) ? cell.trim() : void 0;
     return (cell) => {
       const t = isError(cell) ? void 0 : text(cell);
       const matches = t !== void 0 && re.test(t);
@@ -4483,7 +6273,7 @@ function criterion(value) {
   }
   const lower = rest.toLowerCase();
   return (cell) => {
-    if (typeof cell !== "string" || isEmpty(cell) || numberOf2(cell) !== void 0) return false;
+    if (typeof cell !== "string" || isEmpty2(cell) || numberOf2(cell) !== void 0) return false;
     const t = cell.trim().toLowerCase();
     return order2(t < lower ? -1 : t > lower ? 1 : 0);
   };
@@ -7238,7 +9028,7 @@ function skippedGroups(skipped, parts = 4) {
   });
 }
 var SHOWN_GROUPS = 50;
-var plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+var plural2 = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 var Excel = class {
   constructor(host) {
     this.host = host;
@@ -7308,7 +9098,7 @@ var Excel = class {
     const copyBox = option(
       "Copy for Excel",
       [
-        `${plural(rows, "row", "rows")} as shown here (sorted, filtered), with the header, to paste into a sheet.`,
+        `${plural2(rows, "row", "rows")} as shown here (sorted, filtered), with the header, to paste into a sheet.`,
         "Numbers, dates, times and TRUE / FALSE paste as Excel's values, in any language of Excel.",
         "Lost: formulas (their results are pasted), how column types show cells (currency signs, stars), links."
       ],
@@ -7319,13 +9109,13 @@ var Excel = class {
     const { skipped, formulas } = workbook;
     if (skipped.length === 0) {
       formulaNote.classList.add("tp-excel-ok");
-      formulaNote.textContent = formulas === 0 ? "No formulas in the table." : `All ${plural(formulas, "formula", "formulas")} will be Excel formulas.`;
+      formulaNote.textContent = formulas === 0 ? "No formulas in the table." : `All ${plural2(formulas, "formula", "formulas")} will be Excel formulas.`;
     } else {
       formulaNote.append(
         el(
           "div",
           "tp-excel-formulas-title",
-          `${plural(skipped.length, "formula", "formulas")} of ${formulas} will be written as ${skipped.length === 1 ? "its value" : "their values"} (cells as Excel names them):`
+          `${plural2(skipped.length, "formula", "formulas")} of ${formulas} will be written as ${skipped.length === 1 ? "its value" : "their values"} (cells as Excel names them):`
         )
       );
       const list = el("div", "tp-excel-skipped");
@@ -7333,7 +9123,7 @@ var Excel = class {
       for (const g of groups.slice(0, SHOWN_GROUPS)) {
         const item = el("div", "tp-excel-skipped-item");
         const cells = el("span", "tp-excel-skipped-cell", g.cells);
-        if (g.count > 1) cells.title = plural(g.count, "cell", "cells");
+        if (g.count > 1) cells.title = plural2(g.count, "cell", "cells");
         item.append(cells, el("code", "tp-excel-skipped-formula", g.formula), el("span", "tp-excel-skipped-reason", g.reason));
         list.append(item);
       }
@@ -7391,7 +9181,7 @@ var Excel = class {
     const rows = table.rows.map((r) => r.values);
     try {
       await writeClipboard(this.host.doc, excelText(table.header, rows), excelHtml(table.header, rows));
-      return { text: `Copied ${plural(rows.length, "row", "rows")}: paste them into Excel.`, ok: true };
+      return { text: `Copied ${plural2(rows.length, "row", "rows")}: paste them into Excel.`, ok: true };
     } catch (e) {
       return { text: `Could not copy: ${String(e)}`, ok: false };
     }
@@ -7444,7 +9234,7 @@ var Excel = class {
     link.remove();
     win.setTimeout(() => win.URL.revokeObjectURL(url), 6e4);
     const values = workbook.skipped.length;
-    return { text: `Downloaded ${file}${values ? `, ${plural(values, "formula", "formulas")} as values` : ""}.`, ok: true };
+    return { text: `Downloaded ${file}${values ? `, ${plural2(values, "formula", "formulas")} as values` : ""}.`, ok: true };
   }
 };
 
@@ -7535,154 +9325,6 @@ var Expressions = class {
       }
       if (changed && renderedTable(widget) === info.table) this.host.applyView(widget, info);
     }
-  }
-};
-
-// table-plus/src/formulas/page.ts
-function pageTables(tables, here, replace, others) {
-  const pages = /* @__PURE__ */ new Map();
-  const namesOf2 = (page) => {
-    const isHere = page === void 0 || page === here;
-    const key2 = isHere ? "" : page;
-    let names = pages.get(key2);
-    if (!names) {
-      const list = isHere ? tables() : others?.tables(page);
-      if (!list) return void 0;
-      names = { tables: /* @__PURE__ */ new Map(), cells: /* @__PURE__ */ new Map() };
-      for (const { range, table: parsed3 } of list) {
-        const table = isHere && replace && range.from === replace.from ? replace.table : parsed3;
-        const own = metaName(table)?.toLowerCase();
-        if (own && !names.tables.has(own)) names.tables.set(own, table);
-        for (const [name, cell] of namedCells(table)) if (!names.cells.has(name)) names.cells.set(name, { table, ...cell });
-      }
-      pages.set(key2, names);
-    }
-    return names;
-  };
-  return Object.assign((name, page) => namesOf2(page)?.tables.get(name.toLowerCase()), {
-    cell: (name, page) => namesOf2(page)?.cells.get(name.toLowerCase()),
-    // Pages not read (none without the pageLinks module): formulas referring to them keep their results
-    unread: (page) => page !== here && others?.tables(page) === void 0
-  });
-}
-function affectedBy(...tables) {
-  const affected = { tables: /* @__PURE__ */ new Set(), cells: /* @__PURE__ */ new Set() };
-  for (const table of tables) addAffected(affected, table);
-  return affected;
-}
-function addAffected(affected, table) {
-  const name = metaName(table)?.toLowerCase();
-  if (name) affected.tables.add(name);
-  for (const cell of cellNamesOf(table)) affected.cells.add(cell);
-}
-function referredBy(table) {
-  return { tables: referredTableNames(table), cells: referredCellNames(table) };
-}
-function isAffected(referred, affected) {
-  return [...referred.tables].some((n) => affected.tables.has(n)) || [...referred.cells].some((n) => affected.cells.has(n));
-}
-function tablesWritten(all, source) {
-  const own = all.find((t) => t.range.text === source)?.table;
-  if (!own) return all.map((t) => t.table);
-  const result = [own];
-  const affected = affectedBy(own);
-  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredBy(t.table) }));
-  for (let found = true; found; ) {
-    found = false;
-    for (let i = rest.length - 1; i >= 0; i--) {
-      if (!isAffected(rest[i].referred, affected)) continue;
-      result.push(rest[i].table);
-      addAffected(affected, rest[i].table);
-      rest.splice(i, 1);
-      found = true;
-    }
-  }
-  return result;
-}
-
-// table-plus/src/features/pagelinks.ts
-var MAX_OTHER_PAGES = 20;
-var PageLinks = class {
-  constructor(host) {
-    this.host = host;
-  }
-  host;
-  // The other pages read: their tables, or null where there is no such page
-  pages = /* @__PURE__ */ new Map();
-  // Counts the pages read, so what formulas computed from them is computed anew
-  version = 0;
-  otherPages() {
-    return { tables: (page) => this.pages.get(page), version: this.version };
-  }
-  /** A table shown: the pages its formulas read, if not read yet; then its formulas are checked again */
-  enhanced(_widget, info) {
-    void this.load([parseTable(info.source)], false).then((read) => {
-      if (read) this.host.tablesChanged();
-    });
-  }
-  /** Before a write reads the page: the pages the tables it recalculates refer to, read again */
-  async prepareWrite(info) {
-    await this.load(tablesWritten(pageTablesOf(this.host.pageText), info.source), true);
-  }
-  /** After the edit: pages the page's tables and the edited one refer to, if not read yet */
-  async prepareEdit(edited, page) {
-    await this.load([...page.tables.map((t) => t.table), edited], false);
-  }
-  /**
-   * Another page formulas read was changed: read it again, and the tables
-   * shown are checked again. When it is the page shown now (it was read from
-   * another page before), it is forgotten, so going back there does not use it
-   * as it was.
-   */
-  async pageIndexed(name) {
-    if (!this.pages.has(name)) return;
-    if (name === this.host.currentPage) {
-      this.pages.delete(name);
-      return;
-    }
-    await this.load(this.tablesShown(), /* @__PURE__ */ new Set([name]));
-    this.host.tablesChanged();
-  }
-  /** The tables shown, as last read */
-  tablesShown() {
-    return Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`)).flatMap((widget) => {
-      const info = this.host.infoOf(widget);
-      return info ? [parseTable(info.source)] : [];
-    });
-  }
-  /**
-   * Reads the other pages these tables' formulas refer to, and in turn the
-   * pages those pages' tables refer to; `fresh`: also those read before.
-   * Whether a page was read.
-   */
-  async load(tables, fresh) {
-    if (!this.host.bridge.readPage || !this.host.moduleOn("formulas")) return false;
-    const queue = /* @__PURE__ */ new Set();
-    for (const table of tables) for (const page of referredPages(table)) queue.add(page);
-    const done = /* @__PURE__ */ new Set();
-    let read = false;
-    for (const page of queue) {
-      if (done.size >= MAX_OTHER_PAGES) break;
-      done.add(page);
-      if (page === this.host.currentPage) continue;
-      if (fresh === true || fresh && fresh.has(page) || !this.pages.has(page)) {
-        await this.read(page);
-        read = true;
-      }
-      for (const { table } of this.pages.get(page) ?? []) for (const next of referredPages(table)) queue.add(next);
-    }
-    return read;
-  }
-  /** Reads another page's tables; the earlier ones stay until it is read, so formulas never see it missing meanwhile */
-  async read(page) {
-    let tables;
-    try {
-      tables = pageTablesOf(await this.host.bridge.readPage(page));
-    } catch {
-      tables = null;
-    }
-    this.pages.set(page, tables);
-    this.version++;
   }
 };
 
@@ -8349,6 +9991,68 @@ var Filters = class {
   }
 };
 
+// table-plus/src/formulas/page.ts
+function pageTables(tables, here, replace, others) {
+  const pages = /* @__PURE__ */ new Map();
+  const namesOf2 = (page) => {
+    const isHere = page === void 0 || page === here;
+    const key2 = isHere ? "" : page;
+    let names = pages.get(key2);
+    if (!names) {
+      const list = isHere ? tables() : others?.tables(page);
+      if (!list) return void 0;
+      names = { tables: /* @__PURE__ */ new Map(), cells: /* @__PURE__ */ new Map() };
+      for (const { range, table: parsed3 } of list) {
+        const table = isHere && replace && range.from === replace.from ? replace.table : parsed3;
+        const own = metaName(table)?.toLowerCase();
+        if (own && !names.tables.has(own)) names.tables.set(own, table);
+        for (const [name, cell] of namedCells(table)) if (!names.cells.has(name)) names.cells.set(name, { table, ...cell });
+      }
+      pages.set(key2, names);
+    }
+    return names;
+  };
+  return Object.assign((name, page) => namesOf2(page)?.tables.get(name.toLowerCase()), {
+    cell: (name, page) => namesOf2(page)?.cells.get(name.toLowerCase()),
+    // Pages not read (none without the pageLinks module): formulas referring to them keep their results
+    unread: (page) => page !== here && others?.tables(page) === void 0
+  });
+}
+function affectedBy(...tables) {
+  const affected = { tables: /* @__PURE__ */ new Set(), cells: /* @__PURE__ */ new Set() };
+  for (const table of tables) addAffected(affected, table);
+  return affected;
+}
+function addAffected(affected, table) {
+  const name = metaName(table)?.toLowerCase();
+  if (name) affected.tables.add(name);
+  for (const cell of cellNamesOf(table)) affected.cells.add(cell);
+}
+function referredBy(table) {
+  return { tables: referredTableNames(table), cells: referredCellNames(table) };
+}
+function isAffected(referred, affected) {
+  return [...referred.tables].some((n) => affected.tables.has(n)) || [...referred.cells].some((n) => affected.cells.has(n));
+}
+function tablesWritten(all, source) {
+  const own = all.find((t) => t.range.text === source)?.table;
+  if (!own) return all.map((t) => t.table);
+  const result = [own];
+  const affected = affectedBy(own);
+  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredBy(t.table) }));
+  for (let found = true; found; ) {
+    found = false;
+    for (let i = rest.length - 1; i >= 0; i--) {
+      if (!isAffected(rest[i].referred, affected)) continue;
+      result.push(rest[i].table);
+      addAffected(affected, rest[i].table);
+      rest.splice(i, 1);
+      found = true;
+    }
+  }
+  return result;
+}
+
 // table-plus/src/features/functiondialog.ts
 var FunctionDialog = class {
   constructor(host) {
@@ -8775,7 +10479,7 @@ var Formulas = class {
   markCells(info, model, tables) {
     let errors;
     for (const tr of this.host.bodyRows(info)) {
-      const row = Number(tr.dataset.tpRow);
+      const row = this.host.rowOf(info, tr);
       model.rows[row]?.cells.forEach((raw, column) => {
         const stored = formulaOf(raw);
         const cell = tr.cells[column];
@@ -9189,7 +10893,7 @@ ${error}` : stored.formula;
   }
   /** The body rows as shown (header and filter row excluded), with their row in the markdown minus one */
   shownBodyRows(info) {
-    return this.host.shownRows(info).filter((tr) => tr.dataset.tpRow !== void 0).map((tr) => ({ tr, row: Number(tr.dataset.tpRow) - 1 }));
+    return this.host.shownRows(info).filter((tr) => this.host.rowOf(info, tr) > 0).map((tr) => ({ tr, row: this.host.rowOf(info, tr) - 1 }));
   }
   /**
    * Screen boxes outlining an area: one per run of its rows that are shown
@@ -9197,17 +10901,8 @@ ${error}` : stored.formula;
    * the table's visible box
    */
   areaBoxes(widget, info, area) {
-    const box = this.host.innerBox(widget);
-    const view = this.host.viewBounds(widget);
-    const clip = {
-      left: Math.max(box.left, view.left),
-      top: Math.max(box.top, view.top),
-      right: Math.min(box.right, view.right),
-      bottom: Math.min(box.bottom, view.bottom)
-    };
-    const { tHead: head, tFoot: foot } = info.table;
-    const under = head ? head.getBoundingClientRect().bottom : -Infinity;
-    const over = foot?.rows.length ? foot.getBoundingClientRect().top : Infinity;
+    const clip = intersect(this.host.innerBox(widget), this.host.viewBounds(widget));
+    const held = this.host.heldBounds(info);
     const boxes = [];
     let run = [];
     const flush = () => {
@@ -9217,15 +10912,12 @@ ${error}` : stored.formula;
       if (!first || !last) return;
       const a = first.getBoundingClientRect();
       const b = last.getBoundingClientRect();
-      const top = first.closest("tbody") ? Math.max(clip.top, under) : clip.top;
-      const bottom = last.closest("tbody") ? Math.min(clip.bottom, over) : clip.bottom;
-      const outline = {
-        left: Math.max(Math.min(a.left, b.left), clip.left),
-        top: Math.max(Math.min(a.top, b.top), top),
-        right: Math.min(Math.max(a.right, b.right), clip.right),
-        bottom: Math.min(Math.max(a.bottom, b.bottom), bottom)
-      };
-      if (outline.right > outline.left && outline.bottom > outline.top) boxes.push(outline);
+      const outline = intersect(
+        { left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) },
+        clip,
+        { ...EVERYWHERE, top: first.closest("tbody") ? held.top : -Infinity, bottom: last.closest("tbody") ? held.bottom : Infinity }
+      );
+      if (!isEmpty(outline)) boxes.push(outline);
     };
     for (const { tr, row } of this.shownBodyRows(info)) {
       if (row >= area.top && row <= area.bottom) run.push(tr);
@@ -9342,305 +11034,160 @@ ${error}` : stored.formula;
   }
 };
 
-// table-plus/src/menu.ts
-function wrapRuns(entries, wrap) {
-  return entries.map(
-    (entry) => entry.kind === "item" ? { ...entry, run: wrap(entry.run) } : entry.kind === "segmented" || entry.kind === "actions" ? { ...entry, options: entry.options.map((option) => ({ ...option, run: wrap(option.run) })) } : entry
-  );
-}
-function keepFocus(menu) {
-  menu.addEventListener("mousedown", (e) => {
-    if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
-  });
-}
-var MENU_CLOSE = "tp-menu-close";
-function onMenuClose(menu, close) {
-  menu.addEventListener(MENU_CLOSE, close);
-}
-function startNaming(menu) {
-  menu.querySelector(".tp-menu-rename:not([aria-disabled])")?.click();
-}
-function renderMenu(doc, title, entries, back, naming) {
-  const menu = doc.createElement("div");
-  menu.setAttribute("role", "menu");
-  menu.setAttribute("aria-label", title);
-  if (back) menu.dataset.tpList = "";
-  const heading = doc.createElement("div");
-  heading.className = "tp-menu-title";
-  if (back) {
-    const arrow = doc.createElement("button");
-    arrow.type = "button";
-    arrow.className = "tp-menu-back";
-    arrow.title = "Back";
-    arrow.setAttribute("aria-label", "Back");
-    arrow.innerHTML = back.icon;
-    arrow.addEventListener("click", (e) => {
-      e.preventDefault();
-      back.run();
-    });
-    heading.append(arrow);
+// table-plus/src/features/fullscreen.ts
+var FULL_CLASS = "tp-fullscreen";
+var OPEN_CLASS = "tp-fullscreen-open";
+var LETTER_CLASS = "tp-col-letter";
+var FullScreen = class {
+  constructor(host) {
+    this.host = host;
+    this.queueNumbers = oncePerFrame(host.doc, () => this.placeNumbers());
+    this.numbers = host.floating("div", "tp-fullscreen-rows");
+    this.numbers.setAttribute("aria-hidden", "true");
   }
-  const titleText = doc.createElement("span");
-  titleText.className = "tp-menu-title-text";
-  titleText.textContent = title;
-  heading.append(titleText);
-  menu.append(heading);
-  if (naming) addNaming(doc, menu, heading, naming);
-  const close = doc.createElement("button");
-  close.type = "button";
-  close.className = "tp-menu-close";
-  close.title = "Close";
-  close.setAttribute("aria-label", "Close");
-  close.innerHTML = CLOSE;
-  close.addEventListener("click", (e) => {
+  host;
+  // The table shown over the window (its key) and its widget as rendered now
+  key;
+  widget;
+  // The table rendered anew taken for it before it was enhanced (tableAdded)
+  guessed;
+  // The rows' numbers, over the room left of the rows
+  numbers;
+  queueNumbers;
+  stop() {
+    this.end();
+    this.numbers.remove();
+  }
+  toolbarButtons(widget, info) {
+    const on = this.key === info.key;
+    return [
+      {
+        label: on ? "Exit full screen" : "Full screen",
+        title: on ? "Show the table in the page again (Esc)" : "Show the table over the whole window",
+        place: "icon",
+        icon: on ? ICONS.exitFullScreen : ICONS.fullScreen,
+        pressed: on,
+        run: () => on ? this.end() : this.begin(widget, info)
+      }
+    ];
+  }
+  // Each header cell's letter (shown only over the window, by the CSS)
+  decorate(_widget, info) {
+    Array.from(info.table.rows[0]?.cells ?? []).forEach((cell, column) => {
+      if (cell.querySelector(`:scope > .${LETTER_CLASS}`)) return;
+      const letter = this.host.doc.createElement("span");
+      letter.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} ${LETTER_CLASS}`;
+      letter.setAttribute("aria-hidden", "true");
+      letter.textContent = columnLetters(column);
+      cell.append(letter);
+    });
+  }
+  begin(widget, info) {
+    if (this.widget && this.widget !== widget) this.unmark(this.widget);
+    this.key = info.key;
+    this.mark(widget);
+    this.host.toolbarChanged();
+    this.host.tableResized(info);
+  }
+  end() {
+    const widget = this.widget;
+    this.key = void 0;
+    this.widget = void 0;
+    if (widget) this.unmark(widget);
+    this.host.doc.body.classList.remove(OPEN_CLASS);
+    this.numbers.classList.remove("tp-visible");
+    this.host.toolbarChanged();
+    const info = widget && this.host.infoOf(widget);
+    if (info) this.host.tableResized(info);
+  }
+  mark(widget) {
+    this.widget = widget;
+    widget.classList.add(FULL_CLASS);
+    this.host.doc.body.classList.add(OPEN_CLASS);
+    this.numbers.classList.add("tp-visible");
+    this.queueNumbers();
+  }
+  unmark(widget) {
+    widget.classList.remove(FULL_CLASS);
+  }
+  // Rendered anew (an edit): the replacement of the table shown over the window shows so at once, before it is laid out
+  // (the one starting where the table taken out started, data-pos: an edit in a table does not move its start;
+  // the page may render every table anew)
+  tableAdded(widget, table) {
+    const old = this.widget;
+    if (this.key === void 0 || !old || old.isConnected || this.guessed?.isConnected) return;
+    if (table.dataset.pos !== old.querySelector("table")?.dataset.pos) return;
+    this.guessed = widget;
+    widget.classList.add(FULL_CLASS);
+  }
+  // Enhanced: shown over the window if it is that table, else not (tableAdded may have guessed wrong)
+  enhanced(widget, info) {
+    if (info.key === this.key) this.mark(widget);
+    else if (widget.classList.contains(FULL_CLASS)) this.unmark(widget);
+    if (this.key !== void 0 && this.widget && !this.widget.isConnected && !this.host.widgetForKey(this.key)) this.end();
+  }
+  // Its rows sorted, filtered or put back into the document: their numbers follow
+  viewApplied(widget) {
+    if (widget === this.widget) this.queueNumbers();
+  }
+  rowsAttached(info) {
+    if (info.table === this.widget?.querySelector("table")) this.queueNumbers();
+  }
+  // Esc closes it, unless something else takes the key first (a cell editor, a selection, a field, a menu)
+  keyDown(e) {
+    if (e.key !== "Escape" || this.key === void 0 || this.host.editing) return false;
+    const target = e.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return false;
     e.preventDefault();
-    menu.dispatchEvent(new Event(MENU_CLOSE));
-  });
-  heading.append(close);
-  let bubble;
-  const showDetail = (item, detail) => {
-    if (!bubble) {
-      bubble = doc.createElement("div");
-      bubble.className = "tp-menu-detail";
-      bubble.setAttribute("role", "tooltip");
-      menu.append(bubble);
-    }
-    const title2 = doc.createElement("div");
-    title2.className = "tp-menu-detail-title";
-    title2.textContent = detail.title;
-    const parts = [title2];
-    if (detail.code?.length) {
-      const code = doc.createElement("div");
-      code.className = "tp-menu-detail-code";
-      for (const form of detail.code) {
-        const c = doc.createElement("code");
-        c.textContent = form;
-        code.append(c);
-      }
-      parts.push(code);
-    }
-    if (detail.text) {
-      const text = doc.createElement("p");
-      text.textContent = detail.text;
-      parts.push(text);
-    }
-    for (const note of detail.notes ?? []) {
-      const p = doc.createElement("p");
-      p.className = "tp-menu-detail-note";
-      p.textContent = note;
-      parts.push(p);
-    }
-    if (detail.content) parts.push(detail.content());
-    bubble.replaceChildren(...parts);
-    bubble.hidden = false;
-    bubble.classList.remove("tp-left");
-    bubble.style.top = `${item.offsetTop}px`;
-    const view = doc.defaultView;
-    if (view && bubble.getBoundingClientRect().right > view.innerWidth - 8) bubble.classList.add("tp-left");
-    const below = view ? bubble.getBoundingClientRect().bottom - (view.innerHeight - 8) : 0;
-    if (below > 0) bubble.style.top = `${item.offsetTop - below}px`;
-  };
-  const hideDetail = () => {
-    if (bubble) bubble.hidden = true;
-  };
-  const button = (className, run, disabled) => {
-    const b = doc.createElement("button");
-    b.type = "button";
-    b.className = className;
-    if (disabled) {
-      b.setAttribute("aria-disabled", "true");
-      b.title = disabled;
-    }
-    b.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (!disabled) run();
-    });
-    return b;
-  };
-  for (const entry of entries) {
-    if (entry.kind === "separator") {
-      const separator = doc.createElement("div");
-      separator.className = "tp-menu-separator";
-      separator.setAttribute("role", "separator");
-      menu.append(separator);
-    } else if (entry.kind === "item") {
-      const item = button("tp-menu-item", entry.run, entry.disabled);
-      item.setAttribute("role", entry.checked === void 0 ? "menuitem" : "menuitemcheckbox");
-      if (entry.checked !== void 0) item.setAttribute("aria-checked", String(entry.checked));
-      if (entry.danger) item.classList.add("tp-danger");
-      const detail = entry.detail;
-      if (detail && !entry.disabled) {
-        item.addEventListener("mouseenter", () => showDetail(item, detail));
-        item.addEventListener("focus", () => showDetail(item, detail));
-        item.addEventListener("mouseleave", hideDetail);
-        item.addEventListener("blur", hideDetail);
-      } else if (entry.hint && !entry.disabled) item.title = entry.hint;
-      item.innerHTML = `<span class="tp-icon">${entry.icon}</span>`;
-      const label = doc.createElement("span");
-      label.className = "tp-label";
-      label.textContent = entry.label;
-      if (entry.value) {
-        label.append(": ");
-        if (entry.value.icon) {
-          const icon = doc.createElement("span");
-          icon.className = "tp-menu-value-icon";
-          icon.innerHTML = entry.value.icon;
-          label.append(icon);
-        }
-        label.append(entry.value.text);
-      }
-      item.append(label);
-      menu.append(item);
-    } else if (entry.kind === "actions") {
-      const bar = doc.createElement("div");
-      bar.className = "tp-menu-actions";
-      bar.setAttribute("role", "group");
-      for (const option of entry.options) {
-        const b = button("tp-action", option.run, option.disabled);
-        b.setAttribute("role", "menuitem");
-        b.setAttribute("aria-label", option.title);
-        b.title = option.disabled ? `${option.title}: ${option.disabled}` : option.title;
-        b.innerHTML = `<span class="tp-icon">${option.icon}</span>`;
-        const caption = doc.createElement("span");
-        caption.className = "tp-action-caption";
-        caption.textContent = option.caption;
-        b.append(caption);
-        bar.append(b);
-      }
-      menu.append(bar);
-    } else {
-      const row = doc.createElement("div");
-      row.className = "tp-menu-segmented";
-      const label = doc.createElement("span");
-      label.className = "tp-label";
-      label.textContent = entry.label;
-      const group = doc.createElement("div");
-      group.className = "tp-segments";
-      group.setAttribute("role", "group");
-      group.setAttribute("aria-label", entry.label);
-      for (const option of entry.options) {
-        const b = button("tp-segment", option.run, option.disabled);
-        if (option.active === void 0) b.setAttribute("role", "menuitem");
-        else {
-          b.setAttribute("role", "menuitemradio");
-          b.setAttribute("aria-checked", String(option.active));
-        }
-        b.title = option.disabled ? `${option.title}: ${option.disabled}` : option.title;
-        b.setAttribute("aria-label", option.title);
-        b.innerHTML = option.icon;
-        group.append(b);
-      }
-      row.append(label, group);
-      menu.append(row);
-    }
-  }
-  menu.addEventListener("keydown", (e) => {
     e.stopPropagation();
-    if (e.target instanceof HTMLInputElement) return;
-    const buttons = Array.from(
-      menu.querySelectorAll("button:not([aria-disabled]):not(.tp-menu-rename):not(.tp-menu-close)")
-    );
-    const index = buttons.indexOf(doc.activeElement);
-    const focus = (i) => buttons[(i + buttons.length) % buttons.length]?.focus({ preventScroll: true });
-    const inRow = index >= 0 && (buttons[index].classList.contains("tp-segment") || buttons[index].classList.contains("tp-action"));
-    if (e.key === "ArrowDown" || e.key === "ArrowRight" && inRow) {
-      e.preventDefault();
-      focus(index + 1);
-    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft" && inRow) {
-      e.preventDefault();
-      focus(index < 0 ? -1 : index - 1);
-    } else if (e.key === "ArrowLeft" && back) {
-      e.preventDefault();
-      back.run();
-    } else if (e.key === "Home") {
-      e.preventDefault();
-      focus(0);
-    } else if (e.key === "End") {
-      e.preventDefault();
-      focus(-1);
-    }
-  });
-  return menu;
-}
-function addNaming(doc, menu, heading, naming) {
-  const pencil = doc.createElement("button");
-  pencil.type = "button";
-  pencil.className = "tp-menu-rename";
-  pencil.innerHTML = PENCIL;
-  pencil.setAttribute("aria-label", naming.label);
-  pencil.title = naming.disabled ? `${naming.label}: ${naming.disabled}` : naming.label;
-  if (naming.disabled) pencil.setAttribute("aria-disabled", "true");
-  heading.append(pencil);
-  let saving = false;
-  pencil.addEventListener("click", (e) => {
-    e.preventDefault();
-    if (naming.disabled) return;
-    const field = doc.createElement("input");
-    field.type = "text";
-    field.className = "tp-menu-name";
-    field.value = naming.name ?? "";
-    field.placeholder = "name";
-    field.setAttribute("aria-label", naming.label);
-    field.autocomplete = "off";
-    field.spellcheck = false;
-    const problem = doc.createElement("div");
-    problem.className = "tp-menu-name-problem";
-    problem.id = `tp-menu-name-problem-${++problemIds}`;
-    problem.setAttribute("role", "alert");
-    problem.hidden = true;
-    field.setAttribute("aria-describedby", problem.id);
-    const titled = Array.from(heading.childNodes);
-    heading.replaceChildren(field);
-    heading.after(problem);
-    heading.classList.add("tp-naming");
-    const leave = () => {
-      heading.classList.remove("tp-naming");
-      heading.replaceChildren(...titled);
-      problem.remove();
-      menu.focus({ preventScroll: true });
-    };
-    field.addEventListener("keydown", (ev) => {
-      if (ev.isComposing || ev.keyCode === 229) return;
-      if (ev.key === "Escape") {
-        ev.preventDefault();
-        ev.stopPropagation();
-        leave();
-      } else if (ev.key === "Enter" && !saving) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        saving = true;
-        problem.hidden = true;
-        field.removeAttribute("aria-invalid");
-        void naming.save(field.value.trim()).then((why) => {
-          saving = false;
-          if (why === void 0 || !field.isConnected) return;
-          problem.textContent = why;
-          problem.hidden = false;
-          field.setAttribute("aria-invalid", "true");
-          field.focus();
-        });
-      }
-    });
-    field.focus();
-    field.select();
-  });
-}
-var problemIds = 0;
-var CLOSE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-var PENCIL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg>';
-function focusMenu(menu) {
-  const current = menu.dataset.tpList !== void 0 ? menu.querySelector('.tp-menu-item[aria-checked="true"]') : null;
-  if (!current) {
-    menu.tabIndex = -1;
-    menu.focus({ preventScroll: true });
-    return;
+    this.end();
+    return true;
   }
-  menu.classList.add("tp-menu-still");
-  current.classList.add("tp-menu-current");
-  current.focus({ preventScroll: true });
-  menu.addEventListener("pointermove", () => menu.classList.remove("tp-menu-still"), { once: true });
-  current.addEventListener("blur", () => current.classList.remove("tp-menu-current"), { once: true });
-}
+  // After a scroll or a change of the layout (in a frame): the numbers follow the rows; another page shown: it ends
+  layoutChanged() {
+    if (this.key === void 0) return;
+    if (!this.widget?.isConnected && !this.host.doc.querySelector(`${WIDGET_SELECTOR}.${FULL_CLASS}`)) {
+      this.end();
+      return;
+    }
+    this.placeNumbers();
+  }
+  /** A number beside each row in view, below the header (held or not), above the box's bottom */
+  placeNumbers() {
+    const widget = this.widget;
+    const info = widget?.isConnected ? this.host.infoOf(widget) : void 0;
+    if (!widget || !info) return;
+    const top = info.table.rows[0].getBoundingClientRect().bottom;
+    const bottom = this.host.innerBox(widget).bottom;
+    const layer = this.numbers;
+    layer.style.top = `${top}px`;
+    layer.style.height = `${Math.max(0, bottom - top)}px`;
+    const rows = this.host.shownRows(info).filter((tr) => this.host.rowOf(info, tr) > 0 && tr.isConnected);
+    let low = 0;
+    let high = rows.length;
+    while (low < high) {
+      const mid = low + high >> 1;
+      if (rows[mid].getBoundingClientRect().bottom <= top) low = mid + 1;
+      else high = mid;
+    }
+    let shown = 0;
+    for (let i = low; i < rows.length; i++) {
+      const rect = rows[i].getBoundingClientRect();
+      if (rect.top >= bottom) break;
+      let label = layer.children[shown];
+      if (!label) {
+        label = this.host.doc.createElement("span");
+        layer.append(label);
+      }
+      label.hidden = false;
+      label.textContent = String(this.host.rowOf(info, rows[i]));
+      label.style.top = `${rect.top - top}px`;
+      label.style.height = `${rect.height}px`;
+      shown++;
+    }
+    for (let i = shown; i < layer.children.length; i++) layer.children[i].hidden = true;
+  }
+};
 
 // table-plus/src/features/grips.ts
 var DRAG_THRESHOLD = 4;
@@ -9648,9 +11195,6 @@ var TOUCH_DRAG_THRESHOLD = 10;
 var GRIP_THICKNESS = 12;
 var ROW_GRIP_LENGTH = 32;
 var COLUMN_GRIP_LENGTH = 44;
-var AUTOSCROLL_EDGE = 40;
-var AUTOSCROLL_STEP = 12;
-var LONG_PRESS_MS = 550;
 var PIN_NEEDS_METADATA = "Pinning is stored in the table: turn on the Store table metadata setting (unpinning always works)";
 var Grips = class {
   constructor(host) {
@@ -9928,7 +11472,7 @@ var Grips = class {
     const cells = this.host.selectedCells(info);
     const cellLines = cells.map((ref) => axis === "row" ? ref.row : ref.column).filter((l) => axis === "column" || l > 0);
     const ends = lines.length > 0 ? lines : cellLines;
-    const shown = axis === "row" ? this.host.shownRows(info).map((tr) => Number(tr.dataset.tpRow)) : [];
+    const shown = axis === "row" ? this.host.shownRows(info).map((tr) => this.host.rowOf(info, tr)) : [];
     const place = (l) => axis === "row" ? shown.indexOf(l) : l;
     const first = ends[0];
     const last = ends[ends.length - 1];
@@ -9946,7 +11490,7 @@ var Grips = class {
         return;
       }
       const shown = this.host.shownRows(info);
-      const last = Number(shown[shown.length - 1]?.dataset.tpRow ?? 0);
+      const last = this.host.rowOf(info, shown[shown.length - 1]);
       this.host.selectCells(info, { row: 0, column: from }, { row: last, column: to });
     } finally {
       this.selectingLines = false;
@@ -10105,7 +11649,7 @@ var Grips = class {
         const shift = i > end && i <= target2 + count - 1 ? -carriedSize : i < index && i >= target2 ? carriedSize : 0;
         for (const cell of cells) cell.style.transform = shift ? axis === "row" ? `translateY(${shift}px)` : `translateX(${shift}px)` : "";
       });
-      this.autoscroll(widget, ev);
+      scrollNearEdge(widget, ev.clientX, ev.clientY, axis === "column");
     };
     const finish = (commit) => {
       for (const cells of items) for (const cell of cells) cell.style.transform = "";
@@ -10156,14 +11700,6 @@ var Grips = class {
     ghost.append(table);
     return ghost;
   }
-  /** Near the top or bottom edge of the box the page scrolls in, it scrolls on */
-  autoscroll(widget, ev) {
-    const scroller = this.host.scrollParentOf(widget);
-    if (!scroller) return;
-    const view = scroller.getBoundingClientRect();
-    if (ev.clientY < view.top + AUTOSCROLL_EDGE) scroller.scrollTop -= AUTOSCROLL_STEP;
-    else if (ev.clientY > view.bottom - AUTOSCROLL_EDGE) scroller.scrollTop += AUTOSCROLL_STEP;
-  }
   // ---- menus ----------------------------------------------------------------------
   // A click on the grip whose menu is open closes it; on another grip, that grip's menu opens instead
   /** The menu of a line, by its grip, or by a point in a cell (`at`: opened on a cell selected) */
@@ -10178,21 +11714,11 @@ var Grips = class {
     const { doc } = this.host;
     const { widget, info } = target;
     const named2 = this.host.menuNaming(widget, info, axis === "row" ? { kind: "row", row: line } : { kind: "column", column: line });
-    const naming = named2 && {
-      ...named2,
-      save: async (name) => {
-        const why = await named2.save(name);
-        if (why === void 0) this.closeMenu(false);
-        return why;
-      }
-    };
+    const naming = namingThatCloses(named2, () => this.closeMenu(false));
     const header = cellText(info.table.rows[0].cells[target.column]) || String(target.column + 1);
     const title = axis === "row" ? naming?.name ? `Row: ${naming.name}` : `Row ${target.row}` : `Column: ${naming?.name ?? header}`;
     const entries = axis === "row" ? this.rowMenu(widget, info, target.row, target.column) : this.columnMenu(widget, info, target.column);
-    const element = renderMenu(doc, title, entries, void 0, naming);
-    element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    keepFocus(element);
-    onMenuClose(element, () => this.closeMenu(true));
+    const element = floatingMenu(doc, title, entries, { naming, close: () => this.closeMenu(true) });
     doc.body.append(element);
     if (at) {
       const c = at.cell.getBoundingClientRect();
@@ -10216,11 +11742,8 @@ var Grips = class {
     if (!menu) return;
     const previous = menu.element;
     const closing = entries.map((entry) => entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry);
-    const element = renderMenu(this.host.doc, title, closing, { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) });
-    element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    keepFocus(element);
-    onMenuClose(element, () => this.closeMenu(true));
-    this.swapMenu(element);
+    const back = { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) };
+    this.swapMenu(floatingMenu(this.host.doc, title, closing, { back, close: () => this.closeMenu(true) }));
   }
   /** Puts `element` in the open menu's place */
   swapMenu(element) {
@@ -10543,407 +12066,6 @@ var History = class {
   }
 };
 
-// table-plus/src/features/widths.ts
-var MIN_WIDTH = 40;
-var Widths = class {
-  constructor(host) {
-    this.host = host;
-  }
-  host;
-  // Widths set for the view only (no metadata stored), by table and column; undefined: automatic
-  viewed = /* @__PURE__ */ new Map();
-  drag;
-  stopDrag;
-  // The columns given a width in each table as rendered (a write renders it anew): those to make automatic again
-  sized = /* @__PURE__ */ new WeakMap();
-  // The widths stored in the table last read (parsing a large table for its metadata row on every view is slow)
-  stored;
-  stop() {
-    this.stopDrag?.();
-  }
-  pointerBusy() {
-    return this.drag ? "drag" : void 0;
-  }
-  /** The widths of a table's columns: those set for the view, else those stored */
-  widthsOf(info) {
-    if (this.stored?.source !== info.source) {
-      const read = /* @__PURE__ */ new Map();
-      for (const [column, value] of columnMeta(parseTable(info.source), "width")) {
-        const n = Number(value);
-        if (Number.isFinite(n) && n > 0) read.set(column, Math.max(MIN_WIDTH, Math.round(n)));
-      }
-      this.stored = { source: info.source, widths: read };
-    }
-    const widths = new Map(this.stored.widths);
-    for (const [column, width] of this.viewed.get(info.key) ?? []) {
-      if (width === void 0) widths.delete(column);
-      else widths.set(column, width);
-    }
-    return widths;
-  }
-  // ---- the handles and the widths shown ----------------------------------------
-  decorate(_widget, info) {
-    Array.from(info.table.rows[0].cells).forEach((cell, column) => {
-      const handle = this.host.doc.createElement("span");
-      handle.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-col-resize`;
-      handle.dataset.tpColumn = String(column);
-      handle.title = "Drag to set the column's width; double-click for automatic";
-      cell.append(handle);
-    });
-  }
-  // After the cells are laid out (their content boxes made): the widths set.
-  // Only the columns with a width, or that had one: touching every cell's
-  // style (or reading styles between writes) would make the browser compute
-  // the whole table's styles and layout again, for every table shown.
-  viewApplied(_widget, info) {
-    const widths = this.widthsOf(info);
-    const header = info.table.rows[0];
-    const sized = this.sized.get(info.table);
-    const columns = Array.from({ length: info.columns }, (_, column) => column).filter((column) => widths.has(column) || sized?.has(column));
-    if (!columns.length) return;
-    const paddings = columns.map((column) => widths.has(column) ? this.paddingOf(info, column) : 0);
-    const rows = [header, ...this.host.bodyRows(info)];
-    columns.forEach((column, i) => this.apply(info, column, widths.get(column), paddings[i], rows));
-  }
-  /**
-   * A column `width` pixels wide (undefined: automatic): every cell of it, and
-   * the content box of every body cell sized to fit inside (it is otherwise as
-   * wide as its text, up to the maximum column width)
-   */
-  apply(info, column, width, padding = width === void 0 ? 0 : this.paddingOf(info, column), rows = [info.table.rows[0], ...this.host.bodyRows(info)]) {
-    const sized = this.sized.get(info.table) ?? /* @__PURE__ */ new Set();
-    this.sized.set(info.table, sized);
-    if (width === void 0) sized.delete(column);
-    else sized.add(column);
-    for (const tr of rows) {
-      const cell = tr.cells[column];
-      if (!cell || cell.classList.contains("tp-editing")) continue;
-      cell.classList.toggle("tp-sized", width !== void 0);
-      cell.style.boxSizing = width === void 0 ? "" : "border-box";
-      cell.style.width = width === void 0 ? "" : `${width}px`;
-      cell.style.minWidth = width === void 0 ? "" : `${width}px`;
-      cell.style.maxWidth = width === void 0 ? "" : `${width}px`;
-      const box = cell.querySelector(":scope > .tp-cell-content, :scope > .tp-head");
-      if (box) {
-        box.style.width = width === void 0 ? "" : `${Math.max(0, width - padding)}px`;
-        box.style.maxWidth = width === void 0 ? "" : "none";
-      }
-    }
-  }
-  /** A cell's padding left and right (the same in the column's header and body cells) */
-  paddingOf(info, column) {
-    const header = info.table.rows[0].cells[column];
-    if (!header) return 0;
-    const style = this.host.doc.defaultView.getComputedStyle(header);
-    return (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
-  }
-  // ---- dragging -----------------------------------------------------------------
-  mouseDown(e) {
-    const handle = e.target instanceof Element ? e.target.closest(".tp-col-resize") : null;
-    const hit = handle && this.host.enhancedWidgetOf(handle);
-    if (!handle || !hit || e.button !== 0) return false;
-    e.preventDefault();
-    e.stopPropagation();
-    this.stopDrag?.();
-    const editing = this.host.editing;
-    if (editing) editing.field.blur();
-    const [, info] = hit;
-    const column = Number(handle.dataset.tpColumn);
-    const header = info.table.rows[0].cells[column];
-    if (!header) return true;
-    const startWidth = Math.round(header.getBoundingClientRect().width);
-    this.drag = { key: info.key, column, startX: e.clientX, startWidth, padding: this.paddingOf(info, column), width: startWidth };
-    handle.classList.add("tp-active");
-    const doc = this.host.doc;
-    doc.body.classList.add("tp-resizing");
-    const win = doc.defaultView;
-    let frame = 0;
-    const show = () => {
-      frame = 0;
-      const drag = this.drag;
-      const now2 = drag && this.current(drag.key);
-      if (!drag || !now2) return;
-      this.apply(now2[1], drag.column, drag.width, drag.padding);
-      this.host.tableResized(now2[1]);
-    };
-    const move = (ev) => {
-      const drag = this.drag;
-      if (!drag) return;
-      if (ev.buttons === 0) {
-        end(ev);
-        return;
-      }
-      ev.preventDefault();
-      drag.width = Math.max(MIN_WIDTH, Math.round(drag.startWidth + ev.clientX - drag.startX));
-      if (!frame) frame = win.requestAnimationFrame ? win.requestAnimationFrame(show) : (show(), 0);
-    };
-    const end = (ev) => {
-      const drag = this.drag;
-      if (frame && win.cancelAnimationFrame) win.cancelAnimationFrame(frame);
-      this.stopDrag?.();
-      const now2 = drag && this.current(drag.key);
-      if (!drag || !now2) return;
-      const [current, nowInfo] = now2;
-      if (drag.width !== drag.startWidth) {
-        void this.set(current, nowInfo, drag.column, drag.width);
-        return;
-      }
-      if (ev.detail >= 2) void this.set(current, nowInfo, drag.column, void 0);
-      else {
-        this.viewApplied(current, nowInfo);
-        this.host.tableResized(nowInfo);
-      }
-    };
-    this.stopDrag = () => {
-      win.removeEventListener("mousemove", move, true);
-      win.removeEventListener("mouseup", end, true);
-      handle.classList.remove("tp-active");
-      doc.body.classList.remove("tp-resizing");
-      this.drag = void 0;
-      this.stopDrag = void 0;
-    };
-    win.addEventListener("mousemove", move, true);
-    win.addEventListener("mouseup", end, true);
-    return true;
-  }
-  /** The table with `key` as rendered now: a write renders it anew */
-  current(key2) {
-    const widget = this.host.widgetForKey(key2);
-    const info = widget && this.host.infoOf(widget);
-    return widget && info ? [widget, info] : void 0;
-  }
-  /** A column's width set (undefined: automatic) */
-  set(widget, info, column, width) {
-    return this.setAll(widget, info, /* @__PURE__ */ new Map([[column, width]]));
-  }
-  /** Columns' widths set (undefined: automatic): stored in the table where they can be, else for the view */
-  async setAll(widget, info, set) {
-    const view = this.viewed.get(info.key) ?? /* @__PURE__ */ new Map();
-    for (const [column, width] of set) view.set(column, width);
-    this.viewed.set(info.key, view);
-    this.viewApplied(widget, info);
-    this.host.tableResized(info);
-    this.host.toolbarChanged();
-    if (!(info.metaRow || this.host.metadataEnabled)) return;
-    const result = await this.host.write(widget, (t) => {
-      const widths = columnMeta(t, "width");
-      for (const [column, width] of set) {
-        if (width === void 0) widths.delete(column);
-        else widths.set(column, String(width));
-      }
-      return withColumnMeta(t, "width", widths);
-    });
-    if (result !== "failed") for (const column of set.keys()) this.viewed.get(info.key)?.delete(column);
-  }
-  /** Columns moved, inserted or deleted: the widths set for the view go with them */
-  columnsMoved(key2, map) {
-    const view = this.viewed.get(key2);
-    if (!view) return;
-    const moved2 = /* @__PURE__ */ new Map();
-    for (const [column, width] of view) {
-      const target = map(column);
-      if (target !== void 0) moved2.set(target, width);
-    }
-    this.viewed.set(key2, moved2);
-  }
-  // ---- the menus --------------------------------------------------------------------
-  // Before Remove metadata (the widths module comes before it), which would remove them too
-  toolbarButtons(widget, info) {
-    const widths = this.widthsOf(info);
-    if (!widths.size) return [];
-    return [
-      {
-        label: "Reset column widths",
-        icon: ICONS.columnWidth,
-        danger: true,
-        title: widths.size === 1 ? "Make the column with a width set as wide as its text again" : `Make the ${widths.size} columns with a width set as wide as their text again`,
-        run: () => {
-          const [w, now2] = this.current(info.key) ?? [widget, info];
-          void this.setAll(w, now2, new Map(Array.from(this.widthsOf(now2).keys(), (column) => [column, void 0])));
-        }
-      }
-    ];
-  }
-  columnMenuEntries(widget, info, column) {
-    const width = this.widthsOf(info).get(column);
-    if (width === void 0) return [];
-    return [
-      {
-        kind: "item",
-        label: "Auto width",
-        icon: ICONS.columnWidth,
-        hint: `The column is ${width}px wide: make it as wide as its text`,
-        run: () => void this.set(widget, info, column, void 0)
-      }
-    ];
-  }
-};
-
-// table-plus/src/features/fullscreen.ts
-var FULL_CLASS = "tp-fullscreen";
-var OPEN_CLASS = "tp-fullscreen-open";
-var LETTER_CLASS = "tp-col-letter";
-var FullScreen = class {
-  constructor(host) {
-    this.host = host;
-    this.numbers = host.floating("div", "tp-fullscreen-rows");
-    this.numbers.setAttribute("aria-hidden", "true");
-  }
-  host;
-  // The table shown over the window (its key) and its widget as rendered now
-  key;
-  widget;
-  // The table rendered anew taken for it before it was enhanced (tableAdded)
-  guessed;
-  // The rows' numbers, over the room left of the rows
-  numbers;
-  numbersQueued = false;
-  stop() {
-    this.end();
-    this.numbers.remove();
-  }
-  toolbarButtons(widget, info) {
-    const on = this.key === info.key;
-    return [
-      {
-        label: on ? "Exit full screen" : "Full screen",
-        title: on ? "Show the table in the page again (Esc)" : "Show the table over the whole window",
-        place: "icon",
-        icon: on ? ICONS.exitFullScreen : ICONS.fullScreen,
-        pressed: on,
-        run: () => on ? this.end() : this.begin(widget, info)
-      }
-    ];
-  }
-  // Each header cell's letter (shown only over the window, by the CSS)
-  decorate(_widget, info) {
-    Array.from(info.table.rows[0]?.cells ?? []).forEach((cell, column) => {
-      if (cell.querySelector(`:scope > .${LETTER_CLASS}`)) return;
-      const letter = this.host.doc.createElement("span");
-      letter.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} ${LETTER_CLASS}`;
-      letter.setAttribute("aria-hidden", "true");
-      letter.textContent = columnLetters(column);
-      cell.append(letter);
-    });
-  }
-  begin(widget, info) {
-    if (this.widget && this.widget !== widget) this.unmark(this.widget);
-    this.key = info.key;
-    this.mark(widget);
-    this.host.toolbarChanged();
-    this.host.tableResized(info);
-  }
-  end() {
-    const widget = this.widget;
-    this.key = void 0;
-    this.widget = void 0;
-    if (widget) this.unmark(widget);
-    this.host.doc.body.classList.remove(OPEN_CLASS);
-    this.numbers.classList.remove("tp-visible");
-    this.host.toolbarChanged();
-    const info = widget && this.host.infoOf(widget);
-    if (info) this.host.tableResized(info);
-  }
-  mark(widget) {
-    this.widget = widget;
-    widget.classList.add(FULL_CLASS);
-    this.host.doc.body.classList.add(OPEN_CLASS);
-    this.numbers.classList.add("tp-visible");
-    this.queueNumbers();
-  }
-  unmark(widget) {
-    widget.classList.remove(FULL_CLASS);
-  }
-  // Rendered anew (an edit): the replacement of the table shown over the window shows so at once, before it is laid out
-  // (the one starting where the table taken out started, data-pos: an edit in a table does not move its start;
-  // the page may render every table anew)
-  tableAdded(widget, table) {
-    const old = this.widget;
-    if (this.key === void 0 || !old || old.isConnected || this.guessed?.isConnected) return;
-    if (table.dataset.pos !== old.querySelector("table")?.dataset.pos) return;
-    this.guessed = widget;
-    widget.classList.add(FULL_CLASS);
-  }
-  // Enhanced: shown over the window if it is that table, else not (tableAdded may have guessed wrong)
-  enhanced(widget, info) {
-    if (info.key === this.key) this.mark(widget);
-    else if (widget.classList.contains(FULL_CLASS)) this.unmark(widget);
-    if (this.key !== void 0 && this.widget && !this.widget.isConnected && !this.host.widgetForKey(this.key)) this.end();
-  }
-  // Its rows sorted, filtered or put back into the document: their numbers follow
-  viewApplied(widget) {
-    if (widget === this.widget) this.queueNumbers();
-  }
-  rowsAttached(info) {
-    if (info.table === this.widget?.querySelector("table")) this.queueNumbers();
-  }
-  // Esc closes it, unless something else takes the key first (a cell editor, a selection, a field, a menu)
-  keyDown(e) {
-    if (e.key !== "Escape" || this.key === void 0 || this.host.editing) return false;
-    const target = e.target;
-    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return false;
-    e.preventDefault();
-    e.stopPropagation();
-    this.end();
-    return true;
-  }
-  // After a scroll or a change of the layout (in a frame): the numbers follow the rows; another page shown: it ends
-  layoutChanged() {
-    if (this.key === void 0) return;
-    if (!this.widget?.isConnected && !this.host.doc.querySelector(`${WIDGET_SELECTOR}.${FULL_CLASS}`)) {
-      this.end();
-      return;
-    }
-    this.placeNumbers();
-  }
-  queueNumbers() {
-    if (this.numbersQueued) return;
-    this.numbersQueued = true;
-    const win = this.host.doc.defaultView;
-    const run = () => {
-      this.numbersQueued = false;
-      this.placeNumbers();
-    };
-    if (win.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
-  }
-  /** A number beside each row in view, below the header (held or not), above the box's bottom */
-  placeNumbers() {
-    const widget = this.widget;
-    const info = widget?.isConnected ? this.host.infoOf(widget) : void 0;
-    if (!widget || !info) return;
-    const top = info.table.rows[0].getBoundingClientRect().bottom;
-    const bottom = this.host.innerBox(widget).bottom;
-    const layer = this.numbers;
-    layer.style.top = `${top}px`;
-    layer.style.height = `${Math.max(0, bottom - top)}px`;
-    const rows = this.host.shownRows(info).filter((tr) => tr.dataset.tpRow !== void 0 && tr.isConnected);
-    let low = 0;
-    let high = rows.length;
-    while (low < high) {
-      const mid = low + high >> 1;
-      if (rows[mid].getBoundingClientRect().bottom <= top) low = mid + 1;
-      else high = mid;
-    }
-    let shown = 0;
-    for (let i = low; i < rows.length; i++) {
-      const rect = rows[i].getBoundingClientRect();
-      if (rect.top >= bottom) break;
-      let label = layer.children[shown];
-      if (!label) {
-        label = this.host.doc.createElement("span");
-        layer.append(label);
-      }
-      label.hidden = false;
-      label.textContent = rows[i].dataset.tpRow;
-      label.style.top = `${rect.top - top}px`;
-      label.style.height = `${rect.height}px`;
-      shown++;
-    }
-    for (let i = shown; i < layer.children.length; i++) layer.children[i].hidden = true;
-  }
-};
-
 // table-plus/src/features/largetables.ts
 var LARGE_CLASS = "tp-large-table";
 var SPACER_CLASS = "tp-large-spacer";
@@ -11134,495 +12256,6 @@ var LargeTables = class {
     if (!state || at < 0) return;
     this.windowAt(state, at - Math.floor(this.rowsInView(state) / 2) + MARGIN_ROWS);
     this.place(state);
-  }
-};
-
-// table-plus/src/features/longtext.ts
-var LongText = class {
-  constructor(host) {
-    this.host = host;
-  }
-  host;
-  limits;
-  reading;
-  checkQueued = false;
-  // Tables resized (a sidebar, a column's width, fonts loaded): cells that are cut may change
-  resizeObserver;
-  stopped = false;
-  start() {
-    const win = this.host.doc.defaultView;
-    win.addEventListener("resize", this.queueCheck);
-    this.resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => this.queueCheck()) : void 0;
-    void this.host.doc.fonts?.ready.then(() => this.queueCheck());
-    void this.readSettings();
-  }
-  stop() {
-    this.stopped = true;
-    this.host.doc.defaultView.removeEventListener("resize", this.queueCheck);
-    this.resizeObserver?.disconnect();
-    for (const widget of Array.from(this.host.doc.querySelectorAll(WIDGET_SELECTOR))) this.clear(widget);
-  }
-  // A table rendered (or its view applied): its limits, and a check once laid out
-  viewApplied(widget) {
-    this.apply(widget);
-    this.resizeObserver?.observe(widget);
-    this.queueCheck();
-  }
-  // Rows put back into the document (a large table scrolled): their cells are checked
-  rowsAttached() {
-    this.queueCheck();
-  }
-  enhanced() {
-    void this.readSettings();
-  }
-  /** Reads the settings; changed, every table gets them */
-  readSettings() {
-    this.reading ??= (async () => {
-      const limits = {
-        overflow: await this.host.setting("cellOverflow"),
-        maxWidth: await this.host.setting("cellMaxWidth"),
-        maxHeight: await this.host.setting("cellMaxHeight")
-      };
-      const before = this.limits;
-      this.limits = limits;
-      if (this.stopped || before && before.overflow === limits.overflow && before.maxWidth === limits.maxWidth && before.maxHeight === limits.maxHeight) return;
-      for (const widget of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
-        const info = this.host.infoOf(widget);
-        if (info && renderedTable(widget) === info.table) this.apply(widget);
-      }
-      this.queueCheck();
-    })().finally(() => this.reading = void 0);
-    return this.reading;
-  }
-  apply(widget) {
-    const { overflow, maxWidth, maxHeight } = this.limits ?? {
-      overflow: SETTINGS.cellOverflow.default,
-      maxWidth: SETTINGS.cellMaxWidth.default,
-      maxHeight: SETTINGS.cellMaxHeight.default
-    };
-    widget.classList.add("tp-long-text");
-    widget.classList.toggle("tp-cells-wrap", overflow === "wrap");
-    widget.classList.toggle("tp-cells-ellipsis", overflow === "ellipsis");
-    widget.style.setProperty("--tp-cell-max-width", maxWidth > 0 ? `${maxWidth}px` : "none");
-    widget.style.setProperty("--tp-cell-max-height", maxHeight > 0 ? `${maxHeight}px` : "none");
-  }
-  clear(widget) {
-    widget.classList.remove("tp-long-text", "tp-cells-wrap", "tp-cells-ellipsis");
-    widget.style.removeProperty("--tp-cell-max-width");
-    widget.style.removeProperty("--tp-cell-max-height");
-    for (const cell of Array.from(widget.querySelectorAll(".tp-cut"))) cell.classList.remove("tp-cut");
-  }
-  /** Once laid out: the cells whose content does not fit (cut) are marked */
-  queueCheck = () => {
-    if (this.checkQueued) return;
-    this.checkQueued = true;
-    const run = () => {
-      this.checkQueued = false;
-      if (this.stopped) return;
-      const boxes = Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table .tp-cell-content`));
-      const cut = boxes.map((box) => box.scrollWidth > box.clientWidth + 1 || box.scrollHeight > box.clientHeight + 1);
-      boxes.forEach((box, i) => box.parentElement?.classList.toggle("tp-cut", cut[i]));
-    };
-    const win = this.host.doc.defaultView;
-    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
-  };
-};
-
-// table-plus/src/features/popup.ts
-var CellPopup = class {
-  constructor(host) {
-    this.host = host;
-    this.button = host.floating("button", "tp-expand");
-    this.button.type = "button";
-    this.button.tabIndex = -1;
-    this.button.title = "Show the whole text (F2 while editing)";
-    this.button.setAttribute("aria-label", "Show the whole text");
-    this.button.innerHTML = ICONS.expand;
-  }
-  host;
-  button;
-  // The cell the button is for
-  target;
-  start() {
-    this.button.addEventListener("click", () => this.open());
-  }
-  stop() {
-    this.button.remove();
-  }
-  owns(node) {
-    return this.button.contains(node);
-  }
-  cellHovered(widget, info, cell) {
-    const editing = this.host.editing;
-    if (editing) {
-      this.showFor(editing);
-      return;
-    }
-    this.target = cell.classList.contains("tp-cut") ? { widget, info, cell } : void 0;
-    this.place();
-  }
-  hoverEnded() {
-    const editing = this.host.editing;
-    if (editing) this.showFor(editing);
-    else this.hide();
-  }
-  editorOpened(editor) {
-    this.showFor(editor);
-    editor.field.addEventListener("input", () => {
-      if (this.host.editing === editor) this.showFor(editor);
-    });
-  }
-  editorClosed() {
-    this.hide();
-  }
-  layoutChanged() {
-    this.place();
-  }
-  /** While a cell is edited in it: when its text does not fit, or the cell's did not */
-  showFor(editor) {
-    const info = this.host.infoOf(editor.widget);
-    const field = editor.field;
-    const overflows = field.scrollWidth > field.clientWidth + 1 || editor.cell.classList.contains("tp-cut");
-    this.target = !editor.popup && info && overflows ? { widget: editor.widget, info, cell: editor.cell } : void 0;
-    this.place();
-  }
-  /**
-   * At the top right corner of the part of the cell in view: the table's box
-   * may be scrolled sideways, the page up or down, and a body cell may be
-   * partly under the header held at the top. Where too little of it shows,
-   * the button waits (hidden) for the cell to come into view.
-   */
-  place() {
-    const target = this.target;
-    if (!target || !target.cell.isConnected) {
-      this.hide();
-      return;
-    }
-    const { widget, info, cell } = target;
-    const rect = cell.getBoundingClientRect();
-    const shown = this.host.shownRect(widget, info);
-    const view = this.host.viewBounds(widget);
-    const head = info.table.tHead;
-    const under = head && cell.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity;
-    const left = Math.max(rect.left, shown.left, view.left);
-    const right = Math.min(rect.right, shown.right, view.right);
-    const top = Math.max(rect.top, shown.top, view.top, under);
-    const bottom = Math.min(rect.bottom, shown.bottom, view.bottom);
-    this.button.classList.add("tp-visible");
-    const size = Math.max(this.button.offsetWidth, this.button.offsetHeight);
-    if (rect.width > 0 && (right - left < size + 4 || bottom - top < size + 4)) {
-      this.button.classList.remove("tp-visible");
-      return;
-    }
-    this.host.place(this.button, right - this.button.offsetWidth - 2, top + 2);
-  }
-  hide() {
-    this.target = void 0;
-    this.button.classList.remove("tp-visible");
-  }
-  open() {
-    const target = this.target;
-    if (!target) return;
-    this.hide();
-    if (this.host.editing) {
-      this.host.editInPopup();
-      return;
-    }
-    const ref = this.host.cellRef(target.info, target.cell);
-    if (ref) this.host.editCell(target.info, ref, void 0, true);
-  }
-};
-
-// table-plus/src/features/metadata.ts
-function withoutMetadata(table) {
-  const { meta: _meta, metaSource: _source, ...rest } = table;
-  return { ...rest, rows: table.rows.map((row) => row.cells.some(hasTags) ? { ...row, cells: row.cells.map(withoutTags) } : row) };
-}
-var hasTags = (cell) => cellTags(cell).length > 0;
-function hasMetadata(table) {
-  return table.meta !== void 0 || table.rows.some((row) => row.cells.some(hasTags));
-}
-function plural2(n, word) {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-function described(parts, tables, form) {
-  const told = new Set(parts.flatMap((part) => part.tags));
-  const untold = tables.some(
-    (table) => table.rows.some((row) => row.cells.some((cell) => cellTags(cell).some((tag) => attributesOf(tag).some((name) => !told.has(name)))))
-  );
-  return [...parts.map(form), ...untold ? [`${parts.length ? "other " : ""}hidden data in cells`] : []];
-}
-var Metadata = class {
-  constructor(host) {
-    this.host = host;
-  }
-  host;
-  toolbarButtons(widget, info) {
-    if (!hasMetadata(parseTable(info.source))) return [];
-    return [
-      {
-        label: "Remove metadata",
-        icon: ICONS.trash,
-        danger: true,
-        title: "Remove this table's <meta> tags: its stored settings (sorting, filters, pinning, name, theme, stripes) and what its cells keep (formulas, which keep their results, names)",
-        run: () => void this.removeFromTable(widget, info)
-      }
-    ];
-  }
-  /**
-   * Removes a table's metadata, once confirmed: its metadata row (a sorting
-   * stored there goes with it: the rows show as written) and the formulas of
-   * its cells, which keep their results as plain values
-   */
-  async removeFromTable(shownWidget, shownInfo) {
-    const shown = parseTable(shownInfo.source);
-    const removed = [
-      ...shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name, theme, stripes)"] : [],
-      ...described(this.host.metadataParts([shown]), [shown], (p) => `its ${plural2(p.count, p.what)}${p.note ? `: ${p.note}` : ""}`)
-    ];
-    if (!await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`)) return;
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    const info = this.host.infoOf(widget) ?? shownInfo;
-    if (parseTable(info.source).meta) this.host.forgetStoredView(info.key);
-    await this.host.write(widget, withoutMetadata);
-    this.host.focusEditor(widget);
-  }
-  /** Removes the metadata of all tables on the current page, once confirmed */
-  async removeFromPage() {
-    const { bridge } = this.host;
-    const text = await bridge.getText();
-    const tables = findTables(text).filter((range) => {
-      return hasMetadata(parseTable(range.text));
-    }).reverse();
-    if (tables.length === 0) {
-      void bridge.flash("Table Plus: no table on this page has metadata", "info");
-      return;
-    }
-    const models = tables.map((range) => parseTable(range.text));
-    const parts = described(this.host.metadataParts(models), models, (p) => `${plural2(p.count, p.what)}${p.note ? ` (${p.note})` : ""}`);
-    const question = `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` + (parts.length ? `, including ${parts.join(" and ")}` : "") + "? Ctrl+Z brings it back.";
-    if (!await this.host.ask(question)) return;
-    const from = tables[tables.length - 1].from;
-    const to = tables[0].to;
-    let span = text.slice(from, to);
-    const page = await bridge.getCurrentPage();
-    for (const range of tables) {
-      const table = parseTable(range.text);
-      if (table.meta) this.host.forgetStoredView(`${page}#${range.ordinal}`);
-      span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(table)) + span.slice(range.to - from);
-    }
-    const edit = minimalEdit(text.slice(from, to), span);
-    await bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
-    this.host.doc.querySelector(EDITOR_SELECTOR)?.focus({ preventScroll: true });
-    void bridge.flash(`Table Plus: removed the metadata of ${tables.length} table(s)`, "info");
-  }
-};
-
-// table-plus/src/features/names.ts
-function listed(names) {
-  const shown = names.slice(0, 5);
-  const more = names.length - shown.length;
-  if (more > 0) return `${shown.join(", ")} and ${more} more`;
-  return shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}` : shown.join("");
-}
-var Names = class {
-  constructor(host) {
-    this.host = host;
-  }
-  host;
-  /** A name is one cell's, one row's: a copy of a row takes none */
-  uniqueTags() {
-    return ["n", "cn"];
-  }
-  /** Deleting a column removes the names of the rows and cells it holds, and the formulas using them break */
-  columnDeleteWarning(info, column) {
-    const body = parseTable(info.source).rows.slice(1);
-    const rows = body.flatMap((r) => {
-      const named2 = rowNameIn(r.cells);
-      return named2 && named2.column === column ? [named2.name] : [];
-    });
-    const cells = body.flatMap((r) => {
-      const name = cellNameOf(r.cells[column] ?? "");
-      return name ? [name] : [];
-    });
-    if (!rows.length && !cells.length) return void 0;
-    const lost = [
-      ...rows.length ? [`the name${rows.length === 1 ? "" : "s"} of ${rows.length === 1 ? "the row" : `${rows.length} rows`} ${listed(rows)}`] : [],
-      ...cells.length ? [`the name${cells.length === 1 ? "" : "s"} of ${cells.length === 1 ? "the cell" : `${cells.length} cells`} ${listed(cells)}`] : []
-    ];
-    return `${lost.join(" and ")}: formulas that use ${rows.length + cells.length === 1 ? "it" : "them"} show #REF! or #NAME?`;
-  }
-  /** Remove metadata removes the names of columns, rows and cells */
-  metadataPart(tables) {
-    const count = tables.reduce(
-      (n, table) => n + table.rows.reduce((m, row) => m + row.cells.filter((cell) => nameOf(cell) !== void 0 || cellNameOf(cell) !== void 0).length, 0),
-      0
-    );
-    return count ? { count, what: "name", tags: ["n", "cn"] } : void 0;
-  }
-  /** Named cells show a mark in their corner, and their name on hover */
-  decorate(_widget, info) {
-    const model = parseTable(info.source);
-    model.rows[0]?.cells.forEach((raw, column) => {
-      const name = nameOf(raw);
-      const cell = info.table.rows[0]?.cells[column];
-      if (!name || !cell) return;
-      cell.classList.add("tp-named");
-      cell.title = cell.title ? `${cell.title}
-Column name: ${name}` : `Column name: ${name}`;
-    });
-    for (const tr of this.host.bodyRows(info)) {
-      const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
-      cells.forEach((raw, column) => {
-        const name = cellNameOf(raw);
-        const cell = tr.cells[column];
-        if (!name || !cell) return;
-        cell.classList.add("tp-named");
-        cell.title = cell.title ? `${cell.title}
-Name: ${name}` : `Name: ${name}`;
-      });
-      const row = rowNameIn(cells)?.name;
-      const first = tr.cells[0];
-      if (row && first) {
-        first.classList.add("tp-row-named");
-        first.title = first.title ? `${first.title}
-Row name: ${row}` : `Row name: ${row}`;
-      }
-    }
-  }
-  /** The table's name at the toolbar's left: a click opens its ⋯ menu, the name to type in its title */
-  toolbarButtons(widget, info) {
-    const name = metaName(parseTable(info.source));
-    if (!name) return [];
-    const title = `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`;
-    return [{ label: name, title, place: "label", run: () => this.host.openTableMenu(widget, true) }];
-  }
-  /**
-   * The name of what a menu is about, in its title with a pencil: the table's
-   * (formulas elsewhere use it as name!A1), a row's (name[column]), a cell's,
-   * a column's ([name] whatever its header says). Names are metadata: with
-   * the setting off only one already there can be changed or removed.
-   */
-  menuNaming(widget, info, target) {
-    const table = parseTable(info.source);
-    const needs = "Needs the Store table metadata setting";
-    if (target.kind === "table") {
-      const name2 = metaName(table);
-      return {
-        ...name2 ? { name: name2 } : {},
-        label: name2 ? `Rename this table (formulas elsewhere refer to it as ${name2}!A1)` : "Name this table, so formulas in other tables can refer to it (name!A1)",
-        ...info.metaRow || this.host.metadataEnabled ? {} : { disabled: needs },
-        save: (next) => this.renameTable(widget, info, next)
-      };
-    }
-    if (target.kind === "row") {
-      const name2 = rowNameIn(table.rows[target.row]?.cells ?? [])?.name;
-      return {
-        ...name2 ? { name: name2 } : {},
-        label: name2 ? `Rename this row (formulas use its cells as ${name2}[column])` : "Name this row, so formulas use its cells as name[column], wherever it is moved",
-        ...this.host.metadataEnabled || name2 !== void 0 ? {} : { disabled: needs },
-        save: (next) => this.nameRow(widget, info, target.row, next)
-      };
-    }
-    if (target.kind === "cell") {
-      const name2 = cellNameOf(table.rows[target.row]?.cells[target.column] ?? "");
-      return {
-        ...name2 ? { name: name2 } : {},
-        label: name2 ? `Rename this cell (formulas use it as ${name2})` : "Name this cell, so formulas use it by its name, wherever it is moved",
-        ...this.host.metadataEnabled || name2 !== void 0 ? {} : { disabled: needs },
-        save: (next) => this.nameCell(widget, info, target.row, target.column, next)
-      };
-    }
-    const name = nameOf(table.rows[0]?.cells[target.column] ?? "");
-    return {
-      ...name ? { name } : {},
-      label: name ? `Rename this column (formulas refer to it as [${name}])` : "Name this column, so formulas refer to it as [name] whatever its header says",
-      ...this.host.metadataEnabled || name !== void 0 ? {} : { disabled: needs },
-      save: (next) => this.rename(widget, info, target.column, next)
-    };
-  }
-  /** A name saved as it was: nothing written, the keyboard back in the page (the menu's field had it) */
-  unchanged(widget) {
-    this.host.focusEditor(widget);
-    return void 0;
-  }
-  /**
-   * Names, renames or (with an empty name) unnames a table; refused, with
-   * why, when it is not a valid name or another table on the page has it
-   */
-  async renameTable(shownWidget, shownInfo, name) {
-    const shown = parseTable(shownInfo.source);
-    if (name === (shown.meta?.name?.trim() ?? "")) return this.unchanged(shownWidget);
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    const info = this.host.infoOf(widget) ?? shownInfo;
-    const problem = name === "" ? void 0 : tableNameProblem(name);
-    if (problem) return problem;
-    if (name !== "") {
-      const text = await this.host.bridge.getText();
-      const self = locateBySource(text, info.hint, info.source);
-      const taken = findTables(text).some((range) => {
-        if (range.from === self?.from) return false;
-        const other = metaName(parseTable(range.text));
-        return other !== void 0 && sameTableName(other, name);
-      });
-      if (taken) return `another table on this page is named ${name}`;
-    }
-    await this.host.write(widget, (t) => withMetaName(t, name === "" ? void 0 : name));
-    this.host.focusEditor(widget);
-    return void 0;
-  }
-  /** Names a row (empty: unnames it); refused, with why, when not valid or another row of the table has it */
-  async nameRow(shownWidget, shownInfo, row, name) {
-    const table = parseTable(shownInfo.source);
-    const current = rowNameIn(table.rows[row]?.cells ?? [])?.name ?? "";
-    if (name === current) return this.unchanged(shownWidget);
-    let problem = name === "" ? void 0 : nameProblem(name, "row");
-    const other = name ? namedRows(table).get(name.toLowerCase()) : void 0;
-    if (!problem && other !== void 0 && other !== row) problem = `another row of this table is named ${name}`;
-    if (problem) return problem;
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    await this.host.write(widget, (t) => {
-      const column = rowNameIn(t.rows[row]?.cells ?? [])?.column ?? 0;
-      return setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || void 0));
-    });
-    this.host.focusEditor(widget);
-    return void 0;
-  }
-  /** Names a cell (empty: unnames it); refused, with why, when not valid, a function's or another cell's on the page */
-  async nameCell(shownWidget, shownInfo, row, column, name) {
-    const current = cellNameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
-    if (name === current) return this.unchanged(shownWidget);
-    let problem = name === "" ? void 0 : nameProblem(name, "cell");
-    if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
-    if (!problem && name) {
-      const text = await this.host.bridge.getText();
-      const own = locateBySource(text, shownInfo.hint, shownInfo.source);
-      const taken = findTables(text).some(
-        (range) => parseTable(range.text).rows.some(
-          (r, ri) => ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column))
-        )
-      );
-      if (taken) problem = `another cell on this page is named ${name}`;
-    }
-    if (problem) return problem;
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    await this.host.write(widget, (t) => setCell(t, row, column, withCellName(t.rows[row]?.cells[column] ?? "", name || void 0)));
-    this.host.focusEditor(widget);
-    return void 0;
-  }
-  /** Names a column (empty: unnames it); refused, with why, when not valid or another column answers to it */
-  async rename(shownWidget, shownInfo, column, name) {
-    const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
-    const current = nameOf(headers[column] ?? "") ?? "";
-    if (name === current) return this.unchanged(shownWidget);
-    const problem = name === "" ? void 0 : nameProblem(name, "column");
-    const taken = name !== "" && headers.some((header, c) => c !== column && (nameOf(header)?.toLowerCase() === name.toLowerCase() || columnIdOf(headers, c)?.name === name.toLowerCase()));
-    if (problem || taken) return problem ?? `another column of this table is named ${name}`;
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    await this.host.write(widget, (t) => setCell(t, 0, column, withName(t.rows[0]?.cells[column] ?? "", name || void 0)));
-    this.host.focusEditor(widget);
-    return void 0;
   }
 };
 
@@ -11883,155 +12516,382 @@ var Lazy = class {
   };
 };
 
-// table-plus/src/features/themes.ts
-var STRIPES_ICONS = { none: ICONS.stripesNone, rows: ICONS.stripesRows, columns: ICONS.stripesColumns };
-var STRIPES_TITLES = {
-  none: "No stripes",
-  rows: "Striped rows: every other row tinted",
-  columns: "Striped columns: every other column tinted"
+// table-plus/src/features/longtext.ts
+var LongText = class {
+  constructor(host) {
+    this.host = host;
+    this.queueCheck = oncePerFrame(host.doc, () => this.markCutCells());
+  }
+  host;
+  limits;
+  reading;
+  // Marking the cells cut, once in the next frame
+  queueCheck;
+  // Tables resized (a sidebar, a column's width, fonts loaded): cells that are cut may change
+  resizeObserver;
+  stopped = false;
+  start() {
+    const win = this.host.doc.defaultView;
+    win.addEventListener("resize", this.queueCheck);
+    this.resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => this.queueCheck()) : void 0;
+    void this.host.doc.fonts?.ready.then(() => this.queueCheck());
+    void this.readSettings();
+  }
+  stop() {
+    this.stopped = true;
+    this.host.doc.defaultView.removeEventListener("resize", this.queueCheck);
+    this.resizeObserver?.disconnect();
+    for (const widget of Array.from(this.host.doc.querySelectorAll(WIDGET_SELECTOR))) this.clear(widget);
+  }
+  // A table rendered (or its view applied): its limits, and a check once laid out
+  viewApplied(widget) {
+    this.apply(widget);
+    this.resizeObserver?.observe(widget);
+    this.queueCheck();
+  }
+  // Rows put back into the document (a large table scrolled): their cells are checked
+  rowsAttached() {
+    this.queueCheck();
+  }
+  enhanced() {
+    void this.readSettings();
+  }
+  /** Reads the settings; changed, every table gets them */
+  readSettings() {
+    this.reading ??= (async () => {
+      const limits = {
+        overflow: await this.host.setting("cellOverflow"),
+        maxWidth: await this.host.setting("cellMaxWidth"),
+        maxHeight: await this.host.setting("cellMaxHeight")
+      };
+      const before = this.limits;
+      this.limits = limits;
+      if (this.stopped || before && before.overflow === limits.overflow && before.maxWidth === limits.maxWidth && before.maxHeight === limits.maxHeight) return;
+      for (const widget of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
+        const info = this.host.infoOf(widget);
+        if (info && renderedTable(widget) === info.table) this.apply(widget);
+      }
+      this.queueCheck();
+    })().finally(() => this.reading = void 0);
+    return this.reading;
+  }
+  apply(widget) {
+    const { overflow, maxWidth, maxHeight } = this.limits ?? {
+      overflow: SETTINGS.cellOverflow.default,
+      maxWidth: SETTINGS.cellMaxWidth.default,
+      maxHeight: SETTINGS.cellMaxHeight.default
+    };
+    widget.classList.add("tp-long-text");
+    widget.classList.toggle("tp-cells-wrap", overflow === "wrap");
+    widget.classList.toggle("tp-cells-ellipsis", overflow === "ellipsis");
+    widget.style.setProperty("--tp-cell-max-width", maxWidth > 0 ? `${maxWidth}px` : "none");
+    widget.style.setProperty("--tp-cell-max-height", maxHeight > 0 ? `${maxHeight}px` : "none");
+  }
+  clear(widget) {
+    widget.classList.remove("tp-long-text", "tp-cells-wrap", "tp-cells-ellipsis");
+    widget.style.removeProperty("--tp-cell-max-width");
+    widget.style.removeProperty("--tp-cell-max-height");
+    for (const cell of Array.from(widget.querySelectorAll(".tp-cut"))) cell.classList.remove("tp-cut");
+  }
+  /** Once laid out: the cells whose content does not fit (cut) are marked */
+  markCutCells() {
+    if (this.stopped) return;
+    const boxes = Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table .tp-cell-content`));
+    const cut = boxes.map((box) => box.scrollWidth > box.clientWidth + 1 || box.scrollHeight > box.clientHeight + 1);
+    boxes.forEach((box, i) => box.parentElement?.classList.toggle("tp-cut", cut[i]));
+  }
 };
-function metaTheme(table) {
-  return themeName(table.meta?.theme);
+
+// table-plus/src/features/names.ts
+function listed(names) {
+  const shown = names.slice(0, 5);
+  const more = names.length - shown.length;
+  if (more > 0) return `${shown.join(", ")} and ${more} more`;
+  return shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}` : shown.join("");
 }
-function metaStripes(table) {
-  return stripesName(table.meta?.stripes);
-}
-var Themes = class {
+var Names = class {
   constructor(host) {
     this.host = host;
   }
   host;
-  // The settings, read when Table Plus starts and again as tables are enhanced
-  theme = NATIVE_THEME;
-  stripes = "rows";
-  start() {
-    void this.readSettings();
+  /** A name is one cell's, one row's: a copy of a row takes none */
+  uniqueTags() {
+    return ["n", "cn"];
   }
-  stop() {
-    for (const widget of this.widgets()) {
-      delete widget.dataset.tpTheme;
-      delete widget.dataset.tpStripes;
+  /** Deleting a column removes the names of the rows and cells it holds, and the formulas using them break */
+  columnDeleteWarning(info, column) {
+    const body = parseTable(info.source).rows.slice(1);
+    const rows = body.flatMap((r) => {
+      const named2 = rowNameIn(r.cells);
+      return named2 && named2.column === column ? [named2.name] : [];
+    });
+    const cells = body.flatMap((r) => {
+      const name = cellNameOf(r.cells[column] ?? "");
+      return name ? [name] : [];
+    });
+    if (!rows.length && !cells.length) return void 0;
+    const lost = [
+      ...rows.length ? [`the name${rows.length === 1 ? "" : "s"} of ${rows.length === 1 ? "the row" : `${rows.length} rows`} ${listed(rows)}`] : [],
+      ...cells.length ? [`the name${cells.length === 1 ? "" : "s"} of ${cells.length === 1 ? "the cell" : `${cells.length} cells`} ${listed(cells)}`] : []
+    ];
+    return `${lost.join(" and ")}: formulas that use ${rows.length + cells.length === 1 ? "it" : "them"} show #REF! or #NAME?`;
+  }
+  /** Remove metadata removes the names of columns, rows and cells */
+  metadataPart(tables) {
+    const count = tables.reduce(
+      (n, table) => n + table.rows.reduce((m, row) => m + row.cells.filter((cell) => nameOf(cell) !== void 0 || cellNameOf(cell) !== void 0).length, 0),
+      0
+    );
+    return count ? { count, what: "name", tags: ["n", "cn"] } : void 0;
+  }
+  /** Named cells show a mark in their corner, and their name on hover */
+  decorate(_widget, info) {
+    const model = parseTable(info.source);
+    model.rows[0]?.cells.forEach((raw, column) => {
+      const name = nameOf(raw);
+      const cell = info.table.rows[0]?.cells[column];
+      if (!name || !cell) return;
+      cell.classList.add("tp-named");
+      cell.title = cell.title ? `${cell.title}
+Column name: ${name}` : `Column name: ${name}`;
+    });
+    for (const tr of this.host.bodyRows(info)) {
+      const cells = model.rows[this.host.rowOf(info, tr)]?.cells ?? [];
+      cells.forEach((raw, column) => {
+        const name = cellNameOf(raw);
+        const cell = tr.cells[column];
+        if (!name || !cell) return;
+        cell.classList.add("tp-named");
+        cell.title = cell.title ? `${cell.title}
+Name: ${name}` : `Name: ${name}`;
+      });
+      const row = rowNameIn(cells)?.name;
+      const first = tr.cells[0];
+      if (row && first) {
+        first.classList.add("tp-row-named");
+        first.title = first.title ? `${first.title}
+Row name: ${row}` : `Row name: ${row}`;
+      }
     }
   }
-  // Before the browser lays the table out: its metadata row's choices as rendered (<meta theme="…" stripes="…">), else the settings'
-  tableAdded(widget, _table, rows) {
-    const meta = rows[rows.length - 1]?.querySelector("meta");
-    this.mark(widget, themeName(meta?.getAttribute("theme")) ?? this.theme, stripesName(meta?.getAttribute("stripes")) ?? this.stripes);
-  }
-  enhanced(widget, info) {
-    this.markFor(widget, info);
-    void this.readSettings();
-  }
-  markFor(widget, info) {
-    const table = parseTable(info.source);
-    this.mark(widget, metaTheme(table) ?? this.theme, metaStripes(table) ?? this.stripes);
-  }
-  async readSettings() {
-    const [theme, stripes] = await Promise.all([this.host.setting("theme"), this.host.setting("stripes")]);
-    if (theme === this.theme && stripes === this.stripes) return;
-    this.theme = theme;
-    this.stripes = stripes;
-    for (const widget of this.widgets()) {
-      const info = this.host.infoOf(widget);
-      if (info) this.markFor(widget, info);
-    }
-  }
-  /** The theme on the table (native: none, SilverBullet's own look), and its stripes unless they are the rows (SilverBullet's own) */
-  mark(widget, theme, stripes) {
-    if (theme === NATIVE_THEME) delete widget.dataset.tpTheme;
-    else if (widget.dataset.tpTheme !== theme) widget.dataset.tpTheme = theme;
-    if (stripes === "rows") delete widget.dataset.tpStripes;
-    else if (widget.dataset.tpStripes !== stripes) widget.dataset.tpStripes = stripes;
-  }
-  widgets() {
-    return Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`));
+  /** The table's name at the toolbar's left: a click opens its ⋯ menu, the name to type in its title */
+  toolbarButtons(widget, info) {
+    const name = metaName(parseTable(info.source));
+    if (!name) return [];
+    const title = `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`;
+    return [{ label: name, title, place: "label", run: () => this.host.openTableMenu(widget, true) }];
   }
   /**
-   * Theme in the table's ⋯ menu: Global theme first (the table's own theme
-   * and stripes go: it follows the settings), the stripes (three icons: none,
-   * rows, columns), then every theme; a stripes or a theme picked is stored in
-   * the table's metadata row, also the settings' one (kept whatever the
-   * settings become). As names are, only where the table can have metadata.
+   * The name of what a menu is about, in its title with a pencil: the table's
+   * (formulas elsewhere use it as name!A1), a row's (name[column]), a cell's,
+   * a column's ([name] whatever its header says). Names are metadata: with
+   * the setting off only one already there can be changed or removed.
    */
-  toolbarButtons(widget, info) {
-    if (!info.metaRow && !this.host.metadataEnabled) return [];
+  menuNaming(widget, info, target) {
     const table = parseTable(info.source);
-    const own = metaTheme(table);
-    const ownStripes = metaStripes(table);
-    const set = (choices) => () => void this.choose(widget, info, choices);
-    const item = (label, checked, run, detail) => ({ kind: "item", label, icon: "", checked, run, ...detail ? { detail } : {} });
-    const themes = () => {
-      const preview = this.preview(ownStripes ?? this.stripes);
-      const showing = (theme) => () => {
-        if (theme === NATIVE_THEME) delete preview.dataset.tpTheme;
-        else preview.dataset.tpTheme = theme;
-        return preview;
+    const needs = "Needs the Store table metadata setting";
+    if (target.kind === "table") {
+      const name2 = metaName(table);
+      return {
+        ...name2 ? { name: name2 } : {},
+        label: name2 ? `Rename this table (formulas elsewhere refer to it as ${name2}!A1)` : "Name this table, so formulas in other tables can refer to it (name!A1)",
+        ...info.metaRow || this.host.metadataEnabled ? {} : { disabled: needs },
+        save: (next) => this.renameTable(widget, info, next)
       };
-      const detail = (theme) => ({ title: themeLabel(theme), content: showing(theme) });
-      return [
-        // First the global theme (as "No type" leads the column types): the table's own theme and stripes go, it follows the settings
-        // The settings' theme after it, no preview (it is listed below, marked default)
-        { ...item("Global theme", own === void 0 && ownStripes === void 0, set({ theme: void 0, stripes: void 0 })), value: { text: themeLabel(this.theme) } },
-        { kind: "separator" },
-        stripesRow,
-        { kind: "separator" },
-        // Then every theme, the setting's marked (default): one picked is the table's own, the setting's one too, whatever the setting becomes
-        ...allThemes(this.host.doc).map(
-          (theme) => item(
-            `${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`,
-            own === theme,
-            set({ theme }),
-            detail(theme)
-          )
-        )
-      ];
+    }
+    if (target.kind === "row") {
+      const name2 = rowNameIn(table.rows[target.row]?.cells ?? [])?.name;
+      return {
+        ...name2 ? { name: name2 } : {},
+        label: name2 ? `Rename this row (formulas use its cells as ${name2}[column])` : "Name this row, so formulas use its cells as name[column], wherever it is moved",
+        ...this.host.metadataEnabled || name2 !== void 0 ? {} : { disabled: needs },
+        save: (next) => this.nameRow(widget, info, target.row, next)
+      };
+    }
+    if (target.kind === "cell") {
+      const name2 = cellNameOf(table.rows[target.row]?.cells[target.column] ?? "");
+      return {
+        ...name2 ? { name: name2 } : {},
+        label: name2 ? `Rename this cell (formulas use it as ${name2})` : "Name this cell, so formulas use it by its name, wherever it is moved",
+        ...this.host.metadataEnabled || name2 !== void 0 ? {} : { disabled: needs },
+        save: (next) => this.nameCell(widget, info, target.row, target.column, next)
+      };
+    }
+    const name = nameOf(table.rows[0]?.cells[target.column] ?? "");
+    return {
+      ...name ? { name } : {},
+      label: name ? `Rename this column (formulas refer to it as [${name}])` : "Name this column, so formulas refer to it as [name] whatever its header says",
+      ...this.host.metadataEnabled || name !== void 0 ? {} : { disabled: needs },
+      save: (next) => this.rename(widget, info, target.column, next)
     };
-    const stripesRow = {
-      kind: "segmented",
-      label: "Stripes",
-      // The table's own marked, none while it follows the setting (as a theme picked is; Global theme: the setting's again)
-      options: STRIPES.map((s) => ({ icon: STRIPES_ICONS[s], title: STRIPES_TITLES[s], active: s === ownStripes, run: set({ stripes: s }) }))
-    };
-    return [
-      {
-        label: "Theme",
-        title: "How this table looks: the Theme and Stripes settings (Global theme), or a theme and stripes of its own (stored in the table)",
-        icon: ICONS.theme,
-        value: own ? themeLabel(own) : `${themeLabel(this.theme)} (global)`,
-        // Not used: the item opens its choices
-        run: () => {
-        },
-        choices: { title: "Table theme", entries: themes }
-      }
-    ];
   }
-  /** A small table to preview themes on (in a menu's bubble: not one of the page's), with these stripes */
-  preview(stripes) {
-    const { doc } = this.host;
-    const widget = doc.createElement("div");
-    widget.className = "sb-table-widget tp-theme-preview";
-    widget.setAttribute("aria-hidden", "true");
-    if (stripes !== "rows") widget.dataset.tpStripes = stripes;
-    const table = doc.createElement("table");
-    const row = (section, cells) => {
-      const tr = section.insertRow();
-      cells.forEach((text, i) => {
-        const td = tr.insertCell();
-        td.textContent = text;
-        if (i > 0) td.className = "tp-preview-number";
-      });
-    };
-    row(table.createTHead(), ["Name", "Qty", "Price"]);
-    const body = table.createTBody();
-    for (const cells of [["Pear", "3", "12.99"], ["Apple", "10", "4.50"], ["Fig", "2", "25.00"], ["Kiwi", "7", "6.10"]]) row(body, cells);
-    widget.append(table);
-    return widget;
-  }
-  /** The table's own choices written into its metadata row, as one edit (undefined: the setting's again) */
-  async choose(shownWidget, shownInfo, choices) {
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    await this.host.write(widget, (table) => Object.entries(choices).reduce((t, [name, value]) => withMeta(t, name, value), table));
+  /** A name saved as it was: nothing written, the keyboard back in the page (the menu's field had it) */
+  unchanged(widget) {
     this.host.focusEditor(widget);
+    return void 0;
+  }
+  /**
+   * Names, renames or (with an empty name) unnames a table; refused, with
+   * why, when it is not a valid name or another table on the page has it
+   */
+  async renameTable(shownWidget, shownInfo, name) {
+    const shown = parseTable(shownInfo.source);
+    if (name === (shown.meta?.name?.trim() ?? "")) return this.unchanged(shownWidget);
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    const info = this.host.infoOf(widget) ?? shownInfo;
+    const problem = name === "" ? void 0 : tableNameProblem(name);
+    if (problem) return problem;
+    if (name !== "") {
+      const text = await this.host.bridge.getText();
+      const self = locateBySource(text, info.hint, info.source);
+      const taken = findTables(text).some((range) => {
+        if (range.from === self?.from) return false;
+        const other = metaName(parseTable(range.text));
+        return other !== void 0 && sameTableName(other, name);
+      });
+      if (taken) return `another table on this page is named ${name}`;
+    }
+    await this.host.write(widget, (t) => withMetaName(t, name === "" ? void 0 : name));
+    this.host.focusEditor(widget);
+    return void 0;
+  }
+  /** Names a row (empty: unnames it); refused, with why, when not valid or another row of the table has it */
+  async nameRow(shownWidget, shownInfo, row, name) {
+    const table = parseTable(shownInfo.source);
+    const current = rowNameIn(table.rows[row]?.cells ?? [])?.name ?? "";
+    if (name === current) return this.unchanged(shownWidget);
+    let problem = name === "" ? void 0 : nameProblem(name, "row");
+    const other = name ? namedRows(table).get(name.toLowerCase()) : void 0;
+    if (!problem && other !== void 0 && other !== row) problem = `another row of this table is named ${name}`;
+    if (problem) return problem;
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    await this.host.write(widget, (t) => {
+      const column = rowNameIn(t.rows[row]?.cells ?? [])?.column ?? 0;
+      return setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || void 0));
+    });
+    this.host.focusEditor(widget);
+    return void 0;
+  }
+  /** Names a cell (empty: unnames it); refused, with why, when not valid, a function's or another cell's on the page */
+  async nameCell(shownWidget, shownInfo, row, column, name) {
+    const current = cellNameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
+    if (name === current) return this.unchanged(shownWidget);
+    let problem = name === "" ? void 0 : nameProblem(name, "cell");
+    if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
+    if (!problem && name) {
+      const text = await this.host.bridge.getText();
+      const own = locateBySource(text, shownInfo.hint, shownInfo.source);
+      const taken = findTables(text).some(
+        (range) => parseTable(range.text).rows.some(
+          (r, ri) => ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column))
+        )
+      );
+      if (taken) problem = `another cell on this page is named ${name}`;
+    }
+    if (problem) return problem;
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    await this.host.write(widget, (t) => setCell(t, row, column, withCellName(t.rows[row]?.cells[column] ?? "", name || void 0)));
+    this.host.focusEditor(widget);
+    return void 0;
+  }
+  /** Names a column (empty: unnames it); refused, with why, when not valid or another column answers to it */
+  async rename(shownWidget, shownInfo, column, name) {
+    const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
+    const current = nameOf(headers[column] ?? "") ?? "";
+    if (name === current) return this.unchanged(shownWidget);
+    const problem = name === "" ? void 0 : nameProblem(name, "column");
+    const taken = name !== "" && headers.some((header, c) => c !== column && (nameOf(header)?.toLowerCase() === name.toLowerCase() || columnIdOf(headers, c)?.name === name.toLowerCase()));
+    if (problem || taken) return problem ?? `another column of this table is named ${name}`;
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    await this.host.write(widget, (t) => setCell(t, 0, column, withName(t.rows[0]?.cells[column] ?? "", name || void 0)));
+    this.host.focusEditor(widget);
+    return void 0;
+  }
+};
+
+// table-plus/src/features/pagelinks.ts
+var MAX_OTHER_PAGES = 20;
+var PageLinks = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // The other pages read: their tables, or null where there is no such page
+  pages = /* @__PURE__ */ new Map();
+  // Counts the pages read, so what formulas computed from them is computed anew
+  version = 0;
+  otherPages() {
+    return { tables: (page) => this.pages.get(page), version: this.version };
+  }
+  /** A table shown: the pages its formulas read, if not read yet; then its formulas are checked again */
+  enhanced(_widget, info) {
+    void this.load([parseTable(info.source)], false).then((read) => {
+      if (read) this.host.tablesChanged();
+    });
+  }
+  /** Before a write reads the page: the pages the tables it recalculates refer to, read again */
+  async prepareWrite(info) {
+    await this.load(tablesWritten(pageTablesOf(this.host.pageText), info.source), true);
+  }
+  /** After the edit: pages the page's tables and the edited one refer to, if not read yet */
+  async prepareEdit(edited, page) {
+    await this.load([...page.tables.map((t) => t.table), edited], false);
+  }
+  /**
+   * Another page formulas read was changed: read it again, and the tables
+   * shown are checked again. When it is the page shown now (it was read from
+   * another page before), it is forgotten, so going back there does not use it
+   * as it was.
+   */
+  async pageIndexed(name) {
+    if (!this.pages.has(name)) return;
+    if (name === this.host.currentPage) {
+      this.pages.delete(name);
+      return;
+    }
+    await this.load(this.tablesShown(), /* @__PURE__ */ new Set([name]));
+    this.host.tablesChanged();
+  }
+  /** The tables shown, as last read */
+  tablesShown() {
+    return Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`)).flatMap((widget) => {
+      const info = this.host.infoOf(widget);
+      return info ? [parseTable(info.source)] : [];
+    });
+  }
+  /**
+   * Reads the other pages these tables' formulas refer to, and in turn the
+   * pages those pages' tables refer to; `fresh`: also those read before.
+   * Whether a page was read.
+   */
+  async load(tables, fresh) {
+    if (!this.host.bridge.readPage || !this.host.moduleOn("formulas")) return false;
+    const queue = /* @__PURE__ */ new Set();
+    for (const table of tables) for (const page of referredPages(table)) queue.add(page);
+    const done = /* @__PURE__ */ new Set();
+    let read = false;
+    for (const page of queue) {
+      if (done.size >= MAX_OTHER_PAGES) break;
+      done.add(page);
+      if (page === this.host.currentPage) continue;
+      if (fresh === true || fresh && fresh.has(page) || !this.pages.has(page)) {
+        await this.read(page);
+        read = true;
+      }
+      for (const { table } of this.pages.get(page) ?? []) for (const next of referredPages(table)) queue.add(next);
+    }
+    return read;
+  }
+  /** Reads another page's tables; the earlier ones stay until it is read, so formulas never see it missing meanwhile */
+  async read(page) {
+    let tables;
+    try {
+      tables = pageTablesOf(await this.host.bridge.readPage(page));
+    } catch {
+      tables = null;
+    }
+    this.pages.set(page, tables);
+    this.version++;
   }
 };
 
@@ -12047,6 +12907,7 @@ function sameText(text) {
 var Paste = class {
   constructor(host) {
     this.host = host;
+    this.edges = new Outline(host.doc, (sides) => [`tp-cut-edge ${sides.map((side) => `tp-cut-${side}`).join(" ")}`]);
   }
   host;
   // The paste on its way was asked for with Ctrl+Shift+V: as new rows
@@ -12060,7 +12921,7 @@ var Paste = class {
   stopped = false;
   // Cells copied or cut (waiting to be moved by a paste); their outline
   cut;
-  edges = [];
+  edges;
   /**
    * Where the browser says the page may read the clipboard without asking,
    * what it holds is read again when the page comes back to the front (copied
@@ -12171,7 +13032,7 @@ var Paste = class {
   lineMenuEntries(widget, info, axis, lines) {
     const first = Math.min(...lines);
     if (!Number.isFinite(first)) return [];
-    const rows = axis === "row" ? lines : this.host.shownRows(info).map((tr) => tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow));
+    const rows = axis === "row" ? lines : this.host.shownRows(info).map((tr) => this.host.rowOf(info, tr));
     const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : [...lines].sort((a, b) => a - b);
     const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
     const body = cells.filter((ref) => ref.row > 0);
@@ -12340,27 +13201,15 @@ var Paste = class {
   shapeOf(table) {
     return `${table.rows.length}\xD7${table.align.length}`;
   }
-  /** The cells copied or cut outlined, dashed, as a spreadsheet marks them: a piece in each cell on the area's edge */
+  /** The cells copied or cut outlined, dashed, as a spreadsheet marks them */
   markCut(info) {
     this.unmarkCut();
     const cut = this.cut;
     if (!cut) return;
-    const last = cut.cells.length - 1;
-    cut.cells.forEach(
-      (row, i) => row.forEach((ref, j) => {
-        const sides = [i === 0 && "top", i === last && "bottom", j === 0 && "left", j === row.length - 1 && "right"].filter(Boolean);
-        const cell = sides.length ? this.host.cellAt(info, ref, true) : void 0;
-        if (!cell) return;
-        const edge = this.host.doc.createElement("span");
-        edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-cut-edge ${sides.map((s) => `tp-cut-${s}`).join(" ")}`;
-        cell.append(edge);
-        this.edges.push(edge);
-      })
-    );
+    this.edges.show(cut.cells.length, cut.cells[0]?.length ?? 0, (i, j) => this.host.cellAt(info, cut.cells[i][j], true));
   }
   unmarkCut() {
-    for (const edge of this.edges) edge.remove();
-    this.edges = [];
+    this.edges.clear();
   }
   endCut() {
     this.cut = void 0;
@@ -12481,18 +13330,109 @@ var Paste = class {
   }
 };
 
+// table-plus/src/features/popup.ts
+var CellPopup = class {
+  constructor(host) {
+    this.host = host;
+    this.button = host.floating("button", "tp-expand");
+    this.button.type = "button";
+    this.button.tabIndex = -1;
+    this.button.title = "Show the whole text (F2 while editing)";
+    this.button.setAttribute("aria-label", "Show the whole text");
+    this.button.innerHTML = ICONS.expand;
+  }
+  host;
+  button;
+  // The cell the button is for
+  target;
+  start() {
+    this.button.addEventListener("click", () => this.open());
+  }
+  stop() {
+    this.button.remove();
+  }
+  owns(node) {
+    return this.button.contains(node);
+  }
+  cellHovered(widget, info, cell) {
+    const editing = this.host.editing;
+    if (editing) {
+      this.showFor(editing);
+      return;
+    }
+    this.target = cell.classList.contains("tp-cut") ? { widget, info, cell } : void 0;
+    this.place();
+  }
+  hoverEnded() {
+    const editing = this.host.editing;
+    if (editing) this.showFor(editing);
+    else this.hide();
+  }
+  editorOpened(editor) {
+    this.showFor(editor);
+    editor.field.addEventListener("input", () => {
+      if (this.host.editing === editor) this.showFor(editor);
+    });
+  }
+  editorClosed() {
+    this.hide();
+  }
+  layoutChanged() {
+    this.place();
+  }
+  /** While a cell is edited in it: when its text does not fit, or the cell's did not */
+  showFor(editor) {
+    const info = this.host.infoOf(editor.widget);
+    const field = editor.field;
+    const overflows = field.scrollWidth > field.clientWidth + 1 || editor.cell.classList.contains("tp-cut");
+    this.target = !editor.popup && info && overflows ? { widget: editor.widget, info, cell: editor.cell } : void 0;
+    this.place();
+  }
+  /**
+   * At the top right corner of the part of the cell in view: the table's box
+   * may be scrolled sideways, the page up or down, and a body cell may be
+   * partly under what is held over the body (the header, pinned rows and
+   * columns: `shownPart`). Where too little of it shows,
+   * the button waits (hidden) for the cell to come into view.
+   */
+  place() {
+    const target = this.target;
+    if (!target || !target.cell.isConnected) {
+      this.hide();
+      return;
+    }
+    const { widget, info, cell } = target;
+    const rect = cell.getBoundingClientRect();
+    const part = this.host.shownPart(widget, info, cell);
+    this.button.classList.add("tp-visible");
+    const size = Math.max(this.button.offsetWidth, this.button.offsetHeight);
+    if (rect.width > 0 && (!part || part.right - part.left < size + 4 || part.bottom - part.top < size + 4)) {
+      this.button.classList.remove("tp-visible");
+      return;
+    }
+    const { right, top } = part ?? rect;
+    this.host.place(this.button, right - this.button.offsetWidth - 2, top + 2);
+  }
+  hide() {
+    this.target = void 0;
+    this.button.classList.remove("tp-visible");
+  }
+  open() {
+    const target = this.target;
+    if (!target) return;
+    this.hide();
+    if (this.host.editing) {
+      this.host.editInPopup();
+      return;
+    }
+    const ref = this.host.cellRef(target.info, target.cell);
+    if (ref) this.host.editCell(target.info, ref, void 0, true);
+  }
+};
+
 // table-plus/src/features/selection.ts
 var MOVE_KEYS2 = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 var EDIT_MODE_KEY = "tablePlus.editMode";
-var AUTOSCROLL_EDGE2 = 40;
-var AUTOSCROLL_STEP2 = 12;
-function columnLetters2(column) {
-  let letters = "";
-  for (let n = column + 1; n > 0; n = Math.floor((n - 1) / 26)) letters = String.fromCharCode(65 + (n - 1) % 26) + letters;
-  return letters;
-}
-var TAP_MS = 500;
-var TAP_MOVE = 10;
 function readEditMode() {
   try {
     return globalThis.localStorage?.getItem(EDIT_MODE_KEY) === "on";
@@ -12523,6 +13463,8 @@ var Selection = class {
     };
     this.handles = [handle("start"), handle("end")];
     this.tip = host.floating("div", "tp-move-tip");
+    this.edges = new Outline(host.doc, (sides) => sides.map((side) => `tp-select-edge tp-select-edge-${side}`));
+    this.targetEdges = new Outline(host.doc, (sides) => [`tp-move-edge ${sides.map((side) => `tp-move-${side}`).join(" ")}`]);
   }
   host;
   // The cells selected (rows of the markdown, header 0), in the table with this key
@@ -12533,8 +13475,8 @@ var Selection = class {
   // A touch on cells selected, until it is a tap (their menu) or not
   stopTap;
   // The band on the selection's edge a mouse drags it by; the outline where it goes, and its address
-  edges = [];
-  targetEdges = [];
+  edges;
+  targetEdges;
   tip;
   // Move to…: the table whose cells selected move to the cell pressed next
   moving;
@@ -12569,7 +13511,7 @@ var Selection = class {
     else root.dataset.tpSelectMode = "";
   }
   owns(node) {
-    return this.handles.some((handle) => handle.contains(node)) || this.edges.some((edge) => edge.contains(node)) || this.tip.contains(node);
+    return this.handles.some((handle) => handle.contains(node)) || this.edges.contains(node) || this.tip.contains(node);
   }
   /**
    * A press on a handle is the handle's (a mouse's, after a touch has shown
@@ -12641,9 +13583,7 @@ var Selection = class {
         end();
         return;
       }
-      const hit = this.host.enhancedWidgetOf(ev.target);
-      const cell = hit && hit[1].key === key2 ? this.host.tableCellOf(hit[1], ev.target) : void 0;
-      const ref = hit && cell ? this.host.cellRef(hit[1], cell) : void 0;
+      const ref = this.host.cellUnder(ev.target, key2)?.ref;
       if (!ref) return;
       const current = this.selection;
       if (!current) {
@@ -12756,8 +13696,7 @@ var Selection = class {
     const info = widget && this.host.infoOf(widget);
     if (!selection || !info) return void 0;
     const shown = this.host.shownRows(info);
-    const rowOf = (tr2) => tr2 === info.table.rows[0] ? 0 : Number(tr2.dataset.tpRow);
-    const at = shown.findIndex((tr2) => rowOf(tr2) === selection.focus.row);
+    const at = shown.findIndex((tr2) => this.host.rowOf(info, tr2) === selection.focus.row);
     if (at < 0) return void 0;
     const ctrl = e.ctrlKey;
     let r = at;
@@ -12776,7 +13715,7 @@ var Selection = class {
     else if (e.key === "PageDown" && !ctrl) r = r + PAGE_ROWS;
     else return void 0;
     const tr = shown[Math.max(0, Math.min(shown.length - 1, r))];
-    return { row: rowOf(tr), column: Math.max(0, Math.min(info.columns - 1, column)) };
+    return { row: this.host.rowOf(info, tr), column: Math.max(0, Math.min(info.columns - 1, column)) };
   }
   /** The selection's last cell to `to`; without `extend` the selection is just that cell */
   moveTo(to, extend) {
@@ -12832,7 +13771,7 @@ var Selection = class {
   }
   /** Clear in the menu of rows (columns): their cells (a column's header keeps its name), after the clipboard's entries */
   lineMenuEntries(widget, info, axis, lines) {
-    const rows = axis === "row" ? lines : this.host.bodyRows(info).map((tr) => Number(tr.dataset.tpRow));
+    const rows = axis === "row" ? lines : this.host.bodyRows(info).map((tr) => this.host.rowOf(info, tr));
     const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : lines;
     const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
     const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis}${lines.length > 1 ? "s" : ""}`;
@@ -12938,7 +13877,7 @@ var Selection = class {
     const info = widget && this.host.infoOf(widget);
     if (!selection || !info) return void 0;
     const shown = this.host.shownRows(info);
-    const index = (row) => shown.findIndex((tr) => row === 0 ? tr === info.table.rows[0] : tr.dataset.tpRow === String(row));
+    const index = (row) => shown.findIndex((tr) => this.host.rowOf(info, tr) === row);
     const a = index(selection.anchor.row);
     const b = index(selection.focus.row);
     if (a < 0 || b < 0) return void 0;
@@ -12992,13 +13931,9 @@ var Selection = class {
    * False when no cell of the lines is in view there.
    */
   placeMidHandles(widget, info, cells, axis) {
-    const box = this.host.shownRect(widget, info);
-    const view = this.host.viewBounds(widget);
-    const left = Math.max(box.left, view.left);
-    const right = Math.min(box.right, view.right);
-    const top = Math.max(box.top, view.top);
-    const bottom = Math.min(box.bottom, view.bottom);
-    if (left >= right || top >= bottom) return false;
+    const shown = intersect(this.host.shownRect(widget, info), this.host.viewBounds(widget));
+    if (isEmpty(shown)) return false;
+    const { left, right, top, bottom } = shown;
     const middle = axis === "row" ? (left + right) / 2 : (top + bottom) / 2;
     const at = (line) => {
       for (const cell of line) {
@@ -13065,16 +14000,14 @@ var Selection = class {
     const timer = win.setInterval(() => last && move(last), 50);
     const move = (ev) => {
       last = ev;
-      this.autoscroll(widget, ev);
-      const under = doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null;
-      const hit = this.host.enhancedWidgetOf(under);
-      const cell = hit && hit[1].key === key2 ? this.host.tableCellOf(hit[1], under) : void 0;
-      const ref = hit && cell ? this.host.cellRef(hit[1], cell) : void 0;
-      if (!hit || !ref) return;
+      scrollNearEdge(widget, ev.clientX, ev.clientY);
+      const hit = this.host.cellUnder(doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null, key2);
+      if (!hit) return;
+      const { ref } = hit;
       const focus = { row: wholeColumns ? dragged.row : ref.row, column: wholeRows ? dragged.column : ref.column };
       const now2 = this.selection;
       if (now2?.key === key2 && now2.anchor === anchor && now2.focus.row === focus.row && now2.focus.column === focus.column) return;
-      this.selectCells(hit[1], anchor, focus);
+      this.selectCells(hit.info, anchor, focus);
     };
     const end = () => {
       win.clearInterval(timer);
@@ -13104,48 +14037,18 @@ var Selection = class {
     }
     const selection = this.selection;
     if (e.pointerType !== "touch" || e.button !== 0 || !selection || e.target instanceof Node && this.owns(e.target)) return;
-    const hit = this.host.enhancedWidgetOf(e.target);
-    if (!hit || hit[1].key !== selection.key) return;
-    const [widget, info] = hit;
-    const cell = this.host.tableCellOf(info, e.target);
-    const ref = cell && this.host.cellRef(info, cell);
+    const hit = this.host.cellUnder(e.target, selection.key);
+    if (!hit) return;
+    const { widget, info, ref } = hit;
     const refs = this.refs(info);
-    if (!ref || refs.length < 2 || !refs.some((r) => r.row === ref.row && r.column === ref.column)) return;
-    const { clientX: x, clientY: y } = e;
-    const at = Date.now();
-    const win = this.host.doc.defaultView;
-    const move = (ev) => {
-      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE) stop();
-    };
-    const up = () => {
-      stop();
-      if (Date.now() - at < TAP_MS && !this.host.pressTaken()) this.host.openCellMenu(widget, info, ref, { x, y });
-    };
-    const stop = () => {
-      win.removeEventListener("pointermove", move, true);
-      win.removeEventListener("pointerup", up, true);
-      win.removeEventListener("pointercancel", stop, true);
-      this.stopTap = void 0;
-    };
-    win.addEventListener("pointermove", move, true);
-    win.addEventListener("pointerup", up, true);
-    win.addEventListener("pointercancel", stop, true);
-    this.stopTap = stop;
+    if (refs.length < 2 || !refs.some((r) => r.row === ref.row && r.column === ref.column)) return;
+    const point = { x: e.clientX, y: e.clientY };
+    this.stopTap = watchPress(this.host.doc.defaultView, e, {
+      tap: () => {
+        if (!this.host.pressTaken()) this.host.openCellMenu(widget, info, ref, point);
+      }
+    });
   };
-  /** Near an edge the box scrolls: the table's own (Maximum table height, full screen) up and down, else the page's; the table's sideways */
-  autoscroll(widget, ev) {
-    const scroller = widget.scrollHeight > widget.clientHeight ? widget : this.host.scrollParentOf(widget);
-    if (scroller) {
-      const view = scroller.getBoundingClientRect();
-      if (ev.clientY < view.top + AUTOSCROLL_EDGE2) scroller.scrollTop -= AUTOSCROLL_STEP2;
-      else if (ev.clientY > view.bottom - AUTOSCROLL_EDGE2) scroller.scrollTop += AUTOSCROLL_STEP2;
-    }
-    if (widget.scrollWidth > widget.clientWidth) {
-      const box = widget.getBoundingClientRect();
-      if (ev.clientX < box.left + AUTOSCROLL_EDGE2) widget.scrollLeft -= AUTOSCROLL_STEP2;
-      else if (ev.clientX > box.right - AUTOSCROLL_EDGE2) widget.scrollLeft += AUTOSCROLL_STEP2;
-    }
-  }
   clear() {
     this.selection = void 0;
     this.unmark();
@@ -13154,8 +14057,7 @@ var Selection = class {
   unmark() {
     for (const cell of Array.from(this.host.doc.querySelectorAll(".tp-selected"))) cell.classList.remove("tp-selected", "tp-selected-alone");
     for (const handle of this.handles) handle.remove();
-    for (const edge of this.edges) edge.remove();
-    this.edges = [];
+    this.edges.clear();
   }
   // ---- moving the cells selected ---------------------------------------------
   /** The cells selected as a block that can move: body cells of a table shown as written */
@@ -13177,21 +14079,9 @@ var Selection = class {
    * pointer); none where the cells cannot move
    */
   placeEdges(rows) {
-    for (const edge of this.edges) edge.remove();
-    this.edges = [];
+    this.edges.clear();
     if (!this.block()) return;
-    const last = rows.length - 1;
-    rows.forEach(
-      (row, i) => row.forEach((cell, j) => {
-        const sides = [i === 0 && "top", i === last && "bottom", j === 0 && "left", j === row.length - 1 && "right"].filter(Boolean);
-        for (const side of sides) {
-          const edge = this.host.doc.createElement("span");
-          edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-select-edge tp-select-edge-${side}`;
-          cell.append(edge);
-          this.edges.push(edge);
-        }
-      })
-    );
+    this.edges.show(rows.length, rows[0]?.length ?? 0, (i, j) => rows[i][j]);
   }
   /** Where the block goes with its first cell at the row (as shown) and column given, kept within the table's body */
   placeOf(block, row, column) {
@@ -13202,25 +14092,13 @@ var Selection = class {
   }
   /** The cells where the block would go outlined, dashed, and its address (A1 as formulas count rows) by the pointer */
   showTarget(block, at, copy, x, y) {
-    for (const edge of this.targetEdges) edge.remove();
-    this.targetEdges = [];
+    this.targetEdges.clear();
     if (!at || at.row === block.top && at.column === block.left) {
       this.tip.classList.remove("tp-visible");
       return;
     }
-    for (let i = 0; i < block.height; i++) {
-      const tr = block.shown[at.row + i];
-      for (let j = 0; j < block.width; j++) {
-        const sides = [i === 0 && "top", i === block.height - 1 && "bottom", j === 0 && "left", j === block.width - 1 && "right"].filter(Boolean);
-        const cell = sides.length ? tr?.cells[at.column + j] : void 0;
-        if (!cell) continue;
-        const edge = this.host.doc.createElement("span");
-        edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-move-edge ${sides.map((s) => `tp-move-${s}`).join(" ")}`;
-        cell.append(edge);
-        this.targetEdges.push(edge);
-      }
-    }
-    const name = (row, column) => `${columnLetters2(column)}${row}`;
+    this.targetEdges.show(block.height, block.width, (i, j) => block.shown[at.row + i]?.cells[at.column + j]);
+    const name = (row, column) => `${columnLetters(column)}${row}`;
     const range = block.height * block.width > 1 ? `${name(at.row, at.column)}:${name(at.row + block.height - 1, at.column + block.width - 1)}` : name(at.row, at.column);
     this.tip.textContent = copy ? `+ ${range}` : range;
     this.host.place(this.tip, x + 14, y + 14);
@@ -13244,9 +14122,7 @@ var Selection = class {
     doc.body.classList.add("tp-moving-cells");
     const move = (ev) => {
       copy = ev.ctrlKey || ev.metaKey;
-      const under = doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null;
-      const hit = this.host.enhancedWidgetOf(under);
-      const cell = hit && hit[1].key === block.info.key ? this.host.tableCellOf(hit[1], under) : void 0;
+      const cell = this.host.cellUnder(doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null, block.info.key)?.cell;
       if (cell) {
         const row = block.shown.indexOf(cell.parentElement);
         if (row >= 0) at = this.placeOf(block, row - pressedRow, cell.cellIndex - pressedColumn);
@@ -13283,7 +14159,7 @@ var Selection = class {
   }
   /** The block moved (copied) to start at a row as shown and a column; selected there, before the write (shown again once rendered) */
   async moveBlock(block, at, copy) {
-    const rowOf = (shown) => Number(block.shown[shown].dataset.tpRow);
+    const rowOf = (shown) => this.host.rowOf(block.info, block.shown[shown]);
     const to = { row: rowOf(at.row), column: at.column };
     this.selectCells(block.info, to, { row: rowOf(at.row + block.height - 1), column: at.column + block.width - 1 });
     const result = await moveCellsTo(this.host, block.widget, block.info, block.cells, to, copy);
@@ -13302,8 +14178,7 @@ var Selection = class {
     this.moveAt = void 0;
     this.host.doc.body.classList.remove("tp-move-picking");
     this.host.doc.defaultView.removeEventListener("mousemove", this.showMoveTarget, true);
-    for (const edge of this.targetEdges) edge.remove();
-    this.targetEdges = [];
+    this.targetEdges.clear();
     this.tip.classList.remove("tp-visible");
   }
   /**
@@ -13318,11 +14193,10 @@ var Selection = class {
       this.endMoving();
       return;
     }
-    const hit = this.host.enhancedWidgetOf(e.target);
-    const cell = hit && hit[1].key === block.info.key ? this.host.tableCellOf(hit[1], e.target) : void 0;
+    const cell = this.host.cellUnder(e.target, block.info.key)?.cell;
     const row = cell ? block.shown.indexOf(cell.parentElement) : -1;
     const at = cell && row >= 1 ? this.placeOf(block, row, cell.cellIndex) : void 0;
-    const same = at && this.moveAt && at.row === this.moveAt.row && at.column === this.moveAt.column && this.targetEdges.every((edge) => edge.isConnected);
+    const same = at && this.moveAt && at.row === this.moveAt.row && at.column === this.moveAt.column && this.targetEdges.shown;
     this.moveAt = at;
     if (same) this.host.place(this.tip, e.clientX + 14, e.clientY + 14);
     else this.showTarget(block, at, false, e.clientX, e.clientY);
@@ -13347,34 +14221,19 @@ var Selection = class {
    */
   touchMove(e) {
     if (e.pointerType !== "touch" || e.button !== 0 || !e.isPrimary) return;
-    const { clientX: x, clientY: y, target } = e;
-    const at = Date.now();
-    const win = this.host.doc.defaultView;
-    const move = (ev) => {
-      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE) stop();
-    };
-    const up = () => {
-      stop();
-      if (Date.now() - at < TAP_MS && this.moving) this.moveCellsAt(target);
-    };
-    const stop = () => {
-      win.removeEventListener("pointermove", move, true);
-      win.removeEventListener("pointerup", up, true);
-      win.removeEventListener("pointercancel", stop, true);
-      this.stopTap = void 0;
-    };
-    win.addEventListener("pointermove", move, true);
-    win.addEventListener("pointerup", up, true);
-    win.addEventListener("pointercancel", stop, true);
-    this.stopTap = stop;
+    const target = e.target;
+    this.stopTap = watchPress(this.host.doc.defaultView, e, {
+      tap: () => {
+        if (this.moving) this.moveCellsAt(target);
+      }
+    });
   }
   /** Move to… ends; on a body cell of the table, the cells move there (true: the press is taken, its mouse events with it) */
   moveCellsAt(target) {
     const key2 = this.moving;
     this.endMoving();
     const block = this.block();
-    const hit = this.host.enhancedWidgetOf(target);
-    const cell = hit && hit[1].key === key2 ? this.host.tableCellOf(hit[1], target) : void 0;
+    const cell = key2 === void 0 ? void 0 : this.host.cellUnder(target, key2)?.cell;
     const row = cell && block ? block.shown.indexOf(cell.parentElement) : -1;
     if (!block || block.info.key !== key2 || !cell || row < 1) return false;
     this.host.takePress();
@@ -13458,471 +14317,6 @@ var Selection = class {
   };
 };
 
-// table-plus/src/features/autofill.ts
-var TAP_MS2 = 500;
-var TAP_MOVE2 = 10;
-var AutoFill = class {
-  constructor(host) {
-    this.host = host;
-    this.handle = host.doc.createElement("div");
-    this.handle.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-fill-handle`;
-    this.handle.title = "Drag to fill the cells after these (1, 2 \u2192 3, 4; Mon \u2192 Tue), double-click to fill down";
-    this.tip = host.floating("div", "tp-fill-tip");
-    this.handle.addEventListener("pointerdown", (e) => {
-      if (e.pointerType === "mouse" || e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-      this.drag();
-    });
-  }
-  host;
-  handle;
-  tip;
-  // The outline of what a drag fills: a piece in each cell on its edge
-  edges = [];
-  outlined = "";
-  // The extent the tip's value is for, in the drag going on
-  tipFor = "";
-  // Ends the drag (Esc: without filling)
-  endDrag;
-  // AutoFill to…: the table whose cells selected fill to the cell clicked next, and those cells (as the markdown has them)
-  picking;
-  pickingFrom = "";
-  // A touch while picking, until it is a tap or not
-  stopTap;
-  start() {
-    this.host.doc.defaultView.addEventListener("pointerdown", this.onTouch, true);
-  }
-  stop() {
-    this.host.doc.defaultView.removeEventListener("pointerdown", this.onTouch, true);
-    this.stopTap?.();
-    this.endDrag?.(false);
-    this.endPicking();
-    this.handle.remove();
-    this.tip.remove();
-  }
-  owns(node) {
-    return this.handle.contains(node) || this.tip.contains(node);
-  }
-  /**
-   * A press on the handle is the handle's, not its cell's: a drag, or with a
-   * double click a fill down. While picking where to fill to, a press on a
-   * cell of the table fills to it (before the selection ends: the press is
-   * taken), a press elsewhere ends picking.
-   */
-  mouseDown(e) {
-    if (this.picking) return this.picked(e);
-    if (!(e.target instanceof Node) || !this.handle.contains(e.target)) return false;
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.button !== 0) return true;
-    if (e.detail === 2) this.fillDown();
-    else if (e.detail < 2) this.drag();
-    return true;
-  }
-  // Esc while dragging or picking cancels the fill (before the selection module takes Esc: the cells stay selected)
-  keyDown(e) {
-    if (e.key !== "Escape" || !this.endDrag && !this.picking) return false;
-    e.preventDefault();
-    e.stopPropagation();
-    this.endDrag?.(false);
-    this.endPicking();
-    return true;
-  }
-  // Other cells selected: what was picking for them is over (the same shown again, the table rendered anew, goes on)
-  selectionChanged() {
-    if (this.picking && this.selectedNow() !== this.pickingFrom) this.endPicking();
-    this.placeHandle();
-  }
-  // The cell menu opened (a long press): picking ends, the menu is for the cells
-  cellMenuOpened() {
-    this.endPicking();
-  }
-  /** The cells selected, as the markdown has them, with their table ("": none to fill from) */
-  selectedNow() {
-    const selected = this.selection();
-    if (!selected) return "";
-    return `${selected.info.key} ${this.rowOf(selected, selected.top)}-${this.rowOf(selected, selected.bottom)} ${selected.left}-${selected.right}`;
-  }
-  /** AutoFill to… in the menu of the cells selected (body cells: a header is no value to go on from) */
-  cellMenuEntries(widget, info, cells) {
-    if (cells.some((ref) => ref.row === 0)) return void 0;
-    const label = "AutoFill to\u2026";
-    if (this.host.rearranged(info)) {
-      const disabled = "Not while the table is sorted or filtered: the rows shown are not where the cells would go";
-      return { order: 1.5, entries: [{ kind: "item", label, icon: ICONS.autofill, disabled, run: () => {
-      } }] };
-    }
-    const selected = this.selection();
-    if (!selected || selected.info.key !== info.key) return void 0;
-    const press = this.host.pressedWith === "touch" ? "tap" : "click";
-    return {
-      // After copying and clearing: it changes the cells selected too
-      order: 1.5,
-      entries: [
-        {
-          kind: "item",
-          label,
-          icon: ICONS.autofill,
-          hint: `Then ${press} the last cell to fill: the cells up to it go on from these, as dragging the fill handle fills them`,
-          run: () => this.startPicking(widget, info, press)
-        }
-      ]
-    };
-  }
-  // While picking, the cells a click would fill are outlined
-  cellHovered(_widget, info, cell) {
-    if (this.picking !== info.key) return;
-    const selected = this.selection();
-    const ref = this.host.cellRef(info, cell);
-    const extent = selected && ref ? this.extentTo(selected, ref) : void 0;
-    if (selected) this.outline(selected, extent && this.areaOf(selected, extent));
-  }
-  hoverEnded() {
-    if (this.picking) this.clearOutline();
-  }
-  // A table rendered anew (the selection shown again; picking goes on there), sorted or filtered, or rows back in the document
-  enhanced(widget, info) {
-    if (this.picking === info.key) widget.classList.add("tp-fill-picking");
-    this.placeHandle();
-  }
-  viewApplied() {
-    this.placeHandle();
-  }
-  rowsAttached() {
-    this.placeHandle();
-  }
-  editorOpened() {
-    this.endPicking();
-    this.handle.remove();
-  }
-  startPicking(widget, info, press) {
-    this.picking = info.key;
-    this.pickingFrom = this.selectedNow();
-    (this.host.widgetForKey(info.key) ?? widget).classList.add("tp-fill-picking");
-    const cancel = press === "tap" ? "a tap outside the table cancels" : "Esc cancels";
-    void this.host.bridge.flash(`Table Plus: ${press} the last cell to fill to; ${cancel}`, "info");
-  }
-  endPicking() {
-    if (!this.picking) return;
-    this.picking = void 0;
-    for (const widget of Array.from(this.host.doc.querySelectorAll(".tp-fill-picking"))) widget.classList.remove("tp-fill-picking");
-    this.clearOutline();
-  }
-  /** A press while picking: on a cell of the table, the fill to it (taken); elsewhere, picking ends and the press goes on */
-  picked(e) {
-    if (e.button !== 0) {
-      this.endPicking();
-      return false;
-    }
-    const taken = this.pick(e.target);
-    if (taken) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.host.takePress();
-    }
-    return taken;
-  }
-  /**
-   * A touch while picking: a tap is a press (told by its pointer events: a
-   * browser may fire no mouse events for a tap after scrolling); a touch that
-   * moves scrolls the page, picking goes on
-   */
-  onTouch = (e) => {
-    this.stopTap?.();
-    if (!this.picking || e.pointerType !== "touch" || e.button !== 0 || !e.isPrimary) return;
-    const { clientX: x, clientY: y, target } = e;
-    const at = Date.now();
-    const win = this.host.doc.defaultView;
-    const move = (ev) => {
-      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE2) stop();
-    };
-    const up = () => {
-      stop();
-      if (Date.now() - at < TAP_MS2 && this.pick(target)) this.host.takePress();
-    };
-    const stop = () => {
-      win.removeEventListener("pointermove", move, true);
-      win.removeEventListener("pointerup", up, true);
-      win.removeEventListener("pointercancel", stop, true);
-      this.stopTap = void 0;
-    };
-    win.addEventListener("pointermove", move, true);
-    win.addEventListener("pointerup", up, true);
-    win.addEventListener("pointercancel", stop, true);
-    this.stopTap = stop;
-  };
-  /** Picking ends; on a body cell of the table, the fill to it (true: the press is taken; a header's goes on: its sorting, its filter) */
-  pick(target) {
-    const key2 = this.picking;
-    this.endPicking();
-    const hit = this.host.enhancedWidgetOf(target);
-    const cell = hit && hit[1].key === key2 ? this.host.tableCellOf(hit[1], target) : void 0;
-    const ref = hit && cell ? this.host.cellRef(hit[1], cell) : void 0;
-    if (!ref || ref.row === 0) return false;
-    const selected = this.selection();
-    const extent = selected && selected.info.key === key2 ? this.extentTo(selected, ref) : void 0;
-    if (selected && extent) void this.apply(selected, extent);
-    else void this.host.bridge.flash("Table Plus: nothing to fill there: pick a cell below, above or beside the cells selected", "info");
-    return true;
-  }
-  /** The cells selected in a table shown, if they are body cells of a table shown as written */
-  selection() {
-    for (const widget of Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`))) {
-      const info = this.host.infoOf(widget);
-      const refs = info ? this.host.selectedCells(info) : [];
-      if (!info || refs.length === 0) continue;
-      if (refs.some((ref) => ref.row === 0) || this.host.rearranged(info)) return void 0;
-      const rows = this.host.shownRows(info).slice(1);
-      const index = new Map(rows.map((tr, i) => [Number(tr.dataset.tpRow), i]));
-      let [top, bottom, left, right] = [Infinity, -Infinity, Infinity, -Infinity];
-      for (const ref of refs) {
-        const at = index.get(ref.row);
-        if (at === void 0) return void 0;
-        [top, bottom, left, right] = [Math.min(top, at), Math.max(bottom, at), Math.min(left, ref.column), Math.max(right, ref.column)];
-      }
-      const { pins } = info;
-      const zone = (at, first, last, before, after) => at < first + before ? [first, first + before - 1] : at > last - after ? [last - after + 1, last] : [first + before, last - after];
-      return {
-        widget,
-        info,
-        rows,
-        top,
-        bottom,
-        left,
-        right,
-        rowZone: zone(bottom, 0, rows.length - 1, pins.top, pins.bottom),
-        columnZone: zone(right, 0, info.columns - 1, pins.left, pins.right)
-      };
-    }
-    return void 0;
-  }
-  /** The markdown's row (the header 0) of a body row as shown */
-  rowOf(selected, shown) {
-    return Number(selected.rows[shown].dataset.tpRow);
-  }
-  /** The cell of a body row as shown, while it is in the document */
-  cellOf(selected, shown, column) {
-    const cell = this.host.cellAt(selected.info, { row: this.rowOf(selected, shown), column });
-    return cell?.isConnected ? cell : void 0;
-  }
-  /** The handle in the bottom right cell of the selection (none while a cell is edited, or a drag places it) */
-  placeHandle() {
-    if (this.endDrag) return;
-    const selected = this.host.editing ? void 0 : this.selection();
-    if (selected) this.handleAt(selected, selected.bottom, selected.right);
-    else this.handle.remove();
-  }
-  /**
-   * The handle in a cell, on its corner; inside it on the table's last row or
-   * column, where the table's box would cut the part past its edge (a box
-   * that scrolls: its clip cannot be widened) and leave it half to grab
-   */
-  handleAt(selected, shown, column) {
-    const cell = this.cellOf(selected, shown, column);
-    if (!cell) {
-      this.handle.remove();
-      return;
-    }
-    this.handle.classList.toggle("tp-fill-last-row", shown === selected.rows.length - 1);
-    this.handle.classList.toggle("tp-fill-last-column", column === selected.info.columns - 1);
-    if (this.handle.parentElement !== cell) cell.append(this.handle);
-  }
-  /** The selection with the cells a drag fills */
-  areaOf(selected, extent) {
-    const { top, bottom, left, right } = selected;
-    if (!extent) return { top, bottom, left, right };
-    return extent.axis === "rows" ? { top: Math.min(top, extent.to), bottom: Math.max(bottom, extent.to), left, right } : { top, bottom, left: Math.min(left, extent.to), right: Math.max(right, extent.to) };
-  }
-  /** An area outlined: a piece in each of its cells on an edge, marked with the sides it draws */
-  outline(selected, area) {
-    const key2 = area ? `${area.top},${area.bottom},${area.left},${area.right}` : "";
-    if (key2 === this.outlined) return;
-    this.clearOutline();
-    this.outlined = key2;
-    if (!area) return;
-    const piece = (shown, column) => {
-      const cell = this.cellOf(selected, shown, column);
-      if (!cell) return;
-      const sides = [
-        shown === area.top && "tp-fill-top",
-        shown === area.bottom && "tp-fill-bottom",
-        column === area.left && "tp-fill-left",
-        column === area.right && "tp-fill-right"
-      ].filter(Boolean);
-      const edge = this.host.doc.createElement("span");
-      edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-fill-edge ${sides.join(" ")}`;
-      cell.append(edge);
-      this.edges.push(edge);
-    };
-    for (let shown = area.top; shown <= area.bottom; shown++) {
-      if (shown === area.top || shown === area.bottom) for (let column = area.left; column <= area.right; column++) piece(shown, column);
-      else {
-        piece(shown, area.left);
-        if (area.right !== area.left) piece(shown, area.right);
-      }
-    }
-  }
-  clearOutline() {
-    for (const edge of this.edges) edge.remove();
-    this.edges = [];
-    this.outlined = "";
-  }
-  /**
-   * How far the pointer at x, y fills: along the axis it went further out of
-   * the selection on, to the row or column under it, within the selection's zone
-   */
-  extentAt(selected, x, y) {
-    const rects = selected.rows.map((tr) => tr.isConnected ? tr.getBoundingClientRect() : void 0);
-    let row = rects.findIndex((r) => r && y >= r.top && y < r.bottom);
-    if (row < 0) {
-      const measured = rects.map((r, i) => ({ r, i })).filter((m) => m.r);
-      if (measured.length === 0) return void 0;
-      row = y < measured[0].r.top ? measured[0].i : measured[measured.length - 1].i;
-    }
-    const cells = Array.from(selected.rows[selected.bottom]?.cells ?? []).map((c) => c.getBoundingClientRect());
-    let column = cells.findIndex((r) => x >= r.left && x < r.right);
-    if (column < 0) column = cells.length && x < cells[0].left ? 0 : cells.length - 1;
-    return this.extentFor(selected, row, column);
-  }
-  /** How far a fill to a cell goes (none for a header cell, nor one in the selection) */
-  extentTo(selected, ref) {
-    const row = selected.rows.findIndex((tr) => Number(tr.dataset.tpRow) === ref.row);
-    return row < 0 ? void 0 : this.extentFor(selected, row, ref.column);
-  }
-  /**
-   * How far a fill to a row (as shown) and column goes: along the axis it is
-   * further out of the selection on, within the selection's zone
-   */
-  extentFor(selected, row, column) {
-    const down = row > selected.bottom ? row - selected.bottom : row < selected.top ? selected.top - row : 0;
-    const across = column > selected.right ? column - selected.right : column < selected.left ? selected.left - column : 0;
-    if (down === 0 && across === 0) return void 0;
-    const clamp = (n, [lo, hi]) => Math.max(lo, Math.min(hi, n));
-    if (down >= across) {
-      const to2 = clamp(row, selected.rowZone);
-      return to2 > selected.bottom || to2 < selected.top ? { axis: "rows", to: to2 } : void 0;
-    }
-    const to = clamp(column, selected.columnZone);
-    return to > selected.right || to < selected.left ? { axis: "columns", to } : void 0;
-  }
-  /** The lines a fill writes: each column (row) of the selection, its cells selected and those dragged over, nearest first */
-  lines(selected, extent) {
-    const { top, bottom, left, right } = selected;
-    const cell = (shown, column) => ({ row: this.rowOf(selected, shown), column });
-    const span = (from, to) => Array.from({ length: Math.abs(to - from) + 1 }, (_, i) => from <= to ? from + i : from - i);
-    if (extent.axis === "rows") {
-      const backward2 = extent.to < top;
-      const targets2 = backward2 ? span(top - 1, extent.to) : span(bottom + 1, extent.to);
-      return span(left, right).map((column) => ({
-        sources: span(top, bottom).map((r) => cell(r, column)),
-        targets: targets2.map((r) => cell(r, column)),
-        backward: backward2
-      }));
-    }
-    const backward = extent.to < left;
-    const targets = backward ? span(left - 1, extent.to) : span(right + 1, extent.to);
-    return span(top, bottom).map((r) => ({
-      sources: span(left, right).map((column) => cell(r, column)),
-      targets: targets.map((column) => cell(r, column)),
-      backward
-    }));
-  }
-  fillCells(info) {
-    return {
-      claim: (cell, from, to) => this.host.fillCell(info, cell, from, to),
-      keepTags: (value, from) => this.host.keepTags(value, from)
-    };
-  }
-  /** The handle dragged: what it fills outlined, the handle at its corner, the last value by the pointer; written as it is let go */
-  drag() {
-    const selected = this.selection();
-    if (!selected) return;
-    const win = this.host.doc.defaultView;
-    const table = this.host.tableOf(selected.info);
-    let extent;
-    this.tipFor = "";
-    this.host.doc.body.classList.add("tp-filling");
-    const move = (ev) => {
-      extent = this.extentAt(selected, ev.clientX, ev.clientY);
-      const area = this.areaOf(selected, extent);
-      this.outline(selected, extent && area);
-      this.handleAt(selected, area.bottom, area.right);
-      this.showTip(selected, extent, table, ev.clientX, ev.clientY);
-    };
-    const finish = (apply) => {
-      win.removeEventListener("pointermove", move, true);
-      win.removeEventListener("pointerup", up, true);
-      win.removeEventListener("pointercancel", cancel, true);
-      win.removeEventListener("blur", cancel);
-      this.endDrag = void 0;
-      this.host.doc.body.classList.remove("tp-filling");
-      this.outline(selected, void 0);
-      this.tip.classList.remove("tp-visible");
-      if (apply && extent) void this.apply(selected, extent);
-      else this.placeHandle();
-    };
-    const up = () => finish(true);
-    const cancel = () => finish(false);
-    this.endDrag = finish;
-    win.addEventListener("pointermove", move, true);
-    win.addEventListener("pointerup", up, true);
-    win.addEventListener("pointercancel", cancel, true);
-    win.addEventListener("blur", cancel);
-  }
-  /** By the pointer: the value the farthest cell filled gets (else how many cells are filled) */
-  showTip(selected, extent, table, x, y) {
-    if (!extent) {
-      this.tip.classList.remove("tp-visible");
-      return;
-    }
-    const key2 = `${extent.axis} ${extent.to}`;
-    if (key2 !== this.tipFor) {
-      this.tipFor = key2;
-      const lines = this.lines(selected, extent);
-      const cells = lines[0] ? fillLine(table, lines[0], this.fillCells(selected.info)) : [];
-      const value = cells.length ? cellValue(cells[cells.length - 1]) : "";
-      const count = lines.reduce((n, l) => n + l.targets.length, 0);
-      this.tip.textContent = value || `${count} ${count === 1 ? "cell" : "cells"}`;
-    }
-    this.host.place(this.tip, x + 14, y + 14);
-  }
-  /** Double click: down as far as the column beside the selection (left, else right) has values */
-  fillDown() {
-    const selected = this.selection();
-    if (!selected) return;
-    const table = this.host.tableOf(selected.info);
-    const columns = table.rows[0]?.cells.length ?? 0;
-    const beside = [selected.left - 1, selected.right + 1].filter((c) => c >= 0 && c < columns);
-    const last = selected.rowZone[1];
-    const filledBeside = (column, shown) => shown <= last && cellValue(table.rows[this.rowOf(selected, shown)]?.cells[column] ?? "") !== "";
-    let to = selected.bottom;
-    for (const column of beside) {
-      if (!filledBeside(column, selected.bottom + 1)) continue;
-      while (filledBeside(column, to + 1)) to++;
-      break;
-    }
-    if (to > selected.bottom) void this.apply(selected, { axis: "rows", to });
-  }
-  /**
-   * The cells filled, in one edit, and selected with the ones they were
-   * filled from: selected before the write (the table rendered anew shows the
-   * selection again), the selection put back when nothing is written
-   */
-  async apply(selected, extent) {
-    const { info, widget } = selected;
-    const lines = this.lines(selected, extent);
-    const area = this.areaOf(selected, extent);
-    const corner = (shown, column) => ({ row: this.rowOf(selected, shown), column });
-    this.host.selectCells(info, corner(area.top, area.left), corner(area.bottom, area.right));
-    const result = await this.host.write(widget, (t) => filled(t, lines, this.fillCells(info)));
-    if (result === "written") return;
-    const now2 = this.host.widgetForKey(info.key);
-    const nowInfo = now2 && this.host.infoOf(now2);
-    if (nowInfo) this.host.selectCells(nowInfo, corner(selected.top, selected.left), corner(selected.bottom, selected.right));
-  }
-};
-
 // table-plus/src/features/sticky.ts
 var Sticky = class {
   constructor(host) {
@@ -13976,6 +14370,433 @@ var Sticky = class {
   }
 };
 
+// table-plus/src/features/themes.ts
+var STRIPES_ICONS = { none: ICONS.stripesNone, rows: ICONS.stripesRows, columns: ICONS.stripesColumns };
+var STRIPES_TITLES = {
+  none: "No stripes",
+  rows: "Striped rows: every other row tinted",
+  columns: "Striped columns: every other column tinted"
+};
+function metaTheme(table) {
+  return themeName(table.meta?.theme);
+}
+function metaStripes(table) {
+  return stripesName(table.meta?.stripes);
+}
+var Themes = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // The settings, read when Table Plus starts and again as tables are enhanced
+  theme = NATIVE_THEME;
+  stripes = "rows";
+  start() {
+    void this.readSettings();
+  }
+  stop() {
+    for (const widget of this.widgets()) {
+      delete widget.dataset.tpTheme;
+      delete widget.dataset.tpStripes;
+    }
+  }
+  // Before the browser lays the table out: its metadata row's choices as rendered (<meta theme="…" stripes="…">), else the settings'
+  tableAdded(widget, _table, rows) {
+    const meta = rows[rows.length - 1]?.querySelector("meta");
+    this.mark(widget, themeName(meta?.getAttribute("theme")) ?? this.theme, stripesName(meta?.getAttribute("stripes")) ?? this.stripes);
+  }
+  enhanced(widget, info) {
+    this.markFor(widget, info);
+    void this.readSettings();
+  }
+  markFor(widget, info) {
+    const table = parseTable(info.source);
+    this.mark(widget, metaTheme(table) ?? this.theme, metaStripes(table) ?? this.stripes);
+  }
+  async readSettings() {
+    const [theme, stripes] = await Promise.all([this.host.setting("theme"), this.host.setting("stripes")]);
+    if (theme === this.theme && stripes === this.stripes) return;
+    this.theme = theme;
+    this.stripes = stripes;
+    for (const widget of this.widgets()) {
+      const info = this.host.infoOf(widget);
+      if (info) this.markFor(widget, info);
+    }
+  }
+  /** The theme on the table (native: none, SilverBullet's own look), and its stripes unless they are the rows (SilverBullet's own) */
+  mark(widget, theme, stripes) {
+    if (theme === NATIVE_THEME) delete widget.dataset.tpTheme;
+    else if (widget.dataset.tpTheme !== theme) widget.dataset.tpTheme = theme;
+    if (stripes === "rows") delete widget.dataset.tpStripes;
+    else if (widget.dataset.tpStripes !== stripes) widget.dataset.tpStripes = stripes;
+  }
+  widgets() {
+    return Array.from(this.host.doc.querySelectorAll(`${WIDGET_SELECTOR}.tp-table`));
+  }
+  /**
+   * Theme in the table's ⋯ menu: Global theme first (the table's own theme
+   * and stripes go: it follows the settings), the stripes (three icons: none,
+   * rows, columns), then every theme; a stripes or a theme picked is stored in
+   * the table's metadata row, also the settings' one (kept whatever the
+   * settings become). As names are, only where the table can have metadata.
+   */
+  toolbarButtons(widget, info) {
+    if (!info.metaRow && !this.host.metadataEnabled) return [];
+    const table = parseTable(info.source);
+    const own = metaTheme(table);
+    const ownStripes = metaStripes(table);
+    const set = (choices) => () => void this.choose(widget, info, choices);
+    const item = (label, checked, run, detail) => ({ kind: "item", label, icon: "", checked, run, ...detail ? { detail } : {} });
+    const themes = () => {
+      const preview = this.preview(ownStripes ?? this.stripes);
+      const showing = (theme) => () => {
+        if (theme === NATIVE_THEME) delete preview.dataset.tpTheme;
+        else preview.dataset.tpTheme = theme;
+        return preview;
+      };
+      const detail = (theme) => ({ title: themeLabel(theme), content: showing(theme) });
+      return [
+        // First the global theme (as "No type" leads the column types): the table's own theme and stripes go, it follows the settings
+        // The settings' theme after it, no preview (it is listed below, marked default)
+        { ...item("Global theme", own === void 0 && ownStripes === void 0, set({ theme: void 0, stripes: void 0 })), value: { text: themeLabel(this.theme) } },
+        { kind: "separator" },
+        stripesRow,
+        { kind: "separator" },
+        // Then every theme, the setting's marked (default): one picked is the table's own, the setting's one too, whatever the setting becomes
+        ...allThemes(this.host.doc).map(
+          (theme) => item(
+            `${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`,
+            own === theme,
+            set({ theme }),
+            detail(theme)
+          )
+        )
+      ];
+    };
+    const stripesRow = {
+      kind: "segmented",
+      label: "Stripes",
+      // The table's own marked, none while it follows the setting (as a theme picked is; Global theme: the setting's again)
+      options: STRIPES.map((s) => ({ icon: STRIPES_ICONS[s], title: STRIPES_TITLES[s], active: s === ownStripes, run: set({ stripes: s }) }))
+    };
+    return [
+      {
+        label: "Theme",
+        title: "How this table looks: the Theme and Stripes settings (Global theme), or a theme and stripes of its own (stored in the table)",
+        icon: ICONS.theme,
+        value: own ? themeLabel(own) : `${themeLabel(this.theme)} (global)`,
+        // Not used: the item opens its choices
+        run: () => {
+        },
+        choices: { title: "Table theme", entries: themes }
+      }
+    ];
+  }
+  /** A small table to preview themes on (in a menu's bubble: not one of the page's), with these stripes */
+  preview(stripes) {
+    const { doc } = this.host;
+    const widget = doc.createElement("div");
+    widget.className = "sb-table-widget tp-theme-preview";
+    widget.setAttribute("aria-hidden", "true");
+    if (stripes !== "rows") widget.dataset.tpStripes = stripes;
+    const table = doc.createElement("table");
+    const row = (section, cells) => {
+      const tr = section.insertRow();
+      cells.forEach((text, i) => {
+        const td = tr.insertCell();
+        td.textContent = text;
+        if (i > 0) td.className = "tp-preview-number";
+      });
+    };
+    row(table.createTHead(), ["Name", "Qty", "Price"]);
+    const body = table.createTBody();
+    for (const cells of [["Pear", "3", "12.99"], ["Apple", "10", "4.50"], ["Fig", "2", "25.00"], ["Kiwi", "7", "6.10"]]) row(body, cells);
+    widget.append(table);
+    return widget;
+  }
+  /** The table's own choices written into its metadata row, as one edit (undefined: the setting's again) */
+  async choose(shownWidget, shownInfo, choices) {
+    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
+    await this.host.write(widget, (table) => Object.entries(choices).reduce((t, [name, value]) => withMeta(t, name, value), table));
+    this.host.focusEditor(widget);
+  }
+};
+
+// table-plus/src/features/widths.ts
+var MIN_WIDTH = 40;
+var Widths = class {
+  constructor(host) {
+    this.host = host;
+  }
+  host;
+  // Widths set for the view only (no metadata stored), by table and column; undefined: automatic
+  viewed = /* @__PURE__ */ new Map();
+  drag;
+  stopDrag;
+  // The columns given a width in each table as rendered (a write renders it anew): those to make automatic again
+  sized = /* @__PURE__ */ new WeakMap();
+  // The widths stored in the table last read (parsing a large table for its metadata row on every view is slow)
+  stored;
+  stop() {
+    this.stopDrag?.();
+  }
+  pointerBusy() {
+    return this.drag ? "drag" : void 0;
+  }
+  /** The widths of a table's columns: those set for the view, else those stored */
+  widthsOf(info) {
+    if (this.stored?.source !== info.source) {
+      const read = /* @__PURE__ */ new Map();
+      for (const [column, value] of columnMeta(parseTable(info.source), "width")) {
+        const n = Number(value);
+        if (Number.isFinite(n) && n > 0) read.set(column, Math.max(MIN_WIDTH, Math.round(n)));
+      }
+      this.stored = { source: info.source, widths: read };
+    }
+    const widths = new Map(this.stored.widths);
+    for (const [column, width] of this.viewed.get(info.key) ?? []) {
+      if (width === void 0) widths.delete(column);
+      else widths.set(column, width);
+    }
+    return widths;
+  }
+  // ---- the handles and the widths shown ----------------------------------------
+  decorate(_widget, info) {
+    Array.from(info.table.rows[0].cells).forEach((cell, column) => {
+      const handle = this.host.doc.createElement("span");
+      handle.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-col-resize`;
+      handle.dataset.tpColumn = String(column);
+      handle.title = "Drag to set the column's width; double-click for automatic";
+      cell.append(handle);
+    });
+  }
+  // After the cells are laid out (their content boxes made): the widths set.
+  // Only the columns with a width, or that had one: touching every cell's
+  // style (or reading styles between writes) would make the browser compute
+  // the whole table's styles and layout again, for every table shown.
+  viewApplied(_widget, info) {
+    const widths = this.widthsOf(info);
+    const header = info.table.rows[0];
+    const sized = this.sized.get(info.table);
+    const columns = Array.from({ length: info.columns }, (_, column) => column).filter((column) => widths.has(column) || sized?.has(column));
+    if (!columns.length) return;
+    const paddings = columns.map((column) => widths.has(column) ? this.paddingOf(info, column) : 0);
+    const rows = [header, ...this.host.bodyRows(info)];
+    columns.forEach((column, i) => this.apply(info, column, widths.get(column), paddings[i], rows));
+  }
+  /**
+   * A column `width` pixels wide (undefined: automatic): every cell of it, and
+   * the content box of every body cell sized to fit inside (it is otherwise as
+   * wide as its text, up to the maximum column width)
+   */
+  apply(info, column, width, padding = width === void 0 ? 0 : this.paddingOf(info, column), rows = [info.table.rows[0], ...this.host.bodyRows(info)]) {
+    const sized = this.sized.get(info.table) ?? /* @__PURE__ */ new Set();
+    this.sized.set(info.table, sized);
+    if (width === void 0) sized.delete(column);
+    else sized.add(column);
+    for (const tr of rows) {
+      const cell = tr.cells[column];
+      if (!cell || cell.classList.contains("tp-editing")) continue;
+      cell.classList.toggle("tp-sized", width !== void 0);
+      cell.style.boxSizing = width === void 0 ? "" : "border-box";
+      cell.style.width = width === void 0 ? "" : `${width}px`;
+      cell.style.minWidth = width === void 0 ? "" : `${width}px`;
+      cell.style.maxWidth = width === void 0 ? "" : `${width}px`;
+      const box = cell.querySelector(":scope > .tp-cell-content, :scope > .tp-head");
+      if (box) {
+        box.style.width = width === void 0 ? "" : `${Math.max(0, width - padding)}px`;
+        box.style.maxWidth = width === void 0 ? "" : "none";
+      }
+    }
+  }
+  /** A cell's padding left and right (the same in the column's header and body cells) */
+  paddingOf(info, column) {
+    const header = info.table.rows[0].cells[column];
+    if (!header) return 0;
+    const style = this.host.doc.defaultView.getComputedStyle(header);
+    return (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+  }
+  // ---- dragging -----------------------------------------------------------------
+  mouseDown(e) {
+    const handle = e.target instanceof Element ? e.target.closest(".tp-col-resize") : null;
+    const hit = handle && this.host.enhancedWidgetOf(handle);
+    if (!handle || !hit || e.button !== 0) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    this.stopDrag?.();
+    const editing = this.host.editing;
+    if (editing) editing.field.blur();
+    const [, info] = hit;
+    const column = Number(handle.dataset.tpColumn);
+    const header = info.table.rows[0].cells[column];
+    if (!header) return true;
+    const startWidth = Math.round(header.getBoundingClientRect().width);
+    this.drag = { key: info.key, column, startX: e.clientX, startWidth, padding: this.paddingOf(info, column), width: startWidth };
+    handle.classList.add("tp-active");
+    const doc = this.host.doc;
+    doc.body.classList.add("tp-resizing");
+    const win = doc.defaultView;
+    let frame = 0;
+    const show = () => {
+      frame = 0;
+      const drag = this.drag;
+      const now2 = drag && this.current(drag.key);
+      if (!drag || !now2) return;
+      this.apply(now2[1], drag.column, drag.width, drag.padding);
+      this.host.tableResized(now2[1]);
+    };
+    const move = (ev) => {
+      const drag = this.drag;
+      if (!drag) return;
+      if (ev.buttons === 0) {
+        end(ev);
+        return;
+      }
+      ev.preventDefault();
+      drag.width = Math.max(MIN_WIDTH, Math.round(drag.startWidth + ev.clientX - drag.startX));
+      if (!frame) frame = win.requestAnimationFrame ? win.requestAnimationFrame(show) : (show(), 0);
+    };
+    const end = (ev) => {
+      const drag = this.drag;
+      if (frame && win.cancelAnimationFrame) win.cancelAnimationFrame(frame);
+      this.stopDrag?.();
+      const now2 = drag && this.current(drag.key);
+      if (!drag || !now2) return;
+      const [current, nowInfo] = now2;
+      if (drag.width !== drag.startWidth) {
+        void this.set(current, nowInfo, drag.column, drag.width);
+        return;
+      }
+      if (ev.detail >= 2) void this.set(current, nowInfo, drag.column, void 0);
+      else {
+        this.viewApplied(current, nowInfo);
+        this.host.tableResized(nowInfo);
+      }
+    };
+    this.stopDrag = () => {
+      win.removeEventListener("mousemove", move, true);
+      win.removeEventListener("mouseup", end, true);
+      handle.classList.remove("tp-active");
+      doc.body.classList.remove("tp-resizing");
+      this.drag = void 0;
+      this.stopDrag = void 0;
+    };
+    win.addEventListener("mousemove", move, true);
+    win.addEventListener("mouseup", end, true);
+    return true;
+  }
+  /** The table with `key` as rendered now: a write renders it anew */
+  current(key2) {
+    const widget = this.host.widgetForKey(key2);
+    const info = widget && this.host.infoOf(widget);
+    return widget && info ? [widget, info] : void 0;
+  }
+  /** A column's width set (undefined: automatic) */
+  set(widget, info, column, width) {
+    return this.setAll(widget, info, /* @__PURE__ */ new Map([[column, width]]));
+  }
+  /** Columns' widths set (undefined: automatic): stored in the table where they can be, else for the view */
+  async setAll(widget, info, set) {
+    const view = this.viewed.get(info.key) ?? /* @__PURE__ */ new Map();
+    for (const [column, width] of set) view.set(column, width);
+    this.viewed.set(info.key, view);
+    this.viewApplied(widget, info);
+    this.host.tableResized(info);
+    this.host.toolbarChanged();
+    if (!(info.metaRow || this.host.metadataEnabled)) return;
+    const result = await this.host.write(widget, (t) => {
+      const widths = columnMeta(t, "width");
+      for (const [column, width] of set) {
+        if (width === void 0) widths.delete(column);
+        else widths.set(column, String(width));
+      }
+      return withColumnMeta(t, "width", widths);
+    });
+    if (result !== "failed") for (const column of set.keys()) this.viewed.get(info.key)?.delete(column);
+  }
+  /** Columns moved, inserted or deleted: the widths set for the view go with them */
+  columnsMoved(key2, map) {
+    const view = this.viewed.get(key2);
+    if (!view) return;
+    const moved2 = /* @__PURE__ */ new Map();
+    for (const [column, width] of view) {
+      const target = map(column);
+      if (target !== void 0) moved2.set(target, width);
+    }
+    this.viewed.set(key2, moved2);
+  }
+  // ---- the menus --------------------------------------------------------------------
+  // Before Remove metadata (the widths module comes before it), which would remove them too
+  toolbarButtons(widget, info) {
+    const widths = this.widthsOf(info);
+    if (!widths.size) return [];
+    return [
+      {
+        label: "Reset column widths",
+        icon: ICONS.columnWidth,
+        danger: true,
+        title: widths.size === 1 ? "Make the column with a width set as wide as its text again" : `Make the ${widths.size} columns with a width set as wide as their text again`,
+        run: () => {
+          const [w, now2] = this.current(info.key) ?? [widget, info];
+          void this.setAll(w, now2, new Map(Array.from(this.widthsOf(now2).keys(), (column) => [column, void 0])));
+        }
+      }
+    ];
+  }
+  columnMenuEntries(widget, info, column) {
+    const width = this.widthsOf(info).get(column);
+    if (width === void 0) return [];
+    return [
+      {
+        kind: "item",
+        label: "Auto width",
+        icon: ICONS.columnWidth,
+        hint: `The column is ${width}px wide: make it as wide as its text`,
+        run: () => void this.set(widget, info, column, void 0)
+      }
+    ];
+  }
+};
+
+// table-plus/src/modules.ts
+function featureEntries(host, metadata) {
+  const optional = (name, create) => ({ name, create });
+  const always = (create) => ({ name: void 0, create });
+  return [
+    // First: the header moves before what follows it
+    optional("sticky", () => new Sticky(host)),
+    // Before what takes presses: a press while picking where AutoFill to… fills to ends picking (or fills) first;
+    // before the selection too: Esc while dragging the fill handle cancels the fill, the selection stays
+    optional("autofill", () => new AutoFill(host)),
+    optional("autoscroll", () => new Autoscroll(host)),
+    optional("handles", () => new Grips(host)),
+    optional("widths", () => new Widths(host)),
+    optional("longText", () => new LongText(host)),
+    // Before what places rows into the table: it takes them out of the document first
+    optional("largeTables", () => new LargeTables(host)),
+    // Recalculate first in the toolbar
+    optional("formulas", () => new Formulas(host)),
+    optional("pageLinks", () => new PageLinks(host)),
+    // Before types: Filter right after the sorting in the column menu
+    optional("filters", () => new Filters(host)),
+    // After formulas: a formula's result is shown in its column's type
+    optional("columnTypes", () => new ColumnTypes(host)),
+    optional("names", () => new Names(host)),
+    always(() => metadata),
+    optional("paste", () => new Paste(host)),
+    optional("selection", () => new Selection(host)),
+    optional("lazy", () => new Lazy(host)),
+    optional("themes", () => new Themes(host)),
+    optional("export", () => new Export(host)),
+    optional("excel", () => new Excel(host)),
+    // Its icon last in the toolbar, before the menu
+    optional("fullScreen", () => new FullScreen(host)),
+    always(() => new Expressions(host)),
+    always(() => new History(host)),
+    always(() => new CellPopup(host))
+  ];
+}
+
 // table-plus/src/controller.ts
 var STOPPED_EVENTS = [
   "keydown",
@@ -13991,32 +14812,15 @@ var STOPPED_EVENTS = [
   "compositionend"
 ];
 var SORT_GLYPH = { asc: "\u25B2", desc: "\u25BC", none: "\u21C5" };
-var BAR_GAP = 12;
-var BAR_CLEAR = 15;
-var INSERT_REACH = 6;
-var INSERT_LANE_AT = 17;
-var INSERT_LANE_FROM = 7;
-var INSERT_LANE_BAND = 32;
-var INSERT_LANE_PAST = 16;
-var LONG_PRESS_MS2 = 550;
 var STORE_SORT_DELAY_MS = 400;
-var ANCHOR_MS = 1e3;
-var INSERT_CLICK_MS = 1e3;
 var NOT_SAVED = "Table Plus: the table changed in the meantime, nothing was saved";
-function placeAtEnd(parent, rows) {
-  let next = null;
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const tr = rows[i];
-    if (tr.parentElement !== parent || tr.nextSibling !== next) parent.insertBefore(tr, next);
-    next = tr;
-  }
-}
 var NAVIGATING_CLASS = "tp-navigating-here";
 var Controller = class {
   constructor(doc, bridge) {
     this.doc = doc;
     this.bridge = bridge;
     this.dialogs = new Dialogs(doc);
+    this.anchor = new ViewAnchor(doc, (key2) => this.widgetForKey(key2));
     this.metadata = new Metadata(this);
     this.cellEditor = new CellEditing(this, {
       features: this.features,
@@ -14040,15 +14844,37 @@ var Controller = class {
       revealEditing: () => this.cellEditor.revealActive(),
       // The cell being edited wins over keeping a table written in its place:
       // the keyboard shows as the next cell opens after a write (Enter)
-      viewResized: () => this.dropAnchor()
+      viewResized: () => this.anchor.drop()
     });
-    this.bar = this.floating("div", "tp-bar");
-    this.insertMark = this.floatingButton("tp-insert", "Insert here", ICONS.plus);
-    this.quietMarks = {
-      row: this.floatingButton("tp-insert tp-quiet", "Add a row", ICONS.plus),
-      column: this.floatingButton("tp-insert tp-quiet", "Add a column", ICONS.plus)
-    };
-    this.insertLine = this.floating("div", "tp-insert-line");
+    this.tableMenu = new TableMenu(doc, (widget) => this.focusEditor(widget));
+    this.toolbar = new Toolbar({
+      host: this,
+      menu: this.tableMenu,
+      hovered: () => this.hoverWidget,
+      stopped: () => this.stopped,
+      buttons: (widget, info) => this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []),
+      current: (widget, info) => this.current(widget, info),
+      applySort: (widget, info) => void this.applySort(widget, info),
+      showMarkdown: (info) => void this.showMarkdown(info),
+      openSettings: () => void this.openSettings()
+    });
+    this.insert = new InsertControls({
+      host: this,
+      hovered: () => ({ widget: this.hoverWidget, cell: this.hoverCell }),
+      hoverTable: (widget) => {
+        this.hoverWidget = widget;
+      },
+      hoverAt: (widget, info, cell) => this.hoverAt(widget, info, cell),
+      pointer: () => this.lastPointer,
+      busy: () => this.pointerBusy(),
+      menuOpen: () => this.tableMenu.kind !== void 0,
+      floatingButton: (className, title, icon) => this.floatingButton(className, title, icon)
+    });
+    this.queueScan = oncePerFrame(doc, () => {
+      void this.scan();
+      this.queueSettingsRefresh();
+    });
+    this.queueStickyUpdate = oncePerFrame(doc, () => this.followLayout());
   }
   doc;
   bridge;
@@ -14067,12 +14893,8 @@ var Controller = class {
   scrollLefts = /* @__PURE__ */ new Map();
   // The same for tables taller than the maximum height setting, scrolled inside
   scrollTops = /* @__PURE__ */ new Map();
-  // A table being written, and where it was in the page's view (its top below
-  // the scroller's): the editor renders it anew and may scroll the page while
-  // it measures the new rendering, which would leave the user elsewhere
+  // A table being written stays where it was in the page's view
   anchor;
-  // When a press inserted with the +: the click that ends it is no click on what is under the pointer then
-  insertPressAt = 0;
   cellEditor;
   // The settings dialog while open, and while it reads the settings to open
   settingsDialog;
@@ -14087,7 +14909,9 @@ var Controller = class {
   navigating = false;
   navigatingAt;
   hideTimer;
-  scanQueued = false;
+  // Once per frame (oncePerFrame): looking for tables rendered; what follows scrolling
+  queueScan;
+  queueStickyUpdate;
   // Set by stop(): work already scheduled then does nothing
   stopped = false;
   // Rows are being rearranged: a cell editor losing its focus to that is not left
@@ -14101,41 +14925,25 @@ var Controller = class {
   sortTimers = /* @__PURE__ */ new Map();
   // Tables whose sorting is stored once their cell editor closes
   sortsWaiting = /* @__PURE__ */ new Set();
-  stickyQueued = false;
   warnedIncompatible = false;
   observer;
-  bar;
+  toolbar;
   // Inserting rows and columns: a + on a border of the table, and the border marked
-  insertMark;
-  insertLine;
-  insertAt;
-  // Quiet + buttons under the last row and right of the last column, shown
-  // while that row (column) is hovered, selected or edited; lit up under the
-  // pointer. A + the pointer brings up on the same axis takes their place.
-  quietMarks;
-  // The quiet + under the pointer: its line shows
-  quietHovered;
+  insert;
   // Features that keep their own state and work through this controller
   // (core/feature.ts): those turned on, filled in when Table Plus starts
   features = [];
   featuresStarted;
   // The modules turned on
   modulesOn = /* @__PURE__ */ new Set();
-  // The toolbar's open ⋯ menu
   // The open menu of a table's toolbar (⋯, at its button) or of cells (at the pointer)
   tableMenu;
   // When a press was last taken (a cell menu a touch opened, a feature's: takePress): its mouse events after it are no click on the cell
   pressTakenAt = 0;
   stopLongPress;
   metadata;
-  // Each table's rows as SilverBullet rendered them (the header first), whether
-  // a feature took some of them out of the document or not; its body rows; and
-  // the rows shown, in display order, as the view last placed them
-  renderedRows = /* @__PURE__ */ new WeakMap();
-  bodyRowsOf = /* @__PURE__ */ new WeakMap();
-  shownOrder = /* @__PURE__ */ new WeakMap();
-  // A row each table keeps in the document whatever a feature takes out (a row being dragged)
-  heldRows = /* @__PURE__ */ new WeakMap();
+  // Each table's rows as SilverBullet rendered them, in the document or not
+  rows = new TableRows();
   // Steps every write goes through after the edit, in this order
   writeSteps = [metadataAfterEdit];
   setBridge(bridge) {
@@ -14157,21 +14965,8 @@ var Controller = class {
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
     this.doc.addEventListener("pointerout", this.onPointerOut, { passive: true });
     win.addEventListener("mouseup", this.onMouseUp, true);
-    win.addEventListener("wheel", this.dropAnchor, { capture: true, passive: true });
-    win.addEventListener("touchstart", this.dropAnchor, { capture: true, passive: true });
-    this.insertMark.addEventListener("click", () => this.insertHere());
-    for (const axis of ["row", "column"]) {
-      const mark = this.quietMarks[axis];
-      mark.addEventListener("click", () => this.insertAtEnd(axis));
-      mark.addEventListener("pointerenter", () => {
-        this.quietHovered = axis;
-        this.lineAtEnd(axis);
-      });
-      mark.addEventListener("pointerleave", () => {
-        if (this.quietHovered === axis) this.quietHovered = void 0;
-        if (!this.insertAt) this.insertLine.classList.remove("tp-visible");
-      });
-    }
+    win.addEventListener("wheel", this.anchor.drop, { capture: true, passive: true });
+    win.addEventListener("touchstart", this.anchor.drop, { capture: true, passive: true });
     this.observer = new MutationObserver((records) => {
       this.tablesAdded(records);
       this.queueScan();
@@ -14187,41 +14982,7 @@ var Controller = class {
    * page is loaded again.
    */
   async startFeatures() {
-    const optional = (name, create) => ({ name, create });
-    const always = (create) => ({ name: void 0, create });
-    const all = [
-      // First: the header moves before what follows it
-      optional("sticky", () => new Sticky(this)),
-      // Before what takes presses: a press while picking where AutoFill to… fills to ends picking (or fills) first;
-      // before the selection too: Esc while dragging the fill handle cancels the fill, the selection stays
-      optional("autofill", () => new AutoFill(this)),
-      optional("autoscroll", () => new Autoscroll(this)),
-      optional("handles", () => new Grips(this)),
-      optional("widths", () => new Widths(this)),
-      optional("longText", () => new LongText(this)),
-      // Before what places rows into the table: it takes them out of the document first
-      optional("largeTables", () => new LargeTables(this)),
-      // Recalculate first in the toolbar
-      optional("formulas", () => new Formulas(this)),
-      optional("pageLinks", () => new PageLinks(this)),
-      // Before types: Filter right after the sorting in the column menu
-      optional("filters", () => new Filters(this)),
-      // After formulas: a formula's result is shown in its column's type
-      optional("columnTypes", () => new ColumnTypes(this)),
-      optional("names", () => new Names(this)),
-      always(() => this.metadata),
-      optional("paste", () => new Paste(this)),
-      optional("selection", () => new Selection(this)),
-      optional("lazy", () => new Lazy(this)),
-      optional("themes", () => new Themes(this)),
-      optional("export", () => new Export(this)),
-      optional("excel", () => new Excel(this)),
-      // Its icon last in the toolbar, before the menu
-      optional("fullScreen", () => new FullScreen(this)),
-      always(() => new Expressions(this)),
-      always(() => new History(this)),
-      always(() => new CellPopup(this))
-    ];
+    const all = featureEntries(this, this.metadata);
     const enabled = await Promise.all(all.map(({ name }) => name ? this.featureEnabled(name) : true));
     if (this.stopped) return;
     all.forEach(({ name }, i) => {
@@ -14260,15 +15021,16 @@ var Controller = class {
     this.doc.removeEventListener("pointerout", this.onPointerOut);
     win.removeEventListener("mouseup", this.onMouseUp, true);
     this.cellEditor.close();
-    win.removeEventListener("wheel", this.dropAnchor, true);
-    win.removeEventListener("touchstart", this.dropAnchor, true);
+    win.removeEventListener("wheel", this.anchor.drop, true);
+    win.removeEventListener("touchstart", this.anchor.drop, true);
     this.touchKeyboard.stop();
-    this.anchor = void 0;
+    this.anchor.drop();
     this.observer?.disconnect();
     clearTimeout(this.settingsTimer);
     for (const timer of this.sortTimers.values()) clearTimeout(timer);
-    this.closeTableMenu(false);
-    for (const el of [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)]) el.remove();
+    this.tableMenu.close(false);
+    this.toolbar.remove();
+    this.insert.remove();
     this.settingsDialog?.close();
     this.dialogs.close();
   }
@@ -14359,28 +15121,7 @@ var Controller = class {
     this.queueStickyUpdate();
   }
   toolbarChanged() {
-    const widget = this.hoverWidget;
-    const info = widget && this.infos.get(widget);
-    if (widget && info && this.bar.classList.contains("tp-visible")) this.showTableControls(widget, info, false);
-  }
-  /**
-   * The toolbar placed again, once in the next frame: placing it measures the
-   * table, and measured right after each change (a write applies the view more
-   * than once) the browser would lay out a large table again each time
-   */
-  queuePlaceBar() {
-    if (this.barPlaceQueued) return;
-    this.barPlaceQueued = true;
-    const run = () => {
-      this.barPlaceQueued = false;
-      const widget = this.hoverWidget;
-      const info = widget && this.infos.get(widget);
-      if (this.stopped || !widget || !info || renderedTable(widget) !== info.table || !this.bar.classList.contains("tp-visible")) return;
-      this.placeBar(widget, info);
-    };
-    const win = this.doc.defaultView;
-    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
+    this.toolbar.changed();
   }
   /**
    * Sorts the rows in the markdown as the view sorts them (the shown values;
@@ -14451,24 +15192,6 @@ var Controller = class {
     return !!this.viewOf(info).sort || this.features.some((f) => f.hidesRows?.(info));
   }
   // ---- discovering rendered tables --------------------------------------
-  queueScan() {
-    if (this.scanQueued) return;
-    this.scanQueued = true;
-    const run = () => {
-      this.scanQueued = false;
-      void this.scan();
-      this.queueSettingsRefresh();
-    };
-    const win = this.doc.defaultView;
-    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
-  }
-  /** A table's rows as rendered (the header first), kept from when it was first seen */
-  rowsOf(table) {
-    let rows = this.renderedRows.get(table);
-    if (!rows) this.renderedRows.set(table, rows = Array.from(table.rows));
-    return rows;
-  }
   /**
    * Tables SilverBullet just put into the page (a mutation observer's callback
    * runs before the browser lays them out): their rows kept, and the features
@@ -14482,8 +15205,8 @@ var Controller = class {
         const tables = node instanceof HTMLTableElement ? [node] : node.closest("table") ? [] : Array.from(node.getElementsByTagName("table"));
         for (const table of tables) {
           const widget = table.closest(WIDGET_SELECTOR);
-          if (!widget || this.renderedRows.has(table) || this.ownTable(widget)) continue;
-          const rows = this.rowsOf(table);
+          if (!widget || this.rows.knows(table) || this.ownTable(widget)) continue;
+          const rows = this.rows.renderedRows(table);
           for (const feature of this.features) feature.tableAdded?.(widget, table, rows);
         }
       }
@@ -14521,7 +15244,7 @@ var Controller = class {
         this.markUnsupported(widget, true);
         return;
       }
-      const rendered = this.rowsOf(table);
+      const rendered = this.rows.renderedRows(table);
       const header = rendered[0];
       const shape = {
         rows: rendered.length,
@@ -14563,12 +15286,12 @@ var Controller = class {
       if (scrollLeft) widget.scrollLeft = scrollLeft;
       const scrollTop = this.scrollTops.get(info.key);
       if (scrollTop) widget.scrollTop = scrollTop;
-      this.keepAnchor(info.key, widget);
+      this.anchor.keep(info.key, widget);
       this.cellEditor.takePending(widget, info);
-      this.anchorAgain(widget, info.key);
+      this.anchor.again(widget, info.key);
       for (const feature of this.features) feature.enhanced?.(widget, info);
       if (this.navigating) this.markNavigating();
-      this.reshowInsert(widget, info);
+      this.insert.tableEnhanced(widget, info);
       this.queueStickyUpdate();
       void this.refreshSettings();
     } catch (e) {
@@ -14621,9 +15344,9 @@ var Controller = class {
   }
   decorate(widget, info) {
     widget.classList.add("tp-table");
-    const rows = [...this.rowsOf(info.table)];
+    const rows = [...this.rows.renderedRows(info.table)];
     const metaRow2 = info.metaRow ? rows.pop() : void 0;
-    this.bodyRowsOf.set(info.table, rows.slice(1));
+    this.rows.setBodyRows(info.table, rows.slice(1));
     metaRow2?.classList.add("tp-meta-row");
     const mark = (icon, title) => {
       const span = this.doc.createElement("span");
@@ -14670,20 +15393,8 @@ var Controller = class {
     }
     return void 0;
   }
-  /** A menu's naming whose save closes the menu once saved */
-  closingNaming(naming) {
-    if (!naming) return void 0;
-    return {
-      ...naming,
-      save: async (name) => {
-        const why = await naming.save(name);
-        if (why === void 0) this.closeTableMenu(false);
-        return why;
-      }
-    };
-  }
   openTableMenu(widget, naming = false) {
-    if (this.openMore?.widget === widget) this.openMore.open(naming);
+    this.toolbar.openMenu(widget, naming);
   }
   headerRenamed(name, original) {
     for (const feature of this.features) {
@@ -14867,22 +15578,17 @@ var Controller = class {
     return void 0;
   }
   bodyRows(info) {
-    const kept = this.bodyRowsOf.get(info.table);
-    if (kept) return [...kept];
-    return Array.from(info.table.querySelectorAll("tr[data-tp-row]")).sort(
-      (a, b) => Number(a.dataset.tpRow) - Number(b.dataset.tpRow)
-    );
+    return this.rows.bodyRows(info);
   }
   rowNeeded(info, row) {
     if (row.isConnected) return;
     for (const feature of this.features) feature.rowNeeded?.(info, row);
   }
   holdInDocument(info, row) {
-    if (row) this.heldRows.set(info.table, row);
-    else this.heldRows.delete(info.table);
+    this.rows.holdInDocument(info, row);
   }
   heldInDocument(info) {
-    return this.heldRows.get(info.table);
+    return this.rows.heldInDocument(info);
   }
   rowsAttached(info, rows) {
     for (const feature of this.features) feature.rowsAttached?.(info, rows);
@@ -14995,7 +15701,7 @@ var Controller = class {
     const editing = this.cellEditor.active?.widget === widget ? this.cellEditor.active : void 0;
     const selection = editing && [editing.field.selectionStart, editing.field.selectionEnd];
     const shownBody = order2.map((i) => rows[i]);
-    this.shownOrder.set(info.table, [info.table.rows[0], ...rows.slice(0, top), ...shownBody, ...rows.slice(rows.length - bottom)]);
+    this.rows.setShownRows(info.table, [info.table.rows[0], ...rows.slice(0, top), ...shownBody, ...rows.slice(rows.length - bottom)]);
     this.movingRows = true;
     try {
       const head = info.table.tHead;
@@ -15026,7 +15732,7 @@ var Controller = class {
     this.pinColumns(info);
     widget.classList.toggle("tp-rearranged", this.rearranged(info));
     widget.style.maxHeight = this.maxHeight > 0 ? `${this.maxHeight}px` : "";
-    if (this.hoverWidget === widget) this.showTableControls(widget, info, false);
+    if (this.hoverWidget === widget) this.toolbar.show(widget, info, false);
   }
   /**
    * Columns pinned to the left (right) stay at that edge while the table
@@ -15042,7 +15748,7 @@ var Controller = class {
     const { left, right } = info.pins;
     if (left + right === 0) return;
     const header = info.table.rows[0];
-    const rows = this.rowsOf(info.table).filter((tr) => !tr.classList.contains("tp-meta-row"));
+    const rows = this.rows.renderedRows(info.table).filter((tr) => !tr.classList.contains("tp-meta-row"));
     const widths = Array.from(header.cells, (cell) => cell.getBoundingClientRect().width);
     const pin = (column, side, offset2, edge) => {
       for (const tr of rows) {
@@ -15083,35 +15789,16 @@ var Controller = class {
     return row?.contains(UI_CLASS) || row?.contains("tp-meta-row") ? void 0 : cell;
   }
   onMouseDown = (e) => {
-    this.dropAnchor();
-    this.insertPressAt = 0;
+    this.anchor.drop();
+    this.insert.pressStarted();
     if (this.pressTaken()) {
       e.preventDefault();
       e.stopPropagation();
       return;
     }
-    if (this.tableMenu && e.target instanceof Node && !this.tableMenu.element.contains(e.target) && !this.bar.contains(e.target)) {
-      this.closeTableMenu(false);
-    }
+    if (e.target instanceof Node && !this.tableMenu.owns(e.target) && !this.toolbar.owns(e.target)) this.tableMenu.close(false);
     for (const feature of this.features) if (feature.mouseDown?.(e)) return;
-    const quietAxis = ["row", "column"].find((axis) => e.target instanceof Node && this.quietMarks[axis].contains(e.target));
-    if (e.button === 0 && quietAxis) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.insertPressAt = Date.now();
-      this.insertAtEnd(quietAxis);
-      return;
-    }
-    const onMark = e.target instanceof Node && this.insertMark.contains(e.target);
-    if (e.button === 0 && (onMark || this.inInsertBand && !(e.target instanceof Node && this.isFloating(e.target)))) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (this.insertAt) {
-        this.insertPressAt = Date.now();
-        this.insertHere();
-      }
-      return;
-    }
+    if (this.insert.mouseDown(e)) return;
     if (e.button !== 0) return;
     for (const feature of this.features) feature.beforeMouseDown?.(e);
     if (e.altKey) {
@@ -15170,7 +15857,7 @@ var Controller = class {
       e.stopPropagation();
       return;
     }
-    if (e.button !== 0 || !this.insertPressAt || Date.now() - this.insertPressAt > INSERT_CLICK_MS) return;
+    if (!this.insert.endsInsertingPress(e)) return;
     e.preventDefault();
     e.stopPropagation();
   };
@@ -15180,8 +15867,7 @@ var Controller = class {
       e.stopPropagation();
       return;
     }
-    if (e.button === 0 && e.detail !== 0 && this.insertPressAt && Date.now() - this.insertPressAt <= INSERT_CLICK_MS) {
-      this.insertPressAt = 0;
+    if (e.detail !== 0 && this.insert.endsInsertingPress(e)) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -15220,49 +15906,7 @@ var Controller = class {
       this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
       this.scrollTops.set(scrolled.key, e.target.scrollTop);
     }
-    if (this.anchor && e.target === this.anchor.scroller) this.keepAnchor(this.anchor.key);
-  };
-  // ---- keeping a table written in its place ----------------------------------
-  /** Before a write: where the table is in the page's view */
-  anchorAt(widget, key2) {
-    const scroller = widget.isConnected ? this.scrollParentOf(widget) : void 0;
-    this.anchor = scroller && {
-      key: key2,
-      scroller,
-      offset: widget.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
-      until: Date.now() + ANCHOR_MS
-    };
-  }
-  /** The table rendered anew is scrolled to where it was, so the row edited stays under the user's eyes */
-  keepAnchor(key2, widget = this.widgetForKey(key2)) {
-    const anchor = this.anchor;
-    if (!anchor || anchor.key !== key2 || !widget) return;
-    if (Date.now() > anchor.until || !anchor.scroller.isConnected) {
-      this.anchor = void 0;
-      return;
-    }
-    const offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
-    if (Math.abs(offset - anchor.offset) >= 1) anchor.scroller.scrollTop += offset - anchor.offset;
-  }
-  /**
-   * After the table's own scrolling (the cell to edit next revealed): kept
-   * there, also once the editor has measured the new rendering, in the next
-   * frames
-   */
-  anchorAgain(widget, key2) {
-    const anchor = this.anchor;
-    if (!anchor || anchor.key !== key2) return;
-    anchor.offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
-    const keep = () => this.keepAnchor(key2);
-    const win = this.doc.defaultView;
-    win.requestAnimationFrame?.(() => {
-      keep();
-      win.requestAnimationFrame(keep);
-    });
-    setTimeout(keep, 100);
-  }
-  dropAnchor = () => {
-    this.anchor = void 0;
+    this.anchor.scrolled(e.target);
   };
   /**
    * Keeps the toolbar, grips and an open menu on what they belong to while the
@@ -15272,103 +15916,54 @@ var Controller = class {
     if (this.features.some((f) => f.pointerBusy?.() === "drag")) return;
     const widget = this.hoverWidget;
     const info = widget && this.infos.get(widget);
-    if (!widget || !info || renderedTable(widget) !== info.table || !this.isShown(widget, info, info.table)) {
+    if (!widget || !info || renderedTable(widget) !== info.table || !isShown(widget, info, info.table)) {
       this.hideFloating(true);
       return;
     }
-    this.showTableControls(widget, info);
+    this.toolbar.show(widget, info);
     const cell = this.hoverCell;
-    if (cell && cell.isConnected && this.isShown(widget, info, cell)) {
+    if (cell && cell.isConnected && isShown(widget, info, cell)) {
       this.cellHovered(widget, info, cell);
     } else this.endHover(!cell || cell.isConnected);
-    if (this.insertAt || this.inInsertBand) this.insertUnderPointer();
+    this.insert.followPointer();
     if (this.navigating) this.markNavigating();
   }
   shownPart(widget, info, cell) {
-    if (!cell.isConnected) return void 0;
-    const rect = cell.getBoundingClientRect();
-    const shown = this.shownRect(widget, info);
-    const view = this.viewBounds(widget);
-    const held = cell.closest("tbody") ? this.heldBounds(info) : void 0;
-    const pinned = cell.classList.contains("tp-pin-left") || cell.classList.contains("tp-pin-right");
-    const part = {
-      left: Math.max(rect.left, shown.left, view.left, held && !pinned ? held.left : -Infinity),
-      right: Math.min(rect.right, shown.right, view.right, held && !pinned ? held.right : Infinity),
-      top: Math.max(rect.top, shown.top, view.top, held ? held.top : -Infinity),
-      bottom: Math.min(rect.bottom, shown.bottom, view.bottom, held ? held.bottom : Infinity)
-    };
-    return part.right > part.left && part.bottom > part.top ? part : void 0;
-  }
-  /** Whether any of the element is in view: inside the page's scroll view and the table's sideways view */
-  isShown(widget, info, element) {
-    if (!element.isConnected && info.table.isConnected) return false;
-    const rect = element.getBoundingClientRect();
-    const view = this.viewBounds(widget);
-    const box = this.innerBox(widget);
-    const head = info.table.tHead;
-    const top = Math.max(view.top, box.top, head && element.closest("tbody") ? head.getBoundingClientRect().bottom : -Infinity);
-    const bottom = Math.min(view.bottom, box.bottom, element.closest("tbody") ? this.heldBounds(info).bottom : Infinity);
-    return rect.bottom > top && rect.top < bottom && rect.right > box.left && rect.left < box.right;
+    return shownPart(widget, info, cell);
   }
   // ---- layout: what follows scrolling ------------------------------------------
-  /** Once per frame after scrolling or rendering: the sticky header, then what points at it */
-  barPlaceQueued = false;
-  queueStickyUpdate() {
-    if (this.stickyQueued) return;
-    this.stickyQueued = true;
-    const run = () => {
-      this.stickyQueued = false;
-      if (this.stopped) return;
-      this.cellEditor.placePopup();
-      for (const feature of this.features) feature.layoutChanged?.();
-      this.showQuietMarks();
-      this.followScroll();
-    };
-    const win = this.doc.defaultView;
-    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
+  /** After scrolling or rendering (queued once per frame): the sticky header, then what points at it */
+  followLayout() {
+    if (this.stopped) return;
+    this.cellEditor.placePopup();
+    for (const feature of this.features) feature.layoutChanged?.();
+    this.insert.showQuiet();
+    this.followScroll();
   }
-  /** Where the table's box shows its content: without its border and scrollbars */
   innerBox(widget) {
-    const rect = widget.getBoundingClientRect();
-    const left = rect.left + widget.clientLeft;
-    const top = rect.top + widget.clientTop;
-    const width = widget.clientWidth || rect.width;
-    const height = widget.clientHeight || rect.height;
-    return { left, right: left + width, top, bottom: top + height };
+    return innerBox(widget);
   }
-  /** Whether a table is taller than its box (the maximum height setting) and scrolls inside it */
   scrollsInside(widget) {
-    return widget.scrollHeight > widget.clientHeight + 1;
+    return scrollsInside(widget);
   }
   scrollParentOf(element) {
-    const win = this.doc.defaultView;
-    for (let el = element.parentElement; el; el = el.parentElement) {
-      if (/(auto|scroll)/.test(win.getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight) return el;
-    }
-    return void 0;
+    return scrollParentOf(element);
   }
   viewBounds(element) {
-    const win = this.doc.defaultView;
-    const widget = element.closest(WIDGET_SELECTOR);
-    const overWindow = !!widget && win.getComputedStyle(widget).position === "fixed";
-    const scroller = overWindow ? void 0 : this.scrollParentOf(element) ?? element.closest(SCROLLER_SELECTOR) ?? void 0;
-    const rect = scroller?.getBoundingClientRect();
-    const view = rect && rect.height > 0 ? rect : { left: 0, right: win.innerWidth, top: 0, bottom: win.innerHeight };
-    const visual = win.visualViewport;
-    const visibleBottom = visual && visual.height > 0 ? visual.offsetTop + visual.height : Infinity;
-    const visibleTop = visual && visual.height > 0 ? visual.offsetTop : -Infinity;
-    return { left: view.left, right: view.right, top: Math.max(view.top, visibleTop), bottom: Math.min(view.bottom, visibleBottom) };
+    return viewBounds(element);
+  }
+  heldBounds(info) {
+    return heldBounds(info);
   }
   onKeyDown = (e) => {
     if (e.target instanceof Node && this.dialogs.contains(e.target)) return;
     if (this.settingsDialog?.isOpen && e.target instanceof Node && this.settingsDialog.contains(e.target)) return;
-    this.dropAnchor();
+    this.anchor.drop();
     if (e.target instanceof HTMLInputElement && e.target.closest(".tp-menu")) return;
-    if (e.key === "Escape" && this.tableMenu) {
+    if (e.key === "Escape" && this.tableMenu.kind) {
       e.preventDefault();
       e.stopPropagation();
-      this.closeTableMenu(true);
+      this.tableMenu.close(true);
       return;
     }
     if (e.key !== "Escape" && e.target instanceof Element && e.target.closest(".tp-menu")) return;
@@ -15378,18 +15973,13 @@ var Controller = class {
   onKeyUp = (e) => {
     if (e.key === "Control") this.cellEditor.setNavigating(false);
   };
-  // Over the band around the table where a + inserts: as over the table, its controls stay
-  inInsertBand = false;
-  // Where a hovering pointer was last, and the table a + inserted into, to show the + again once it is rendered anew
+  // Where a hovering pointer was last
   lastPointer;
-  insertedIn;
-  // The ⋯ menu of the toolbar shown last, for a feature to open (TableHost.openTableMenu)
-  openMore;
   // The pointer left the window: the + goes (no move tells it so)
   onPointerOut = (e) => {
     if (e.relatedTarget !== null) return;
     this.lastPointer = void 0;
-    this.inInsertBand = this.hideInsert();
+    this.insert.pointerLeft();
   };
   /**
    * While Ctrl is held in a cell editor the pointer shows the move cursor over
@@ -15410,20 +16000,19 @@ var Controller = class {
   onPointerMove = (e) => {
     this.lastPointer = { pointerType: e.pointerType, clientX: e.clientX, clientY: e.clientY };
     if (this.navigating) this.markNavigating();
-    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
-    this.inInsertBand = !this.tableMenu && busy !== "drag" ? this.showInsert(e, !busy) : this.hideInsert();
+    this.insert.pointerMoved(e);
   };
   onMouseMove = (e) => {
-    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
-    if (this.tableMenu?.kind === "table" || busy === "drag" || e.buttons !== 0) return;
+    const busy = this.pointerBusy();
+    if (this.tableMenu.kind === "table" || busy === "drag" || e.buttons !== 0) return;
     const target = e.target;
-    if (target instanceof Node && this.isFloating(target) || this.inInsertBand) {
+    if (target instanceof Node && this.isFloating(target) || this.insert.inBand) {
       this.cancelHide();
       return;
     }
     const hit = this.enhancedWidgetOf(target);
     if (!hit) {
-      if (!busy && !this.overScrollbar(e)) this.scheduleHide();
+      if (!busy && !overScrollbar(e)) this.scheduleHide();
       return;
     }
     const [widget, info] = hit;
@@ -15431,7 +16020,7 @@ var Controller = class {
     if (this.hoverWidget !== widget) {
       if (busy) return;
       this.hoverWidget = widget;
-      this.showTableControls(widget, info);
+      this.toolbar.show(widget, info);
     }
     if (this.cellEditor.active) return;
     const cell = this.tableCellOf(info, target);
@@ -15440,30 +16029,24 @@ var Controller = class {
       this.cellHovered(widget, info, cell);
     }
   };
-  /** Whether the pointer is over the scrollbar of the element under it */
-  overScrollbar(e) {
-    const el = e.target;
-    if (!(el instanceof Element)) return false;
-    const rect = el.getBoundingClientRect();
-    const x = e.clientX - rect.left - el.clientLeft;
-    const y = e.clientY - rect.top - el.clientTop;
-    return el.clientWidth > 0 && x >= el.clientWidth || el.clientHeight > 0 && y >= el.clientHeight;
-  }
   // ---- cell editing ------------------------------------------------------
   cellRef(info, cell) {
-    const tr = cell.parentElement;
-    if (!tr) return void 0;
-    const row = tr === info.table.rows[0] ? 0 : Number(tr.dataset.tpRow);
-    return Number.isInteger(row) ? { row, column: cell.cellIndex } : void 0;
+    return this.rows.cellRef(info, cell);
+  }
+  cellUnder(target, key2) {
+    const hit = this.enhancedWidgetOf(target);
+    if (!hit || key2 !== void 0 && hit[1].key !== key2) return void 0;
+    const [widget, info] = hit;
+    const cell = this.tableCellOf(info, target);
+    const ref = cell && this.cellRef(info, cell);
+    return cell && ref ? { widget, info, cell, ref } : void 0;
+  }
+  rowOf(info, tr) {
+    return this.rows.rowOf(info, tr);
   }
   /** The header row and the shown body rows, in display order */
   shownRows(info) {
-    const placed = this.shownOrder.get(info.table);
-    if (placed) return [...placed];
-    return [
-      info.table.rows[0],
-      ...Array.from(info.table.querySelectorAll("tr[data-tp-row]:not(.tp-hidden)"))
-    ];
+    return this.rows.shownRows(info);
   }
   /** A setting's value, falling back to its default when unset or not valid */
   async setting(name) {
@@ -15479,9 +16062,7 @@ var Controller = class {
     }
   }
   cellAt(info, ref, includeHidden = false) {
-    const tr = ref.row === 0 ? info.table.rows[0] : this.bodyRows(info)[ref.row - 1];
-    if (!tr || tr.classList.contains("tp-hidden") && !includeHidden) return void 0;
-    return tr.cells[ref.column];
+    return this.rows.cellAt(info, ref, includeHidden);
   }
   focusEditor(widget) {
     if (this.touchKeyboard.letGoOfFocus()) return;
@@ -15548,7 +16129,7 @@ var Controller = class {
         const then = await feature.beforeWrite?.(text, spanFrom, spanTo, replace);
         if (then) after.push(then);
       }
-      this.anchorAt(widget, info.key);
+      this.anchor.set(widget, info.key);
       await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
       this.pageText = written;
       for (const pending of held) pending.written();
@@ -15572,71 +16153,9 @@ var Controller = class {
     const offset = at ? cellSourceOffset(range.text, at.row, at.column, at.within) : 0;
     await this.bridge.moveCursor(range.from + offset);
   }
-  // ---- inserting rows and columns: a + on a border --------------------------
-  /**
-   * A pointer that hovers (a mouse, a pen) near a border of the table shown:
-   * on a border between rows (or under the last), left of the table, or between
-   * columns (or right of the last), above the header, a + inserts one there.
-   * A finger does not hover: it inserts from the row and column menus.
-   * Whether the pointer is in that band around the table.
-   */
-  // `mark` false (a menu open): the grips follow the pointer along the edges, no + is shown
-  showInsert(e, mark = true) {
-    const widget = this.hoverWidget;
-    const info = widget && this.infos.get(widget);
-    if (e.pointerType === "touch" || e.buttons !== 0 || !widget || !info || renderedTable(widget) !== info.table) return this.hideInsert();
-    if (e.target instanceof Node && this.insertMark.contains(e.target)) return true;
-    if (e.target instanceof Node && this.isFloating(e.target)) return this.hideInsert();
-    const shown = this.shownRect(widget, info);
-    const header = info.table.rows[0].getBoundingClientRect();
-    const { clientX: x, clientY: y } = e;
-    if (x >= shown.left - INSERT_LANE_BAND && x <= shown.left + 2 && y >= header.top && y <= shown.bottom + INSERT_LANE_PAST) {
-      const held = this.heldBounds(info);
-      const body = (tr) => tr.parentElement?.tagName === "TBODY";
-      const span = (tr) => {
-        const r = tr.getBoundingClientRect();
-        return body(tr) ? { top: Math.max(r.top, held.top), bottom: Math.min(r.bottom, held.bottom), edge: r.bottom } : { top: r.top, bottom: r.bottom, edge: r.bottom };
-      };
-      const rows = this.shownRows(info).filter((tr) => span(tr).bottom > span(tr).top + 1);
-      const beside = rows.find((tr, i) => i > 0 && y >= span(tr).top && y < span(tr).bottom);
-      if (beside) this.hoverAt(widget, info, beside.cells[this.hoverCell?.cellIndex ?? 0] ?? beside.cells[0]);
-      const edges = rows.map((tr, i) => ({ edge: span(tr).edge, i })).filter(({ edge, i }) => !body(rows[i]) || edge >= held.top - 1 && edge <= held.bottom + 1);
-      if (mark && x <= shown.left - INSERT_LANE_FROM && edges.length) {
-        const { edge, i } = edges.reduce((best, e2) => Math.abs(y - e2.edge) < Math.abs(y - best.edge) ? e2 : best);
-        const next = rows[i + 1];
-        const below = next && Number(next.dataset.tpRow);
-        const above = i > 0 ? Number(rows[i].dataset.tpRow) : void 0;
-        const at = below !== void 0 && below > 0 ? below : appendRowAt(info.pins, info.rows);
-        const beside2 = below !== void 0 && below > 0 ? { before: below } : above !== void 0 ? { after: above } : {};
-        this.markInsert(widget, info, { key: info.key, axis: "row", at, beside: beside2 }, edge, shown);
-        return true;
-      }
-      return this.hideInsert(true);
-    }
-    if (y >= header.top - INSERT_LANE_BAND && y <= header.top + 2 && x >= shown.left - INSERT_REACH && x <= shown.right + INSERT_LANE_PAST) {
-      const cells = Array.from(info.table.rows[0].cells);
-      const pinned = (c) => c.classList.contains("tp-pin-left") || c.classList.contains("tp-pin-right");
-      const under = cells.filter((c) => x >= c.getBoundingClientRect().left && x < c.getBoundingClientRect().right);
-      const column = (under.find(pinned) ?? under[0])?.cellIndex ?? -1;
-      const row = this.hoverCell?.parentElement ?? info.table.rows[0];
-      if (column >= 0 && row.closest("table") === info.table) this.hoverAt(widget, info, row.cells[column]);
-      const held = this.heldBounds(info);
-      const edges = cells.flatMap((c, i) => {
-        const r = c.getBoundingClientRect();
-        return [
-          { edge: r.left, i, pinned: pinned(c) },
-          { edge: r.right, i: i + 1, pinned: pinned(c) }
-        ];
-      }).filter(({ edge, pinned: pinned2 }) => (pinned2 || edge >= held.left - 1 && edge <= held.right + 1) && edge >= shown.left - INSERT_REACH && edge <= shown.right + INSERT_REACH);
-      if (mark && y <= header.top - INSERT_LANE_FROM && edges.length) {
-        const { edge, i } = edges.reduce((best, e2) => Math.abs(x - e2.edge) < Math.abs(x - best.edge) ? e2 : best);
-        const at = i < cells.length ? i : appendColumnAt(info.pins, info.columns);
-        this.markInsert(widget, info, { key: info.key, axis: "column", at, beside: {} }, edge, shown);
-        return true;
-      }
-      return this.hideInsert(true);
-    }
-    return this.hideInsert();
+  /** What holds the pointer, if anything (Feature.pointerBusy): a drag, a menu open */
+  pointerBusy() {
+    return this.features.map((f) => f.pointerBusy?.()).find(Boolean);
   }
   /** As if the pointer were over this cell: the grips go to its row and column */
   hoverAt(widget, info, cell) {
@@ -15644,165 +16163,14 @@ var Controller = class {
     this.hoverCell = cell;
     this.cellHovered(widget, info, cell);
   }
-  markInsert(_widget, info, at, edge, shown) {
-    this.insertAt = at;
-    const mark = this.insertMark;
-    mark.title = at.axis === "row" ? "Insert a row here" : "Insert a column here";
-    mark.setAttribute("aria-label", mark.title);
-    mark.classList.add("tp-visible");
-    this.placeInsert(mark, info, at.axis, edge, shown);
-    this.showQuietMarks();
-  }
-  /**
-   * A + and the line it inserts at: a row's left of the row grips, the line
-   * across the table; a column's above the column grips, the line down the
-   * table
-   */
-  placeInsert(mark, info, axis, edge, shown, withLine = true) {
-    const line = this.insertLine;
-    if (withLine) line.classList.add("tp-visible");
-    if (axis === "row") {
-      const center = shown.left - INSERT_LANE_AT;
-      if (withLine) Object.assign(line.style, { left: `${center}px`, top: `${edge - 1}px`, width: `${shown.right - center}px`, height: "2px" });
-      this.place(mark, center - mark.offsetWidth / 2, edge - mark.offsetHeight / 2);
-    } else {
-      const center = info.table.rows[0].getBoundingClientRect().top - INSERT_LANE_AT;
-      if (withLine) Object.assign(line.style, { left: `${edge - 1}px`, top: `${center}px`, width: "2px", height: `${shown.bottom - center}px` });
-      this.place(mark, edge - mark.offsetWidth / 2, center - mark.offsetHeight / 2);
-    }
-  }
-  /**
-   * The + the pointer brought up goes (the quiet ones come back); `inBand`:
-   * the pointer is still in the band around the table (the table's controls
-   * stay)
-   */
-  hideInsert(inBand = false) {
-    this.insertAt = void 0;
-    this.insertMark.classList.remove("tp-visible");
-    this.insertLine.classList.remove("tp-visible");
-    this.showQuietMarks();
-    return inBand;
-  }
   /** A cell is hovered or edited (or the page moved under it): the features follow it; the quiet + of a last row or column */
   cellHovered(widget, info, cell) {
     for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
-    this.showQuietMarks();
+    this.insert.showQuiet();
   }
   selectionChanged() {
-    this.showQuietMarks();
+    this.insert.showQuiet();
     for (const feature of this.features) feature.selectionChanged?.();
-  }
-  /**
-   * The table whose last row or column has the cell edited, the cell hovered
-   * or a selected cell (in this order), and which of the two
-   */
-  quietTarget() {
-    const editing = this.cellEditor.active?.cell;
-    const hovered = this.hoverCell?.isConnected ? this.hoverCell : void 0;
-    const selected = Array.from(this.doc.querySelectorAll(".tp-selected"));
-    const first = editing ?? hovered ?? selected[0];
-    const hit = first && this.enhancedWidgetOf(first);
-    if (!hit) return void 0;
-    const [widget, info] = hit;
-    const rows = this.shownRows(info);
-    const lastRow = rows.length > 1 ? rows[rows.length - 1] : void 0;
-    const lastColumn = info.table.rows[0].cells.length - 1;
-    const cells = [editing, hovered, ...selected].filter((cell) => cell?.closest("table") === info.table);
-    const row = cells.some((cell) => cell.parentElement === lastRow);
-    const column = cells.some((cell) => cell.cellIndex === lastColumn);
-    return row || column ? { widget, info, row, column } : void 0;
-  }
-  /** Where a row (column) is added at the end: its edge, and the insert there */
-  endOf(widget, info, axis) {
-    const shown = this.shownRect(widget, info);
-    if (axis === "row") {
-      const rows = this.shownRows(info);
-      const last = rows[rows.length - 1];
-      const at2 = { key: info.key, axis, at: appendRowAt(info.pins, info.rows), beside: { after: Number(last.dataset.tpRow) } };
-      return { at: at2, edge: last.getBoundingClientRect().bottom, shown };
-    }
-    const cells = info.table.rows[0].cells;
-    const at = { key: info.key, axis, at: appendColumnAt(info.pins, info.columns), beside: {} };
-    return { at, edge: cells[cells.length - 1].getBoundingClientRect().right, shown };
-  }
-  /** The quiet + of the last row and column (quietTarget), but on an axis where the pointer brought up a +, or out of view */
-  showQuietMarks() {
-    const target = this.quietTarget();
-    for (const axis of ["row", "column"]) {
-      const mark = this.quietMarks[axis];
-      if (!target || !target[axis] || this.insertAt?.axis === axis) {
-        mark.classList.remove("tp-visible");
-        continue;
-      }
-      const { widget, info } = target;
-      const end = this.endOf(widget, info, axis);
-      const view = this.viewBounds(widget);
-      const y = axis === "row" ? end.edge : info.table.rows[0].getBoundingClientRect().top - INSERT_LANE_AT;
-      const held = this.heldBounds(info);
-      const inView = y >= view.top && y <= view.bottom && (axis === "row" ? end.edge >= held.top - 1 : end.edge <= end.shown.right + INSERT_REACH);
-      if (!inView) {
-        mark.classList.remove("tp-visible");
-        continue;
-      }
-      mark.classList.add("tp-visible");
-      this.placeInsert(mark, info, axis, end.edge, end.shown, false);
-    }
-    if (this.insertAt) return;
-    const hovered = this.quietHovered;
-    if (hovered && this.quietMarks[hovered].classList.contains("tp-visible")) this.lineAtEnd(hovered);
-    else this.insertLine.classList.remove("tp-visible");
-  }
-  /** The pointer on a quiet +: the line where it adds */
-  lineAtEnd(axis) {
-    const target = this.quietTarget();
-    if (!target || this.insertAt) return;
-    const end = this.endOf(target.widget, target.info, axis);
-    this.placeInsert(this.quietMarks[axis], target.info, axis, end.edge, end.shown);
-  }
-  /** A quiet + pressed: a row (column) added at the end, its first cell (name) edited */
-  insertAtEnd(axis) {
-    const target = this.quietTarget();
-    if (!target) return;
-    const { widget, info } = target;
-    const { at } = this.endOf(widget, info, axis);
-    this.insertedIn = info.key;
-    if (axis === "row") void insertRowWith(this, widget, info, at.at, this.firstVisibleColumn(widget, info), void 0, at.beside);
-    else void insertColumnWith(this, widget, info, at.at);
-  }
-  /** The + clicked: a row (column) inserted there, its first cell (name) edited */
-  insertHere() {
-    const at = this.insertAt;
-    const widget = at && this.widgetForKey(at.key);
-    const info = widget && this.infos.get(widget);
-    if (!at || !widget || !info) return;
-    this.insertedIn = at.key;
-    if (at.axis === "row") void insertRowWith(this, widget, info, at.at, this.firstVisibleColumn(widget, info), void 0, at.beside);
-    else void insertColumnWith(this, widget, info, at.at);
-  }
-  /** A table rendered anew after a + inserted into it: the + where the pointer still is */
-  reshowInsert(widget, info) {
-    if (this.insertedIn !== info.key || !this.lastPointer) return;
-    this.insertedIn = void 0;
-    this.hoverWidget = widget;
-    this.insertUnderPointer();
-  }
-  /** The + where the pointer is now, as a move there would show it */
-  insertUnderPointer() {
-    const pointer = this.lastPointer;
-    const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
-    if (!pointer || this.tableMenu || busy === "drag") {
-      this.inInsertBand = this.hideInsert();
-      return;
-    }
-    const target = this.doc.elementFromPoint?.(pointer.clientX, pointer.clientY) ?? null;
-    this.inInsertBand = this.showInsert({ ...pointer, buttons: 0, target }, !busy);
-  }
-  /** The leftmost column in view, so editing a new row does not scroll a wide table back */
-  firstVisibleColumn(widget, info) {
-    const left = widget.getBoundingClientRect().left;
-    const cells = Array.from(info.table.rows[0].cells);
-    const index = cells.findIndex((cell) => cell.getBoundingClientRect().left >= left - 1);
-    return Math.max(0, index);
   }
   // ---- floating UI: the toolbar ----------------------------------------------
   floating(tag, className) {
@@ -15827,7 +16195,7 @@ var Controller = class {
     return this.dialogs.open(options);
   }
   isFloating(node) {
-    return [this.bar, this.insertMark, this.insertLine, ...Object.values(this.quietMarks)].some((el) => el.contains(node)) || this.cellEditor.owns(node) || this.dialogs.contains(node) || !!this.tableMenu?.element.contains(node) || this.features.some((f) => f.owns?.(node));
+    return this.toolbar.owns(node) || this.insert.owns(node) || this.cellEditor.owns(node) || this.dialogs.contains(node) || this.tableMenu.owns(node) || this.features.some((f) => f.owns?.(node));
   }
   place(element, left, top) {
     const win = this.doc.defaultView;
@@ -15851,230 +16219,16 @@ var Controller = class {
   /** No cell is hovered: the grips go, and with `closeMenus` an open menu */
   endHover(closeMenus) {
     this.hoverCell = void 0;
-    this.showQuietMarks();
+    this.insert.showQuiet();
     for (const feature of this.features) feature.hoverEnded?.(closeMenus);
   }
   hideFloating(closeMenus = false) {
     this.endHover(closeMenus);
-    this.closeTableMenu(false);
-    for (const el of [this.bar, this.insertMark, this.insertLine]) el.classList.remove("tp-visible");
-    this.insertAt = void 0;
+    this.tableMenu.close(false);
+    this.toolbar.hide();
+    this.insert.hidePointers();
     this.hoverWidget = void 0;
-    this.showQuietMarks();
-  }
-  /**
-   * The toolbar above the table and the add-row / add-column buttons; placed
-   * now, or (`placeNow` false: after a change of the table) in the next frame
-   */
-  showTableControls(widget, info, placeNow = true) {
-    const view = this.viewOf(info);
-    const bar = this.bar;
-    bar.replaceChildren();
-    const button = (item, className) => {
-      const b = this.doc.createElement("button");
-      b.type = "button";
-      b.tabIndex = -1;
-      b.title = item.title;
-      if (className) b.className = className;
-      if (item.place === "icon" && item.icon) {
-        b.classList.add("tp-bar-icon");
-        b.setAttribute("aria-label", item.label);
-        b.innerHTML = item.icon;
-      } else b.textContent = item.label;
-      if (item.attention) b.classList.add("tp-attention");
-      if (item.pressed !== void 0) b.setAttribute("aria-pressed", String(item.pressed));
-      b.addEventListener("click", (e) => {
-        e.preventDefault();
-        item.run();
-      });
-      bar.append(b);
-      return b;
-    };
-    const featureButtons = this.features.flatMap((feature) => feature.toolbarButtons?.(widget, info) ?? []);
-    for (const item of featureButtons.filter((b) => b.place === "label")) button(item, "tp-bar-label");
-    const chips = [];
-    if (view.sort) {
-      const { column, direction } = view.sort;
-      const name = cellText(info.table.rows[0].cells[column]) || `column ${column + 1}`;
-      chips.push({
-        label: `Sorted by ${name} ${direction === "asc" ? "\u2191" : "\u2193"}`,
-        title: "Clear sorting: show the rows as written",
-        place: "chip",
-        run: () => {
-          const [w, i] = this.current(widget, info);
-          this.setSort(w, i, withoutSort(this.viewOf(i)));
-        },
-        // Apply: the rows are sorted in the markdown, and the sorting view ends
-        actions: [{ icon: ICONS.applySort, title: "Sort the rows in the markdown this way", run: () => void this.applySort(widget, info) }]
-      });
-    }
-    for (const item of [...chips, ...featureButtons.filter((b) => b.place === "chip")]) {
-      const chip = this.doc.createElement("span");
-      chip.className = "tp-status tp-chip";
-      if (item.icon) chip.innerHTML = item.icon;
-      chip.append(item.label);
-      const small = (className, title, icon, run) => {
-        const b = this.doc.createElement("button");
-        b.type = "button";
-        b.tabIndex = -1;
-        b.className = className;
-        b.title = title;
-        b.setAttribute("aria-label", title);
-        b.innerHTML = icon;
-        b.addEventListener("click", (e) => {
-          e.preventDefault();
-          run();
-        });
-        return b;
-      };
-      for (const action of item.actions ?? []) chip.append(small("tp-chip-apply", action.title, action.icon, action.run));
-      chip.append(small("tp-chip-clear", item.title, ICONS.clear, item.run));
-      bar.append(chip);
-    }
-    for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
-    const menuItems = [
-      ...featureButtons.filter((b) => (b.place ?? "menu") === "menu"),
-      // Pinned rows and columns are at the edges already: unpinned, they stay where they are
-      ...hasPins(info.pins) ? [
-        {
-          label: "Unpin all",
-          title: "Unpin all rows and columns: they stay where they are, and scroll and sort with the others",
-          icon: ICONS.unpin,
-          run: () => {
-            const [w] = this.current(widget, info);
-            void this.write(w, (t) => t, { pins: NO_PINS });
-          }
-        }
-      ] : [],
-      // Aligned already, it writes nothing
-      {
-        label: "Format table",
-        title: "Align the table's markdown: its columns padded to one width",
-        icon: ICONS.format,
-        run: () => {
-          const [w] = this.current(widget, info);
-          void this.write(w, (t) => ({ ...t, padded: true }));
-        }
-      },
-      {
-        label: "Edit markdown",
-        title: "Show this table as markdown",
-        icon: ICONS.markdown,
-        run: () => void this.showMarkdown(this.current(widget, info)[1])
-      },
-      // Last before the destructive ones: not about this table
-      {
-        label: "Table Plus settings\u2026",
-        title: "Settings for every table in the space (not just this one): SilverBullet's configuration",
-        icon: ICONS.settings,
-        run: () => void this.openSettings()
-      }
-    ];
-    const more = button(
-      {
-        label: "More",
-        title: "More for this table",
-        place: "icon",
-        icon: ICONS.more,
-        run: () => this.tableMenu?.kind === "table" ? this.closeTableMenu(true) : this.showTableMenu(widget, more, menuItems)
-      },
-      "tp-bar-more"
-    );
-    this.openMore = { widget, open: (naming) => this.showTableMenu(widget, more, menuItems, naming) };
-    if (this.tableMenu?.kind === "table") {
-      more.classList.add("tp-active");
-      this.tableMenu.anchor = more;
-    }
-    if (placeNow || !bar.classList.contains("tp-visible")) this.placeBar(widget, info);
-    else this.queuePlaceBar();
-  }
-  /** The toolbar placed above the table's header (or over its right end), and the open table menu with it */
-  placeBar(widget, info) {
-    const bar = this.bar;
-    const rect = widget.getBoundingClientRect();
-    const tableRect = info.table.getBoundingClientRect();
-    const headerRect = info.table.rows[0].getBoundingClientRect();
-    const shown = this.viewBounds(widget);
-    bar.classList.add("tp-visible");
-    const above = headerRect.top - bar.offsetHeight - BAR_GAP;
-    const held = info.table.tHead?.classList.contains("tp-stuck") ?? false;
-    const fits = held || above >= shown.top + 2;
-    const top = fits ? Math.max(above, shown.top) : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
-    this.place(bar, Math.min(rect.right, tableRect.right, shown.right) - bar.offsetWidth - (fits ? BAR_CLEAR : 6), top);
-    this.positionTableMenu();
-  }
-  /**
-   * The toolbar's ⋯ menu: the table's actions that are not used all the time,
-   * the destructive ones last, after a separator
-   */
-  showTableMenu(widget, anchor, items, startNamed = false) {
-    const place = { kind: "table", anchor };
-    const back = { icon: ICONS.arrowLeft, run: () => this.showTableMenu(widget, anchor, items) };
-    const entry = (item) => ({
-      kind: "item",
-      label: item.label,
-      icon: item.icon ?? "",
-      hint: item.title,
-      ...item.value ? { value: { text: item.value } } : {},
-      ...item.danger ? { danger: true } : {},
-      run: item.choices ? () => this.showMenu(widget, item.choices.title, item.choices.entries(), place, back) : item.run
-    });
-    const safe = items.filter((item) => !item.danger).map(entry);
-    const danger = items.filter((item) => item.danger).map(entry);
-    const info = this.infoOf(widget);
-    const naming = info && this.closingNaming(this.menuNaming(widget, info, { kind: "table" }));
-    const title = naming?.name ? `Table: ${naming.name}` : "Table";
-    this.showMenu(widget, title, [...safe, ...safe.length && danger.length ? [{ kind: "separator" }] : [], ...danger], place, void 0, naming);
-    if (startNamed && this.tableMenu) startNaming(this.tableMenu.element);
-  }
-  /** A menu of the toolbar or of cells: its items close it when run; Escape or a press elsewhere closes it */
-  showMenu(widget, title, entries, place, back, naming) {
-    this.closeTableMenu(false);
-    const close = (run) => () => {
-      this.closeTableMenu(false);
-      run();
-    };
-    const closing = wrapRuns(entries, close);
-    const element = renderMenu(this.doc, title, closing, back, naming);
-    element.classList.add("tp-floating", "tp-menu", "tp-visible");
-    keepFocus(element);
-    onMenuClose(element, () => this.closeTableMenu(true));
-    this.doc.body.append(element);
-    this.tableMenu = { element, widget, ...place };
-    place.anchor?.classList.add("tp-active");
-    this.positionTableMenu();
-    focusMenu(element);
-  }
-  /** Below the ⋯ button, its right edge at the button's; at the pointer; always inside the window */
-  positionTableMenu() {
-    if (!this.tableMenu) return;
-    const { element, anchor, point } = this.tableMenu;
-    const win = this.doc.defaultView;
-    const m = element.getBoundingClientRect();
-    let left;
-    let top;
-    if (anchor) {
-      const a = anchor.getBoundingClientRect();
-      left = a.right - m.width;
-      top = a.bottom + 4;
-      if (top + m.height > win.innerHeight - 4) top = a.top - m.height - 4;
-    } else {
-      left = point?.x ?? 0;
-      top = point?.y ?? 0;
-      if (top + m.height > win.innerHeight - 4) top -= m.height;
-      if (left + m.width > win.innerWidth - 4) left -= m.width;
-    }
-    element.style.left = `${Math.round(Math.max(4, Math.min(left, win.innerWidth - m.width - 4)))}px`;
-    element.style.top = `${Math.round(Math.max(4, top))}px`;
-  }
-  closeTableMenu(refocus) {
-    const menu = this.tableMenu;
-    if (!menu) return;
-    this.tableMenu = void 0;
-    const hadFocus = menu.element.contains(this.doc.activeElement);
-    menu.element.remove();
-    menu.anchor?.classList.remove("tp-active");
-    if (refocus && hadFocus) this.focusEditor(menu.widget);
+    this.insert.showQuiet();
   }
   // ---- the cell menu: right click, a long press, the Menu key ------------------
   /**
@@ -16102,28 +16256,26 @@ var Controller = class {
     const entries = groups.flatMap((group, i) => [...i ? [{ kind: "separator" }] : [], ...group.entries]);
     if (this.pressedWith === "touch") this.takePress();
     const header = cellText(info.table.rows[0].cells[at.column]) || `column ${at.column + 1}`;
-    const naming = cells.length === 1 ? this.closingNaming(this.menuNaming(widget, info, at.row === 0 ? { kind: "column", column: at.column } : { kind: "cell", row: at.row, column: at.column })) : void 0;
+    const naming = cells.length === 1 ? this.menuNaming(widget, info, at.row === 0 ? { kind: "column", column: at.column } : { kind: "cell", row: at.row, column: at.column }) : void 0;
     const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? naming?.name ? `Column: ${naming.name}` : `Column: ${header}` : naming?.name ? `Cell: ${naming.name}` : `Cell: ${header}, row ${at.row}`;
     for (const feature of this.features) feature.cellMenuOpened?.();
     const cell = this.cellAt(info, at);
     if (cell && !this.cellEditor.active && cell !== this.hoverCell) {
       if (this.hoverWidget !== widget) {
         this.hoverWidget = widget;
-        this.showTableControls(widget, info);
+        this.toolbar.show(widget, info);
       }
       this.hoverCell = cell;
       this.cellHovered(widget, info, cell);
     }
-    this.showMenu(widget, title, entries, { kind: "cell", point }, void 0, naming);
+    this.tableMenu.show(widget, title, entries, { kind: "cell", point }, void 0, naming);
     return true;
   }
   /** The cell a pointer event is on, in an enhanced table; not in the cell editor (its menu is the browser's) */
   cellOfEvent(target) {
     if (!(target instanceof Element) || target.closest(".tp-cell-editor")) return void 0;
-    const hit = this.enhancedWidgetOf(target);
-    const cell = hit && this.tableCellOf(hit[1], target);
-    const ref = hit && cell && this.cellRef(hit[1], cell);
-    return hit && ref ? [hit[0], hit[1], ref] : void 0;
+    const hit = this.cellUnder(target);
+    return hit && [hit.widget, hit.info, hit.ref];
   }
   /** Right click (Shift+right click: the browser's menu) */
   onContextMenu = (e) => {
@@ -16158,27 +16310,12 @@ var Controller = class {
     if (e.pointerType !== "touch" || e.target instanceof Node && this.isFloating(e.target)) return;
     const hit = this.cellOfEvent(e.target);
     if (!hit) return;
-    const win = this.doc.defaultView;
-    const { clientX: x, clientY: y } = e;
-    const timer = setTimeout(() => {
-      stop();
-      if (this.tableMenu?.kind === "cell") return;
-      this.openCellMenu(hit[0], hit[1], hit[2], { x, y });
-    }, LONG_PRESS_MS2);
-    const move = (ev) => {
-      if (Math.hypot(ev.clientX - x, ev.clientY - y) > 10) stop();
-    };
-    const stop = () => {
-      clearTimeout(timer);
-      win.removeEventListener("pointermove", move, true);
-      win.removeEventListener("pointerup", stop, true);
-      win.removeEventListener("pointercancel", stop, true);
-      this.stopLongPress = void 0;
-    };
-    win.addEventListener("pointermove", move, true);
-    win.addEventListener("pointerup", stop, true);
-    win.addEventListener("pointercancel", stop, true);
-    this.stopLongPress = stop;
+    const point = { x: e.clientX, y: e.clientY };
+    this.stopLongPress = watchPress(this.doc.defaultView, e, {
+      longPress: () => {
+        if (this.tableMenu.kind !== "cell") this.openCellMenu(hit[0], hit[1], hit[2], point);
+      }
+    });
   };
   /** The Menu key or Shift+F10 in a cell editor: the menu of the edited cell (or of the cells selected) */
   cellMenuKey(e) {
@@ -16192,34 +16329,8 @@ var Controller = class {
     e.stopPropagation();
     return true;
   }
-  /** Where a table is in view: the table, cut to the box that scrolls it sideways */
-  /**
-   * Where the body shows between what is held over it as the page and the
-   * table scroll: below the header (with the rows pinned to the top), above
-   * the rows pinned to the bottom, between the columns pinned left and right.
-   * What scrolls under those is out of view.
-   */
-  heldBounds(info) {
-    const { tHead: head, tFoot: foot } = info.table;
-    const header = Array.from(info.table.rows[0].cells);
-    const lefts = header.filter((c) => c.classList.contains("tp-pin-left")).map((c) => c.getBoundingClientRect().right);
-    const rights = header.filter((c) => c.classList.contains("tp-pin-right")).map((c) => c.getBoundingClientRect().left);
-    return {
-      top: head ? head.getBoundingClientRect().bottom : -Infinity,
-      bottom: foot?.rows.length ? foot.getBoundingClientRect().top : Infinity,
-      left: lefts.length ? Math.max(...lefts) : -Infinity,
-      right: rights.length ? Math.min(...rights) : Infinity
-    };
-  }
   shownRect(widget, info) {
-    const box = this.innerBox(widget);
-    const table = info.table.getBoundingClientRect();
-    return {
-      left: Math.max(box.left, table.left),
-      right: Math.min(box.right, table.right),
-      top: Math.max(box.top, table.top),
-      bottom: Math.min(box.bottom, table.bottom)
-    };
+    return shownRect(widget, info);
   }
 };
 

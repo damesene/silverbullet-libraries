@@ -18,6 +18,8 @@
 // scrolls and go under its held header, with nothing measured.
 import { cellValue, type Cell, type FillLine, filled, fillLine } from "../autofill/index.ts";
 import type { CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import { Outline } from "../core/outline.ts";
+import { watchPress } from "../core/press.ts";
 import { OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 
@@ -36,10 +38,6 @@ type Selected = {
   readonly columnZone: readonly [number, number];
 };
 
-// A touch shorter than this, moved no further, is a tap (else it scrolls: picking goes on)
-const TAP_MS = 500;
-const TAP_MOVE = 10;
-
 /** Rows as shown (body rows) and columns, from the first to the last */
 type Area = { readonly top: number; readonly bottom: number; readonly left: number; readonly right: number };
 
@@ -49,8 +47,8 @@ type Extent = { readonly axis: "rows" | "columns"; readonly to: number };
 export class AutoFill implements Feature {
   private readonly handle: HTMLElement;
   private readonly tip: HTMLElement;
-  // The outline of what a drag fills: a piece in each cell on its edge
-  private edges: HTMLElement[] = [];
+  // The outline of what a drag fills
+  private readonly edges: Outline;
   private outlined = "";
   // The extent the tip's value is for, in the drag going on
   private tipFor = "";
@@ -63,6 +61,7 @@ export class AutoFill implements Feature {
   private stopTap: (() => void) | undefined;
 
   constructor(private readonly host: TableHost) {
+    this.edges = new Outline(host.doc, (sides) => [`tp-fill-edge ${sides.map((side) => `tp-fill-${side}`).join(" ")}`]);
     this.handle = host.doc.createElement("div");
     this.handle.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-fill-handle`;
     this.handle.title = "Drag to fill the cells after these (1, 2 → 3, 4; Mon → Tue), double-click to fill down";
@@ -238,36 +237,20 @@ export class AutoFill implements Feature {
     this.stopTap?.();
     // One finger: a second one is another gesture (a pinch)
     if (!this.picking || e.pointerType !== "touch" || e.button !== 0 || !e.isPrimary) return;
-    const { clientX: x, clientY: y, target } = e;
-    const at = Date.now();
-    const win = this.host.doc.defaultView!;
-    const move = (ev: PointerEvent) => {
-      if (Math.hypot(ev.clientX - x, ev.clientY - y) > TAP_MOVE) stop();
-    };
-    const up = () => {
-      stop();
+    const target = e.target;
+    this.stopTap = watchPress(this.host.doc.defaultView!, e, {
       // Its mouse events would select the cell tapped: the fill selects what it filled
-      if (Date.now() - at < TAP_MS && this.pick(target)) this.host.takePress();
-    };
-    const stop = () => {
-      win.removeEventListener("pointermove", move, true);
-      win.removeEventListener("pointerup", up, true);
-      win.removeEventListener("pointercancel", stop, true);
-      this.stopTap = undefined;
-    };
-    win.addEventListener("pointermove", move, true);
-    win.addEventListener("pointerup", up, true);
-    win.addEventListener("pointercancel", stop, true);
-    this.stopTap = stop;
+      tap: () => {
+        if (this.pick(target)) this.host.takePress();
+      },
+    });
   };
 
   /** Picking ends; on a body cell of the table, the fill to it (true: the press is taken; a header's goes on: its sorting, its filter) */
   private pick(target: EventTarget | null): boolean {
     const key = this.picking;
     this.endPicking();
-    const hit = this.host.enhancedWidgetOf(target);
-    const cell = hit && hit[1].key === key ? this.host.tableCellOf(hit[1], target) : undefined;
-    const ref = hit && cell ? this.host.cellRef(hit[1], cell) : undefined;
+    const ref = key === undefined ? undefined : this.host.cellUnder(target, key)?.ref;
     if (!ref || ref.row === 0) return false;
     const selected = this.selection();
     const extent = selected && selected.info.key === key ? this.extentTo(selected, ref) : undefined;
@@ -284,7 +267,7 @@ export class AutoFill implements Feature {
       if (!info || refs.length === 0) continue;
       if (refs.some((ref) => ref.row === 0) || this.host.rearranged(info)) return undefined;
       const rows = this.host.shownRows(info).slice(1);
-      const index = new Map(rows.map((tr, i) => [Number(tr.dataset.tpRow), i]));
+      const index = new Map(rows.map((tr, i) => [this.host.rowOf(info, tr), i]));
       let [top, bottom, left, right] = [Infinity, -Infinity, Infinity, -Infinity];
       for (const ref of refs) {
         const at = index.get(ref.row);
@@ -312,7 +295,7 @@ export class AutoFill implements Feature {
 
   /** The markdown's row (the header 0) of a body row as shown */
   private rowOf(selected: Selected, shown: number): number {
-    return Number(selected.rows[shown]!.dataset.tpRow);
+    return this.host.rowOf(selected.info, selected.rows[shown]!);
   }
 
   /** The cell of a body row as shown, while it is in the document */
@@ -354,39 +337,18 @@ export class AutoFill implements Feature {
       : { top, bottom, left: Math.min(left, extent.to), right: Math.max(right, extent.to) };
   }
 
-  /** An area outlined: a piece in each of its cells on an edge, marked with the sides it draws */
+  /** An area outlined (again only when it changed) */
   private outline(selected: Selected, area: Area | undefined): void {
     const key = area ? `${area.top},${area.bottom},${area.left},${area.right}` : "";
     if (key === this.outlined) return;
     this.clearOutline();
     this.outlined = key;
     if (!area) return;
-    const piece = (shown: number, column: number) => {
-      const cell = this.cellOf(selected, shown, column);
-      if (!cell) return;
-      const sides = [
-        shown === area.top && "tp-fill-top",
-        shown === area.bottom && "tp-fill-bottom",
-        column === area.left && "tp-fill-left",
-        column === area.right && "tp-fill-right",
-      ].filter(Boolean);
-      const edge = this.host.doc.createElement("span");
-      edge.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} tp-fill-edge ${sides.join(" ")}`;
-      cell.append(edge);
-      this.edges.push(edge);
-    };
-    for (let shown = area.top; shown <= area.bottom; shown++) {
-      if (shown === area.top || shown === area.bottom) for (let column = area.left; column <= area.right; column++) piece(shown, column);
-      else {
-        piece(shown, area.left);
-        if (area.right !== area.left) piece(shown, area.right);
-      }
-    }
+    this.edges.show(area.bottom - area.top + 1, area.right - area.left + 1, (i, j) => this.cellOf(selected, area.top + i, area.left + j));
   }
 
   private clearOutline(): void {
-    for (const edge of this.edges) edge.remove();
-    this.edges = [];
+    this.edges.clear();
     this.outlined = "";
   }
 
@@ -410,7 +372,7 @@ export class AutoFill implements Feature {
 
   /** How far a fill to a cell goes (none for a header cell, nor one in the selection) */
   private extentTo(selected: Selected, ref: CellRef): Extent | undefined {
-    const row = selected.rows.findIndex((tr) => Number(tr.dataset.tpRow) === ref.row);
+    const row = selected.rows.findIndex((tr) => this.host.rowOf(selected.info, tr) === ref.row);
     return row < 0 ? undefined : this.extentFor(selected, row, ref.column);
   }
 

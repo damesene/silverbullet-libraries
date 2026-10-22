@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buttonLabel, cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, menuButtons, nameInMenu, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { buttonLabel, cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, menuButtons, nameInMenu, pointInsert, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
 import { clearCustomFunctions, defineCustomFunctions, functionNamed } from "../formulas/registry.ts";
 import { toNumber, type Value } from "../formulas/values.ts";
@@ -57,7 +57,7 @@ describe("Formulas", () => {
     expect(text).toContain('| 2 <meta f="=ROW()"> | Apple | 2 <meta f="=ROW()"> | 10 |');
     // A row added at the start: a calculated column fills it, every row is numbered again
     cell(1, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    (controller as unknown as { insertAt: unknown }).insertAt = { key: "Test#0", axis: "row", at: 1, beside: { before: 1 } };
+    pointInsert({ key: "Test#0", axis: "row", at: 1, beside: { before: 1 } });
     document.querySelector<HTMLElement>(".tp-insert")!.click();
     await flush();
     await controller.scan();

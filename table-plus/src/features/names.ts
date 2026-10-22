@@ -74,7 +74,7 @@ export class Names implements Feature {
       cell.title = cell.title ? `${cell.title}\nColumn name: ${name}` : `Column name: ${name}`;
     });
     for (const tr of this.host.bodyRows(info)) {
-      const cells = model.rows[Number(tr.dataset.tpRow)]?.cells ?? [];
+      const cells = model.rows[this.host.rowOf(info, tr)]?.cells ?? [];
       cells.forEach((raw, column) => {
         const name = cellNameOf(raw);
         const cell = tr.cells[column];

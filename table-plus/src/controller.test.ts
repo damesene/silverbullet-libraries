@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { STICKY_GAP } from "./core/layout.ts";
-import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashes, flush, key, press, renderPage, setText, setup, tableMenuItem, text, useTablePage } from "./testing/page.ts";
+import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashes, flush, inInsertBand, key, pointInsert, press, renderPage, setText, setup, tableMenuItem, text, useTablePage } from "./testing/page.ts";
 
 describe("Controller", () => {
   useTablePage();
@@ -118,7 +118,7 @@ describe("Controller", () => {
       await flush();
       expect(bodyTexts()).toEqual(["apple"]);
       // The + under the last row shown (jsdom has no layout to hover it: set as the pointer would)
-      (controller as unknown as { insertAt: unknown }).insertAt = { key: "Test#0", axis: "row", at: 4, beside: { after: 3 } };
+      pointInsert({ key: "Test#0", axis: "row", at: 4, beside: { after: 3 } });
       document.querySelector<HTMLElement>(".tp-insert")!.click();
       await waitFor(() => !!editing());
       expect(bodyTexts()).toEqual(["apple", ""]);
@@ -182,11 +182,9 @@ describe("Controller", () => {
 
   it("keeps a press beside the table that misses the + from SilverBullet, and hides the + when the pointer leaves the window", async () => {
     await setup(PAGE);
-    const inner = controller as unknown as { insertAt: unknown; inInsertBand: boolean };
     const mark = document.querySelector<HTMLElement>(".tp-insert")!;
     // The band beside the table, a + shown (jsdom has no layout to hover it: set as the pointer would)
-    inner.inInsertBand = true;
-    inner.insertAt = { key: "Test#0", axis: "row", at: 4, beside: { after: 3 } };
+    pointInsert({ key: "Test#0", axis: "row", at: 4, beside: { after: 3 } }, true);
     mark.classList.add("tp-visible");
     const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
     editor.querySelector(".sb-table-widget")!.dispatchEvent(down);
@@ -196,17 +194,16 @@ describe("Controller", () => {
     expect(cursorMoves).toEqual([]);
     // In the band where no + shows: nothing happens, SilverBullet does not get it either
     await controller.scan();
-    inner.insertAt = undefined;
-    inner.inInsertBand = true;
+    pointInsert(undefined, true);
     const again = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
     editor.querySelector(".sb-table-widget")!.dispatchEvent(again);
     expect(again.defaultPrevented).toBe(true);
     // The pointer leaves the window
-    inner.insertAt = { key: "Test#0", axis: "row", at: 1, beside: {} };
+    pointInsert({ key: "Test#0", axis: "row", at: 1, beside: {} }, true);
     mark.classList.add("tp-visible");
     document.body.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: null }));
     expect(mark.classList.contains("tp-visible")).toBe(false);
-    expect(inner.inInsertBand).toBe(false);
+    expect(inInsertBand()).toBe(false);
   });
 
   // The table at x 100..400, y 100, its rows 30 high, its two columns 150 wide (jsdom has no layout)
@@ -340,11 +337,11 @@ describe("Controller", () => {
     await flush();
     // A press in the band beside the table (no + of the pointer's there) adds nothing
     hover(3, 0);
-    (controller as unknown as { inInsertBand: boolean }).inInsertBand = true;
+    pointInsert(undefined, true);
     editor.querySelector(".sb-table-widget")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
     await flush();
     expect(text).toBe(PAGE);
-    (controller as unknown as { inInsertBand: boolean }).inInsertBand = false;
+    pointInsert(undefined);
     // The pointer on it: the line where it adds; a press adds a row at the end
     row.dispatchEvent(new PointerEvent("pointerenter"));
     expect(line.classList.contains("tp-visible")).toBe(true);
@@ -663,9 +660,8 @@ describe("Controller", () => {
       scroller.scrollTop = 900;
       const before = top();
       jumpAfterWrite();
-      const inner = controller as unknown as { insertAt: unknown };
       const mark = document.querySelector<HTMLElement>(".tp-insert")!;
-      inner.insertAt = { key: "Test#0", axis: "row", at: 4, beside: { after: 3 } };
+      pointInsert({ key: "Test#0", axis: "row", at: 4, beside: { after: 3 } });
       mark.classList.add("tp-visible");
       const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
       mark.dispatchEvent(down);
@@ -688,7 +684,7 @@ describe("Controller", () => {
       link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 }));
       expect(reached).toEqual(["click"]);
       // Another press right after the + is not swallowed
-      inner.insertAt = { key: "Test#0", axis: "row", at: 1, beside: {} };
+      pointInsert({ key: "Test#0", axis: "row", at: 1, beside: {} });
       mark.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
       link.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
       link.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));

@@ -89,8 +89,9 @@ export function profiled<T extends object>(name: string, target: T, { only, nest
 }
 
 // The controller's phases measured (each apart): enhancing a table and its
-// parts, applying the view, the toolbar, writing
-const CORE_PHASES = ["scan", "enhanceNow", "decorate", "applyView", "layOutCells", "pinColumns", "showTableControls", "placeBar", "write", "showMarkdown"];
+// parts, applying the view, writing; and its toolbar's (made, placed)
+const CORE_PHASES = ["scan", "enhanceNow", "decorate", "applyView", "layOutCells", "pinColumns", "write", "showMarkdown"];
+const TOOLBAR_PHASES = ["show", "place"];
 
 /** A feature's name in the log: its class's (Formulas, ColumnTypes, Grips: the handles module…) */
 const featureName = (feature: object) => feature.constructor.name.replace(/^./, (c) => c.toLowerCase());
@@ -101,10 +102,11 @@ const featureName = (feature: object) => feature.constructor.name.replace(/^./, 
  * they did before that (the first tables enhanced) is not measured.
  */
 export async function profileTablePlus(): Promise<void> {
-  type Internals = { cellEditor: object; features: object[]; featuresStarted?: Promise<void> };
+  type Internals = { cellEditor: object; toolbar: object; features: object[]; featuresStarted?: Promise<void> };
   const controller = (globalThis as unknown as Record<string, Internals | undefined>).__tablePlus;
   if (!controller) return;
   profiled("core", controller, { only: CORE_PHASES, nested: true });
+  profiled("core toolbar", controller.toolbar, { only: TOOLBAR_PHASES, nested: true });
   profiled("cell editor", controller.cellEditor);
   await controller.featuresStarted;
   for (const feature of controller.features) profiled(featureName(feature), feature);

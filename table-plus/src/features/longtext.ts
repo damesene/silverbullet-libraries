@@ -12,6 +12,7 @@
 // SilverBullet renders them, on one line, as wide as their text.
 import { SETTINGS } from "../bridge.ts";
 import type { Feature, TableHost } from "../core/feature.ts";
+import { oncePerFrame } from "../core/frame.ts";
 import { renderedTable, WIDGET_SELECTOR } from "../dom.ts";
 
 type Limits = { readonly overflow: "wrap" | "ellipsis"; readonly maxWidth: number; readonly maxHeight: number };
@@ -19,12 +20,15 @@ type Limits = { readonly overflow: "wrap" | "ellipsis"; readonly maxWidth: numbe
 export class LongText implements Feature {
   private limits: Limits | undefined;
   private reading: Promise<void> | undefined;
-  private checkQueued = false;
+  // Marking the cells cut, once in the next frame
+  private readonly queueCheck: () => void;
   // Tables resized (a sidebar, a column's width, fonts loaded): cells that are cut may change
   private resizeObserver: ResizeObserver | undefined;
   private stopped = false;
 
-  constructor(private readonly host: TableHost) {}
+  constructor(private readonly host: TableHost) {
+    this.queueCheck = oncePerFrame(host.doc, () => this.markCutCells());
+  }
 
   start(): void {
     const win = this.host.doc.defaultView!;
@@ -101,19 +105,11 @@ export class LongText implements Feature {
   }
 
   /** Once laid out: the cells whose content does not fit (cut) are marked */
-  private queueCheck = (): void => {
-    if (this.checkQueued) return;
-    this.checkQueued = true;
-    const run = () => {
-      this.checkQueued = false;
-      if (this.stopped) return;
-      // All measured first, then marked: a mark changes the style, which a measure after it would lay out again
-      const boxes = Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table .tp-cell-content`));
-      const cut = boxes.map((box) => box.scrollWidth > box.clientWidth + 1 || box.scrollHeight > box.clientHeight + 1);
-      boxes.forEach((box, i) => box.parentElement?.classList.toggle("tp-cut", cut[i]));
-    };
-    const win = this.host.doc.defaultView;
-    if (win?.requestAnimationFrame) win.requestAnimationFrame(run);
-    else setTimeout(run, 0);
-  };
+  private markCutCells(): void {
+    if (this.stopped) return;
+    // All measured first, then marked: a mark changes the style, which a measure after it would lay out again
+    const boxes = Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.tp-table .tp-cell-content`));
+    const cut = boxes.map((box) => box.scrollWidth > box.clientWidth + 1 || box.scrollHeight > box.clientHeight + 1);
+    boxes.forEach((box, i) => box.parentElement?.classList.toggle("tp-cut", cut[i]));
+  }
 }

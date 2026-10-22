@@ -323,7 +323,7 @@ export class ColumnTypes implements Feature {
         headerCell.insertBefore(icon, headerCell.querySelector(`:scope > .${UI_CLASS}`));
       }
       for (const tr of rows) {
-        const raw = model.rows[Number(tr.dataset.tpRow)]?.cells[column];
+        const raw = model.rows[this.host.rowOf(info, tr)]?.cells[column];
         const cell = tr.cells[column];
         if (raw === undefined || !cell) continue;
         // The cell's text: a formula's result, without the hidden tags

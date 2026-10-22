@@ -12,6 +12,7 @@
 import { columnIdOf } from "../columns.ts";
 import { editorRect } from "../core/feature.ts";
 import type { CellEditor, CellField, CellMenuGroup, CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo, WriteEdit } from "../core/feature.ts";
+import { EVERYWHERE, intersect, isEmpty, type Rect } from "../core/geometry.ts";
 import { WIDGET_SELECTOR } from "../dom.ts";
 import {
   type Area,
@@ -391,7 +392,7 @@ export class Formulas implements Feature {
     // The reasons of errors evaluate the table again: only once a cell shows one
     let errors: Map<string, string> | undefined;
     for (const tr of this.host.bodyRows(info)) {
-      const row = Number(tr.dataset.tpRow);
+      const row = this.host.rowOf(info, tr);
       model.rows[row]?.cells.forEach((raw, column) => {
         const stored = formulaOf(raw);
         const cell = tr.cells[column];
@@ -855,8 +856,8 @@ export class Formulas implements Feature {
   private shownBodyRows(info: WidgetInfo): { tr: HTMLTableRowElement; row: number }[] {
     return this.host
       .shownRows(info)
-      .filter((tr) => tr.dataset.tpRow !== undefined)
-      .map((tr) => ({ tr, row: Number(tr.dataset.tpRow) - 1 }));
+      .filter((tr) => this.host.rowOf(info, tr) > 0)
+      .map((tr) => ({ tr, row: this.host.rowOf(info, tr) - 1 }));
   }
 
   /**
@@ -864,21 +865,12 @@ export class Formulas implements Feature {
    * next to each other (sorting and filters can split an area), clipped to
    * the table's visible box
    */
-  private areaBoxes(widget: HTMLElement, info: WidgetInfo, area: Area): { left: number; top: number; right: number; bottom: number }[] {
+  private areaBoxes(widget: HTMLElement, info: WidgetInfo, area: Area): Rect[] {
     // The table's box, cut to the page in view (a table taller than the view scrolls with the page)
-    const box = this.host.innerBox(widget);
-    const view = this.host.viewBounds(widget);
-    const clip = {
-      left: Math.max(box.left, view.left),
-      top: Math.max(box.top, view.top),
-      right: Math.min(box.right, view.right),
-      bottom: Math.min(box.bottom, view.bottom),
-    };
+    const clip = intersect(this.host.innerBox(widget), this.host.viewBounds(widget));
     // Body rows scroll under the header held at the top and the rows pinned to the bottom
-    const { tHead: head, tFoot: foot } = info.table;
-    const under = head ? head.getBoundingClientRect().bottom : -Infinity;
-    const over = foot?.rows.length ? foot.getBoundingClientRect().top : Infinity;
-    const boxes: { left: number; top: number; right: number; bottom: number }[] = [];
+    const held = this.host.heldBounds(info);
+    const boxes: Rect[] = [];
     let run: HTMLTableRowElement[] = [];
     const flush = () => {
       const first = run[0]?.cells[area.left];
@@ -887,15 +879,12 @@ export class Formulas implements Feature {
       if (!first || !last) return;
       const a = first.getBoundingClientRect();
       const b = last.getBoundingClientRect();
-      const top = first.closest("tbody") ? Math.max(clip.top, under) : clip.top;
-      const bottom = last.closest("tbody") ? Math.min(clip.bottom, over) : clip.bottom;
-      const outline = {
-        left: Math.max(Math.min(a.left, b.left), clip.left),
-        top: Math.max(Math.min(a.top, b.top), top),
-        right: Math.min(Math.max(a.right, b.right), clip.right),
-        bottom: Math.min(Math.max(a.bottom, b.bottom), bottom),
-      };
-      if (outline.right > outline.left && outline.bottom > outline.top) boxes.push(outline);
+      const outline = intersect(
+        { left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) },
+        clip,
+        { ...EVERYWHERE, top: first.closest("tbody") ? held.top : -Infinity, bottom: last.closest("tbody") ? held.bottom : Infinity },
+      );
+      if (!isEmpty(outline)) boxes.push(outline);
     };
     for (const { tr, row } of this.shownBodyRows(info)) {
       if (row >= area.top && row <= area.bottom) run.push(tr);

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { findTables } from "../markdown.ts";
-import { cell, controller, flush, setup, setText, text, useTablePage } from "../testing/page.ts";
+import { cell, controller, flush, pointInsert, setup, setText, text, useTablePage } from "../testing/page.ts";
 
 describe("History markers", () => {
   useTablePage();
@@ -32,7 +32,7 @@ describe("History markers", () => {
     await setup(`${above}| A |\n|---|\n| 1 |\n| |\n\nEnd.\n`, {}, editor);
     following();
     cell(2, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    (controller as unknown as { insertAt: unknown }).insertAt = { key: "Test#0", axis: "row", at: 3, beside: { after: 2 } };
+    pointInsert({ key: "Test#0", axis: "row", at: 3, beside: { after: 2 } });
     document.querySelector<HTMLElement>(".tp-insert")!.click();
     await flush();
     await controller.scan();
@@ -45,7 +45,7 @@ describe("History markers", () => {
     following();
     setText(text);
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    (controller as unknown as { insertAt: unknown }).insertAt = { key: "Test#0", axis: "row", at: 1, beside: { before: 1 } };
+    pointInsert({ key: "Test#0", axis: "row", at: 1, beside: { before: 1 } });
     document.querySelector<HTMLElement>(".tp-insert")!.click();
     await flush();
     expect(text).toBe("Intro\n\n| A |\n|---|\n| |\n| 1 |\n\nEnd.\n");
