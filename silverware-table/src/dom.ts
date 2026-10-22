@@ -23,6 +23,11 @@ export const INTERACTIVE_SELECTOR = "a, button, input, select, textarea, label";
 // Elements Silverware Table adds into a rendered table
 export const UI_CLASS = "swt-ui";
 
+// A table Silverware Table drew itself, in SilverBullet's form (the sheet): while
+// it is shown it stands for the page's table of its key, SilverBullet's own one
+// (under it) left out
+export const DRAWN_CLASS = "swt-drawn";
+
 // Those of them in a header cell that sit out of its line (positioned at the
 // cell's edge: the pin mark, a module's handle): the header's layout leaves them where they are
 export const OUT_OF_LINE_CLASS = "swt-out-of-line";

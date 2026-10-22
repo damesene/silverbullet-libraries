@@ -31,18 +31,26 @@ phases finish (status below), so that work can go on from it in a new context.
 
 ## Phase 1: the core with several adapters, the sheet drawing its table (branch `sheet-drawn`)
 
-Editing is part of this phase (agreed): the new sheet replaces today's, so it
-merges only once it does all today's does; a merge is never a step back.
+Nobody uses the sheet yet (in development, 2026-10-22): the phase is merged in
+parts (1a: steps 1 to 3, the drawn table read only; 1b: steps 4 to 6), no
+migration of what the old sheet stored, and no plain renderer for a
+SilverBullet without the syscalls yet (the interface keeps room for it).
 Ends with today's sheet view replaced by one whose table Silverware Table
 draws itself, doing all today's sheet does (the grid, letters and numbers,
 empty cells past the table, typing there grows the table, Esc), and today's
 modules (selection, menus, copy, grips, AutoFill, formulas' hint, column
 types, filters' marks) working on it unchanged.
 
-1. The core with more than one adapter at once: each table shown belongs to
-   one (SilverBullet's, or one drawing tables itself); events, geometry,
-   looks, marks, outlines, handles go to the table's adapter; floating
-   controls placed by it.
+1. A table Silverware Table draws itself stands in for the page's table of its
+   key. Found on 2026-10-22: the core enhances any `.sb-table-widget` holding a
+   `<table>` with `data-pos` in the document (its observer is on `body`) and
+   matches it to the page's text by position and shape, so a table the sheet
+   draws in SilverBullet's DOM form is handled by SilverBullet's adapter as it
+   is, and no second adapter is needed for phase 1. What the core needs is one
+   rule: while a drawn table (marked so, `dom.ts`) is shown, it is the table of
+   its key (`tableFor`, `widgetForKey`, `shownTables`), SilverBullet's own one
+   under it left out. A second adapter stays possible for a rendering of
+   another form.
 2. The cell renderer (`core/silverbullet/cells.ts`, interface `CellRenderer`):
    `render(cells)` in two steps (ready at once: plain cells and cached ones;
    then a promise for the rest, one SilverBullet call per table, each cell a
@@ -50,8 +58,8 @@ types, filters' marks) working on it unchanged.
    again after indexing; the static renderer (`markdownToHtml` with
    `expand`, through the bridge), a bounded cache by text (cells without
    `${…}`), late results dropped unless the cell still shows that text, the
-   plain-text rule tested on edge cases; the plain renderer (no syscalls) as
-   the fallback. Clicks on `a[data-ref]` to `editor.navigate` through the
+   plain-text rule tested on edge cases (the plain renderer for a SilverBullet
+   without the syscalls: later). Clicks on `a[data-ref]` to `editor.navigate` through the
    bridge.
 3. The sheet's adapter: draws one table from its markdown (rows, cells, the
    renderer filling them), over the window as today's sheet; implements the
@@ -91,4 +99,4 @@ other pages on a sheet.
 
 ## Status
 
-- 2026-10-22: plan agreed (editing in phase 1, every phase merged without asking); nothing of phase 1 started.
+- 2026-10-22: plan agreed (phase 1 merged in parts, every phase merged without asking); phase 1 started on branch `sheet-drawn`.

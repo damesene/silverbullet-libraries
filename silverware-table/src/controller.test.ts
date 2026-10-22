@@ -6,6 +6,24 @@ import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashe
 describe("Controller", () => {
   useTablePage();
 
+  it("takes a table Silverware Table drew itself for the page's table of its key while it is shown", async () => {
+    await setup(PAGE);
+    const own = controller.shownTables();
+    expect(own).toHaveLength(1);
+    // Drawn elsewhere in SilverBullet's form (the sheet): the same table of the page
+    const elsewhere = document.createElement("div");
+    document.body.append(elsewhere);
+    renderPage(text, elsewhere, []);
+    elsewhere.querySelector(".sb-table-widget")!.classList.add("swt-drawn");
+    await controller.scan();
+    const drawn = elsewhere.querySelector("table")!;
+    expect(controller.tableFor(own[0]!.key)?.table).toBe(drawn);
+    expect(controller.shownTables().map((info) => info.table)).toEqual([drawn]);
+    // Gone: SilverBullet's own is the table again
+    elsewhere.remove();
+    expect(controller.tableFor(own[0]!.key)?.table).toBe(editor.querySelector("table"));
+  });
+
   it("hands the keyboard back to the editor the tables are in, not to another one before it", async () => {
     // As SilverBullet's workbench input: a CodeMirror of its own, earlier in the document
     const other = document.createElement("div");

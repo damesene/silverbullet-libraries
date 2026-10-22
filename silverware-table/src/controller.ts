@@ -28,6 +28,7 @@ import {
   caretTextOffset,
   cellText,
   cellValue,
+  DRAWN_CLASS,
   EDITOR_SELECTOR,
   INTERACTIVE_SELECTOR,
   layOutHeaderCell,
@@ -903,12 +904,21 @@ export class Controller implements TableHost {
   }
 
   shownTables(): WidgetInfo[] {
-    const shown: WidgetInfo[] = [];
-    for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.swt-table`))) {
-      const info = this.infos.get(widget);
-      if (info && renderedTable(widget) === info.table) shown.push(info);
+    // One per table: a table drawn by Silverware Table (DRAWN_CLASS) in place of SilverBullet's of its key
+    const shown = new Map<string, WidgetInfo>();
+    for (const widget of this.enhancedWidgets()) {
+      const info = this.infos.get(widget)!;
+      if (!shown.has(info.key) || widget.classList.contains(DRAWN_CLASS)) shown.set(info.key, info);
     }
-    return shown;
+    return [...shown.values()];
+  }
+
+  /** The tables enhanced and shown as rendered now, in the document's order */
+  private enhancedWidgets(): HTMLElement[] {
+    return Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.swt-table`)).filter((widget) => {
+      const info = this.infos.get(widget);
+      return !!info && renderedTable(widget) === info.table;
+    });
   }
 
   shownOrder(info: WidgetInfo): number[] {
@@ -1294,11 +1304,9 @@ export class Controller implements TableHost {
 
   /** The rendered table a view key belongs to, if it is enhanced and on screen */
   widgetForKey(key: string): HTMLElement | undefined {
-    for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.swt-table`))) {
-      const info = this.infos.get(widget);
-      if (info?.key === key && renderedTable(widget) === info.table) return widget;
-    }
-    return undefined;
+    // A table drawn by Silverware Table stands for SilverBullet's of its key while it is shown
+    const widgets = this.enhancedWidgets().filter((widget) => this.infos.get(widget)!.key === key);
+    return widgets.find((widget) => widget.classList.contains(DRAWN_CLASS)) ?? widgets[0];
   }
 
   bodyRows(info: WidgetInfo): HTMLTableRowElement[] {
