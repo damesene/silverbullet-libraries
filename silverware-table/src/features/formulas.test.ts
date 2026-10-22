@@ -124,7 +124,7 @@ describe("Formulas", () => {
     const picked = () => options().find((o) => o.getAttribute("aria-selected") === "true")?.querySelector("code")?.textContent;
     const help = () => document.querySelector(".swt-formula-help code")?.textContent;
 
-    it("lists the functions a name may be, picks one with the arrows and inserts it with Tab or Enter", async () => {
+    it("lists the functions a name may be, picks one with the arrows and inserts it with Tab", async () => {
       await setup(TOTAL);
       clickOn(cell(3, 1));
       typeIn("=a");
@@ -139,7 +139,7 @@ describe("Formulas", () => {
       key(field(), "ArrowUp");
       key(field(), "ArrowUp");
       expect(picked()).toBe("AND");
-      key(field(), "Enter");
+      key(field(), "Tab");
       // Inserted, the editor still open, the help now for its arguments
       expect(field().value).toBe("=AND(");
       expect(field().selectionStart).toBe(5);
@@ -147,7 +147,7 @@ describe("Formulas", () => {
       expect(document.querySelector(".swt-formula-argument")!.textContent).toBe("logical1");
       typeIn("=AND(1, ");
       expect(document.querySelector(".swt-formula-argument")!.textContent).toBe("[logical2]");
-      // Tab inserts too; the one of the whole name typed comes first
+      // The one of the whole name typed comes first
       typeIn("=AND(1, if");
       expect(picked()).toBe("IF");
       key(field(), "Tab");
@@ -180,14 +180,55 @@ describe("Formulas", () => {
       expect(picked()).toBe("ROW");
     });
 
-    it("lists no function for a name a cell on the page has: Enter saves it", async () => {
-      await setup(`| Item | Price |\n|---|---|\n| Rate | 2 <meta cn='day'> |\n| Total | |\n`);
+    it("saves the formula as typed with Enter, the list open: a cell's name that starts a function's is the cell", async () => {
+      await setup(`| Item | Price |
+|---|---|
+| Rate | 2 <meta cn='day'> |
+| Total | |
+`);
       clickOn(cell(2, 1));
       typeIn("=day");
-      expect(options()).toEqual([]);
+      // The cell first (the whole name typed, and the user's own), the function after it
+      expect(options().map((o) => o.querySelector("code")!.textContent)).toEqual(["day", "DAY"]);
+      expect(options()[0]!.textContent).toContain("Named cell");
       key(field(), "Enter");
       await flush();
       expect(text).toContain(`| Total | 2 <meta f='=day'> |`);
+    });
+
+    it("offers the page's named cells, rows of the table and tables, and inserts each as a formula writes it", async () => {
+      await setup(
+        `| Fruit | Price |
+|---|---|
+| Pear <meta n='pear'> | 3 <meta cn='pear_price'> |
+| Total | |
+| <meta name='prices'> |
+
+| Rate |
+|---|
+| 0.21 <meta cn='vat'> |
+`,
+        { "silverware.table.metadata": true },
+      );
+      clickOn(cell(2, 1));
+      typeIn("=pe");
+      expect(options().map((o) => o.querySelector("code")!.textContent)).toEqual(["pear", "pear_price"]);
+      expect(options()[0]!.textContent).toContain("Named row");
+      key(field(), "Tab");
+      expect(field().value).toBe("=pear[");
+      typeIn("=pr");
+      expect(picked()).toBe("prices");
+      key(field(), "Tab");
+      expect(field().value).toBe("=prices!");
+      // A cell of another table of the page, as it is written
+      typeIn("=1+va");
+      expect(picked()).toBe("vat");
+      key(field(), "Tab");
+      expect(field().value).toBe("=1+vat");
+      // The name in full, nothing left to insert: Tab saves and moves on, as elsewhere
+      key(field(), "Tab");
+      await flush();
+      expect(text).toContain(`<meta f='=1+vat'>`);
     });
   });
 

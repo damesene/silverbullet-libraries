@@ -14,7 +14,7 @@ import {
   formulaCell,
   formulaErrors,
   formulaHelp,
-  functionChoices,
+  formulaChoices,
   formulaOf,
   isFormulaInput,
   type IndexMap,
@@ -57,6 +57,10 @@ const FRUIT = [
   "| Fig | 2 | |",
   "| Total | | |",
 ].join("\n");
+
+
+/** What formulaChoices offers, by name: where the name typed is, and the names in order */
+const choiceNames = (choices: ReturnType<typeof formulaChoices>) => choices && { from: choices.from, to: choices.to, names: choices.choices.map((c) => c.name) };
 
 describe("formulas in cells", () => {
   it("stores the result with the formula in a <meta> tag", () => {
@@ -468,23 +472,38 @@ describe("calculated columns", () => {
   });
 });
 
-describe("functionChoices", () => {
+describe("formulaChoices of the page's names", () => {
+  const names = [
+    { kind: "cell" as const, name: "_tmp" },
+    { kind: "table" as const, name: "Prices" },
+    { kind: "cell" as const, name: "day" },
+  ];
+
+  it("offers names as written, ignoring case, a whole one first and names before functions", () => {
+    expect(choiceNames(formulaChoices("=pr", 3, 3, names))!.names).toEqual(["Prices", "PRODUCT", "PROPER"]);
+    expect(choiceNames(formulaChoices("=DAY", 4, 4, names))!.names.slice(0, 2)).toEqual(["day", "DAY"]);
+    // A name may start with _
+    expect(choiceNames(formulaChoices("=_t", 3, 3, names))!.names).toEqual(["_tmp"]);
+  });
+});
+
+describe("formulaChoices of functions", () => {
   it("offers the functions a name typed may be, the one of that whole name first", () => {
-    expect(functionChoices("=AVE", 4, 4)).toEqual({ from: 1, to: 4, names: ["AVERAGE", "AVERAGEIFS"] });
-    expect(functionChoices("=sum(A1)+rou", 12, 12)).toEqual({ from: 9, to: 12, names: ["ROUND", "ROUNDDOWN", "ROUNDUP"] });
-    expect(functionChoices("=A", 2, 2)!.names).toEqual(["ABS", "AND", "AVERAGE", "AVERAGEIFS"]);
-    expect(functionChoices("=IF", 3, 3)!.names).toEqual(["IF", "IFERROR"]);
+    expect(choiceNames(formulaChoices("=AVE", 4, 4))).toEqual({ from: 1, to: 4, names: ["AVERAGE", "AVERAGEIFS"] });
+    expect(choiceNames(formulaChoices("=sum(A1)+rou", 12, 12))).toEqual({ from: 9, to: 12, names: ["ROUND", "ROUNDDOWN", "ROUNDUP"] });
+    expect(choiceNames(formulaChoices("=A", 2, 2))!.names).toEqual(["ABS", "AND", "AVERAGE", "AVERAGEIFS"]);
+    expect(choiceNames(formulaChoices("=IF", 3, 3))!.names).toEqual(["IF", "IFERROR"]);
   });
 
   it("offers none for cells, texts, existing parentheses, the middle of a name, or no function", () => {
-    expect(functionChoices("=A1", 3, 3)).toBeUndefined();
-    expect(functionChoices("=SUM(", 4, 4)).toBeUndefined();
-    expect(functionChoices('="AVE', 5, 5)).toBeUndefined();
-    expect(functionChoices("=[AVE", 5, 5)).toBeUndefined();
-    expect(functionChoices("=XYZ", 4, 4)).toBeUndefined();
-    expect(functionChoices("=AVERAGE", 4, 4)).toBeUndefined(); // in the middle of a name
-    expect(functionChoices("=AVE", 2, 4)).toBeUndefined(); // a selection
-    expect(functionChoices("AVE", 3, 3)).toBeUndefined();
+    expect(choiceNames(formulaChoices("=A1", 3, 3))).toBeUndefined();
+    expect(choiceNames(formulaChoices("=SUM(", 4, 4))).toBeUndefined();
+    expect(choiceNames(formulaChoices('="AVE', 5, 5))).toBeUndefined();
+    expect(choiceNames(formulaChoices("=[AVE", 5, 5))).toBeUndefined();
+    expect(choiceNames(formulaChoices("=XYZ", 4, 4))).toBeUndefined();
+    expect(choiceNames(formulaChoices("=AVERAGE", 4, 4))).toBeUndefined(); // in the middle of a name
+    expect(choiceNames(formulaChoices("=AVE", 2, 4))).toBeUndefined(); // a selection
+    expect(choiceNames(formulaChoices("AVE", 3, 3))).toBeUndefined();
   });
 });
 
@@ -635,8 +654,8 @@ describe("cells with $", () => {
   });
 
   it("are not taken for a function's name while typed", () => {
-    expect(functionChoices("=$A", 3, 3)).toBeUndefined();
-    expect(functionChoices("=A$", 3, 3)).toBeUndefined();
+    expect(choiceNames(formulaChoices("=$A", 3, 3))).toBeUndefined();
+    expect(choiceNames(formulaChoices("=A$", 3, 3))).toBeUndefined();
   });
 });
 

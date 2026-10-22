@@ -63,24 +63,47 @@ export function needsOperator(formula: string, at: number): boolean {
   return before !== "" && !BEFORE_OPERAND.has(before[before.length - 1]!);
 }
 
-/** The functions a name typed right before the caret may be: their names, and where the name is (from..to) */
-export type FunctionChoices = { readonly from: number; readonly to: number; readonly names: readonly string[] };
+/**
+ * What a name typed in a formula may be: a function, or a name the page has
+ * (a named cell, a named row of the table edited, a named table)
+ */
+export type FormulaChoice = { readonly kind: "function" | "cell" | "row" | "table"; readonly name: string };
+
+/** The choices a name typed right before the caret may be, and where the name is (from..to) */
+export type FormulaChoices = { readonly from: number; readonly to: number; readonly choices: readonly FormulaChoice[] };
 
 /**
- * The functions whose names start with the name typed right before the caret
- * (the selection empty at `start`..`end`): the one of that whole name first
- * (IF before IFERROR), then the others in order. Undefined in a text in
- * quotes, for a cell (A1), in the middle of a name or before a "(" already
- * there, or when no function starts so.
+ * The functions and the page's names (`names`, as written) that start with the
+ * name typed right before the caret (the selection empty at `start`..`end`),
+ * ignoring case: those of that whole name first (a cell `day` before the
+ * function DAY, IF before IFERROR), then the names (the user's own), then the
+ * functions, each in order. Undefined in a text in quotes, for a cell (A1), in
+ * the middle of a name or before a "(" already there, or when nothing starts so.
  */
-export function functionChoices(text: string, start: number, end: number): FunctionChoices | undefined {
+export function formulaChoices(text: string, start: number, end: number, names: readonly FormulaChoice[] = []): FormulaChoices | undefined {
   const typed = nameTyped(text, start, end);
   if (!typed) return undefined;
-  const prefix = text.slice(typed.from, typed.to).toUpperCase();
-  const names = functionNames()
-    .filter((name) => name.startsWith(prefix))
-    .sort((a, b) => Number(b === prefix) - Number(a === prefix) || a.localeCompare(b));
-  return names.length ? { ...typed, names } : undefined;
+  const prefix = text.slice(typed.from, typed.to).toLowerCase();
+  const functions = functionNames().map((name): FormulaChoice => ({ kind: "function", name }));
+  const all = [...names, ...functions].filter((choice) => choice.name.toLowerCase().startsWith(prefix));
+  const whole = (choice: FormulaChoice) => Number(choice.name.toLowerCase() === prefix);
+  const isName = (choice: FormulaChoice) => Number(choice.kind !== "function");
+  const choices = all.sort((a, b) => whole(b) - whole(a) || isName(b) - isName(a) || a.name.localeCompare(b.name));
+  return choices.length ? { ...typed, choices } : undefined;
+}
+
+/** What a choice puts in place of the name typed: a function with its "(", a row ready for its column, a table for what of it */
+export function choiceText(choice: FormulaChoice): string {
+  switch (choice.kind) {
+    case "function":
+      return `${choice.name}(`;
+    case "row":
+      return `${choice.name}[`;
+    case "table":
+      return `${choice.name}!`;
+    case "cell":
+      return choice.name;
+  }
 }
 
 /**
@@ -91,7 +114,8 @@ export function functionChoices(text: string, start: number, end: number): Funct
 export function nameTyped(text: string, start: number, end: number): { from: number; to: number } | undefined {
   if (start !== end || !text.trimStart().startsWith("=")) return undefined;
   const before = text.slice(0, start);
-  const typing = /([A-Za-z][A-Za-z0-9_.]*)$/.exec(before)?.[1];
+  // A name as functions and the page's names are written (a name may start with "_": names.ts)
+  const typing = /([A-Za-z_][A-Za-z0-9_.]*)$/.exec(before)?.[1];
   if (!typing || CELL_RE.test(typing) || text[start] === "(" || /[A-Za-z0-9_.$]/.test(text[start] ?? "")) return undefined;
   // $A, A$: a cell being typed
   if (before[start - typing.length - 1] === "$") return undefined;

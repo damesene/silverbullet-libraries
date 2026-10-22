@@ -18,4 +18,24 @@ test.describe("Formulas", () => {
     await page.reload();
     await expect(cell(page, 1, 3)).toHaveText("few");
   });
+
+  test("the list of names typed: Tab inserts the one picked, Enter saves the formula as typed", async ({ page }) => {
+    const field = page.locator(".swt-cell-editor");
+    const choices = page.locator(".swt-formula-choice code");
+    await cell(page, 1, 3).dblclick();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("=su");
+    await expect(choices.first()).toHaveText("SUBSTITUTE");
+    await expect(choices.filter({ hasText: /^SUM$/ })).toHaveCount(1);
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Tab");
+    await expect(field).toHaveValue("=SUM(");
+    await expect(choices).toHaveCount(0);
+    // A name the list offers things for, saved as typed with Enter: no function is put in its place
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("=ro");
+    await expect(choices.first()).toBeVisible();
+    await rendersAnew(page, () => page.keyboard.press("Enter"));
+    expect(await markdown(page)).toContain(`<meta f='=ro'>`);
+  });
 });

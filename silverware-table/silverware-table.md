@@ -58,7 +58,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Ctrl+Alt+PageUp / PageDown | Move the row 10 places up / down |
 
 * Tab on the last cell adds a row.
-* While a function's name is typed in a formula, its list takes ↑ / ↓, Tab, Enter and Esc. See [[#References]].
+* While a name is typed in a formula, its list takes ↑ / ↓, Tab and Esc; Enter saves the formula as typed. See [[#References]].
 * Shift+Enter opens the cell below the other way round: with its whole text selected, or with the cursor at the end when the *Click selects the cell's text* setting is on. See [[#Settings]].
 * Ctrl+Alt+arrows save the cell and move it with its row or column, and keep editing it. Rows cannot move while sorted or filtered, nor the header row.
 * Enter (and Shift+Enter) also moves to the cell below; with the `save` setting it only saves. See [[#Settings]].
@@ -309,7 +309,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 * **Point instead of typing**: where the formula expects a reference (after `=`, `(`, `,` or an operator, not inside a text in quotes), the pointer over the table becomes a move cursor: click a cell to insert it, drag across cells for a range, or click a column's header for `[Name]`. Pointing again right away replaces that reference, Shift+click extends its range. After a typed reference or another complete operand, a click ends editing as usual.
 * While you edit a formula, each reference is outlined in the table in its own color. Drag an outline's edge to move the reference, a range's corner to resize it; Esc while dragging puts it back.
 * Under the cell, the formula shows with its references in the same colors, and help for the function the cursor is in: its syntax, with the argument being typed underlined (`ROUND(number, `**`[digits]`**`)` after `=ROUND(A1, `), and what it does.
-* **Functions as you type their names**: `=A` lists the functions whose names start so (`ABS`, `AND`, `AVERAGE`; your custom functions too), with the picked one's syntax and description under the list. ↑ / ↓ pick another, Tab or Enter insert it with its `(` (`=AVERAGE(`), a click inserts one, Esc closes the list and leaves what is typed (to save a name that is also a function's, e.g. a named cell). Elsewhere Tab moves to the next cell and Enter saves, as usual.
+* **Functions and names as you type them**: `=A` lists the functions whose names start so (`ABS`, `AND`, `AVERAGE`; your custom functions too) and the names of the page that do: named cells, named rows of the table and named tables, marked as such. A name typed in full comes first, the page's names before the functions. Under the list is the picked one's syntax and description. ↑ / ↓ pick another, Tab or a click inserts it: a function with its `(` (`=AVERAGE(`), a row with its `[` (`=pear[`), a table with its `!` (`=prices!`), a cell as its name. Enter always saves the formula as typed, as in a spreadsheet, so `=day` saves a reference to a cell named `day` even though `DAY` is a function. Esc closes the list and leaves what is typed. Elsewhere Tab moves to the next cell, as usual.
 
 ### Named columns
 
@@ -3633,9 +3633,9 @@ body.swt-select-dragging .swt-select-handle {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-/* The functions a name typed may be: picked with the arrows, inserted with
-   Tab, Enter or a click (the hint lets clicks through to the table, the list
-   takes them) */
+/* The functions and names a name typed may be: picked with the arrows,
+   inserted with Tab or a click (the hint lets clicks through to the table, the
+   list takes them) */
 .swt-formula-choices {
   position: relative;
   display: flex;

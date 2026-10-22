@@ -4,8 +4,9 @@
 // referring by name to the table written, in turn).
 import type { OtherPages, PageTable, Table } from "../markdown.ts";
 import { metaName } from "../meta.ts";
-import { namedCells } from "../names.ts";
+import { cellNameOf, namedCells, rowNameIn } from "../names.ts";
 import type { NamedCell, TableSource } from "./evaluate.ts";
+import type { FormulaChoice } from "./help.ts";
 import { cellNamesOf, referredCellNames, referredTableNames } from "./references.ts";
 
 /** A page's tables by their names, and its named cells by their names (lowercase) */
@@ -46,6 +47,38 @@ export function pageTables(
     // Pages not read (none without the pageLinks module): formulas referring to them keep their results
     unread: (page: string) => page !== here && others?.tables(page) === undefined,
   });
+}
+
+/** Each choice once (by its kind and its name, ignoring case), the first as written */
+function once(choices: readonly FormulaChoice[]): FormulaChoice[] {
+  const seen = new Set<string>();
+  return choices.filter((choice) => {
+    const key = `${choice.kind}:${choice.name.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** The page's names any formula of it can refer to, as written, to offer while a name is typed: its named tables and cells */
+export function pageNameChoices(tables: readonly PageTable[]): FormulaChoice[] {
+  return once(
+    tables.flatMap(({ table }): FormulaChoice[] => {
+      const own = metaName(table);
+      const cells = table.rows.slice(1).flatMap((row) => row.cells.map(cellNameOf).filter((name): name is string => !!name));
+      return [...(own ? [{ kind: "table" as const, name: own }] : []), ...cells.map((name) => ({ kind: "cell" as const, name }))];
+    }),
+  );
+}
+
+/** The named rows of a table, which its own formulas refer to (`pear[price]`), as written */
+export function rowNameChoices(table: Table): FormulaChoice[] {
+  return once(
+    table.rows.slice(1).flatMap((row): FormulaChoice[] => {
+      const name = rowNameIn(row.cells)?.name;
+      return name ? [{ kind: "row", name }] : [];
+    }),
+  );
 }
 
 /** What a table's write affects in the other tables: its name and the names of its cells (lowercase) */

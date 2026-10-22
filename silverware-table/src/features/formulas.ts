@@ -1,8 +1,9 @@
 // The formulas module. Formulas in cells, while they are edited: a formula
 // cell opens as its formula, the formula is fixed and its column references
 // keyed when saved; its references are outlined in the table, can be dragged
-// or pointed at, and function names complete with Tab. Formula cells are
-// marked, and a table with results out of date offers to recalculate. Every
+// or pointed at, and names (functions, the page's cells, rows, tables)
+// complete with Tab. Formula cells are marked, and a table with results out of
+// date offers to recalculate. Every
 // write recalculates the table written (its write step), its references
 // following moved rows and columns, and the tables of the page referring to it
 // (otherTablesWritten). (Evaluating formulas and keeping them through edits is
@@ -29,11 +30,13 @@ import {
   formulaOf,
   formulasAfterEdit,
   followTable,
-  functionChoices,
+  choiceText,
+  formulaChoices,
   nameTyped,
   needsOperator,
+  type FormulaChoice,
+  type FormulaChoices,
   type FormulaHelp,
-  type FunctionChoices,
   isErrorText,
   isFormulaInput,
   type PointedSpan,
@@ -48,7 +51,7 @@ import {
   type TableSource,
   withColumnKeys,
 } from "../formulas/index.ts";
-import { addAffected, affectedBy, isAffected, pageTables, referredBy } from "../formulas/page.ts";
+import { addAffected, affectedBy, isAffected, pageNameChoices, pageTables, referredBy, rowNameChoices } from "../formulas/page.ts";
 import { functionNamed } from "../formulas/registry.ts";
 import { FunctionDialog } from "./functiondialog.ts";
 import { ICONS } from "../icons.ts";
@@ -64,6 +67,29 @@ import { withoutTags } from "../tags.ts";
 export const FORMULAS_NEED_METADATA =
   "Formulas are stored in the table: turn on the Store table metadata setting to add them (existing ones keep working)";
 
+// What a name offered while typing names (the list says so beside it)
+const NAME_KINDS: Readonly<Record<Exclude<FormulaChoice["kind"], "function">, string>> = {
+  cell: "Named cell",
+  row: "Named row of this table",
+  table: "Named table",
+};
+
+/** The help under the list for the choice picked: a function's syntax and description, a name's use */
+function choiceHelp(choice: FormulaChoice): FormulaHelp {
+  switch (choice.kind) {
+    case "function": {
+      const f = functionNamed(choice.name)!;
+      return { syntax: f.syntax, description: f.description };
+    }
+    case "cell":
+      return { syntax: choice.name, description: "A named cell: its value, wherever it is on the page." };
+    case "row":
+      return { syntax: `${choice.name}[column]`, description: "A named row of this table: its cell in a column, e.g. pear[price]." };
+    case "table":
+      return { syntax: `${choice.name}!A1 · ${choice.name}![column]`, description: "A named table of the page: a cell, range or column of it." };
+  }
+}
+
 // Colors of the references of the formula being edited, in the order they are written
 const REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
 
@@ -74,9 +100,11 @@ export class Formulas implements Feature {
   // The reference last inserted by pointing at the table, and the cell its range started at
   private pointed: (PointedSpan & { readonly field: CellField; readonly anchor?: CellRef }) | undefined;
   private stopPointing: (() => void) | undefined;
-  // The functions offered for the name typed (a list under the cell): which one is picked, for which name
+  // The functions and names offered for the name typed (a list under the cell): which one is picked, for which name
   // typed where (`key`), and the name Esc closed the list for (it opens again once the name changes)
   private choosing: { readonly key: string; index: number } | undefined;
+  // The page's names offered while a name is typed (its tables and cells), as of the page's text
+  private pageNames: { readonly text: string; readonly choices: readonly FormulaChoice[] } | undefined;
   private dismissed: string | undefined;
   // Every function, to find one by what it does and insert it (fx, Shift+F3, Insert function…)
   private readonly functions: FunctionDialog;
@@ -238,9 +266,11 @@ export class Formulas implements Feature {
   }
 
   /**
-   * While a function name is typed, the list of the functions it may be takes
-   * the keys: ↑ / ↓ pick one, Tab or Enter insert it, Esc closes the list
-   * (the editor stays)
+   * While a name is typed, the list of what it may be takes the keys: ↑ / ↓
+   * pick one, Tab inserts it, Esc closes the list (the editor stays). Enter is
+   * not the list's, as in a spreadsheet: it saves the formula as typed, so a
+   * name that is also the start of a function's (a cell `day`, DAY) is saved
+   * as it is.
    */
   editorKeyDown(e: KeyboardEvent, editor: CellEditor): boolean {
     if (e.ctrlKey || e.altKey || e.metaKey) return false;
@@ -257,14 +287,17 @@ export class Formulas implements Feature {
     switch (e.key) {
       case "ArrowDown":
       case "ArrowUp":
-        this.choosing.index = Math.max(0, Math.min(choices.names.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)));
+        this.choosing.index = Math.max(0, Math.min(choices.choices.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)));
         this.updateFormulaUi();
         return true;
-      case "Tab":
-      case "Enter":
+      case "Tab": {
         if (e.shiftKey) return false;
-        this.insertFunction(editor, choices, index);
+        // The name typed in full is the one picked (a cell's): nothing to insert, Tab moves on as elsewhere
+        const typed = editor.field.value.slice(choices.from, choices.to);
+        if (choiceText(choices.choices[index]!) === typed) return false;
+        this.insertChoice(editor, choices, index);
         return true;
+      }
       case "Escape":
         this.dismissed = this.choosing.key;
         this.choosing = undefined;
@@ -617,27 +650,44 @@ export class Formulas implements Feature {
   }
 
   /**
-   * The functions the name typed right before the caret may be, while the
-   * list of them is not closed for that name; keeps which one is picked
+   * The functions and the page's names the name typed right before the caret
+   * may be, while the list of them is not closed for that name; keeps which
+   * one is picked
    */
-  private choicesNow(active: CellEditor): FunctionChoices | undefined {
+  private choicesNow(active: CellEditor): FormulaChoices | undefined {
     if (active.row === 0 || !this.allowed(active)) return undefined;
     const field = active.field;
     const length = field.value.length;
-    const choices = functionChoices(field.value, field.selectionStart ?? length, field.selectionEnd ?? length);
+    const info = this.host.infoOf(active.widget);
+    const choices = formulaChoices(field.value, field.selectionStart ?? length, field.selectionEnd ?? length, info ? this.namesFor(info) : []);
     if (!choices) return undefined;
-    // A name typed in full that a cell on the page has is that cell, not the start of a function
     const typed = field.value.slice(choices.from, choices.to);
-    if (this.tableSource().cell?.(typed)) return undefined;
     const key = `${choices.from}:${typed}`;
     if (this.dismissed === key) return undefined;
     if (this.choosing?.key !== key) this.choosing = { key, index: 0 };
+    // The same name typed, fewer choices (the page read anew meanwhile): the pick stays in the list
+    else this.choosing.index = Math.min(this.choosing.index, choices.choices.length - 1);
     return choices;
   }
 
-  /** Puts a function offered in place of the name typed, with its "(": the help for its arguments follows */
-  private insertFunction(active: CellEditor, choices: FunctionChoices, index: number): void {
-    const text = `${choices.names[index]}(`;
+  /**
+   * The names a formula in this table can refer to: the page's (read once per
+   * page's text), and the table's rows as edited (the table only, so cheap
+   * whatever edits a feature holds)
+   */
+  private namesFor(info: WidgetInfo): readonly FormulaChoice[] {
+    const text = this.host.pageText;
+    if (this.pageNames?.text !== text) this.pageNames = { text, choices: pageNameChoices(pageTablesOf(text)) };
+    return [...this.pageNames.choices, ...rowNameChoices(this.host.tableOf(info))];
+  }
+
+  /**
+   * Puts a choice in place of the name typed: a function with its "(" (the
+   * help for its arguments follows), a cell's name, a row's with its "[", a
+   * table's with its "!"
+   */
+  private insertChoice(active: CellEditor, choices: FormulaChoices, index: number): void {
+    const text = choiceText(choices.choices[index]!);
     this.replaceInField(active.field, choices.from, choices.to, text);
     const caret = choices.from + text.length;
     active.field.setSelectionRange(caret, caret);
@@ -725,9 +775,8 @@ export class Formulas implements Feature {
     const choices = this.choicesNow(active);
     if (choices && this.choosing) {
       body.append(this.choiceList(active, choices, this.choosing.index));
-      const picked = functionNamed(choices.names[this.choosing.index]!)!;
-      body.append(this.helpLine({ syntax: picked.syntax, description: picked.description }));
-      body.append(Object.assign(doc.createElement("div"), { className: "swt-formula-tab", textContent: "Tab or Enter: insert · ↑ ↓: pick · Esc: close" }));
+      body.append(this.helpLine(choiceHelp(choices.choices[this.choosing.index]!)));
+      body.append(Object.assign(doc.createElement("div"), { className: "swt-formula-tab", textContent: "Tab: insert · ↑ ↓: pick · Enter: save as typed · Esc: close" }));
     } else {
       const help = formulaHelp(formula, active.field.selectionStart ?? formula.length);
       if (help) body.append(this.helpLine(help));
@@ -757,27 +806,28 @@ export class Formulas implements Feature {
     }
   }
 
-  /** The functions a name typed may be, the one picked marked; a click inserts one */
-  private choiceList(active: CellEditor, choices: FunctionChoices, index: number): HTMLElement {
+  /** The functions and names a name typed may be, the one picked marked; a click inserts one */
+  private choiceList(active: CellEditor, choices: FormulaChoices, index: number): HTMLElement {
     const { doc } = this.host;
     const list = doc.createElement("div");
     list.className = "swt-formula-choices";
     list.setAttribute("role", "listbox");
-    choices.names.forEach((name, i) => {
+    choices.choices.forEach((choice, i) => {
       const option = doc.createElement("div");
-      option.className = "swt-formula-choice";
+      option.className = `swt-formula-choice swt-formula-choice-${choice.kind}`;
       option.setAttribute("role", "option");
       option.setAttribute("aria-selected", String(i === index));
       const code = doc.createElement("code");
-      code.textContent = name;
+      code.textContent = choice.name;
       const description = doc.createElement("span");
-      // Its first sentence: the rest shows under the list for the one picked
-      description.textContent = (functionNamed(name)?.description ?? "").split(/(?<=\.)\s/)[0]!;
+      // A function: its first sentence (the rest shows under the list for the one picked); a name: what it names
+      description.textContent =
+        choice.kind === "function" ? (functionNamed(choice.name)?.description ?? "").split(/(?<=\.)\s/)[0]! : NAME_KINDS[choice.kind];
       option.append(code, description);
       // The field keeps the focus (the editor stays open)
       option.addEventListener("mousedown", (e) => e.preventDefault());
       option.addEventListener("click", () => {
-        if (this.host.editing === active) this.insertFunction(active, choices, i);
+        if (this.host.editing === active) this.insertChoice(active, choices, i);
       });
       list.append(option);
     });
