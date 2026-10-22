@@ -184,6 +184,84 @@ export interface MarkLayer {
   clear(): void;
 }
 
+/** A side of an area of cells outlined */
+export type Side = "top" | "bottom" | "left" | "right";
+
+/**
+ * An area of cells outlined (TableHost.outlineLayer: cells copied or cut, a
+ * move's target, the band a selection is dragged by): a piece in each cell on
+ * its edge, its classes those `pieces` gives for the sides the cell is on (one
+ * piece per string). Kept by table: a table rendered anew shows it again.
+ */
+export interface OutlineLayer {
+  /** The area outlined: these rows (of the markdown, in the order shown) and the columns from..to; the outline before it gone */
+  show(key: string, rows: readonly number[], columns: readonly [number, number]): void;
+  hide(): void;
+  /** Whether it outlines an area now */
+  readonly shown: boolean;
+}
+
+/**
+ * Where a handle goes (TableHost.handleLayer): in a cell (its class says
+ * which corner, CSS places it; on the table's edges it is marked
+ * swt-at-edge-row / swt-at-edge-column), or `mid`: on the line of that cell
+ * (its row, or its column), in the middle of the part of the table in view,
+ * as a spreadsheet's app puts the handles of whole rows (columns); where no
+ * cell of the line is in view there, in its cell
+ */
+export type HandlePlace = { readonly className: string; readonly row: number; readonly column: number; readonly mid?: "row" | "column" };
+
+/** Handles in cells (the selection's, the fill handle): placed by the adapter, kept by table, pressed: TableHost.targetOf says which */
+export interface HandleLayer {
+  place(key: string, handles: readonly HandlePlace[]): void;
+  hide(): void;
+}
+
+/**
+ * What a pointer is on, in model terms (TableHost.targetOf): a cell of a
+ * table shown, a piece of an outline or a handle of a layer (in a cell), one
+ * of Silverware Table's own controls (a panel, a menu, the toolbar), or none of these
+ */
+export type PointerTarget =
+  | { readonly kind: "cell"; readonly key: string; readonly row: number; readonly column: number }
+  | { readonly kind: "outline"; readonly layer: string; readonly key: string; readonly row: number; readonly column: number }
+  | { readonly kind: "handle"; readonly layer: string; readonly key: string; readonly className: string; readonly row: number; readonly column: number }
+  | { readonly kind: "control" }
+  | { readonly kind: "none" };
+
+/** Where a drag is (TableHost.drag): the pointer, its keys, what it is on, and the cell of the drag's table under it (or the nearest, `clamp`) */
+export type DragPoint = {
+  readonly x: number;
+  readonly y: number;
+  readonly ctrl: boolean;
+  readonly target: PointerTarget;
+  readonly cell: CellRef | undefined;
+};
+
+/**
+ * A drag from a press (TableHost.drag), followed by the core: `onMove` as the
+ * pointer moves (and, `repeat`, again while it is held still near an edge,
+ * which scrolls), `onEnd` when it is let go or (`cancelled`) Esc or the window
+ * left; keys on the way (Ctrl) go to `onKey`. `events`: mouse events (a mouse's
+ * press) or pointer events (a touch's); `clamp`: the cell nearest the pointer
+ * when it is past the table; `pageMark` on the page meanwhile (TableHost.pageMark)
+ */
+export type DragOptions = {
+  readonly key: string;
+  readonly events: "mouse" | "pointer";
+  readonly autoscroll?: boolean;
+  readonly sideways?: boolean;
+  readonly repeat?: boolean;
+  readonly clamp?: boolean;
+  readonly pageMark?: string;
+  onMove(at: DragPoint): void;
+  onEnd(at: DragPoint | undefined, cancelled: boolean): void;
+  onKey?(e: KeyboardEvent): void;
+};
+
+/** What a feature puts on the clipboard for a copy or a cut (Feature.clipboardData) */
+export type ClipboardData = { readonly text: string; readonly html?: string };
+
 /** A row of a feature's own UI under a table's header (the filter row): its element for each column, in a cell of the row */
 export type HeaderRow = { readonly className: string; readonly cells: readonly HTMLElement[] };
 
@@ -344,6 +422,20 @@ export interface TableHost {
   panel(className: string): Panel;
   /** A mark of cells, kept by table and cell (MarkLayer) */
   markLayer(mark: string): MarkLayer;
+  /** An outline of areas of cells, `name` telling its pieces apart when pressed (OutlineLayer) */
+  outlineLayer(name: string, pieces: (sides: readonly Side[]) => readonly string[]): OutlineLayer;
+  /** Handles in cells, `name` telling them apart when pressed (HandleLayer) */
+  handleLayer(name: string): HandleLayer;
+  /** What an event's target (or, with a point, what is at that point of the window) is, in model terms */
+  targetOf(target: EventTarget | null, point?: { readonly x: number; readonly y: number }): PointerTarget;
+  /** Follows a drag from a press (DragOptions); returns what ends it early */
+  drag(start: MouseEvent | PointerEvent, options: DragOptions): () => void;
+  /** A state of the page for CSS while it lasts (class swt-<mark> on the page: a drag going on, a mode) */
+  pageMark(mark: string, on: boolean): void;
+  /** A cell scrolled into view, the page and its table's box as needed */
+  revealCell(info: WidgetInfo, ref: CellRef): void;
+  /** The rows shown from one row to another (of the markdown, in the order shown), both included; empty: either not shown */
+  shownBetween(info: WidgetInfo, a: number, b: number): number[];
   /**
    * Hashtags in headers not shown, by name (a column type's): hidden from the
    * moment a table is rendered (before its looks apply); given again, they replace those of `owner`
@@ -743,6 +835,14 @@ export interface Feature {
   editorOpened?(editor: CellEditor): void;
   /** What the cell editor holds changed (typed, pasted, set) */
   editorInput?(editor: CellEditor): void;
+  /**
+   * A copy or a cut (Ctrl+C, Ctrl+X) not in a field with text selected: what
+   * the feature puts on the clipboard (the cells selected); the first one's
+   * is taken, and `copied` told to every feature after it
+   */
+  clipboardData?(kind: "copy" | "cut"): ClipboardData | undefined;
+  /** A copy or a cut happened: data what a feature put on the clipboard (Feature.clipboardData), undefined: text a field copied (what follows the cells copied ends) */
+  copied?(kind: "copy" | "cut", data: ClipboardData | undefined): void;
   /** A key in the cell editor, before Silverware Table handles it; true: handled (its default is prevented) */
   editorKeyDown?(e: KeyboardEvent, editor: CellEditor): boolean;
   /** The markdown to save for what was typed; undefined: the text */

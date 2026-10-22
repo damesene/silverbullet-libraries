@@ -438,8 +438,8 @@ export class InsertControls {
     const { host } = this.context;
     // The table rendered anew shows the + again under the pointer (tableEnhanced): another click inserts another
     this.insertedIn = info.key;
-    if (at.axis === "row") void insertRowWith(host, widget, info, at.at, firstVisibleColumn(widget, info), undefined, at.beside);
-    else void insertColumnWith(host, widget, info, at.at);
+    if (at.axis === "row") void insertRowWith(host, info, at.at, firstVisibleColumn(widget, info), undefined, at.beside);
+    else void insertColumnWith(host, info, at.at);
   }
 }
 

@@ -2,7 +2,7 @@
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
 import { type Bridge, type FeatureName, moduleOnByDefault, SETTINGS, type SettingValue } from "./bridge.ts";
-import { type CellEditor, type CellHit, type CellRef, editorRect, type Feature, type MarkLayer, type Panel, type PanelAnchor, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
+import { type CellEditor, type CellHit, type CellRef, editorRect, type ClipboardData, type DragOptions, type Feature, type HandleLayer, type HandlePlace, type MarkLayer, type OutlineLayer, type Panel, type PanelAnchor, type PointerTarget, type Side, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
 import { type Dialog, type DialogOptions, Dialogs } from "./core/dialog.ts";
 import { ViewAnchor } from "./core/anchor.ts";
 import { placeAtEnd, TableRows } from "./core/rows.ts";
@@ -17,6 +17,8 @@ import { TouchKeyboard } from "./core/touch-keyboard.ts";
 import type { TableAdapter } from "./core/adapter.ts";
 import { mergeLooks } from "./core/looks.ts";
 import { Panels } from "./core/panel.ts";
+import { type DragContext, followDrag } from "./core/drag.ts";
+import { copyingFromMenu } from "./clipboard.ts";
 import { markTable, renderedMeta, SilverBulletAdapter } from "./core/silverbullet/adapter.ts";
 import { CONFIG_PAGE, withConfigSettings } from "./configpage.ts";
 import { SettingsDialog } from "./settings.ts";
@@ -166,6 +168,13 @@ export class Controller implements TableHost {
   private readonly panels: Panels;
   // The marks of cells (TableHost.markLayer), by mark: the cells of each table that have it
   private readonly markLayers = new Map<string, Map<string, readonly CellRef[]>>();
+  // The outlines (TableHost.outlineLayer) and handles (handleLayer) shown, by layer: in which table, where
+  private readonly outlines = new Map<
+    string,
+    { readonly pieces: (sides: readonly Side[]) => readonly string[]; at?: { readonly key: string; readonly rows: readonly number[]; readonly columns: readonly [number, number] } }
+  >();
+  private readonly handleLayers = new Map<string, { at?: { readonly key: string; readonly places: readonly HandlePlace[] } }>();
+  private readonly dragContext: DragContext;
   // Steps every write goes through after the edit, in this order
   private readonly writeSteps: readonly WriteStep[] = [metadataAfterEdit];
 
@@ -173,7 +182,18 @@ export class Controller implements TableHost {
     readonly doc: Document,
     public bridge: Bridge,
   ) {
-    this.adapter = new SilverBulletAdapter(doc, this.rows);
+    this.adapter = new SilverBulletAdapter(doc, this.rows, {
+      infoOf: (widget) => this.infos.get(widget),
+      rowNeeded: (info, row) => this.rowNeeded(info, row),
+    });
+    this.dragContext = {
+      doc,
+      targetAt: (x, y) => this.targetOf(null, { x, y }),
+      tableFor: (key) => this.tableFor(key),
+      cellNear: (info, x, y) => this.adapter.cellNear(info, x, y),
+      scrollNear: (info, x, y, sideways) => this.adapter.scrollNear(info, x, y, sideways),
+      pageMark: (mark, on) => this.adapter.pageMark(mark, on),
+    };
     this.panels = new Panels({
       doc,
       floating: (className) => this.floating("div", className),
@@ -255,6 +275,8 @@ export class Controller implements TableHost {
     win.addEventListener("scroll", this.onScroll, true);
     win.addEventListener("keydown", this.onKeyDown, true);
     win.addEventListener("keyup", this.onKeyUp, true);
+    win.addEventListener("copy", this.onClipboard, true);
+    win.addEventListener("cut", this.onClipboard, true);
     win.addEventListener("blur", this.onBlur);
     this.doc.addEventListener("pointermove", this.onPointerMove, { passive: true });
     this.doc.addEventListener("mousemove", this.onMouseMove, { passive: true });
@@ -313,6 +335,8 @@ export class Controller implements TableHost {
     win.removeEventListener("dblclick", this.onDoubleClick, true);
     win.removeEventListener("scroll", this.onScroll, true);
     win.removeEventListener("keydown", this.onKeyDown, true);
+    win.removeEventListener("copy", this.onClipboard, true);
+    win.removeEventListener("cut", this.onClipboard, true);
     for (const feature of this.features) feature.stop?.();
     win.removeEventListener("keyup", this.onKeyUp, true);
     win.removeEventListener("blur", this.onBlur);
@@ -946,13 +970,107 @@ export class Controller implements TableHost {
     };
   }
 
-  /** A table rendered anew: the marks its cells had show again */
+  /** A table rendered anew: the marks its cells had show again, its outlines and handles too */
   private marksAgain(info: WidgetInfo): void {
     for (const [mark, tables] of this.markLayers) {
       const cells = tables.get(info.key);
       if (cells) this.adapter.markCells(info, mark, cells);
     }
+    for (const [name, layer] of this.outlines) {
+      if (layer.at?.key === info.key) this.adapter.showOutline(name, info, layer.at.rows, layer.at.columns, layer.pieces);
+    }
+    for (const [name, layer] of this.handleLayers) if (layer.at?.key === info.key) this.adapter.placeHandles(name, info, layer.at.places);
   }
+
+  outlineLayer(name: string, pieces: (sides: readonly Side[]) => readonly string[]): OutlineLayer {
+    const layer: { pieces: typeof pieces; at?: { key: string; rows: readonly number[]; columns: readonly [number, number] } } = { pieces };
+    this.outlines.set(name, layer);
+    return {
+      show: (key, rows, columns) => {
+        layer.at = { key, rows, columns };
+        const info = this.tableFor(key);
+        if (info) this.adapter.showOutline(name, info, rows, columns, pieces);
+        else this.adapter.hideOutline(name);
+      },
+      hide: () => {
+        layer.at = undefined;
+        this.adapter.hideOutline(name);
+      },
+      get shown() {
+        return layer.at !== undefined;
+      },
+    };
+  }
+
+  handleLayer(name: string): HandleLayer {
+    const layer: { at?: { key: string; places: readonly HandlePlace[] } } = {};
+    this.handleLayers.set(name, layer);
+    return {
+      place: (key, places) => {
+        layer.at = { key, places };
+        const info = this.tableFor(key);
+        if (info) this.adapter.placeHandles(name, info, places);
+        else this.adapter.hideHandles(name);
+      },
+      hide: () => {
+        layer.at = undefined;
+        this.adapter.hideHandles(name);
+      },
+    };
+  }
+
+  targetOf(target: EventTarget | null, point?: { readonly x: number; readonly y: number }): PointerTarget {
+    const element = point ? this.adapter.elementAt(point.x, point.y) : target;
+    if (!(element instanceof Element)) return { kind: "none" };
+    return this.adapter.targetOf(element) ?? (this.isFloating(element) ? { kind: "control" } : { kind: "none" });
+  }
+
+  drag(start: MouseEvent | PointerEvent, options: DragOptions): () => void {
+    return followDrag(this.dragContext, start, options);
+  }
+
+  pageMark(mark: string, on: boolean): void {
+    this.adapter.pageMark(mark, on);
+  }
+
+  revealCell(info: WidgetInfo, ref: CellRef): void {
+    this.adapter.revealCell(this.tableFor(info.key) ?? info, ref);
+  }
+
+  shownBetween(info: WidgetInfo, a: number, b: number): number[] {
+    const order = this.shownOrder(info);
+    const from = order.indexOf(a);
+    const to = order.indexOf(b);
+    return from < 0 || to < 0 ? [] : order.slice(Math.min(from, to), Math.max(from, to) + 1);
+  }
+
+  /**
+   * A copy or a cut (Ctrl+C, Ctrl+X): a field's when it has text selected (a
+   * cut: when it has the focus) or is in a menu, else what a feature puts on
+   * the clipboard (the cells selected); every feature hears of it. A copy from
+   * a menu (Copy, Copy as CSV) puts its own text there.
+   */
+  private onClipboard = (e: ClipboardEvent): void => {
+    if (copyingFromMenu()) return;
+    const kind = e.type === "cut" ? "cut" : "copy";
+    const active = this.doc.activeElement;
+    const field = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+    const fields = kind === "cut" ? field : (field && active.selectionStart !== active.selectionEnd) || !!active?.closest(".swt-menu");
+    let data: ClipboardData | undefined;
+    if (!fields && e.clipboardData) {
+      for (const feature of this.features) {
+        data = feature.clipboardData?.(kind);
+        if (data) break;
+      }
+    }
+    if (data && e.clipboardData) {
+      e.clipboardData.setData("text/plain", data.text);
+      if (data.html !== undefined) e.clipboardData.setData("text/html", data.html);
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+    for (const feature of this.features) feature.copied?.(kind, data);
+  };
 
   /** Where a panel's anchor is in the window, while it is in view */
   private anchorRect(anchor: PanelAnchor): Rect | undefined {
@@ -1893,6 +2011,7 @@ export class Controller implements TableHost {
       this.dialogs.contains(node) ||
       this.tableMenu.owns(node) ||
       this.panels.owns(node) ||
+      this.adapter.owns(node) ||
       this.features.some((f) => f.owns?.(node))
     );
   }

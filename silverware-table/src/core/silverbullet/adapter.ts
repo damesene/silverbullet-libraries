@@ -2,10 +2,11 @@
 // core asks of the rendering, done on the DOM SilverBullet renders tables to.
 // Everything assumed about that DOM is in ../../dom.ts and in this folder.
 import { UI_CLASS, WIDGET_SELECTOR } from "../../dom.ts";
-import { shownPart } from "../geometry.ts";
+import { scrollNearEdge, shownPart } from "../geometry.ts";
+import { Overlays } from "./overlays.ts";
 import { parseMetaRow, type TableMeta } from "../../markdown.ts";
 import type { TableAdapter } from "../adapter.ts";
-import type { CellRef, HeaderRow, Rect, TableLook, TablePreview, WidgetInfo } from "../feature.ts";
+import type { CellRef, HandlePlace, HeaderRow, PointerTarget, Rect, Side, TableLook, TablePreview, WidgetInfo } from "../feature.ts";
 import { type MergedLooks, refKey } from "../looks.ts";
 import type { TableRows } from "../rows.ts";
 import { applyCellLook, applyHeaderLook, renderedText } from "./looks.ts";
@@ -36,7 +37,14 @@ export function renderedMeta(rows: readonly HTMLTableRowElement[]): TableMeta | 
   return parseMetaRow(`| ${meta.outerHTML} |`);
 }
 
+/** What the adapter needs to know of the core: which tables it enhanced, and a row taken out of the document put back (largeTables) */
+export type AdapterContext = {
+  infoOf(widget: HTMLElement): WidgetInfo | undefined;
+  rowNeeded(info: WidgetInfo, row: HTMLTableRowElement): void;
+};
+
 export class SilverBulletAdapter implements TableAdapter {
+  private readonly overlays: Overlays;
   // The styles hiding hashtags in headers, by who asked
   private readonly tagStyles = new Map<string, HTMLStyleElement>();
   // The cells each mark is on, by table as rendered
@@ -48,7 +56,10 @@ export class SilverBulletAdapter implements TableAdapter {
     private readonly doc: Document,
     // Each table's rows as SilverBullet rendered them, in the document or not
     private readonly rows: TableRows,
-  ) {}
+    private readonly context: AdapterContext,
+  ) {
+    this.overlays = new Overlays(doc, rows);
+  }
 
   applyLooks(info: WidgetInfo, looks: MergedLooks, editing: CellRef | undefined): void {
     Array.from(info.table.rows[0]?.cells ?? []).forEach((cell, column) => applyHeaderLook(cell, column, looks.headers.get(column)));
@@ -103,6 +114,81 @@ export class SilverBulletAdapter implements TableAdapter {
   stop(): void {
     for (const style of this.tagStyles.values()) style.remove();
     this.tagStyles.clear();
+    this.overlays.stop();
+  }
+
+  showOutline(name: string, info: WidgetInfo, rows: readonly number[], columns: readonly [number, number], pieces: (sides: readonly Side[]) => readonly string[]): void {
+    this.overlays.showOutline(name, info, rows, columns, pieces);
+  }
+
+  hideOutline(name: string): void {
+    this.overlays.hideOutline(name);
+  }
+
+  outlineShown(name: string): boolean {
+    return this.overlays.outlineShown(name);
+  }
+
+  placeHandles(name: string, info: WidgetInfo, handles: readonly HandlePlace[]): void {
+    this.overlays.placeHandles(name, info, handles);
+  }
+
+  hideHandles(name: string): void {
+    this.overlays.hideHandles(name);
+  }
+
+  targetOf(element: Element): PointerTarget | undefined {
+    const overlay = this.overlays.targetOf(element);
+    if (overlay) return overlay;
+    const widget = element.closest<HTMLElement>(WIDGET_SELECTOR);
+    const info = widget && this.context.infoOf(widget);
+    const cell = element.closest<HTMLTableCellElement>("td, th");
+    if (!info || !cell || cell.closest("table") !== info.table) return undefined;
+    // Rows Silverware Table adds (a feature's: the filter row) and the metadata row are no table cells
+    const row = cell.parentElement?.classList;
+    if (row?.contains(UI_CLASS) || row?.contains("swt-meta-row")) return undefined;
+    const ref = this.rows.cellRef(info, cell);
+    return ref ? { kind: "cell", key: info.key, ...ref } : undefined;
+  }
+
+  elementAt(x: number, y: number): Element | null {
+    return this.doc.elementFromPoint?.(x, y) ?? null;
+  }
+
+  /** The row (as shown, measured where in the document) the point is in, or the first or last; the column by the header's cells */
+  cellNear(info: WidgetInfo, x: number, y: number): CellRef | undefined {
+    const shown = this.rows.shownRows(info);
+    const rects = shown.map((tr) => (tr.isConnected ? tr.getBoundingClientRect() : undefined));
+    let at = rects.findIndex((r) => r && y >= r.top && y < r.bottom);
+    if (at < 0) {
+      const measured = rects.map((r, i) => ({ r, i })).filter((m) => m.r);
+      if (measured.length === 0) return undefined;
+      at = y < measured[0]!.r!.top ? measured[0]!.i : measured[measured.length - 1]!.i;
+    }
+    const cells = Array.from(info.table.rows[0]?.cells ?? []).map((c) => c.getBoundingClientRect());
+    let column = cells.findIndex((r) => x >= r.left && x < r.right);
+    if (column < 0) column = cells.length && x < cells[0]!.left ? 0 : cells.length - 1;
+    return { row: this.rows.rowOf(info, shown[at]!), column };
+  }
+
+  scrollNear(info: WidgetInfo, x: number, y: number, sideways: boolean): void {
+    const widget = info.table.closest<HTMLElement>(WIDGET_SELECTOR);
+    if (widget) scrollNearEdge(widget, x, y, sideways);
+  }
+
+  pageMark(mark: string, on: boolean): void {
+    this.doc.body.classList.toggle(`swt-${mark}`, on);
+  }
+
+  revealCell(info: WidgetInfo, ref: CellRef): void {
+    const cell = this.rows.cellAt(info, ref);
+    if (!cell) return;
+    if (ref.row > 0) this.context.rowNeeded(info, cell.parentElement as HTMLTableRowElement);
+    cell.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }
+
+  owns(node: Node): boolean {
+    return this.overlays.owns(node);
   }
 
   markCells(info: WidgetInfo, mark: string, cells: readonly CellRef[]): void {

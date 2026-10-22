@@ -451,7 +451,7 @@ export class Paste implements Feature {
       const count = rows.last - rows.first + 1;
       const to = at.row > rows.last ? at.row - count : Math.max(1, at.row);
       this.endCut();
-      if (to !== rows.first) await moveRowsTo(this.host, widget, info, rows.first, rows.last, to);
+      if (to !== rows.first) await moveRowsTo(this.host, info, rows.first, rows.last, to);
       return;
     }
     if (cut && !insert) {

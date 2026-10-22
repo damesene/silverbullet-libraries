@@ -515,7 +515,7 @@ export class Grips implements Feature {
   private moveBlock(widget: HTMLElement, info: WidgetInfo, axis: Axis, block: { first: number; last: number }, asked: number): void {
     const to = this.blockTo(info, axis, block, asked);
     if (to === block.first) return;
-    void (axis === "row" ? moveRowsTo : moveColumnsTo)(this.host, widget, info, block.first, block.last, to).then((result) => {
+    void (axis === "row" ? moveRowsTo : moveColumnsTo)(this.host, info, block.first, block.last, to).then((result) => {
       // Selected where they went, once written: the table rendered anew shows the selection
       if (result !== "written" || block.last === block.first) return;
       const now = this.host.widgetForKey(info.key);
@@ -805,18 +805,18 @@ export class Grips implements Feature {
           {
             icon: ICONS.rowAbove,
             title: "Insert row above",
-            run: act(() => insertRowWith(host, widget, info, row, column, undefined, { before: row })),
+            run: act(() => insertRowWith(host, info, row, column, undefined, { before: row })),
             disabled: insertBlocked(row),
           },
           {
             icon: ICONS.rowBelow,
             title: "Insert row below",
-            run: act(() => insertRowWith(host, widget, info, row + 1, column, undefined, { after: row })),
+            run: act(() => insertRowWith(host, info, row + 1, column, undefined, { after: row })),
             disabled: insertBlocked(row + 1),
           },
         ],
       },
-      { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: act(() => duplicateRowAt(host, widget, info, row)) },
+      { kind: "item", label: "Duplicate row", icon: ICONS.duplicate, run: act(() => duplicateRowAt(host, info, row)) },
       { kind: "separator" },
       {
         kind: "segmented",
@@ -844,14 +844,14 @@ export class Grips implements Feature {
             icon: ICONS.pinTop,
             title: zone === "top" ? "Unpin from the top" : "Pin to top",
             active: zone === "top",
-            run: act(() => pinRowAt(host, widget, info, row, zone === "top" ? undefined : "top")),
+            run: act(() => pinRowAt(host, info, row, zone === "top" ? undefined : "top")),
             disabled: pinBlocked("top"),
           },
           {
             icon: ICONS.pinBottom,
             title: zone === "bottom" ? "Unpin from the bottom" : "Pin to bottom",
             active: zone === "bottom",
-            run: act(() => pinRowAt(host, widget, info, row, zone === "bottom" ? undefined : "bottom")),
+            run: act(() => pinRowAt(host, info, row, zone === "bottom" ? undefined : "bottom")),
             disabled: pinBlocked("bottom"),
           },
         ],
@@ -867,7 +867,7 @@ export class Grips implements Feature {
     const lines = this.selectedLines(info, axis, line);
     const many = lines.length > 1;
     const run = this.runAndClose(() => {
-      void (axis === "row" ? deleteRowsAt(this.host, widget, info, lines) : deleteColumnsAt(this.host, widget, info, lines));
+      void (axis === "row" ? deleteRowsAt(this.host, info, lines) : deleteColumnsAt(this.host, info, lines));
     });
     return {
       kind: "item",
@@ -939,8 +939,8 @@ export class Grips implements Feature {
         kind: "segmented",
         label: "Insert",
         options: [
-          { icon: ICONS.columnLeft, title: "Insert column left", run: act(() => insertColumnWith(host, widget, info, column)), disabled: insertBlocked(column) },
-          { icon: ICONS.columnRight, title: "Insert column right", run: act(() => insertColumnWith(host, widget, info, column + 1)), disabled: insertBlocked(column + 1) },
+          { icon: ICONS.columnLeft, title: "Insert column left", run: act(() => insertColumnWith(host, info, column)), disabled: insertBlocked(column) },
+          { icon: ICONS.columnRight, title: "Insert column right", run: act(() => insertColumnWith(host, info, column + 1)), disabled: insertBlocked(column + 1) },
         ],
       },
       // The features' (a numbered column), closing the menu when run
@@ -972,14 +972,14 @@ export class Grips implements Feature {
             icon: ICONS.pinLeft,
             title: zone === "left" ? "Unpin from the left" : "Pin left",
             active: zone === "left",
-            run: act(() => pinColumnAt(host, widget, info, column, zone === "left" ? undefined : "left")),
+            run: act(() => pinColumnAt(host, info, column, zone === "left" ? undefined : "left")),
             disabled: pinBlocked("left"),
           },
           {
             icon: ICONS.pinRight,
             title: zone === "right" ? "Unpin from the right" : "Pin right",
             active: zone === "right",
-            run: act(() => pinColumnAt(host, widget, info, column, zone === "right" ? undefined : "right")),
+            run: act(() => pinColumnAt(host, info, column, zone === "right" ? undefined : "right")),
             disabled: pinBlocked("right"),
           },
         ],

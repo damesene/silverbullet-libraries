@@ -8,7 +8,7 @@
 //
 // Being moved here step by step from the controller (docs/silverware-table-isolation.md):
 // what is not here yet is still the controller's own DOM code.
-import type { CellRef, HeaderRow, Rect, TableLook, TablePreview, WidgetInfo } from "./feature.ts";
+import type { CellRef, HandlePlace, HeaderRow, PointerTarget, Rect, Side, TableLook, TablePreview, WidgetInfo } from "./feature.ts";
 import type { MergedLooks } from "./looks.ts";
 
 export interface TableAdapter {
@@ -28,6 +28,28 @@ export interface TableAdapter {
   markCells(info: WidgetInfo, mark: string, cells: readonly CellRef[]): void;
   /** The rows of features' own UI under the table's header, in this order (undefined: that feature has none); elements in place stay */
   placeHeaderRows(info: WidgetInfo, rows: readonly (HeaderRow | undefined)[]): void;
+  /** An area of a table's cells outlined for a layer (OutlineLayer), its outline before gone */
+  showOutline(name: string, info: WidgetInfo, rows: readonly number[], columns: readonly [number, number], pieces: (sides: readonly Side[]) => readonly string[]): void;
+  hideOutline(name: string): void;
+  /** Whether a layer's outline is in the tables shown (none rendered anew since) */
+  outlineShown(name: string): boolean;
+  /** A layer's handles placed in a table (HandleLayer) */
+  placeHandles(name: string, info: WidgetInfo, handles: readonly HandlePlace[]): void;
+  hideHandles(name: string): void;
+  /** What an element is: a cell of a table shown, a piece of an outline, a handle; undefined: none of the tables' */
+  targetOf(element: Element): PointerTarget | undefined;
+  /** What is at a point of the window */
+  elementAt(x: number, y: number): Element | null;
+  /** The cell of a table nearest a point (the row and column it is in, or the first or last of them past the table) */
+  cellNear(info: WidgetInfo, x: number, y: number): CellRef | undefined;
+  /** A drag at a point near an edge of what shows the table scrolls it (its box, the page) */
+  scrollNear(info: WidgetInfo, x: number, y: number, sideways: boolean): void;
+  /** A state of the page for CSS (swt-<mark>) */
+  pageMark(mark: string, on: boolean): void;
+  /** A cell scrolled into view */
+  revealCell(info: WidgetInfo, ref: CellRef): void;
+  /** Whether a node is one of the adapter's own elements over the cells (a piece of an outline, a handle) */
+  owns(node: Node): boolean;
   /** Silverware Table stops: what the adapter added to the page goes */
   stop(): void;
 }

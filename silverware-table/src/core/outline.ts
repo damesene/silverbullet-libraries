@@ -3,8 +3,9 @@
 // on the area's edge, marked with the sides it draws. Pieces in the cells,
 // not a box over the table, so they scroll, stick and are cut with their cells.
 import { OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
+import type { Side } from "./feature.ts";
 
-export type Side = "top" | "bottom" | "left" | "right";
+export type { Side } from "./feature.ts";
 
 export class Outline {
   private pieces: HTMLElement[] = [];
@@ -21,9 +22,10 @@ export class Outline {
   /**
    * Outlines an area of `height` rows and `width` columns, the outline before
    * it gone; `cellAt(i, j)` is its cell in row i, column j (undefined: none
-   * there, e.g. a row out of the document). Only the cells on the edge are visited.
+   * there, e.g. a row out of the document). Only the cells on the edge are
+   * visited; `made` hears of each piece put into the cell in row i, column j.
    */
-  show(height: number, width: number, cellAt: (i: number, j: number) => HTMLTableCellElement | undefined): void {
+  show(height: number, width: number, cellAt: (i: number, j: number) => HTMLTableCellElement | undefined, made?: (piece: HTMLElement, i: number, j: number) => void): void {
     this.clear();
     for (let i = 0; i < height; i++) {
       const edgeRow = i === 0 || i === height - 1;
@@ -41,6 +43,7 @@ export class Outline {
           piece.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} ${classes}`;
           cell.append(piece);
           this.pieces.push(piece);
+          made?.(piece, i, j);
         }
       }
     }

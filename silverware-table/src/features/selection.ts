@@ -448,7 +448,7 @@ export class Selection implements Feature {
     const follow = (ref: CellRef): CellRef =>
       vertical ? { ...ref, row: lineAfterBlockMove(ref.row, first, last, to) } : { ...ref, column: lineAfterBlockMove(ref.column, first, last, to) };
     this.selection = { key: selection.key, anchor: follow(selection.anchor), focus: follow(selection.focus) };
-    const result = await (vertical ? moveRowsTo(this.host, widget, info, first, last, to) : moveColumnsTo(this.host, widget, info, first, last, to));
+    const result = await (vertical ? moveRowsTo(this.host, info, first, last, to) : moveColumnsTo(this.host, info, first, last, to));
     if (result === "failed" && this.selection?.key === selection.key) {
       this.selection = selection;
       this.show();
@@ -890,7 +890,7 @@ export class Selection implements Feature {
     const rowOf = (shown: number) => this.host.rowOf(block.info, block.shown[shown]!);
     const to = { row: rowOf(at.row), column: at.column };
     this.selectCells(block.info, to, { row: rowOf(at.row + block.height - 1), column: at.column + block.width - 1 });
-    const result = await moveCellsTo(this.host, block.widget, block.info, block.cells, to, copy);
+    const result = await moveCellsTo(this.host, block.info, block.cells, to, copy);
     if (result !== "written") this.selectCells(block.info, block.cells[0]![0]!, block.cells[block.cells.length - 1]![block.width - 1]!);
   }
 
@@ -1004,13 +1004,13 @@ export class Selection implements Feature {
     const wholeColumns = rows.includes(0) && rows.length === shown;
     if (wholeRows && body.every((row) => columns.every((column) => empty(row, column)))) {
       this.clear();
-      await deleteRowsAt(this.host, widget, info, body);
+      await deleteRowsAt(this.host, info, body);
       return;
     }
     // Every row's cell, also the rows a filter hides: their data would go too
     if (wholeColumns && !wholeRows && columns.every((column) => table.rows.every((_, row) => row === 0 || empty(row, column)))) {
       this.clear();
-      await deleteColumnsAt(this.host, widget, info, columns);
+      await deleteColumnsAt(this.host, info, columns);
       return;
     }
     await this.empty(widget, info, refs);
@@ -1019,13 +1019,13 @@ export class Selection implements Feature {
   private async deleteRows(shownWidget: HTMLElement, info: WidgetInfo, rows: readonly number[]): Promise<void> {
     this.clear();
     const widget = this.host.widgetForKey(info.key) ?? shownWidget;
-    await deleteRowsAt(this.host, widget, this.host.infoOf(widget) ?? info, rows);
+    await deleteRowsAt(this.host, this.host.infoOf(widget) ?? info, rows);
   }
 
   private async deleteColumns(shownWidget: HTMLElement, info: WidgetInfo, columns: readonly number[]): Promise<void> {
     this.clear();
     const widget = this.host.widgetForKey(info.key) ?? shownWidget;
-    await deleteColumnsAt(this.host, widget, this.host.infoOf(widget) ?? info, columns);
+    await deleteColumnsAt(this.host, this.host.infoOf(widget) ?? info, columns);
   }
 
   /**
