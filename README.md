@@ -7,7 +7,7 @@ Silverware is a collection of plugins (libraries) for [SilverBullet](https://sil
 Add this repository in SilverBullet with the `Library: Add Repository` command and the URI:
 
 ```text
-https://github.com/damesene/silverware-library/blob/main/REPO.md
+https://github.com/damesene/silverware-libraries/blob/main/REPO.md
 ```
 
 Then install a plugin with `Library: Install`.
