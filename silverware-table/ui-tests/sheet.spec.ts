@@ -276,9 +276,9 @@ test.describe("Sheet view", () => {
     await openSheet(page);
     await page.locator("#source").fill("# Test\n\nNo table now.\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    // Still shown for a moment (a table rendered anew is missing for as long), then gone
-    await expect(sheetTable(page)).toHaveCount(1);
-    await expect(sheetTable(page)).toHaveCount(0, { timeout: 5000 });
+    // The page's text read again: the board ends
+    await expect(sheetTable(page)).toHaveCount(0);
+    await expect(page.locator(".swt-sheet-board")).toHaveCount(0);
   });
 
   test("drawn anew with the table moved in the page: its place follows", async ({ page }) => {
@@ -391,6 +391,21 @@ test.describe("Sheet view", () => {
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
     await expect(page.locator("#flash > div", { hasText: "H9 is no table's cells here" })).toBeVisible();
     await expect.poll(() => markdown(page)).toContain("<meta f='=#REF!'>");
+  });
+
+  test("a row typed under a table with a row pinned to the bottom goes above it, Enter goes on under the value", async ({ page }) => {
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n| <meta pin-bottom='1'> |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(2);
+    await openSheet(page);
+    const point = await emptyCell(page, { below: 0, column: 0 });
+    await page.mouse.click(point.x, point.y);
+    await page.keyboard.type("Fig");
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
+    expect(await markdown(page)).toMatch(/\| Pear +\| 3 +\|\n\| Fig +\| +\|\n\| Total +\| 3 +\|/);
+    // Fig went above Total: the cell under it is Total's, edited
+    await expect(sheetTable(page).locator(".swt-cell-editor")).toBeFocused();
+    await expect(sheetTable(page).locator(".swt-cell-editor")).toHaveValue("Total");
   });
 
   test("Esc closes it", async ({ page }) => {

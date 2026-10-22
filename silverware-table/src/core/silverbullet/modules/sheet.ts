@@ -30,8 +30,9 @@ import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
 import { columnLetters } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 import { findTables, parseTable, type TableRange } from "../../../markdown.ts";
-import { metaName } from "../../../meta.ts";
-import { SHEET_ATTRIBUTE, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { metaName, sameTableName } from "../../../meta.ts";
+import { AT_ATTRIBUTE, parseAt, SHEET_ATTRIBUTE, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { growTo } from "../../structure.ts";
 import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
 import { drawTable } from "../drawn.ts";
 
@@ -63,9 +64,10 @@ type Placed = {
   rowHeight: number;
 };
 
-/** The board shown: which sheet (none: one table alone), its tables, its box */
+/** The board shown: which sheet (none: the table `alone`, by its key), its tables, its box */
 type Board = {
   readonly sheet: string | undefined;
+  readonly alone: string;
   readonly box: HTMLElement;
   readonly content: HTMLElement;
   readonly tables: Map<string, Placed>;
@@ -91,8 +93,13 @@ export class Sheet implements AdapterFeature {
   // A press on an empty cell while a cell was edited: acted on once that edit is saved
   private pendingPress: { x: number; y: number } | undefined;
   // Where the keyboard goes on from the empty cell edited (Enter, Tab, Esc), once its editor is closed;
-  // `grown`: the table it grew, so once that is drawn anew (`ready` then)
-  private after: { at: SheetCell; key: "Enter" | "Tab" | "Escape"; back: boolean; grown: string | undefined; ready: boolean } | undefined;
+  // `grown`: the table it grew and where in it the value went (rows pinned to the bottom stay last), so once that
+  // is drawn anew (`ready` then)
+  private after:
+    | { at: SheetCell; key: "Enter" | "Tab" | "Escape"; back: boolean; grown: { key: string; cell: CellRef } | undefined; ready: boolean }
+    | undefined;
+  // The board's tables as shown (their rows' order), as of the last view applied to them
+  private shownIndex: { placed: Placed; info: WidgetInfo; order: number[] }[] | undefined;
   // Drawings asked for, by table: only the last of each is put in
   private readonly drawing = new Map<string, number>();
   // A drawing put off while a cell of a table drawn is edited (swapping it would take the editor's cell away)
@@ -125,7 +132,7 @@ export class Sheet implements AdapterFeature {
 
   toolbarButtons(info: WidgetInfo): ToolbarButton[] {
     const on = !!this.board?.tables.has(info.key);
-    const sheet = parseTable(info.source).meta?.[SHEET_ATTRIBUTE]?.trim();
+    const sheet = sheetOf(info.source);
     return [
       {
         label: on ? "Exit sheet view" : "Sheet view",
@@ -152,8 +159,7 @@ export class Sheet implements AdapterFeature {
     content.className = "swt-sheet-content";
     content.append(this.columnLines);
     box.append(content);
-    const sheet = parseTable(info.source).meta?.[SHEET_ATTRIBUTE]?.trim() || undefined;
-    const board: Board = { sheet, box, content, tables: new Map(), widths: new Map() };
+    const board: Board = { sheet: sheetOf(info.source), alone: info.key, box, content, tables: new Map(), widths: new Map() };
     this.board = board;
     claimWindow(doc, this);
     box.addEventListener("scroll", () => this.queuePlace());
@@ -164,7 +170,7 @@ export class Sheet implements AdapterFeature {
     this.watching.observe(doc.body, { childList: true, subtree: true, characterData: true });
     this.letters.classList.add("swt-visible");
     this.numbers.classList.add("swt-visible");
-    await this.refresh(info.key);
+    await this.refresh();
     this.host.toolbarChanged();
   }
 
@@ -177,6 +183,7 @@ export class Sheet implements AdapterFeature {
     this.watching?.disconnect();
     this.watching = undefined;
     this.drawing.clear();
+    this.shownIndex = undefined;
     this.putOff = false;
     this.chosen = undefined;
     this.pendingPress = undefined;
@@ -196,11 +203,10 @@ export class Sheet implements AdapterFeature {
 
   /**
    * The board's tables from the page's text as it is now: those of its sheet
-   * (or the table alone, `alone`: its key), each drawn anew where its markdown
-   * or its place changed, those no longer on it taken away. None left: the
-   * board ends.
+   * (or the table alone), each drawn anew where its markdown or its place
+   * changed, those no longer on it taken away. None left: the board ends.
    */
-  private async refresh(alone?: string): Promise<void> {
+  private async refresh(): Promise<void> {
     const board = this.board;
     if (!board) return;
     const text = await this.host.bridge.getText();
@@ -212,9 +218,8 @@ export class Sheet implements AdapterFeature {
       for (const t of mine) wanted.set(`${page}#${t.range.ordinal}`, { range: t.range, at: t.at });
       board.widths = sheetWidths(mine);
     } else {
-      const key = alone ?? [...board.tables.keys()][0];
-      const range = key === undefined ? undefined : findTables(text)[Number(key.slice(key.lastIndexOf("#") + 1))];
-      if (key !== undefined && range) wanted.set(key, { range, at: { row: 0, column: 0 } });
+      const range = findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
+      if (range) wanted.set(board.alone, { range, at: { row: 0, column: 0 } });
     }
     if (wanted.size === 0) {
       this.end();
@@ -224,6 +229,7 @@ export class Sheet implements AdapterFeature {
       if (wanted.has(key)) continue;
       placed.widget.remove();
       board.tables.delete(key);
+      this.shownIndex = undefined;
     }
     const draws: Promise<void>[] = [];
     for (const [key, want] of wanted) {
@@ -262,6 +268,7 @@ export class Sheet implements AdapterFeature {
     if (before) before.widget.replaceWith(widget);
     else board.content.append(widget);
     board.tables.set(key, { key, range, at, widget, natural: before?.natural ?? [], rowHeight: before?.rowHeight ?? 0 });
+    this.shownIndex = undefined;
   }
 
   /** A table of the board as enhanced now, by its key */
@@ -293,7 +300,8 @@ export class Sheet implements AdapterFeature {
     placed.rowHeight = this.host.bodyRows(info).find((tr) => tr.isConnected)?.getBoundingClientRect().height ?? 0;
     table.style.tableLayout = tableLayout;
     table.style.width = width;
-    if (this.after?.grown === info.key) this.after.ready = true;
+    this.shownIndex = undefined;
+    if (this.after?.grown?.key === info.key) this.after.ready = true;
     this.queuePlace();
   }
 
@@ -319,7 +327,9 @@ export class Sheet implements AdapterFeature {
   }
 
   viewApplied(info: WidgetInfo): void {
-    if (this.board?.tables.get(info.key)?.widget === this.host.widgetOf(info)) this.queuePlace();
+    if (this.board?.tables.get(info.key)?.widget !== this.host.widgetOf(info)) return;
+    this.shownIndex = undefined;
+    this.queuePlace();
   }
 
   // ---- keys and presses -----------------------------------------------------------------
@@ -373,8 +383,9 @@ export class Sheet implements AdapterFeature {
   editorKeyDown(e: KeyboardEvent, editor: RenderedEditor): boolean {
     if (!this.cell || editor.cell !== this.cell.element || e.ctrlKey || e.metaKey || e.altKey) return false;
     if (e.key !== "Enter" && e.key !== "Tab" && e.key !== "Escape") return false;
-    // Something typed is written, the table grown to hold it: on once it is drawn anew
-    const grown = e.key !== "Escape" && editor.field.value.trim() !== "" ? this.ownerOf(this.cell.at)?.key : undefined;
+    // Something typed is written, the table grown to hold it: on once it is drawn anew, from where the value went
+    const owner = e.key !== "Escape" && editor.field.value.trim() !== "" ? this.ownerOf(this.cell.at) : undefined;
+    const grown = owner && { key: owner.key, cell: growTo(owner.info, owner.cell).cell };
     this.after = { at: this.cell.at, key: e.key, back: e.shiftKey, grown, ready: false };
     return false;
   }
@@ -451,14 +462,15 @@ export class Sheet implements AdapterFeature {
    */
   addressFrame(info: TableInfo): AddressFrame | undefined {
     const board = this.board;
-    if (!board?.tables.has(info.key)) return undefined;
-    const named = (name: string) => [...board.tables.values()].find((p) => metaName(parseTable(p.range.text))?.toLowerCase() === name.toLowerCase());
+    const mine = board?.tables.get(info.key);
+    if (!board || !mine || this.infoOfKey(info.key) !== info) return undefined;
     return {
       outward: (table, area) => {
-        const placed = table === undefined ? board.tables.get(info.key) : named(table);
-        const shown = placed && this.infoOfKey(placed.key);
-        if (!placed || !shown) return undefined;
-        const order = this.shownOrder(shown);
+        const entry = this.shown().find(({ placed }) =>
+          table === undefined ? placed === mine : sameTableName(metaName(parseTable(placed.range.text)) ?? "", table),
+        );
+        if (!entry) return undefined;
+        const { placed, info: shown, order } = entry;
         // Its rows one after another as shown, in the markdown's order (a range in a sorted table is not)
         const top = order.indexOf(area.top + 1);
         if (top < 1) return undefined;
@@ -501,12 +513,21 @@ export class Sheet implements AdapterFeature {
     return this.host.shownRows(info).map((tr) => this.host.rowOf(info, tr));
   }
 
+  /** The board's tables enhanced, with their rows' order as shown (kept until a table is drawn or viewed anew) */
+  private shown(): { placed: Placed; info: WidgetInfo; order: number[] }[] {
+    if (!this.shownIndex) {
+      this.shownIndex = [];
+      for (const placed of this.board?.tables.values() ?? []) {
+        const info = this.infoOfKey(placed.key);
+        if (info) this.shownIndex.push({ placed, info, order: this.shownOrder(info) });
+      }
+    }
+    return this.shownIndex;
+  }
+
   /** The table holding a sheet's cell, and that cell in it (its row in the markdown), if one does */
   private tableAt(at: SheetCell): { info: WidgetInfo; ref: CellRef } | undefined {
-    for (const placed of this.board?.tables.values() ?? []) {
-      const info = this.infoOfKey(placed.key);
-      if (!info) continue;
-      const order = this.shownOrder(info);
+    for (const { placed, info, order } of this.shown()) {
       const row = at.row - placed.at.row;
       const column = at.column - placed.at.column;
       if (row >= 0 && row < order.length && column >= 0 && column < info.columns) return { info, ref: { row: order[row]!, column } };
@@ -516,9 +537,10 @@ export class Sheet implements AdapterFeature {
 
   /** The rows (as shown) and columns a table takes on the sheet */
   private extent(placed: Placed): { top: number; left: number; bottom: number; right: number } {
-    const info = this.infoOfKey(placed.key);
+    const entry = this.shown().find((e) => e.placed === placed);
+    const info = entry?.info;
     const model = parseTable(placed.range.text);
-    const rows = info ? this.shownOrder(info).length : model.rows.length;
+    const rows = entry ? entry.order.length : model.rows.length;
     const columns = info?.columns ?? model.align.length;
     return { top: placed.at.row, left: placed.at.column, bottom: placed.at.row + rows - 1, right: placed.at.column + columns - 1 };
   }
@@ -586,11 +608,15 @@ export class Sheet implements AdapterFeature {
     const after = this.after;
     if (!after) return;
     this.after = undefined;
+    // The value's cell in the table grown, on the sheet (a row pinned to the bottom stays under it)
+    const grown = after.grown && this.board?.tables.get(after.grown.key);
+    const info = grown && this.infoOfKey(grown.key);
+    const at = (grown && info && after.grown && this.sheetCellOf(info, grown, after.grown.cell)) || after.at;
     const sign = after.back ? -1 : 1;
-    if (after.key === "Escape") this.go(after.at, false);
-    else if (after.key === "Tab") this.go({ row: after.at.row, column: Math.max(0, after.at.column + sign) }, true);
-    else if ((await this.host.setting("enterKey")) === "moveDown") this.go({ row: Math.max(0, after.at.row + sign), column: after.at.column }, true);
-    else this.go(after.at, false);
+    if (after.key === "Escape") this.go(at, false);
+    else if (after.key === "Tab") this.go({ row: at.row, column: Math.max(0, at.column + sign) }, true);
+    else if ((await this.host.setting("enterKey")) === "moveDown") this.go({ row: Math.max(0, at.row + sign), column: at.column }, true);
+    else this.go(at, false);
   }
 
   private inGrid(target: EventTarget | null): boolean {
@@ -833,4 +859,11 @@ export class Sheet implements AdapterFeature {
     }
     for (let i = shown; i < layer.children.length; i++) (layer.children[i] as HTMLElement).hidden = true;
   }
+}
+
+/** The sheet a table is on: its `sheet`, with a place on it (`at`); none: it shows alone */
+function sheetOf(source: string): string | undefined {
+  const meta = parseTable(source).meta;
+  const sheet = meta?.[SHEET_ATTRIBUTE]?.trim();
+  return sheet && parseAt(meta?.[AT_ATTRIBUTE]) ? sheet : undefined;
 }
