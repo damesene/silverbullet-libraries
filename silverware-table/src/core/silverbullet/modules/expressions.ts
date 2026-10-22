@@ -7,10 +7,10 @@
 // cells (lua.evalExpression) and shows the new values in place. `page:index` is
 // the event the indexers write the index on, not a signal that they are done,
 // so the evaluation waits a moment for them.
-import type { Feature, TableHost } from "../core/feature.ts";
-import { cellText, renderedTable, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
-import { formatLuaNumber } from "../format.ts";
-import { parseTable } from "../markdown.ts";
+import type { Feature, TableHost } from "../../feature.ts";
+import { cellText, renderedTable, UI_CLASS, WIDGET_SELECTOR } from "../../../dom.ts";
+import { formatLuaNumber } from "../../../format.ts";
+import { parseTable } from "../../../markdown.ts";
 
 export class Expressions implements Feature {
   private timer: ReturnType<typeof setTimeout> | undefined;

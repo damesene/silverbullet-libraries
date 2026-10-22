@@ -10,10 +10,10 @@
 // swt-cells-wrap / swt-cells-ellipsis and the variables
 // --swt-cell-max-width / --swt-cell-max-height on the table. Off: cells show as
 // SilverBullet renders them, on one line, as wide as their text.
-import { SETTINGS } from "../bridge.ts";
-import type { Feature, TableHost } from "../core/feature.ts";
-import { oncePerFrame } from "../core/frame.ts";
-import { renderedTable, WIDGET_SELECTOR } from "../dom.ts";
+import { SETTINGS } from "../../../bridge.ts";
+import type { Feature, TableHost } from "../../feature.ts";
+import { oncePerFrame } from "../../frame.ts";
+import { renderedTable, WIDGET_SELECTOR } from "../../../dom.ts";
 
 type Limits = { readonly overflow: "wrap" | "ellipsis"; readonly maxWidth: number; readonly maxHeight: number };
 

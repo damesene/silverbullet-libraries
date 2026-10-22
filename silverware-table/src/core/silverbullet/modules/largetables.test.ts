@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { controller, editor, flush, PAGE, setup, text, useTablePage } from "../testing/page.ts";
+import { controller, editor, flush, PAGE, setup, text, useTablePage } from "../../../testing/page.ts";
 
 describe("Large tables", () => {
   useTablePage();

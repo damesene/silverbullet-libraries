@@ -12,15 +12,15 @@
 // the table, and below it) draw their lines, right of the table along its rows
 // in view, below it along its columns. A press there finds the cell under it,
 // and a td of the module's own is laid over that cell for the cell editor.
-import type { CellEditor, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { oncePerFrame } from "../core/frame.ts";
-import { STICKY_GAP } from "../core/layout.ts";
-import { firstRowBelow } from "../core/geometry.ts";
-import { growTo } from "../core/structure.ts";
-import { OverWindow, type RowsPast } from "../core/overwindow.ts";
-import { UI_CLASS } from "../dom.ts";
-import { columnLetters } from "../formulas/index.ts";
-import { ICONS } from "../icons.ts";
+import type { CellEditor, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../../feature.ts";
+import { oncePerFrame } from "../../frame.ts";
+import { STICKY_GAP } from "../../layout.ts";
+import { firstRowBelow } from "../../geometry.ts";
+import { growTo } from "../../structure.ts";
+import { OverWindow, type RowsPast } from "../../overwindow.ts";
+import { UI_CLASS } from "../../../dom.ts";
+import { columnLetters } from "../../../formulas/index.ts";
+import { ICONS } from "../../../icons.ts";
 
 // An empty column's width, an empty row's height when the table has no body row to take it from
 const COLUMN_WIDTH = 100;

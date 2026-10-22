@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { cell, clickOn, controller, editor, flashes, flush, key, setup, text, useTablePage } from "../testing/page.ts";
+import { cell, clickOn, controller, editor, flashes, flush, key, setup, text, useTablePage } from "../../../testing/page.ts";
 
 describe("Long text in cells and the cell's popup", () => {
   useTablePage();

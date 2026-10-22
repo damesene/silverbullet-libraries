@@ -11,9 +11,9 @@
 // the other modules read them as before. The view's rows are placed here
 // (placeRows), as the box scrolls, and put back when a row is needed
 // (rowNeeded: a cell edited or selected out of view).
-import { SETTINGS } from "../bridge.ts";
-import type { Feature, TableHost, WidgetInfo } from "../core/feature.ts";
-import { UI_CLASS } from "../dom.ts";
+import { SETTINGS } from "../../../bridge.ts";
+import type { Feature, TableHost, WidgetInfo } from "../../feature.ts";
+import { UI_CLASS } from "../../../dom.ts";
 
 const LARGE_CLASS = "swt-large-table";
 const SPACER_CLASS = "swt-large-spacer";

@@ -2,9 +2,9 @@
 // (not the browser's full screen); the same icon (Exit full screen) or Esc
 // closes it. The table stays where SilverBullet rendered it, its box laid over
 // the window with the columns' letters and the rows' numbers (core/overwindow.ts).
-import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { OverWindow } from "../core/overwindow.ts";
-import { ICONS } from "../icons.ts";
+import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../../feature.ts";
+import { OverWindow } from "../../overwindow.ts";
+import { ICONS } from "../../../icons.ts";
 
 export class FullScreen implements Feature {
   private readonly over: OverWindow;

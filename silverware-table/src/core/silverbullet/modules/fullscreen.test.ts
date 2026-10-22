@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { cell, clickOn, controller, editor, flush, key, PAGE, setup, text, useTablePage } from "../testing/page.ts";
+import { cell, clickOn, controller, editor, flush, key, PAGE, setup, text, useTablePage } from "../../../testing/page.ts";
 
 describe("Full screen", () => {
   useTablePage();

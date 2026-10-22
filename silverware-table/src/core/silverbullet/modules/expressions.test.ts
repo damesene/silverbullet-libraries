@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { cell, clickOn, controller, editor, setup, useTablePage } from "../testing/page.ts";
+import { cell, clickOn, controller, editor, setup, useTablePage } from "../../../testing/page.ts";
 
 describe("${…} cells", () => {
   useTablePage();

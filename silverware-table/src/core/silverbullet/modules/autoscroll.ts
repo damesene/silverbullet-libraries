@@ -3,7 +3,7 @@
 // moves either the table sideways or the page up and down; this one moves
 // both. Hold and drag, or click and move; the next click, key or wheel turn
 // ends it.
-import type { Feature, TableHost } from "../core/feature.ts";
+import type { Feature, TableHost } from "../../feature.ts";
 
 // No movement within this distance of the start point
 const DEAD_ZONE = 12;

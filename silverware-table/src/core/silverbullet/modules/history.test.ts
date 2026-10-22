@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { findTables } from "../markdown.ts";
-import { cell, controller, flush, pointInsert, setup, setText, text, useTablePage } from "../testing/page.ts";
+import { findTables } from "../../../markdown.ts";
+import { cell, controller, flush, pointInsert, setup, setText, text, useTablePage } from "../../../testing/page.ts";
 
 describe("History markers", () => {
   useTablePage();
