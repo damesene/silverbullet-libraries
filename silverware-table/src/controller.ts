@@ -1185,6 +1185,21 @@ export class Controller implements TableHost {
     return this.adapter.cellAtPoint(info, x, y);
   }
 
+  /** The widths of a table's columns: the first feature's that has them */
+  private columnWidths(info: WidgetInfo): ReadonlyMap<number, number> {
+    for (const feature of this.features) {
+      const widths = feature.columnWidths?.(info);
+      if (widths) return widths;
+    }
+    return new Map();
+  }
+
+  showColumnWidth(info: WidgetInfo, column: number, width: number | undefined): void {
+    const now = this.tableFor(info.key) ?? info;
+    this.adapter.applyColumnWidth(now, column, width ?? this.columnWidths(now).get(column));
+    this.tableResized(now);
+  }
+
   get metadataEnabled(): boolean {
     return this.metadataOn;
   }
@@ -1456,6 +1471,8 @@ export class Controller implements TableHost {
     });
 
     for (const feature of this.features) feature.viewApplied?.(widget, info);
+    // The columns' widths (the widths module's), once the cells are laid out (their content boxes made)
+    this.adapter.applyColumnWidths(info, this.columnWidths(info));
     // The features' rows of their own UI under the header (the filter row)
     if (this.features.some((f) => f.headerRow)) this.adapter.placeHeaderRows(info, this.features.flatMap((f) => (f.headerRow ? [f.headerRow(info)] : [])));
     this.pinColumns(info);

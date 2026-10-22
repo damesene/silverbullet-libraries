@@ -58,6 +58,10 @@ export interface TableAdapter {
   areaRect(info: WidgetInfo, first: CellRef, last: CellRef): Rect | undefined;
   /** The cell at a point, by where the rows and columns are (TableHost.cellAtPoint) */
   cellAtPoint(info: WidgetInfo, x: number, y: number): CellRef | undefined;
+  /** The widths of a table's columns applied (those not among them: automatic again) */
+  applyColumnWidths(info: WidgetInfo, widths: ReadonlyMap<number, number>): void;
+  /** One column's width applied (undefined: automatic) */
+  applyColumnWidth(info: WidgetInfo, column: number, width: number | undefined): void;
   /** Where the page is in view (a table's, else the page's): its scroller, cut to what an on-screen keyboard leaves */
   pageView(info: WidgetInfo | undefined): Rect;
   /** Whether a node is one of the adapter's own elements over the cells (a piece of an outline, a handle) */

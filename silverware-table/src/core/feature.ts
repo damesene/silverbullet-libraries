@@ -468,6 +468,8 @@ export interface TableHost {
   areaRect(info: WidgetInfo, first: CellRef, last: CellRef): Rect | undefined;
   /** The cell of a table at a point of the window, by where its rows and columns are (whatever is over them); undefined: not on it */
   cellAtPoint(info: WidgetInfo, x: number, y: number): CellRef | undefined;
+  /** A column shown `width` pixels wide for now (undefined: as Feature.columnWidths has it), a width being dragged */
+  showColumnWidth(info: WidgetInfo, column: number, width: number | undefined): void;
   /**
    * Hashtags in headers not shown, by name (a column type's): hidden from the
    * moment a table is rendered (before its looks apply); given again, they replace those of `owner`
@@ -807,6 +809,8 @@ export interface Feature {
   hidesRows?(info: WidgetInfo): boolean;
   /** The table's view was applied: rows sorted and hidden, the header marked */
   viewApplied?(widget: HTMLElement, info: WidgetInfo): void;
+  /** The widths of a table's columns, in pixels (the widths module's); asked each time its view is applied */
+  columnWidths?(info: WidgetInfo): ReadonlyMap<number, number> | undefined;
   /**
    * A row of the feature's own UI under the table's header, asked each time
    * the view is applied (undefined: none): the same elements given again stay

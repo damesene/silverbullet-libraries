@@ -247,6 +247,61 @@ export class SilverBulletAdapter implements TableAdapter {
     return undefined;
   }
 
+  // The columns given a width in each table as rendered (a write renders it anew): those to make automatic again
+  private readonly sized = new WeakMap<HTMLTableElement, Set<number>>();
+
+  // Only the columns with a width, or that had one: touching every cell's
+  // style (or reading styles between writes) would make the browser compute
+  // the whole table's styles and layout again, for every table shown
+  applyColumnWidths(info: WidgetInfo, widths: ReadonlyMap<number, number>): void {
+    const sized = this.sized.get(info.table);
+    const columns = Array.from({ length: info.columns }, (_, column) => column).filter((column) => widths.has(column) || sized?.has(column));
+    if (!columns.length) return;
+    // Read before writing: one style computation
+    const paddings = columns.map((column) => (widths.has(column) ? this.paddingOf(info, column) : 0));
+    const rows = [info.table.rows[0]!, ...this.rows.bodyRows(info)];
+    columns.forEach((column, i) => this.applyWidth(info, column, widths.get(column), paddings[i]!, rows));
+  }
+
+  applyColumnWidth(info: WidgetInfo, column: number, width: number | undefined): void {
+    this.applyWidth(info, column, width, width === undefined ? 0 : this.paddingOf(info, column), [info.table.rows[0]!, ...this.rows.bodyRows(info)]);
+  }
+
+  /**
+   * A column `width` pixels wide (undefined: automatic): every cell of it, and
+   * the content box of every body cell sized to fit inside (it is otherwise as
+   * wide as its text, up to the maximum column width)
+   */
+  private applyWidth(info: WidgetInfo, column: number, width: number | undefined, padding: number, rows: readonly HTMLTableRowElement[]): void {
+    const sized = this.sized.get(info.table) ?? new Set<number>();
+    this.sized.set(info.table, sized);
+    if (width === undefined) sized.delete(column);
+    else sized.add(column);
+    for (const tr of rows) {
+      const cell = tr.cells[column];
+      if (!cell || cell.classList.contains("swt-editing")) continue;
+      cell.classList.toggle("swt-sized", width !== undefined);
+      cell.style.boxSizing = width === undefined ? "" : "border-box";
+      cell.style.width = width === undefined ? "" : `${width}px`;
+      cell.style.minWidth = width === undefined ? "" : `${width}px`;
+      cell.style.maxWidth = width === undefined ? "" : `${width}px`;
+      // The content's box: a body cell's, the header's line (its name cut where the icons need the room)
+      const box = cell.querySelector<HTMLElement>(":scope > .swt-cell-content, :scope > .swt-head");
+      if (box) {
+        box.style.width = width === undefined ? "" : `${Math.max(0, width - padding)}px`;
+        box.style.maxWidth = width === undefined ? "" : "none";
+      }
+    }
+  }
+
+  /** A cell's padding left and right (the same in the column's header and body cells) */
+  private paddingOf(info: WidgetInfo, column: number): number {
+    const header = info.table.rows[0]!.cells[column];
+    if (!header) return 0;
+    const style = this.doc.defaultView!.getComputedStyle(header);
+    return (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+  }
+
   pageView(info: WidgetInfo | undefined): Rect {
     const widget = info?.table.closest<HTMLElement>(WIDGET_SELECTOR);
     return viewBounds(widget ?? this.doc.body);
