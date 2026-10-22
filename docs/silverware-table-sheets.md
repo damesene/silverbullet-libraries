@@ -313,8 +313,24 @@ clicks on links, the cells changed rendered again):
 - A cache, if any, is the renderer's: static HTML by a cell's text (without
   `${…}`); a live node cannot be in two places.
 
+What the interface holds to, so that no exception creeps into it later:
+
+- Ready at once are the plain cells and, for the static renderer, a cell
+  rendered before with the same text and no `${…}` (its cache): a table
+  rendered again after an edit renders only the cells changed. A cell with
+  `${…}` is rendered every time (its result recalculated), as SilverBullet's
+  own tables are after every edit.
+- A rendering that comes back late goes into a cell only while it still shows
+  the same text; else it is dropped (the table rendered anew meanwhile, the
+  cell edited), never an old value in a new cell.
+- The cache is bounded (a few thousand cells, the oldest going first).
+- What counts as plain is tested on the edge cases (`\|`, `&amp;`, `` `code` ``,
+  `*`, `_`, a URL, `<meta>`): sent to SilverBullet when in doubt, never shown
+  as raw markdown.
+
 The first renderer is `markdownToHtml` with `expand`; the setting comes with a
-second one.
+second one. Offered for later (not now): a renderer that never evaluates
+`${…}` (its source shown as written), one more choice of the same setting.
 
 Open before step 4: how today's modules (selection, clipboard, AutoFill,
 widths, pins) work on the sheet's drawing. (A) The sheet makes its own: the
