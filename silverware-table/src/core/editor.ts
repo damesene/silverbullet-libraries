@@ -231,6 +231,12 @@ export class CellEditing {
     field.addEventListener("input", () => {
       if (this.editor === opened) this.input(opened);
     });
+    // Text pasted: a feature may take it (cells from a spreadsheet go into the table)
+    (field as HTMLElement).addEventListener("paste", (e) => {
+      if (this.editor !== opened) return;
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      if (this.context.features.some((f) => f.editorPaste?.(opened, text))) e.preventDefault();
+    });
     field.addEventListener("blur", () => {
       // Focus went elsewhere on purpose: save, but leave the focus there
       if (this.editor?.field === field && !this.context.movingRows() && !this.context.dialogOpen()) void this.finish(true, undefined, false);

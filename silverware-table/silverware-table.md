@@ -1355,10 +1355,10 @@ end
 }
 /* Select mode (Edit mode off): a click selects a cell, so the default pointer;
    on the cell selected alone the next click edits it, so the text cursor */
-html[data-swt-select-mode] .sb-table-widget.swt-table td {
+body.swt-select-mode .sb-table-widget.swt-table td {
   cursor: default;
 }
-html[data-swt-select-mode] .sb-table-widget.swt-table td.swt-selected-alone {
+body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   cursor: text;
 }
 /* An empty row is as tall as a row with text (zero-width space, not in the text) */
@@ -3598,16 +3598,16 @@ html[data-swt-pointer="touch"] .swt-select-handle::after {
   right: -14px;
   bottom: -14px;
 }
-.swt-select-start.swt-select-edge-row {
+.swt-select-start.swt-at-top {
   top: -7px;
 }
-.swt-select-start.swt-select-edge-column {
+.swt-select-start.swt-at-left {
   left: -7px;
 }
-.swt-select-end.swt-select-edge-row {
+.swt-select-end.swt-at-bottom {
   bottom: -7px;
 }
-.swt-select-end.swt-select-edge-column {
+.swt-select-end.swt-at-right {
   right: -7px;
 }
 /* The band on the selection's edge a mouse drags the cells by (not after a

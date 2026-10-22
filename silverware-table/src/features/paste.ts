@@ -6,14 +6,22 @@
 // cut are outlined, as a spreadsheet marks them, until a paste (a change of
 // them, Esc or another copy ends it too); cut cells move when pasted into
 // their table, and once the cut has ended what is pasted is a copy. Ctrl+C is the selection
-// module's (its copy event outlines the cells here). Reading the
+// module's (the core tells of the copy: the cells are outlined here). Reading the
 // clipboard's text and planning the paste is paste.ts; this is the editor's
 // and the menu's side.
-import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from "../clipboard.ts";
-import { CELL_MENU_ORDER, type CellEditor, type CellMenuGroup, type CellRef, type Feature, type TableHost, type WidgetInfo } from "../core/feature.ts";
-import { Outline } from "../core/outline.ts";
+import { clipboardHtml, clipboardText, writeClipboard } from "../clipboard.ts";
+import {
+  CELL_MENU_ORDER,
+  type CellEditor,
+  type CellMenuGroup,
+  type CellRef,
+  type ClipboardData,
+  type Feature,
+  type OutlineLayer,
+  type TableHost,
+  type WidgetInfo,
+} from "../core/feature.ts";
 import type { MenuEntry } from "../menu.ts";
-import { cellValue, WIDGET_SELECTOR } from "../dom.ts";
 import { cellMoveRules, growTo, moveRowsTo } from "../core/structure.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
@@ -55,10 +63,10 @@ export class Paste implements Feature {
   private stopped = false;
   // Cells copied or cut (waiting to be moved by a paste); their outline
   private cut: Cut | undefined;
-  private readonly edges: Outline;
+  private readonly edges: OutlineLayer;
 
   constructor(private readonly host: TableHost) {
-    this.edges = new Outline(host.doc, (sides) => [`swt-cut-edge ${sides.map((side) => `swt-cut-${side}`).join(" ")}`]);
+    this.edges = host.outlineLayer("cut", (sides) => [`swt-cut-edge ${sides.map((side) => `swt-cut-${side}`).join(" ")}`]);
   }
 
   /**
@@ -69,8 +77,6 @@ export class Paste implements Feature {
    */
   start(): void {
     const win = this.host.doc.defaultView!;
-    win.addEventListener("cut", this.onCut, true);
-    win.addEventListener("copy", this.onCopy, true);
     if (!win.navigator.clipboard?.readText) return;
     win.addEventListener("focus", this.refresh);
     win.addEventListener("pointerdown", this.refresh, true);
@@ -94,8 +100,6 @@ export class Paste implements Feature {
 
   stop(): void {
     const win = this.host.doc.defaultView!;
-    win.removeEventListener("cut", this.onCut, true);
-    win.removeEventListener("copy", this.onCopy, true);
     win.removeEventListener("focus", this.refresh);
     win.removeEventListener("pointerdown", this.refresh, true);
     this.host.doc.removeEventListener("visibilitychange", this.refresh);
@@ -126,29 +130,25 @@ export class Paste implements Feature {
     return false;
   }
 
-  editorOpened(editor: CellEditor): void {
-    const field = editor.field;
-    // Cells copied from a spreadsheet go into the table, cells cut move there; a single value into the field
-    (field as HTMLElement).addEventListener("paste", (e) => {
-      const insert = this.inserts;
-      this.inserts = false;
-      const text = e.clipboardData?.getData("text/plain") ?? "";
-      const active = this.host.editing;
-      const info = active && this.host.infoOf(active.widget);
-      if (!active || !info || active.field !== field) return;
-      // Cells cut move into an editor opened for the paste (its text selected whole: Ctrl+V on a selected cell), not one being typed in
-      const whole = field.selectionStart === 0 && field.selectionEnd === field.value.length;
-      const own = this.cut?.cells.some((row) => row.some((ref) => ref.row === active.row && ref.column === active.column));
-      const cut = insert || !whole || own ? undefined : this.cutFor(info, text);
-      const data = parseClipboardCells(text);
-      // A single value into the field: pasted, the outline goes
-      if (!cut && !data) {
-        this.endCut();
-        return;
-      }
-      e.preventDefault();
-      void this.paste(active.widget, info, active, data ?? [[text]], insert, true, cut);
-    });
+  /** Cells copied from a spreadsheet go into the table, cells cut move there; a single value into the field */
+  editorPaste(editor: CellEditor, text: string): boolean {
+    const insert = this.inserts;
+    this.inserts = false;
+    const info = this.host.tableFor(editor.key);
+    if (!info) return false;
+    // Cells cut move into an editor opened for the paste (its text selected whole: Ctrl+V on a selected cell), not one being typed in
+    const [from, to] = editor.selection;
+    const whole = from === 0 && to === editor.text.length;
+    const own = this.cut?.cells.some((row) => row.some((ref) => ref.row === editor.row && ref.column === editor.column));
+    const cut = insert || !whole || own ? undefined : this.cutFor(info, text);
+    const data = parseClipboardCells(text);
+    // A single value into the field: pasted, the outline goes
+    if (!cut && !data) {
+      this.endCut();
+      return false;
+    }
+    void this.paste(info, editor, data ?? [[text]], insert, true, cut);
+    return true;
   }
 
   // A table rendered anew: the cells copied or cut outlined again, or the outline (and a cut) ended where they changed
@@ -159,12 +159,12 @@ export class Paste implements Feature {
   }
 
   /** Copy, Cut, Paste and Paste as new rows in the cell menu, a bar of icons first (pasted from the first cell) */
-  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
+  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
     const at = cells[0];
     if (!at) return undefined;
     const name = cells.length > 1 ? `${cells.length} cells` : "";
     const header = cells.some((ref) => ref.row === 0);
-    const bar = this.clipboardBar(widget, info, {
+    const bar = this.clipboardBar(info, {
       copied: cells,
       cut: header ? undefined : cells,
       cutBlocked: "A header keeps its name: cut the cells under it",
@@ -183,10 +183,10 @@ export class Paste implements Feature {
    * their first cell (a column's header: a column copied names it), rows also
    * as new rows.
    */
-  lineMenuEntries(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+  lineMenuEntries(_widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
     const first = Math.min(...lines);
     if (!Number.isFinite(first)) return [];
-    const rows = axis === "row" ? lines : this.host.shownRows(info).map((tr) => this.host.rowOf(info, tr));
+    const rows = axis === "row" ? lines : this.host.shownOrder(info);
     const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : [...lines].sort((a, b) => a - b);
     const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
     const body = cells.filter((ref) => ref.row > 0);
@@ -194,7 +194,7 @@ export class Paste implements Feature {
     // A column's from its header: a column copied with it names it, anything else goes under it (pasteFromMenu)
     const at = axis === "row" ? { row: first, column: 0 } : { row: 0, column: first };
     return [
-      this.clipboardBar(widget, info, {
+      this.clipboardBar(info, {
         copied: cells,
         cut: body.length ? body : undefined,
         cutBlocked: "No cells under the header to cut",
@@ -211,7 +211,6 @@ export class Paste implements Feature {
    * caption, their full names (Copy 3 rows) as tooltips; Paste from `at`
    */
   private clipboardBar(
-    widget: HTMLElement,
     info: WidgetInfo,
     o: {
       readonly copied: readonly CellRef[];
@@ -252,7 +251,7 @@ export class Paste implements Feature {
         icon: ICONS.paste,
         caption: "Paste",
         title: cut ? `Paste (move ${plural(cut.cells.length * (cut.cells[0]?.length ?? 0), "cell")})` : "Paste",
-        run: () => void this.pasteFromMenu(widget, info, o.at, false, o.fromHeader),
+        run: () => void this.pasteFromMenu(info, o.at, false, o.fromHeader),
         ...(disabled ? { disabled } : {}),
       },
     ];
@@ -261,7 +260,7 @@ export class Paste implements Feature {
         icon: ICONS.pasteRows,
         caption: "+ Rows",
         title: rowsCut ? "Paste as new rows (move the rows cut)" : "Paste as new rows",
-        run: () => void this.pasteFromMenu(widget, info, o.at, true),
+        run: () => void this.pasteFromMenu(info, o.at, true),
         ...(rowsCut ? (this.host.rearranged(info) ? { disabled: PASTE_BLOCKED } : {}) : !clipboard?.readText ? { disabled: NO_CLIPBOARD } : disabled && !cut ? { disabled } : {}),
       });
     }
@@ -269,11 +268,10 @@ export class Paste implements Feature {
   }
 
   /** The cells selected, in rows as shown, of the table they are in */
-  private selection(): { widget: HTMLElement; info: WidgetInfo; cells: CellRef[] } | undefined {
-    for (const widget of Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.swt-table`))) {
-      const info = this.host.infoOf(widget);
-      const cells = info ? this.host.selectedCells(info) : [];
-      if (info && cells.length) return { widget, info, cells: [...cells] };
+  private selection(): { info: WidgetInfo; cells: CellRef[] } | undefined {
+    for (const info of this.host.shownTables()) {
+      const cells = this.host.selectedCells(info);
+      if (cells.length) return { info, cells: [...cells] };
     }
     return undefined;
   }
@@ -283,12 +281,7 @@ export class Paste implements Feature {
     const byRow = new Map<number, CellRef[]>();
     for (const ref of cells) byRow.set(ref.row, [...(byRow.get(ref.row) ?? []), ref]);
     const rows = Array.from(byRow.values());
-    const values = rows.map((row) =>
-      row.map((ref) => {
-        const cell = this.host.cellAt(info, ref, true);
-        return cell ? cellValue(cell) : "";
-      }),
-    );
+    const values = rows.map((row) => row.map((ref) => this.host.shownValue(info, ref) ?? ""));
     return { rows, values };
   }
 
@@ -313,34 +306,34 @@ export class Paste implements Feature {
   }
 
   /**
-   * Ctrl+X with cells selected (not in a field: there it cuts text): the cells
-   * onto the clipboard as Ctrl+C puts them, marked to move when pasted; with
-   * the header in them, only copied (a column keeps its name)
+   * Ctrl+X with cells selected (not in a field: there it cuts text, the
+   * core's): the cells onto the clipboard as Ctrl+C puts them, marked to move
+   * when pasted; with the header in them, only copied (a column keeps its name)
    */
-  private onCut = (e: ClipboardEvent): void => {
-    const active = this.host.doc.activeElement;
-    if (copyingFromMenu() || !e.clipboardData || active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
-    const selected = this.selection();
-    if (!selected) return;
+  clipboardData(kind: "copy" | "cut"): ClipboardData | undefined {
+    const selected = kind === "cut" ? this.selection() : undefined;
+    if (!selected) return undefined;
     const { rows, values } = this.valuesOf(selected.info, selected.cells);
     const text = clipboardText(values);
-    e.clipboardData.setData("text/plain", text);
-    e.clipboardData.setData("text/html", clipboardHtml(values));
-    e.preventDefault();
-    e.stopImmediatePropagation();
+    this.cutCells(selected.info, selected.cells, rows, values, text);
+    return { text, html: clipboardHtml(values) };
+  }
+
+  /** The cells cut marked to move, said so (or why they are only copied) */
+  private cutCells(info: WidgetInfo, cells: readonly CellRef[], rows: CellRef[][], values: readonly (readonly string[])[], text: string): void {
     this.endCut();
     const size = `${values.length} × ${values[0]?.length ?? 0} cells`;
-    if (selected.cells.some((ref) => ref.row === 0)) {
+    if (cells.some((ref) => ref.row === 0)) {
       void this.host.bridge.flash(`Silverware Table: copied ${size} (a header keeps its name: cut the cells under it)`, "info");
       return;
     }
-    if (this.host.rearranged(selected.info)) {
+    if (this.host.rearranged(info)) {
       void this.host.bridge.flash(`Silverware Table: copied ${size} (sorted or filtered, cells are not cut: the rows shown are not where they are)`, "info");
       return;
     }
-    this.startCut(selected.info, rows, text, true);
+    this.startCut(info, rows, text, true);
     void this.host.bridge.flash(`Silverware Table: cut ${size}: paste them where they go`, "info");
-  };
+  }
 
   /**
    * Another copy: Ctrl+C on cells selected (the selection module puts them on
@@ -348,19 +341,19 @@ export class Paste implements Feature {
    * the outline and a cut (what the clipboard holds is no longer those cells).
    * A menu's copy outlines its cells itself.
    */
-  private onCopy = (): void => {
-    if (copyingFromMenu()) return;
+  copied(kind: "copy" | "cut", data: ClipboardData | undefined): void {
+    if (kind === "cut") {
+      // Text cut from a field: what the clipboard holds is no longer the cells
+      if (!data) this.endCut();
+      return;
+    }
     this.endCut();
-    const active = this.host.doc.activeElement;
-    // A field in a menu (a name typed) copies its own text, if any
-    const inField =
-      ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd) || !!active?.closest(".swt-menu");
-    const selected = inField ? undefined : this.selection();
+    const selected = data ? this.selection() : undefined;
     // Sorted or filtered: the rows shown are not the markdown's, no outline to follow them
     if (!selected || this.host.rearranged(selected.info)) return;
     const { rows, values } = this.valuesOf(selected.info, selected.cells);
     this.startCut(selected.info, rows, clipboardText(values), false);
-  };
+  }
 
   private startCut(info: WidgetInfo, cells: CellRef[][], text: string, moves: boolean): void {
     const table = this.host.tableOf(info);
@@ -396,14 +389,17 @@ export class Paste implements Feature {
 
   /** The cells copied or cut outlined, dashed, as a spreadsheet marks them */
   private markCut(info: WidgetInfo): void {
-    this.unmarkCut();
     const cut = this.cut;
-    if (!cut) return;
-    this.edges.show(cut.cells.length, cut.cells[0]?.length ?? 0, (i, j) => this.host.cellAt(info, cut.cells[i]![j]!, true));
+    const first = cut?.cells[0];
+    if (!cut || !first?.length) {
+      this.unmarkCut();
+      return;
+    }
+    this.edges.show(info.key, cut.cells.map((row) => row[0]!.row), [first[0]!.column, first[first.length - 1]!.column]);
   }
 
   private unmarkCut(): void {
-    this.edges.clear();
+    this.edges.hide();
   }
 
   private endCut(): void {
@@ -426,7 +422,7 @@ export class Paste implements Feature {
    * with its header (what Copy column copies) goes there and names it; other
    * text (a spreadsheet's cells, cells cut) goes under it, the name kept
    */
-  private async pasteFromMenu(shownWidget: HTMLElement, shownInfo: WidgetInfo, at: CellRef, insert: boolean, fromHeader = false): Promise<void> {
+  private async pasteFromMenu(shownInfo: WidgetInfo, at: CellRef, insert: boolean, fromHeader = false): Promise<void> {
     const clipboard = this.host.doc.defaultView!.navigator.clipboard;
     const cutBefore = this.cutFor(shownInfo);
     let text: string | undefined;
@@ -441,8 +437,7 @@ export class Paste implements Feature {
         }
       }
     }
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    const info = this.host.infoOf(widget) ?? shownInfo;
+    const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
     // What the clipboard holds now decides: the cells cut, if it is still their text (or the clipboard cannot be read)
     const cut = this.cutFor(info, text);
     const rows = cut && insert ? this.cutRows(info, cut) : undefined;
@@ -455,7 +450,7 @@ export class Paste implements Feature {
       return;
     }
     if (cut && !insert) {
-      await this.paste(widget, info, fromHeader && at.row === 0 ? { ...at, row: 1 } : at, cut.held.map((row) => row.map(() => "")), false, false, cut);
+      await this.paste(info, fromHeader && at.row === 0 ? { ...at, row: 1 } : at, cut.held.map((row) => row.map(() => "")), false, false, cut);
       return;
     }
     if (!text) {
@@ -468,7 +463,7 @@ export class Paste implements Feature {
     const data = parseClipboardCells(text) ?? [[text.replace(/\r?\n$/, "")]];
     // At a column's header only a column copied with its header (this page's copy, from its first cell, the header)
     const named = this.cut?.cells[0]?.[0]?.row === 0 && sameText(text) === this.cut.text;
-    await this.paste(widget, info, fromHeader && at.row === 0 && !named ? { ...at, row: 1 } : at, data, insert);
+    await this.paste(info, fromHeader && at.row === 0 && !named ? { ...at, row: 1 } : at, data, insert);
   }
 
   /**
@@ -480,7 +475,6 @@ export class Paste implements Feature {
    * where the cells would go.
    */
   private async paste(
-    widget: HTMLElement,
     info: WidgetInfo,
     at: CellRef,
     data: string[][],
@@ -509,8 +503,8 @@ export class Paste implements Feature {
     const closed = fromEditor ? this.host.takeEditor() : undefined;
     let skipped: ReadonlyMap<string, number> = new Map();
     const { newRows, newColumns } = plan;
-    const result = await this.host.write(
-      closed?.widget ?? widget,
+    const result = await this.host.writeTable(
+      info,
       (t) => {
         const saved = closed ? closed.save(t) : t;
         const edited = saved && growth ? growth.grow(saved) : saved;
@@ -546,7 +540,7 @@ export class Paste implements Feature {
     ];
     const what = cut ? `moved ${size.length} × ${width} cells` : insert ? `pasted ${plural(data.length, "new row")}` : `pasted ${data.length} × ${width} cells`;
     void this.host.bridge.flash(`Silverware Table: ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
-    if (closed) this.host.focusEditor(closed.widget);
+    if (closed) this.host.focusPage();
   }
 }
 

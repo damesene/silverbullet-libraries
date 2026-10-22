@@ -188,6 +188,7 @@ export class Controller implements TableHost {
     });
     this.dragContext = {
       doc,
+      targetOf: (target) => this.targetOf(target),
       targetAt: (x, y) => this.targetOf(null, { x, y }),
       tableFor: (key) => this.tableFor(key),
       cellNear: (info, x, y) => this.adapter.cellNear(info, x, y),
@@ -2064,7 +2065,13 @@ export class Controller implements TableHost {
    * the features offer (Feature.cellMenuEntries), in their groups' order.
    * False when none offers anything: the browser's menu stays.
    */
-  openCellMenu(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean {
+  openCellMenu(info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean {
+    const widget = this.widgetForKey(info.key);
+    const now = widget && this.infos.get(widget);
+    return !!widget && !!now && this.openCellMenuAt(widget, now, at, point);
+  }
+
+  private openCellMenuAt(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean {
     // A feature's own menu there instead (rows selected whole: theirs); the others' menus and picking end, as for the cell menu
     const taker = this.features.find((f) => f.cellMenu?.(widget, info, at, point));
     if (taker) {
@@ -2135,7 +2142,7 @@ export class Controller implements TableHost {
     }
     const point = { x: e.clientX, y: e.clientY };
     const hit = this.cellOfEvent(e.target);
-    if (hit && this.openCellMenu(hit[0], hit[1], hit[2], point)) {
+    if (hit && this.openCellMenuAt(hit[0], hit[1], hit[2], point)) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -2148,7 +2155,7 @@ export class Controller implements TableHost {
     e.stopPropagation();
     void this.enhance(widget, table).then(() => {
       const again = this.cellOfEvent(this.doc.elementFromPoint?.(point.x, point.y) ?? null);
-      if (again) this.openCellMenu(again[0], again[1], again[2], point);
+      if (again) this.openCellMenuAt(again[0], again[1], again[2], point);
     });
   };
 
@@ -2167,7 +2174,7 @@ export class Controller implements TableHost {
     const point = { x: e.clientX, y: e.clientY };
     this.stopLongPress = watchPress(this.doc.defaultView!, e, {
       longPress: () => {
-        if (this.tableMenu.kind !== "cell") this.openCellMenu(hit[0], hit[1], hit[2], point);
+        if (this.tableMenu.kind !== "cell") this.openCellMenuAt(hit[0], hit[1], hit[2], point);
       },
     });
   };
@@ -2179,7 +2186,7 @@ export class Controller implements TableHost {
     const info = editing && this.infos.get(editing.widget);
     if (!editing || !info) return false;
     const rect = editing.cell.getBoundingClientRect();
-    if (!this.openCellMenu(editing.widget, info, { row: editing.row, column: editing.column }, { x: rect.left, y: rect.bottom })) return false;
+    if (!this.openCellMenuAt(editing.widget, info, { row: editing.row, column: editing.column }, { x: rect.left, y: rect.bottom })) return false;
     e.preventDefault();
     e.stopPropagation();
     return true;

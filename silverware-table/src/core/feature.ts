@@ -241,10 +241,12 @@ export type DragPoint = {
 /**
  * A drag from a press (TableHost.drag), followed by the core: `onMove` as the
  * pointer moves (and, `repeat`, again while it is held still near an edge,
- * which scrolls), `onEnd` when it is let go or (`cancelled`) Esc or the window
- * left; keys on the way (Ctrl) go to `onKey`. `events`: mouse events (a mouse's
- * press) or pointer events (a touch's); `clamp`: the cell nearest the pointer
- * when it is past the table; `pageMark` on the page meanwhile (TableHost.pageMark)
+ * which scrolls), `onEnd` when it is let go or (`cancelled`) the window left,
+ * or Esc (`escape`); keys on the way (Ctrl) go to `onKey`. `events`: mouse
+ * events (a mouse's press) or pointer events (a touch's); what is under the
+ * pointer: its events' target, a touch's by its point (`byPoint`: always by
+ * its point); `clamp`: the cell nearest the pointer when it is past the
+ * table; `pageMark` on the page meanwhile (TableHost.pageMark)
  */
 export type DragOptions = {
   readonly key: string;
@@ -253,6 +255,8 @@ export type DragOptions = {
   readonly sideways?: boolean;
   readonly repeat?: boolean;
   readonly clamp?: boolean;
+  readonly escape?: boolean;
+  readonly byPoint?: boolean;
   readonly pageMark?: string;
   onMove(at: DragPoint): void;
   onEnd(at: DragPoint | undefined, cancelled: boolean): void;
@@ -469,7 +473,7 @@ export interface TableHost {
   /** A header given a new name (escaped markdown) other than by its editor: with what features keep in it (Feature.headerRenamed) */
   headerRenamed(name: string, original: string): string;
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
-  openCellMenu(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean;
+  openCellMenu(info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean;
   /** A floating element (position: fixed) in the page, kept out of the editor's way */
   floating<K extends keyof HTMLElementTagNameMap>(tag: K, className: string): HTMLElementTagNameMap[K];
   /** Places a floating element at a point of the viewport, kept inside it sideways, and shows it */
@@ -835,6 +839,8 @@ export interface Feature {
   editorOpened?(editor: CellEditor): void;
   /** What the cell editor holds changed (typed, pasted, set) */
   editorInput?(editor: CellEditor): void;
+  /** Text pasted into the cell editor (`text`, the clipboard's): true, the feature takes it (the browser does not paste it into the field) */
+  editorPaste?(editor: CellEditor, text: string): boolean;
   /**
    * A copy or a cut (Ctrl+C, Ctrl+X) not in a field with text selected: what
    * the feature puts on the clipboard (the cells selected); the first one's

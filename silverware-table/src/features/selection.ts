@@ -11,12 +11,28 @@
 // selection of several cells opens their menu. The cells selected move by
 // their edge, dragged with a mouse (with Ctrl: copied), or with Move to… in
 // their menu and a click (a tap) on the cell to move them to.
-import { CELL_MENU_ORDER, type CellMenuGroup, type CellRef, type Feature, type TableHost, type ToolbarButton, type WidgetInfo } from "../core/feature.ts";
-import { intersect, isEmpty, scrollNearEdge } from "../core/geometry.ts";
-import { Outline } from "../core/outline.ts";
+//
+// All of it in model terms (docs/silverware-table-isolation.md): the cells
+// selected are marks the core keeps (markLayer), their handles and the band
+// on their edge are the core's (handleLayer, outlineLayer), drags are the
+// core's (drag), what a pointer is on too (targetOf).
+import {
+  CELL_MENU_ORDER,
+  type CellMenuGroup,
+  type CellRef,
+  type ClipboardData,
+  type DragPoint,
+  type Feature,
+  type HandleLayer,
+  type MarkLayer,
+  type OutlineLayer,
+  type Panel,
+  type TableHost,
+  type ToolbarButton,
+  type WidgetInfo,
+} from "../core/feature.ts";
 import { watchPress } from "../core/press.ts";
-import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from "../clipboard.ts";
-import { cellValue, OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
+import { clipboardHtml, clipboardText, writeClipboard } from "../clipboard.ts";
 import { PAGE_ROWS } from "../core/editor.ts";
 import {
   columnBlockTo,
@@ -42,13 +58,20 @@ const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "H
 
 const EDIT_MODE_KEY = "silverware.table.editMode";
 
-/** The cells selected, to move: their table, rows as shown (index in shownRows) and columns, and the cells by row */
-type Block = {
-  readonly widget: HTMLElement;
-  readonly info: WidgetInfo;
-  readonly shown: readonly HTMLTableRowElement[];
+// The layers of the core this module draws with
+const EDGE_LAYER = "select-edge";
+const TARGET_LAYER = "move-target";
+const HANDLE_LAYER = "select";
+const START_HANDLE = "swt-select-handle swt-select-start";
+const END_HANDLE = "swt-select-handle swt-select-end";
+
+/** The cells selected: their table, its rows (of the markdown) as shown, and the columns from left to right */
+type Area = { readonly info: WidgetInfo; readonly rows: readonly number[]; readonly left: number; readonly right: number };
+
+/** The cells selected, to move: their place among the rows shown (`order`, `top`), their size and the cells by row */
+type Block = Area & {
+  readonly order: readonly number[];
   readonly top: number;
-  readonly left: number;
   readonly height: number;
   readonly width: number;
   readonly cells: readonly (readonly CellRef[])[];
@@ -79,6 +102,8 @@ const STEPS: Readonly<Record<string, readonly [number, number]>> = {
   ArrowRight: [0, 1],
 };
 
+const same = (a: CellRef, b: CellRef) => a.row === b.row && a.column === b.column;
+
 export class Selection implements Feature {
   // The cells selected (rows of the markdown, header 0), in the table with this key
   private selection: { readonly key: string; readonly anchor: CellRef; focus: CellRef } | undefined;
@@ -87,10 +112,15 @@ export class Selection implements Feature {
   private pressed: { readonly key: string; readonly anchor: CellRef; readonly focus: CellRef } | undefined;
   // A touch on cells selected, until it is a tap (their menu) or not
   private stopTap: (() => void) | undefined;
+  // The cells selected, and the one selected alone (the next click edits it)
+  private readonly selectedMarks: MarkLayer;
+  private readonly alone: MarkLayer;
   // The band on the selection's edge a mouse drags it by; the outline where it goes, and its address
-  private readonly edges: Outline;
-  private readonly targetEdges: Outline;
-  private readonly tip: HTMLElement;
+  private readonly edges: OutlineLayer;
+  private readonly targetEdges: OutlineLayer;
+  private readonly tip: Panel;
+  // The handles at the selection's first and last cell, shown by CSS after a touch (html[data-swt-pointer="touch"])
+  private readonly handles: HandleLayer;
   // Move to…: the table whose cells selected move to the cell pressed next
   private moving: string | undefined;
   // Where Move to… outlined the cells last
@@ -98,53 +128,42 @@ export class Selection implements Feature {
   // Edit mode: a click edits a cell; off (select mode, the default) a click selects it. Kept in this browser.
   private editMode = readEditMode();
 
-  // The handles at the selection's first and last cell, shown by CSS after a touch (html[data-swt-pointer="touch"])
-  private readonly handles: readonly [HTMLElement, HTMLElement];
-
   constructor(private readonly host: TableHost) {
-    const handle = (corner: "start" | "end") => {
-      const element = host.doc.createElement("div");
-      element.className = `${UI_CLASS} ${OUT_OF_LINE_CLASS} swt-select-handle swt-select-${corner}`;
-      element.addEventListener("pointerdown", (e) => this.dragHandle(e, corner));
-      return element;
-    };
-    this.handles = [handle("start"), handle("end")];
-    this.tip = host.floating("div", "swt-move-tip");
+    this.selectedMarks = host.markLayer("selected");
+    this.alone = host.markLayer("selected-alone");
+    this.handles = host.handleLayer(HANDLE_LAYER);
+    this.tip = host.panel("swt-move-tip");
     // A band per side, which a mouse drags the cells by
-    this.edges = new Outline(host.doc, (sides) => sides.map((side) => `swt-select-edge swt-select-edge-${side}`));
-    this.targetEdges = new Outline(host.doc, (sides) => [`swt-move-edge ${sides.map((side) => `swt-move-${side}`).join(" ")}`]);
+    this.edges = host.outlineLayer(EDGE_LAYER, (sides) => sides.map((side) => `swt-select-edge swt-select-edge-${side}`));
+    this.targetEdges = host.outlineLayer(TARGET_LAYER, (sides) => [`swt-move-edge ${sides.map((side) => `swt-move-${side}`).join(" ")}`]);
   }
 
   start(): void {
     this.showMode();
-    this.host.doc.defaultView!.addEventListener("copy", this.onCopy, true);
-    this.host.doc.defaultView!.addEventListener("pointerdown", this.onTouch, true);
+    this.host.doc.defaultView!.addEventListener("pointerdown", this.onPointerDown, true);
   }
 
   stop(): void {
-    this.host.doc.defaultView!.removeEventListener("copy", this.onCopy, true);
-    this.host.doc.defaultView!.removeEventListener("pointerdown", this.onTouch, true);
+    this.host.doc.defaultView!.removeEventListener("pointerdown", this.onPointerDown, true);
     this.stopTap?.();
     this.stopSelecting?.();
-    for (const handle of this.handles) handle.remove();
+    this.unmark();
     this.tip.remove();
     this.endMoving();
-    delete this.host.doc.documentElement.dataset.swtSelectMode;
+    this.host.pageMark("select-mode", false);
   }
 
   clickSelects(): boolean {
     return !this.editMode;
   }
 
-  /** Select mode on the page's root, for CSS: a click selects (the default pointer), on a cell selected alone it edits (the text cursor) */
+  /** Select mode on the page, for CSS: a click selects (the default pointer), on a cell selected alone it edits (the text cursor) */
   private showMode(): void {
-    const root = this.host.doc.documentElement;
-    if (this.editMode) delete root.dataset.swtSelectMode;
-    else root.dataset.swtSelectMode = "";
+    this.host.pageMark("select-mode", !this.editMode);
   }
 
   owns(node: Node): boolean {
-    return this.handles.some((handle) => handle.contains(node)) || this.edges.contains(node) || this.tip.contains(node);
+    return this.tip.element.contains(node);
   }
 
   /**
@@ -154,18 +173,21 @@ export class Selection implements Feature {
    */
   mouseDown(e: MouseEvent): boolean {
     if (this.moving) return this.movedBy(e);
-    if (!(e.target instanceof Element) || !this.owns(e.target)) return false;
+    const target = this.host.targetOf(e.target);
+    const edge = target.kind === "outline" && target.layer === EDGE_LAYER;
+    if (!edge && !(target.kind === "handle" && target.layer === HANDLE_LAYER)) return false;
     e.preventDefault();
     e.stopPropagation();
-    if (e.button === 0 && e.target.closest(".swt-select-edge")) this.dragCells(e);
+    if (e.button === 0 && edge) this.dragCells(e, target);
     return true;
   }
 
-  // Any click ends a selection (one on Silverware Table's own controls aside)
+  // Any click ends a selection (one on Silverware Table's own controls, its handles and the band on its edge aside)
   beforeMouseDown(e: MouseEvent): void {
     const selection = this.selection;
     this.pressed = selection && { ...selection };
-    if (selection && !(e.target instanceof Node && this.host.isFloating(e.target))) this.clear();
+    const target = this.host.targetOf(e.target).kind;
+    if (selection && (target === "cell" || target === "none")) this.clear();
   }
 
   /**
@@ -177,15 +199,14 @@ export class Selection implements Feature {
   beforeCellPress(_widget: HTMLElement, info: WidgetInfo, ref: CellRef, e: MouseEvent): boolean {
     const pressed = this.pressed?.key === info.key ? this.pressed : undefined;
     this.pressed = undefined;
-    const same = (a: CellRef, b: CellRef) => a.row === b.row && a.column === b.column;
     if (!e.shiftKey && (this.editMode || (pressed && same(pressed.anchor, ref) && same(pressed.focus, ref)))) return false;
     const editing = this.host.editing;
-    const edited = editing && this.host.infoOf(editing.widget)?.key === info.key ? { row: editing.row, column: editing.column } : undefined;
+    const edited = editing?.key === info.key ? { row: editing.row, column: editing.column } : undefined;
     const anchor = !e.shiftKey ? ref : (pressed?.anchor ?? edited ?? ref);
     // A cell being edited is saved: the press selects now
     void this.host.saveEditing();
     this.selectCells(info, anchor, ref);
-    if (!e.shiftKey) this.afterCellPress(info, ref);
+    if (!e.shiftKey) this.afterCellPress(info, ref, e);
     return true;
   }
 
@@ -215,35 +236,29 @@ export class Selection implements Feature {
    * the button held, selects the cells between the two as shown (sorting and
    * filters included), and closes the cell editor the press opened, unchanged
    */
-  afterCellPress(info: WidgetInfo, anchor: CellRef): void {
+  afterCellPress(info: WidgetInfo, anchor: CellRef, e: MouseEvent): void {
     this.stopSelecting?.();
     const { key } = info;
-    const win = this.host.doc.defaultView!;
-    const move = (ev: MouseEvent) => {
-      if (ev.buttons === 0) {
-        end();
-        return;
-      }
-      const ref = this.host.cellUnder(ev.target, key)?.ref;
-      if (!ref) return;
-      const current = this.selection;
-      if (!current) {
-        if (ref.row === anchor.row && ref.column === anchor.column) return;
-        // The press opened the anchor's editor: it goes, nothing was typed in it
-        this.host.cancelEditing();
-        this.selection = { key, anchor, focus: ref };
-      } else if (current.focus.row === ref.row && current.focus.column === ref.column) return;
-      else current.focus = ref;
-      this.show();
-    };
-    const end = () => {
-      win.removeEventListener("mousemove", move, true);
-      win.removeEventListener("mouseup", end, true);
-      this.stopSelecting = undefined;
-    };
-    win.addEventListener("mousemove", move, true);
-    win.addEventListener("mouseup", end, true);
-    this.stopSelecting = end;
+    this.stopSelecting = this.host.drag(e, {
+      key,
+      events: "mouse",
+      onMove: (at: DragPoint) => {
+        const ref = at.cell;
+        if (!ref) return;
+        const current = this.selection;
+        if (!current) {
+          if (same(ref, anchor)) return;
+          // The press opened the anchor's editor: it goes, nothing was typed in it
+          this.host.cancelEditing();
+          this.selection = { key, anchor, focus: ref };
+        } else if (same(current.focus, ref)) return;
+        else current.focus = ref;
+        this.show();
+      },
+      onEnd: () => {
+        this.stopSelecting = undefined;
+      },
+    });
   }
 
   keyDown(e: KeyboardEvent): boolean {
@@ -263,9 +278,9 @@ export class Selection implements Feature {
     // Ctrl+V (Ctrl+Shift+V): pasted from the first cell selected, by its editor opened for it (the paste goes there)
     if (!inField && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v") {
       // From the top left cell, as a spreadsheet pastes (and Paste in the cell menu)
-      const widget = this.host.widgetForKey(this.selection.key);
-      const info = widget && this.host.infoOf(widget);
-      const at = (info && this.refs(info)[0]) ?? this.selection.anchor;
+      const area = this.area();
+      const at = area ? { row: area.rows[0]!, column: area.left } : this.selection.anchor;
+      const info = area?.info ?? this.host.tableFor(this.selection.key);
       this.clear();
       if (info) this.host.editCell(info, at, "select");
       return false;
@@ -307,8 +322,8 @@ export class Selection implements Feature {
    * spreadsheet, and stays so for Ctrl+C and Delete
    */
   selectedCells(info: WidgetInfo, at: CellRef): readonly CellRef[] {
-    const refs = this.selection?.key === info.key ? this.refs(info) : [];
-    if (refs.some((ref) => ref.row === at.row && ref.column === at.column)) return refs;
+    const refs = this.selection?.key === info.key ? this.refs() : [];
+    if (refs.some((ref) => same(ref, at))) return refs;
     // A cell being edited is saved as the menu takes the focus
     this.selection = { key: info.key, anchor: at, focus: at };
     this.show();
@@ -327,8 +342,7 @@ export class Selection implements Feature {
    */
   private editFromKey(e: KeyboardEvent): boolean {
     const selection = this.selection;
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
+    const info = selection && this.host.tableFor(selection.key);
     if (!selection || !info || e.metaKey || e.isComposing) return false;
     // AltGr comes as Ctrl+Alt: it types
     const typing = (e.key.length === 1 || e.key === "Dead") && e.ctrlKey === e.altKey;
@@ -344,36 +358,34 @@ export class Selection implements Feature {
     return true;
   }
 
+  /** Whether an arrow takes the cell selected alone past the table's edge, a feature selecting on there */
+  private leavesTable(e: KeyboardEvent): boolean {
+    const selection = this.selection;
+    const step = STEPS[e.key];
+    const info = selection && this.host.tableFor(selection.key);
+    if (!step || !selection || !info) return false;
+    const { anchor, focus } = selection;
+    if (!same(anchor, focus)) return false;
+    const order = this.host.shownOrder(info);
+    const at = order.indexOf(focus.row);
+    const r = at + step[0];
+    const column = focus.column + step[1];
+    const inside = r >= 0 && r < order.length && column >= 0 && column < info.columns;
+    return at >= 0 && !inside && this.host.selectionLeaves(info, focus, step);
+  }
+
   /**
    * Where a key takes the selection's last cell (rows as shown): arrows (with
    * Ctrl too) a cell, Home / End the row's first / last cell, Ctrl+Home
    * / End the table's first / last cell, PageUp / PageDown 10 rows (PageUp
    * stops at the first body row, as in the cell editor); undefined: not such a key
    */
-  /** Whether an arrow takes the cell selected alone past the table's edge, a feature selecting on there */
-  private leavesTable(e: KeyboardEvent): boolean {
-    const selection = this.selection;
-    const step = STEPS[e.key];
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
-    if (!step || !selection || !info) return false;
-    const { anchor, focus } = selection;
-    if (anchor.row !== focus.row || anchor.column !== focus.column) return false;
-    const shown = this.host.shownRows(info);
-    const at = shown.findIndex((tr) => this.host.rowOf(info, tr) === focus.row);
-    const r = at + step[0];
-    const column = focus.column + step[1];
-    const inside = r >= 0 && r < shown.length && column >= 0 && column < info.columns;
-    return at >= 0 && !inside && this.host.selectionLeaves(info, focus, step);
-  }
-
   private keyTarget(e: KeyboardEvent): CellRef | undefined {
     const selection = this.selection;
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
+    const info = selection && this.host.tableFor(selection.key);
     if (!selection || !info) return undefined;
-    const shown = this.host.shownRows(info);
-    const at = shown.findIndex((tr) => this.host.rowOf(info, tr) === selection.focus.row);
+    const order = this.host.shownOrder(info);
+    const at = order.indexOf(selection.focus.row);
     if (at < 0) return undefined;
     const ctrl = e.ctrlKey;
     let r = at;
@@ -387,12 +399,11 @@ export class Selection implements Feature {
       if (ctrl) r = 0;
     } else if (e.key === "End") {
       column = info.columns - 1;
-      if (ctrl) r = shown.length - 1;
+      if (ctrl) r = order.length - 1;
     } else if (e.key === "PageUp" && !ctrl) r = r === 0 ? 0 : Math.max(1, r - PAGE_ROWS);
     else if (e.key === "PageDown" && !ctrl) r = r + PAGE_ROWS;
     else return undefined;
-    const tr = shown[Math.max(0, Math.min(shown.length - 1, r))]!;
-    return { row: this.host.rowOf(info, tr), column: Math.max(0, Math.min(info.columns - 1, column)) };
+    return { row: order[Math.max(0, Math.min(order.length - 1, r))]!, column: Math.max(0, Math.min(info.columns - 1, column)) };
   }
 
   /** The selection's last cell to `to`; without `extend` the selection is just that cell */
@@ -402,11 +413,8 @@ export class Selection implements Feature {
     this.selection = { key: selection.key, anchor: extend ? selection.anchor : to, focus: to };
     this.show();
     // Out of view (a page down): scrolled to
-    const widget = this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
-    const cell = info && this.host.cellAt(info, to);
-    if (cell && info && to.row > 0) this.host.rowNeeded(info, cell.parentElement as HTMLTableRowElement);
-    cell?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    const info = this.host.tableFor(selection.key);
+    if (info) this.host.revealCell(info, to);
   }
 
   /**
@@ -416,9 +424,8 @@ export class Selection implements Feature {
    */
   private async moveLines(key: string): Promise<void> {
     const selection = this.selection;
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
-    if (!selection || !widget || !info) return;
+    const info = selection && this.host.tableFor(selection.key);
+    if (!selection || !info) return;
     const vertical = key === "ArrowUp" || key === "ArrowDown" || key === "PageUp" || key === "PageDown";
     const lines = vertical ? [selection.anchor.row, selection.focus.row] : [selection.anchor.column, selection.focus.column];
     const first = Math.min(...lines);
@@ -455,19 +462,18 @@ export class Selection implements Feature {
       return;
     }
     // Moved out of view: scrolled to
-    const now = this.host.widgetForKey(selection.key);
-    const nowInfo = now && this.host.infoOf(now);
+    const now = this.host.tableFor(selection.key);
     const focus = this.selection?.focus;
-    if (nowInfo && focus) this.host.cellAt(nowInfo, focus)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    if (now && focus) this.host.revealCell(now, focus);
   }
 
   selected(info: WidgetInfo): readonly CellRef[] | undefined {
-    return this.selection?.key === info.key ? this.refs(info) : undefined;
+    return this.selection?.key === info.key ? this.refs() : undefined;
   }
 
   /** Clear in the menu of rows (columns): their cells (a column's header keeps its name), after the clipboard's entries */
-  lineMenuEntries(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
-    const rows = axis === "row" ? lines : this.host.bodyRows(info).map((tr) => this.host.rowOf(info, tr));
+  lineMenuEntries(_widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+    const rows = axis === "row" ? lines : Array.from({ length: info.rows - 1 }, (_, i) => i + 1);
     const columns = axis === "row" ? Array.from({ length: info.columns }, (_, c) => c) : lines;
     const cells = rows.flatMap((row) => columns.map((column) => ({ row, column })));
     const name = `${lines.length > 1 ? `${lines.length} ` : ""}${axis}${lines.length > 1 ? "s" : ""}`;
@@ -477,13 +483,13 @@ export class Selection implements Feature {
         label: `Clear ${name}`,
         icon: ICONS.clear,
         hint: axis === "row" ? "Empty the cells, formulas included, as Delete does" : "Empty the cells under the header (it keeps its name), as Delete does",
-        run: () => void this.empty(widget, info, cells),
+        run: () => void this.empty(info, cells),
       },
     ];
   }
 
   /** Clear in the menu of a cell or of the cells selected (Copy, Cut and Paste are the paste module's; Copy here when it is off) */
-  cellMenuEntries(widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup[] {
+  cellMenuEntries(_widget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): CellMenuGroup[] {
     const body = cells.filter((ref) => ref.row > 0).length;
     const entries: MenuEntry[] = [];
     if (!this.host.moduleOn("paste")) {
@@ -502,7 +508,7 @@ export class Selection implements Feature {
         label: body > 1 ? `Clear ${body} cells` : "Clear",
         icon: ICONS.clear,
         hint: "Empty the cells, formulas included, as Delete does",
-        run: () => void this.empty(widget, info, cells),
+        run: () => void this.empty(info, cells),
       });
     }
     // Cells selected: the rows and the columns they are in, deleted whole, last
@@ -517,7 +523,7 @@ export class Selection implements Feature {
           icon: ICONS.trash,
           danger: true,
           hint: "Delete the rows these cells are in",
-          run: () => void this.deleteRows(widget, info, rows),
+          run: () => void this.deleteRows(info, rows),
         });
       }
       deleting.push({
@@ -526,7 +532,7 @@ export class Selection implements Feature {
         icon: ICONS.trash,
         danger: true,
         hint: "Delete the columns these cells are in",
-        run: () => void this.deleteColumns(widget, info, columns),
+        run: () => void this.deleteColumns(info, columns),
         ...(columns.length >= info.columns ? { disabled: "A table needs at least one column" } : {}),
       });
     }
@@ -547,14 +553,16 @@ export class Selection implements Feature {
     ];
   }
 
+  /** The cells' values in rows as shown, as Ctrl+C copies them */
+  private valuesOf(info: WidgetInfo, cells: readonly CellRef[]): string[][] {
+    const rows = new Map<number, string[]>();
+    for (const ref of cells) rows.set(ref.row, [...(rows.get(ref.row) ?? []), this.host.shownValue(info, ref) ?? ""]);
+    return Array.from(rows.values());
+  }
+
   /** The cells, as values in rows as shown, onto the clipboard as Ctrl+C puts them */
   private async copy(info: WidgetInfo, cells: readonly CellRef[]): Promise<void> {
-    const rows = new Map<number, string[]>();
-    for (const ref of cells) {
-      const cell = this.host.cellAt(info, ref, true);
-      rows.set(ref.row, [...(rows.get(ref.row) ?? []), cell ? cellValue(cell) : ""]);
-    }
-    const values = Array.from(rows.values());
+    const values = this.valuesOf(info, cells);
     try {
       await writeClipboard(this.host.doc, clipboardText(values), clipboardHtml(values));
       void this.host.bridge.flash(`Silverware Table: copied ${values.length} × ${values[0]?.length ?? 0} cells`, "info");
@@ -569,121 +577,68 @@ export class Selection implements Feature {
     if (this.moving) this.endMoving();
   }
 
-  // A table rendered again (after a write) shows the selection again
+  // A table rendered again (after a write) shows the selection again: its rows may be elsewhere now
   enhanced(_widget: HTMLElement, info: WidgetInfo): void {
     if (this.selection?.key === info.key) this.show();
   }
 
-  /** The selected cells as shown: rows top to bottom (the header first), columns left to right */
-  private cells(): HTMLTableCellElement[][] | undefined {
+  /** The cells selected: rows as shown (the header first), columns left to right */
+  private area(): Area | undefined {
     const selection = this.selection;
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
+    const info = selection && this.host.tableFor(selection.key);
     if (!selection || !info) return undefined;
-    const shown = this.host.shownRows(info);
-    const index = (row: number) =>
-      shown.findIndex((tr) => this.host.rowOf(info, tr) === row);
-    const a = index(selection.anchor.row);
-    const b = index(selection.focus.row);
-    if (a < 0 || b < 0) return undefined;
+    const rows = this.host.shownBetween(info, selection.anchor.row, selection.focus.row);
     // Within the table's columns: a column selected may be gone (deleted, the last one)
     const left = Math.min(selection.anchor.column, selection.focus.column);
     const right = Math.min(Math.max(selection.anchor.column, selection.focus.column), info.columns - 1);
-    if (left > right) return undefined;
-    return shown.slice(Math.min(a, b), Math.max(a, b) + 1).map((tr) => Array.from(tr.cells).slice(left, right + 1));
+    return rows.length && left <= right ? { info, rows, left, right } : undefined;
+  }
+
+  /** The selected cells as references, rows as shown (the header first), columns left to right */
+  private refs(): CellRef[] {
+    const area = this.area();
+    if (!area) return [];
+    return area.rows.flatMap((row) => Array.from({ length: area.right - area.left + 1 }, (_, j) => ({ row, column: area.left + j })));
   }
 
   private show(): void {
+    const area = this.area();
+    const key = this.selection?.key;
     this.unmark();
-    const cells = this.cells() ?? [];
-    for (const row of cells) for (const cell of row) cell.classList.add("swt-selected");
-    // A cell selected alone: the next click edits it
-    if (cells.length === 1 && cells[0]!.length === 1) cells[0]![0]!.classList.add("swt-selected-alone");
-    this.placeHandles(cells);
-    this.placeEdges(cells);
+    if (area && key) {
+      const refs = this.refs();
+      this.selectedMarks.set(key, refs);
+      // A cell selected alone: the next click edits it
+      this.alone.set(key, refs.length === 1 ? refs : []);
+      this.placeHandles(key, area);
+      this.placeEdges(key);
+    }
     this.host.selectionChanged();
   }
 
   /**
-   * The handles in the selection's first and last cell, on their corners;
-   * inside them on the table's edges, where its box would cut what is past
-   * them and leave them half to grab
+   * The handles in the selection's first and last cell, on their corners
+   * (inside them on the table's edges, the core's); after a touch (the handles
+   * show only then), those of whole rows (columns) in the middle of what is in view
    */
-  private placeHandles(cells: readonly (readonly HTMLTableCellElement[])[]): void {
-    const first = cells[0]?.[0];
-    const lastRow = cells[cells.length - 1];
-    const last = lastRow?.[lastRow.length - 1];
-    const selection = this.selection;
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
-    if (!first || !last || !widget || !info) return;
-    const shown = this.host.shownRows(info);
-    const [start, end] = this.handles;
-    for (const handle of this.handles) {
-      handle.classList.remove("swt-select-mid");
-      handle.style.left = handle.style.top = handle.style.right = handle.style.bottom = "";
-    }
-    // Whole rows (columns), after a touch (the handles show only then: nothing is measured for a mouse)
-    const wholeRows = cells[0]!.length === info.columns && first.parentElement !== shown[0];
-    const wholeColumns = first.parentElement === shown[0] && cells.length === shown.length;
-    if (this.host.pressedWith === "touch" && (wholeRows || wholeColumns) && this.placeMidHandles(widget, info, cells, wholeRows ? "row" : "column")) return;
-    start.classList.toggle("swt-select-edge-row", first.parentElement === shown[0]);
-    start.classList.toggle("swt-select-edge-column", first.cellIndex === 0);
-    end.classList.toggle("swt-select-edge-row", last.parentElement === shown[shown.length - 1]);
-    end.classList.toggle("swt-select-edge-column", last.cellIndex === info.columns - 1);
-    first.append(start);
-    last.append(end);
-  }
-
-  /**
-   * The handles of whole rows (columns) in the middle of what is in view, on
-   * the first row's top and the last row's bottom (the first column's left,
-   * the last column's right), as a spreadsheet's app puts them: in reach
-   * however far the page or the table scrolled (placed again as it scrolls).
-   * False when no cell of the lines is in view there.
-   */
-  private placeMidHandles(widget: HTMLElement, info: WidgetInfo, cells: readonly (readonly HTMLTableCellElement[])[], axis: "row" | "column"): boolean {
-    const shown = intersect(this.host.shownRect(widget, info), this.host.viewBounds(widget));
-    if (isEmpty(shown)) return false;
-    const { left, right, top, bottom } = shown;
-    const middle = axis === "row" ? (left + right) / 2 : (top + bottom) / 2;
-    // The cell of a line that the middle is in, and where in it
-    const at = (line: readonly HTMLTableCellElement[]) => {
-      for (const cell of line) {
-        if (!cell.isConnected) continue;
-        const r = cell.getBoundingClientRect();
-        const [from, to] = axis === "row" ? [r.left, r.right] : [r.top, r.bottom];
-        if (middle >= from && middle < to) return { cell, offset: middle - from };
-      }
-      return undefined;
-    };
-    const firstLine = axis === "row" ? cells[0]! : cells.map((row) => row[0]!);
-    const lastLine = axis === "row" ? cells[cells.length - 1]! : cells.map((row) => row[row.length - 1]!);
-    const a = at(firstLine);
-    const b = at(lastLine);
-    if (!a || !b) return false;
-    const [start, end] = this.handles;
-    const half = start.offsetWidth / 2 || 14;
-    for (const [handle, place] of [[start, a], [end, b]] as const) {
-      handle.classList.remove("swt-select-edge-row", "swt-select-edge-column");
-      handle.classList.add("swt-select-mid");
-      if (axis === "row") {
-        handle.style.left = `${place.offset - half}px`;
-        handle.style.right = "auto";
-      } else {
-        handle.style.top = `${place.offset - half}px`;
-        handle.style.bottom = "auto";
-      }
-      place.cell.append(handle);
-    }
-    return true;
+  private placeHandles(key: string, area: Area): void {
+    const { info, rows, left, right } = area;
+    const order = this.host.shownOrder(info);
+    const wholeRows = left === 0 && right === info.columns - 1 && rows[0] !== order[0];
+    const wholeColumns = rows[0] === order[0] && rows.length === order.length;
+    const mid = this.host.pressedWith === "touch" && (wholeRows || wholeColumns) ? (wholeRows ? "row" : "column") : undefined;
+    this.handles.place(key, [
+      { className: START_HANDLE, row: rows[0]!, column: left, ...(mid ? { mid } : {}) },
+      { className: END_HANDLE, row: rows[rows.length - 1]!, column: right, ...(mid ? { mid } : {}) },
+    ]);
   }
 
   // The page or a table scrolled: the handles of whole rows (columns) go on in the middle of what is in view
   layoutChanged(): void {
-    if (!this.selection || this.host.pressedWith !== "touch") return;
-    const cells = this.cells();
-    if (cells?.length) this.placeHandles(cells);
+    const selection = this.selection;
+    if (!selection || this.host.pressedWith !== "touch") return;
+    const area = this.area();
+    if (area) this.placeHandles(selection.key, area);
   }
 
   /**
@@ -694,76 +649,69 @@ export class Selection implements Feature {
    */
   private dragHandle(e: PointerEvent, corner: "start" | "end"): void {
     const selection = this.selection;
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
-    const cells = this.cells();
-    if (e.button !== 0 || !selection || !widget || !info || !cells?.length) return;
+    const area = this.area();
+    if (e.button !== 0 || !selection || !area) return;
     e.preventDefault();
     e.stopPropagation();
-    const lastRow = cells[cells.length - 1]!;
-    const startRef = this.host.cellRef(info, cells[0]![0]!);
-    const endRef = this.host.cellRef(info, lastRow[lastRow.length - 1]!);
-    if (!startRef || !endRef) return;
+    const { info, rows, left, right } = area;
+    const startRef = { row: rows[0]!, column: left };
+    const endRef = { row: rows[rows.length - 1]!, column: right };
     const [anchor, dragged] = corner === "start" ? [endRef, startRef] : [startRef, endRef];
-    const wholeRows = cells[0]!.length === info.columns;
-    const wholeColumns = startRef.row === 0 && cells.length === this.host.shownRows(info).length;
+    const wholeRows = left === 0 && right === info.columns - 1;
+    const wholeColumns = startRef.row === 0 && rows.length === this.host.shownOrder(info).length;
     const { key } = selection;
-    const doc = this.host.doc;
-    const win = doc.defaultView!;
-    doc.body.classList.add("swt-select-dragging");
-    // A finger held still near an edge: it goes on scrolling, the selection with it
-    let last: PointerEvent | undefined;
-    const timer = win.setInterval(() => last && move(last), 50);
-    const move = (ev: PointerEvent) => {
-      last = ev;
-      scrollNearEdge(widget, ev.clientX, ev.clientY);
-      const hit = this.host.cellUnder(doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null, key);
-      if (!hit) return;
-      const { ref } = hit;
-      const focus = { row: wholeColumns ? dragged.row : ref.row, column: wholeRows ? dragged.column : ref.column };
-      const now = this.selection;
-      if (now?.key === key && now.anchor === anchor && now.focus.row === focus.row && now.focus.column === focus.column) return;
-      this.selectCells(hit.info, anchor, focus);
-    };
-    const end = () => {
-      win.clearInterval(timer);
-      win.removeEventListener("pointermove", move, true);
-      win.removeEventListener("pointerup", end, true);
-      win.removeEventListener("pointercancel", end, true);
-      doc.body.classList.remove("swt-select-dragging");
-      this.stopSelecting = undefined;
-    };
     this.stopSelecting?.();
-    win.addEventListener("pointermove", move, true);
-    win.addEventListener("pointerup", end, true);
-    win.addEventListener("pointercancel", end, true);
-    this.stopSelecting = end;
+    this.stopSelecting = this.host.drag(e, {
+      key,
+      events: "pointer",
+      autoscroll: true,
+      // A finger held still near an edge: it goes on scrolling, the selection with it
+      repeat: true,
+      pageMark: "select-dragging",
+      onMove: (at) => {
+        if (!at.cell) return;
+        const focus = { row: wholeColumns ? dragged.row : at.cell.row, column: wholeRows ? dragged.column : at.cell.column };
+        const now = this.selection;
+        if (now?.key === key && same(now.anchor, anchor) && same(now.focus, focus)) return;
+        this.selection = { key, anchor, focus };
+        this.show();
+      },
+      onEnd: () => {
+        this.stopSelecting = undefined;
+      },
+    });
   }
 
   /**
-   * A tap on a cell of a selection of several opens their menu, as in a
-   * spreadsheet's app. Told by the touch's pointer events, which always come
-   * (the mouse events a browser fires after a tap may not); the core then
-   * swallows those, as after a long press.
+   * A press: on one of the selection's handles it drags them (a finger's, or a
+   * mouse's after a touch showed them); while Move to… waits, a touch picks
+   * where; a tap on a cell of a selection of several opens their menu, as in a
+   * spreadsheet's app. Told by the pointer events, which always come (the mouse
+   * events a browser fires after a tap may not); the core then swallows those,
+   * as after a long press.
    */
-  private onTouch = (e: PointerEvent): void => {
+  private onPointerDown = (e: PointerEvent): void => {
     this.stopTap?.();
     if (this.moving) {
       this.touchMove(e);
       return;
     }
+    const target = this.host.targetOf(e.target);
+    if (target.kind === "handle" && target.layer === HANDLE_LAYER) {
+      this.dragHandle(e, target.className === START_HANDLE ? "start" : "end");
+      return;
+    }
     const selection = this.selection;
-    if (e.pointerType !== "touch" || e.button !== 0 || !selection || (e.target instanceof Node && this.owns(e.target))) return;
-    const hit = this.host.cellUnder(e.target, selection.key);
-    if (!hit) return;
-    const { widget, info, ref } = hit;
-    const refs = this.refs(info);
-    if (refs.length < 2 || !refs.some((r) => r.row === ref.row && r.column === ref.column)) return;
+    if (e.pointerType !== "touch" || e.button !== 0 || !selection || target.kind !== "cell" || target.key !== selection.key) return;
+    const info = this.host.tableFor(selection.key);
+    const ref = { row: target.row, column: target.column };
+    const refs = this.refs();
+    if (!info || refs.length < 2 || !refs.some((r) => same(r, ref))) return;
     const point = { x: e.clientX, y: e.clientY };
     // A long press opens the menu anyway (the core's): a tap does here
     this.stopTap = watchPress(this.host.doc.defaultView!, e, {
       tap: () => {
-        if (!this.host.pressTaken()) this.host.openCellMenu(widget, info, ref, point);
+        if (!this.host.pressTaken()) this.host.openCellMenu(info, ref, point);
       },
     });
   };
@@ -775,25 +723,24 @@ export class Selection implements Feature {
   }
 
   private unmark(): void {
-    for (const cell of Array.from(this.host.doc.querySelectorAll(".swt-selected"))) cell.classList.remove("swt-selected", "swt-selected-alone");
-    for (const handle of this.handles) handle.remove();
-    this.edges.clear();
+    this.selectedMarks.clear();
+    this.alone.clear();
+    this.handles.hide();
+    this.edges.hide();
   }
 
   // ---- moving the cells selected ---------------------------------------------
 
   /** The cells selected as a block that can move: body cells of a table shown as written */
   private block(): Block | undefined {
-    const selection = this.selection;
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
-    const rows = this.cells();
-    if (!widget || !info || !rows?.length || this.host.rearranged(info)) return undefined;
-    const shown = this.host.shownRows(info);
-    const top = shown.indexOf(rows[0]![0]!.parentElement as HTMLTableRowElement);
+    const area = this.area();
+    if (!area || this.host.rearranged(area.info)) return undefined;
+    const order = this.host.shownOrder(area.info);
+    const top = order.indexOf(area.rows[0]!);
     if (top < 1) return undefined;
-    const cells = rows.map((row) => row.map((cell) => this.host.cellRef(info, cell)!));
-    return { widget, info, shown, top, left: rows[0]![0]!.cellIndex, height: rows.length, width: rows[0]!.length, cells };
+    const width = area.right - area.left + 1;
+    const cells = area.rows.map((row) => Array.from({ length: width }, (_, j) => ({ row, column: area.left + j })));
+    return { ...area, order, top, height: area.rows.length, width, cells };
   }
 
   /**
@@ -801,32 +748,37 @@ export class Selection implements Feature {
    * cell on the selection's edge (CSS shows it for a mouse only, with the move
    * pointer); none where the cells cannot move
    */
-  private placeEdges(rows: readonly (readonly HTMLTableCellElement[])[]): void {
-    this.edges.clear();
-    if (!this.block()) return;
-    this.edges.show(rows.length, rows[0]?.length ?? 0, (i, j) => rows[i]![j]);
+  private placeEdges(key: string): void {
+    const block = this.block();
+    if (block) this.edges.show(key, block.rows, [block.left, block.right]);
+    else this.edges.hide();
   }
 
   /** Where the block goes with its first cell at the row (as shown) and column given, kept within the table's body */
   private placeOf(block: Block, row: number, column: number): { row: number; column: number } {
     return {
-      row: Math.max(1, Math.min(block.shown.length - block.height, row)),
+      row: Math.max(1, Math.min(block.order.length - block.height, row)),
       column: Math.max(0, Math.min(block.info.columns - block.width, column)),
     };
   }
 
   /** The cells where the block would go outlined, dashed, and its address (A1 as formulas count rows) by the pointer */
   private showTarget(block: Block, at: { row: number; column: number } | undefined, copy: boolean, x: number, y: number): void {
-    this.targetEdges.clear();
     if (!at || (at.row === block.top && at.column === block.left)) {
-      this.tip.classList.remove("swt-visible");
+      this.targetEdges.hide();
+      this.tip.hide();
       return;
     }
-    this.targetEdges.show(block.height, block.width, (i, j) => block.shown[at.row + i]?.cells[at.column + j]);
+    this.targetEdges.show(block.info.key, block.order.slice(at.row, at.row + block.height), [at.column, at.column + block.width - 1]);
     const name = (row: number, column: number) => `${columnLetters(column)}${row}`;
     const range = block.height * block.width > 1 ? `${name(at.row, at.column)}:${name(at.row + block.height - 1, at.column + block.width - 1)}` : name(at.row, at.column);
-    this.tip.textContent = copy ? `+ ${range}` : range;
-    this.host.place(this.tip, x + 14, y + 14);
+    this.tip.element.textContent = copy ? `+ ${range}` : range;
+    this.placeTip(x, y);
+  }
+
+  /** The tip by the pointer */
+  private placeTip(x: number, y: number): void {
+    this.tip.show({ kind: "point", x: x + 14, y: y + 14 }, { gap: 0 });
   }
 
   /**
@@ -835,61 +787,47 @@ export class Selection implements Feature {
    * move there (with Ctrl, as in a spreadsheet: copied), as one edit. Esc
    * cancels. Within the table's body: no rows or columns added.
    */
-  private dragCells(e: MouseEvent): void {
+  private dragCells(e: MouseEvent, pressed: CellRef): void {
     const block = this.block();
-    const pressed = e.target instanceof Element ? (e.target.closest("td") as HTMLTableCellElement | null) : null;
-    if (!block || !pressed) return;
-    const pressedRow = block.shown.indexOf(pressed.parentElement as HTMLTableRowElement) - block.top;
-    const pressedColumn = pressed.cellIndex - block.left;
-    const doc = this.host.doc;
-    const win = doc.defaultView!;
+    if (!block) return;
+    const pressedRow = block.order.indexOf(pressed.row) - block.top;
+    const pressedColumn = pressed.column - block.left;
     let at: { row: number; column: number } | undefined;
     let copy = false;
-    doc.body.classList.add("swt-moving-cells");
-    const move = (ev: MouseEvent) => {
-      copy = ev.ctrlKey || ev.metaKey;
-      const cell = this.host.cellUnder(doc.elementFromPoint?.(ev.clientX, ev.clientY) ?? null, block.info.key)?.cell;
-      if (cell) {
-        const row = block.shown.indexOf(cell.parentElement as HTMLTableRowElement);
-        if (row >= 0) at = this.placeOf(block, row - pressedRow, cell.cellIndex - pressedColumn);
-      }
-      this.showTarget(block, at, copy, ev.clientX, ev.clientY);
-    };
-    const finish = (apply: boolean) => {
-      win.removeEventListener("mousemove", move, true);
-      win.removeEventListener("mouseup", up, true);
-      win.removeEventListener("keydown", key, true);
-      win.removeEventListener("keyup", key, true);
-      doc.body.classList.remove("swt-moving-cells");
-      this.showTarget(block, undefined, false, 0, 0);
-      if (apply && at && (at.row !== block.top || at.column !== block.left)) void this.moveBlock(block, at, copy);
-    };
-    const up = (ev: MouseEvent) => {
-      copy = ev.ctrlKey || ev.metaKey;
-      finish(true);
-    };
-    // Esc cancels; Ctrl pressed or let go on the way changes a move into a copy and back
-    const key = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape" && ev.type === "keydown") {
-        ev.preventDefault();
-        ev.stopPropagation();
-        finish(false);
-      } else if (ev.key === "Control" || ev.key === "Meta") {
+    let last = { x: e.clientX, y: e.clientY };
+    this.host.drag(e, {
+      key: block.info.key,
+      events: "mouse",
+      byPoint: true,
+      escape: true,
+      pageMark: "moving-cells",
+      onMove: (point) => {
+        copy = point.ctrl;
+        last = point;
+        if (point.cell) {
+          const row = block.order.indexOf(point.cell.row);
+          if (row >= 0) at = this.placeOf(block, row - pressedRow, point.cell.column - pressedColumn);
+        }
+        this.showTarget(block, at, copy, point.x, point.y);
+      },
+      // Ctrl pressed or let go on the way changes a move into a copy and back
+      onKey: (ev) => {
+        if (ev.key !== "Control" && ev.key !== "Meta") return;
         copy = ev.type === "keydown";
-        this.tip.textContent = copy ? `+ ${this.tip.textContent!.replace(/^\+ /, "")}` : this.tip.textContent!.replace(/^\+ /, "");
-      }
-    };
-    win.addEventListener("mousemove", move, true);
-    win.addEventListener("mouseup", up, true);
-    win.addEventListener("keydown", key, true);
-    win.addEventListener("keyup", key, true);
+        this.showTarget(block, at, copy, last.x, last.y);
+      },
+      onEnd: (point, cancelled) => {
+        if (point) copy = point.ctrl;
+        this.showTarget(block, undefined, false, 0, 0);
+        if (!cancelled && at && (at.row !== block.top || at.column !== block.left)) void this.moveBlock(block, at, copy);
+      },
+    });
   }
 
   /** The block moved (copied) to start at a row as shown and a column; selected there, before the write (shown again once rendered) */
   private async moveBlock(block: Block, at: { row: number; column: number }, copy: boolean): Promise<void> {
-    const rowOf = (shown: number) => this.host.rowOf(block.info, block.shown[shown]!);
-    const to = { row: rowOf(at.row), column: at.column };
-    this.selectCells(block.info, to, { row: rowOf(at.row + block.height - 1), column: at.column + block.width - 1 });
+    const to = { row: block.order[at.row]!, column: at.column };
+    this.selectCells(block.info, to, { row: block.order[at.row + block.height - 1]!, column: at.column + block.width - 1 });
     const result = await moveCellsTo(this.host, block.info, block.cells, to, copy);
     if (result !== "written") this.selectCells(block.info, block.cells[0]![0]!, block.cells[block.cells.length - 1]![block.width - 1]!);
   }
@@ -897,7 +835,7 @@ export class Selection implements Feature {
   /** Move to…: the next press on a cell of the table (a click, a tap) moves the cells there */
   private startMoving(info: WidgetInfo): void {
     this.moving = info.key;
-    this.host.doc.body.classList.add("swt-move-picking");
+    this.host.pageMark("move-picking", true);
     // Where they would go outlined under the pointer, as while dragging them
     this.host.doc.defaultView!.addEventListener("mousemove", this.showMoveTarget, true);
     const press = this.host.pressedWith === "touch" ? "tap the cell where the first one goes (a tap outside the table cancels)" : "click the cell where the first one goes; Esc cancels";
@@ -907,10 +845,19 @@ export class Selection implements Feature {
   private endMoving(): void {
     this.moving = undefined;
     this.moveAt = undefined;
-    this.host.doc.body.classList.remove("swt-move-picking");
+    this.host.pageMark("move-picking", false);
     this.host.doc.defaultView!.removeEventListener("mousemove", this.showMoveTarget, true);
-    this.targetEdges.clear();
-    this.tip.classList.remove("swt-visible");
+    this.targetEdges.hide();
+    this.tip.hide();
+  }
+
+  /** The block's place for a press on a body cell of its table: where its first cell goes */
+  private placeAt(block: Block, target: EventTarget | null): { row: number; column: number } | undefined {
+    const on = this.host.targetOf(target);
+    if (on.kind !== "cell" && on.kind !== "outline") return undefined;
+    if (on.key !== block.info.key) return undefined;
+    const row = block.order.indexOf(on.row);
+    return row >= 1 ? this.placeOf(block, row, on.column) : undefined;
   }
 
   /**
@@ -925,12 +872,10 @@ export class Selection implements Feature {
       this.endMoving();
       return;
     }
-    const cell = this.host.cellUnder(e.target, block.info.key)?.cell;
-    const row = cell ? block.shown.indexOf(cell.parentElement as HTMLTableRowElement) : -1;
-    const at = cell && row >= 1 ? this.placeOf(block, row, cell.cellIndex) : undefined;
-    const same = at && this.moveAt && at.row === this.moveAt.row && at.column === this.moveAt.column && this.targetEdges.shown;
+    const at = this.placeAt(block, e.target);
+    const sameAt = at && this.moveAt && at.row === this.moveAt.row && at.column === this.moveAt.column && this.targetEdges.shown;
     this.moveAt = at;
-    if (same) this.host.place(this.tip, e.clientX + 14, e.clientY + 14);
+    if (sameAt) this.placeTip(e.clientX, e.clientY);
     else this.showTarget(block, at, false, e.clientX, e.clientY);
   };
 
@@ -968,19 +913,13 @@ export class Selection implements Feature {
     const key = this.moving;
     this.endMoving();
     const block = this.block();
-    const cell = key === undefined ? undefined : this.host.cellUnder(target, key)?.cell;
-    const row = cell && block ? block.shown.indexOf(cell.parentElement as HTMLTableRowElement) : -1;
-    if (!block || block.info.key !== key || !cell || row < 1) return false;
+    if (!block || block.info.key !== key) return false;
+    const at = this.placeAt(block, target);
+    if (!at) return false;
     // Its click would follow a link in the cell, its mouse events select the cell
     this.host.takePress();
-    const at = this.placeOf(block, row, cell.cellIndex);
     if (at.row !== block.top || at.column !== block.left) void this.moveBlock(block, at, false);
     return true;
-  }
-
-  /** The selected cells as references, rows as shown (the header first), columns left to right */
-  private refs(info: WidgetInfo): CellRef[] {
-    return (this.cells() ?? []).flat().flatMap((cell) => this.host.cellRef(info, cell) ?? []);
   }
 
   /**
@@ -989,19 +928,17 @@ export class Selection implements Feature {
    * empty already are deleted: a first Delete empties them, a second deletes them.
    */
   private async emptyCells(): Promise<void> {
-    const selection = this.selection;
-    const widget = selection && this.host.widgetForKey(selection.key);
-    const info = widget && this.host.infoOf(widget);
-    if (!widget || !info) return;
-    const refs = this.refs(info);
+    const area = this.area();
+    if (!area) return;
+    const { info } = area;
+    const refs = this.refs();
     const table = parseTable(info.source);
     const empty = (row: number, column: number) => withoutTags(table.rows[row]?.cells[column] ?? "") === "";
     const rows = [...new Set(refs.map((ref) => ref.row))];
     const columns = [...new Set(refs.map((ref) => ref.column))];
     const body = rows.filter((row) => row > 0);
     const wholeRows = columns.length === info.columns && body.length > 0;
-    const shown = this.host.shownRows(info).length;
-    const wholeColumns = rows.includes(0) && rows.length === shown;
+    const wholeColumns = rows.includes(0) && rows.length === this.host.shownOrder(info).length;
     if (wholeRows && body.every((row) => columns.every((column) => empty(row, column)))) {
       this.clear();
       await deleteRowsAt(this.host, info, body);
@@ -1013,30 +950,27 @@ export class Selection implements Feature {
       await deleteColumnsAt(this.host, info, columns);
       return;
     }
-    await this.empty(widget, info, refs);
+    await this.empty(info, refs);
   }
 
-  private async deleteRows(shownWidget: HTMLElement, info: WidgetInfo, rows: readonly number[]): Promise<void> {
+  private async deleteRows(info: WidgetInfo, rows: readonly number[]): Promise<void> {
     this.clear();
-    const widget = this.host.widgetForKey(info.key) ?? shownWidget;
-    await deleteRowsAt(this.host, this.host.infoOf(widget) ?? info, rows);
+    await deleteRowsAt(this.host, this.host.tableFor(info.key) ?? info, rows);
   }
 
-  private async deleteColumns(shownWidget: HTMLElement, info: WidgetInfo, columns: readonly number[]): Promise<void> {
+  private async deleteColumns(info: WidgetInfo, columns: readonly number[]): Promise<void> {
     this.clear();
-    const widget = this.host.widgetForKey(info.key) ?? shownWidget;
-    await deleteColumnsAt(this.host, this.host.infoOf(widget) ?? info, columns);
+    await deleteColumnsAt(this.host, this.host.tableFor(info.key) ?? info, columns);
   }
 
   /**
    * Empties cells, formulas included, as one edit; header cells keep their
    * names (a column needs one), cells their hidden tags (names)
    */
-  private async empty(shownWidget: HTMLElement, info: WidgetInfo, cells: readonly CellRef[]): Promise<void> {
-    const widget = this.host.widgetForKey(info.key) ?? shownWidget;
+  private async empty(info: WidgetInfo, cells: readonly CellRef[]): Promise<void> {
     const refs = cells.filter((ref) => ref.row > 0);
     const emptied = (table: Table, ref: CellRef) => setCell(table, ref.row, ref.column, this.host.keepTags("", table.rows[ref.row]?.cells[ref.column] ?? ""));
-    await this.host.write(widget, (t) => refs.reduce(emptied, t));
+    await this.host.writeTable(this.host.tableFor(info.key) ?? info, (t) => refs.reduce(emptied, t));
   }
 
   /**
@@ -1045,19 +979,11 @@ export class Selection implements Feature {
    * so Excel and Google Sheets paste them into cells. Cells copy what they
    * show (a formula's result, a link's text), a typed cell its value.
    */
-  private onCopy = (e: ClipboardEvent): void => {
-    // A copy from a menu (Copy, Copy as CSV) puts its own text there
-    if (copyingFromMenu()) return;
-    const cells = this.selection && this.cells();
-    const active = this.host.doc.activeElement;
-    if (!cells || !e.clipboardData || ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.selectionStart !== active.selectionEnd)) return;
-    // A field in a menu (a name typed) copies its own text, if any
-    if (active?.closest(".swt-menu")) return;
-    const values = cells.map((row) => row.map(cellValue));
-    e.clipboardData.setData("text/plain", clipboardText(values));
-    e.clipboardData.setData("text/html", clipboardHtml(values));
-    e.preventDefault();
-    e.stopImmediatePropagation();
+  clipboardData(kind: "copy" | "cut"): ClipboardData | undefined {
+    const area = kind === "copy" ? this.area() : undefined;
+    if (!area) return undefined;
+    const values = this.valuesOf(area.info, this.refs());
     void this.host.bridge.flash(`Silverware Table: copied ${values.length} × ${values[0]?.length ?? 0} cells`, "info");
-  };
+    return { text: clipboardText(values), html: clipboardHtml(values) };
+  }
 }

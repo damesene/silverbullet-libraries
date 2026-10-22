@@ -282,7 +282,7 @@ describe("Selecting cells", () => {
       expect(editor.querySelectorAll(".swt-selected").length).toBe(4);
       expect(end().parentElement).toBe(cell(2, 1));
       // In the last column (inside its cell there), not the last row
-      expect([end().classList.contains("swt-select-edge-column"), end().classList.contains("swt-select-edge-row")]).toEqual([true, false]);
+      expect([end().classList.contains("swt-at-right"), end().classList.contains("swt-at-bottom")]).toEqual([true, false]);
       // A tap in the selection: its menu (whole rows: the rows'), the cells staying selected
       tap(cell(1, 1));
       expect(document.querySelector(".swt-menu .swt-menu-title")!.textContent).toBe("Row 1");
@@ -339,14 +339,14 @@ describe("Selecting cells", () => {
   it("marks select mode on the page and the cell selected alone, for the pointer (the next click edits only that cell)", async () => {
     localStorage.removeItem("silverware.table.editMode");
     await setup(PAGE);
-    expect(document.documentElement.dataset.swtSelectMode).toBe("");
+    expect(document.body.classList.contains("swt-select-mode")).toBe(true);
     clickOn(cell(1, 0));
     expect(cell(1, 0).classList.contains("swt-selected-alone")).toBe(true);
     clickOn(cell(2, 1));
     press(cell(1, 0), "mousedown", { shiftKey: true });
     expect(editor.querySelectorAll(".swt-selected-alone").length).toBe(0);
     controller.stop();
-    expect(document.documentElement.dataset.swtSelectMode).toBeUndefined();
+    expect(document.body.classList.contains("swt-select-mode")).toBe(false);
   });
 
   describe("moving the cells selected", () => {
@@ -363,7 +363,7 @@ describe("Selecting cells", () => {
         // Pressed on the first row's edge, the pointer over the third row: the cells there
         press(edge(), "mousedown");
         under(cell(3, 0));
-        window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 5, clientY: 5 }));
+        window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, buttons: 1, clientX: 5, clientY: 5 }));
         expect(document.querySelector(".swt-move-tip")!.textContent).toBe("A3:B3");
         window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
         await flush();
@@ -374,7 +374,7 @@ describe("Selecting cells", () => {
         controller.selectCells(info(), { row: 3, column: 0 }, { row: 3, column: 1 });
         press(edge(), "mousedown");
         under(cell(4, 0));
-        window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, ctrlKey: true }));
+        window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, buttons: 1, ctrlKey: true }));
         expect(document.querySelector(".swt-move-tip")!.textContent).toBe("+ A4:B4");
         window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, ctrlKey: true }));
         await flush();
@@ -435,7 +435,7 @@ describe("Selecting cells", () => {
     const [start, end] = [".swt-select-start", ".swt-select-end"].map((sel) => document.querySelector<HTMLElement>(sel)!);
     // The middle (x 100) is the second column's left edge: in its cell, at 0, the handle centred on it
     expect([start!.parentElement, end!.parentElement]).toEqual([cell(1, 1), cell(2, 1)]);
-    expect(start!.classList.contains("swt-select-mid")).toBe(true);
+    expect(start!.classList.contains("swt-at-mid")).toBe(true);
     expect(start!.style.left).toBe("-14px");
     // Cells selected but not whole rows: in the corners
     controller.selectCells(controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!, { row: 1, column: 0 }, { row: 2, column: 0 });

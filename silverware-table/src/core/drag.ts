@@ -8,7 +8,8 @@ import type { CellRef, DragOptions, DragPoint, PointerTarget, WidgetInfo } from 
 
 export type DragContext = {
   readonly doc: Document;
-  /** What is at a point of the window */
+  /** What an event's target is; what is at a point of the window */
+  targetOf(target: EventTarget | null): PointerTarget;
   targetAt(x: number, y: number): PointerTarget;
   /** The table with a key as shown now */
   tableFor(key: string): WidgetInfo | undefined;
@@ -24,11 +25,14 @@ const REPEAT_MS = 50;
 export function followDrag(context: DragContext, start: MouseEvent | PointerEvent, options: DragOptions): () => void {
   const win = context.doc.defaultView!;
   let at = { x: start.clientX, y: start.clientY, ctrl: start.ctrlKey || start.metaKey };
+  // A mouse's events come from what is under it; a touch's from what it pressed (found by the point then)
+  const byEvents = options.events === "mouse" && !options.byPoint;
+  let over: EventTarget | null = byEvents ? start.target : null;
   let moved = false;
   let ended = false;
 
   const point = (): DragPoint => {
-    const target = context.targetAt(at.x, at.y);
+    const target = over ? context.targetOf(over) : context.targetAt(at.x, at.y);
     let cell: CellRef | undefined;
     if ((target.kind === "cell" || target.kind === "outline" || target.kind === "handle") && target.key === options.key) {
       cell = { row: target.row, column: target.column };
@@ -53,15 +57,17 @@ export function followDrag(context: DragContext, start: MouseEvent | PointerEven
       finish(false);
       return;
     }
+    if (byEvents) over = e.target;
     moveTo(e.clientX, e.clientY, e.ctrlKey || e.metaKey);
   };
   const onUp = (e: MouseEvent) => {
     at = { x: e.clientX, y: e.clientY, ctrl: e.ctrlKey || e.metaKey };
+    if (byEvents) over = e.target;
     finish(false);
   };
   const onCancel = () => finish(true);
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
+    if (e.key === "Escape" && options.escape) {
       if (e.type !== "keydown") return;
       e.preventDefault();
       e.stopPropagation();
@@ -102,8 +108,11 @@ export function followDrag(context: DragContext, start: MouseEvent | PointerEven
   win.addEventListener(move, onMove as EventListener, true);
   win.addEventListener(up, onUp as EventListener, true);
   win.addEventListener("pointercancel", onCancel, true);
-  win.addEventListener("keydown", onKey, true);
-  win.addEventListener("keyup", onKey, true);
+  // Keys only for a drag that hears them: a press that may become a drag leaves them to the cell editor it opened
+  if (options.escape || options.onKey) {
+    win.addEventListener("keydown", onKey, true);
+    win.addEventListener("keyup", onKey, true);
+  }
   win.addEventListener("blur", onCancel);
   if (options.pageMark) context.pageMark(options.pageMark, true);
   return stop;
