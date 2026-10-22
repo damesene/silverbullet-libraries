@@ -5,7 +5,7 @@
 // a theme is found by its selector in the page's styles.
 
 /** The built-in themes, in the order offered; native: SilverBullet's own look (no theme) */
-export const BUILT_IN_THEMES = ["native", "playground", "minimal", "slate", "grid", "ocean", "paper", "contrast", "compact", "bold", "soft", "ledger"] as const;
+export const BUILT_IN_THEMES = ["native", "plain", "playground", "minimal", "slate", "grid", "ocean", "paper", "contrast", "compact", "bold", "soft", "ledger"] as const;
 
 export const NATIVE_THEME = "native";
 

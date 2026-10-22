@@ -1193,7 +1193,7 @@ function message(e) {
 }
 
 // table-plus/src/themes.ts
-var BUILT_IN_THEMES = ["native", "playground", "minimal", "slate", "grid", "ocean", "paper", "contrast", "compact", "bold", "soft", "ledger"];
+var BUILT_IN_THEMES = ["native", "plain", "playground", "minimal", "slate", "grid", "ocean", "paper", "contrast", "compact", "bold", "soft", "ledger"];
 var NATIVE_THEME = "native";
 var THEME_NAME_RE = /^[\w-]+$/;
 var THEME_SELECTOR_RE = /data-tp-theme\s*=\s*["']?([\w-]+)["']?\s*\]/g;

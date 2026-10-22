@@ -659,7 +659,7 @@ A theme sets how tables look: their header, the lines between rows and columns, 
 * **For one table**: *Theme* in the ⋯ menu of its toolbar picks a theme of its own, stored in the table (`<meta theme="slate">`, needs *Store table metadata*, see [[#Table metadata]]). Hovering a theme there (or moving to it with the arrow keys) shows a small table in it beside the list, with the table's stripes (not for *Global theme*: its theme is the one marked *(default)*). *Global theme*, first in that list, makes the table follow the settings again, its theme and its stripes; a theme (or stripes, the icons under it) picked stays the table's whatever the settings become, also the settings' own one (marked *(default)*).
 * **Light or dark**: each theme has both, and SilverBullet decides which one shows (its own light or dark mode).
 * **Stripes** are not the theme's: the *Stripes* setting (`tablePlus.modules.themes.stripes`) tints every other row (`rows`, the default, as SilverBullet does), every other column (`columns`) or nothing (`none`), in the theme's color; for one table, the three icons in *Theme* in its ⋯ menu (no stripes, rows, columns) choose (`<meta stripes="columns">`), *Global theme* there the setting's again. It works with *Native* too.
-* Built in: *Native*, *Playground* (the look of the Table Plus playground: a light header, soft striping), *Minimal* (a small-caps header, thin lines, no other fills), *Slate* (a card with rounded corners and a soft shadow, sans-serif type), *Grid* (a spreadsheet, every cell outlined, compact, sans-serif type), *Ocean* (a deep teal header, teal striping), *Paper* (warm tones, serif type), *Contrast* (high contrast: a black header, strong lines, roomy cells), *Compact* (small type, tight cells, for tables of data), *Bold* (thick lines, square corners, a hard shadow, yellow on black), *Soft* (airy: a pastel header, large corners, rounded type where the device has it), *Ledger* (an account book: lines between columns, green-bar stripes, figures in a monospace font, so they line up).
+* Built in: *Native*, *Plain* (no lines, fills nor bold header: plain text in rows and columns, e.g. for a layout), *Playground* (the look of the Table Plus playground: a light header, soft striping), *Minimal* (a small-caps header, thin lines, no other fills), *Slate* (a card with rounded corners and a soft shadow, sans-serif type), *Grid* (a spreadsheet, every cell outlined, compact, sans-serif type), *Ocean* (a deep teal header, teal striping), *Paper* (warm tones, serif type), *Contrast* (high contrast: a black header, strong lines, roomy cells), *Compact* (small type, tight cells, for tables of data), *Bold* (thick lines, square corners, a hard shadow, yellow on black), *Soft* (airy: a pastel header, large corners, rounded type where the device has it), *Ledger* (an account book: lines between columns, green-bar stripes, figures in a monospace font, so they line up).
 * The `themes` module can be turned off (see [[#Modules]]): tables look as SilverBullet shows them, and a theme stored in a table is kept but not used.
 
 ### Your own theme
@@ -1087,7 +1087,7 @@ config.define("tablePlus", {
             theme = {
               type = "string",
               default = "native",
-              description = "The theme of every table (a table's ⋯ menu can choose another for it). Built in: native (SilverBullet's look), playground, minimal, slate, grid, ocean, paper, contrast, compact, bold, soft, ledger; or the name of your own theme (see the library page, Themes).",
+              description = "The theme of every table (a table's ⋯ menu can choose another for it). Built in: native (SilverBullet's look), plain, playground, minimal, slate, grid, ocean, paper, contrast, compact, bold, soft, ledger; or the name of your own theme (see the library page, Themes).",
               ui = { category = "Table Plus: Modules", label = "Theme", priority = 6.6 },
             },
             stripes = {
@@ -3890,6 +3890,16 @@ html {
 /* The row under the pointer: a tint over its striping (none if the theme sets none) */
 :is(#sb-main, html) .sb-table-widget[data-tp-theme] tbody tr:not(.tp-large-spacer):hover {
   background-image: linear-gradient(var(--tp-hover), var(--tp-hover));
+}
+
+/* plain: no lines, fills nor bold header: text in rows and columns, as for a layout */
+.sb-table-widget[data-tp-theme="plain"] {
+  --tp-head-bg: transparent;
+  --tp-head-color: currentColor;
+  --tp-head-weight: normal;
+  --tp-stripe: transparent;
+  --tp-hover: transparent;
+  --tp-radius: 0;
 }
 
 /* playground: the look of Table Plus' playground (a light header, soft striping) */

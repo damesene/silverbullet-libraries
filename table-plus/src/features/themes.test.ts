@@ -38,7 +38,7 @@ describe("Themes", () => {
     item.click();
     // The list in the menu's place
     expect(document.querySelector(".tp-menu-title")!.textContent).toContain("Table theme");
-    expect(menuLabels()).toEqual(["Global theme: Minimal", "—", "—", "Native", "Playground", "Minimal (default)", "Slate", "Grid", "Ocean", "Paper", "Contrast", "Compact", "Bold", "Soft", "Ledger"]);
+    expect(menuLabels()).toEqual(["Global theme: Minimal", "—", "—", "Native", "Plain", "Playground", "Minimal (default)", "Slate", "Grid", "Ocean", "Paper", "Contrast", "Compact", "Bold", "Soft", "Ledger"]);
     expect(checked()).toEqual(["Global theme: Minimal"]);
     Array.from(document.querySelectorAll<HTMLElement>(".tp-menu .tp-menu-item")).find((b) => b.textContent === "Paper")!.click();
     await flush();
