@@ -144,3 +144,27 @@ other pages on a sheet.
   SilverBullet's navigation, the sheet ended with the page left; the earlier
   23 steps of every module again) and merged into `main`. Next: phase 2 on
   branch `sheet-tables`.
+- 2026-10-22, phase 2 (branch `sheet-tables`): the page's sheets read from
+  the tables' metadata; *Add to sheet…* / *Remove from sheet*; the board (one
+  box over the window, every table of the sheet drawn at its `at`, rows of one
+  height, the columns as wide as the widest table's there or the sheet's
+  `sheet.width.*`, a table's header and pins scrolling with the sheet); growth
+  of the nearer table that can grow (left in its rows or above in its
+  columns), refused where it would reach into another; formulas in the
+  sheet's addresses through a core `AddressFrame` (the sheet gives it, the
+  formulas module translates the editor's text, the titles, the outlines,
+  pointing, dragging; a reference stays on its record). Reviewed; fixed: a
+  formula shown untranslated saved as such, the board alone not ended by an
+  early refresh, the sheet's widths handed to its new first table in the same
+  edit (the core lets a later feature see an earlier one's change of another
+  table), `prices! B2`, the page's table under the board taking presses for
+  its +, keys on the board reaching the page under it, Esc twice closing the
+  board, the landing cell above rows pinned to the bottom. Checked in the
+  local SilverBullet (two tables 120 lines apart, the second not in
+  SilverBullet's DOM, shown together; widths; a formula shown and stored;
+  growth of each; Remove from sheet in one edit). Merged into `main`. Left
+  open: formula titles are computed before a sort is applied (they follow on
+  the next rendering); pointing at a range in a sorted table without a name
+  extends nothing (on the sheet such a range has no address); pointing at
+  another table of the sheet is phase 3. Next: phase 3 on branch
+  `sheet-editing`.
