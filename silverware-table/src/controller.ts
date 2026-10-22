@@ -916,7 +916,7 @@ export class Controller implements TableHost {
   }
 
   rowHidden(info: WidgetInfo, row: number): boolean {
-    return row > 0 && !!this.bodyRows(info)[row - 1]?.classList.contains("swt-hidden");
+    return row > 0 && !!this.rows.rowAt(info, row)?.classList.contains("swt-hidden");
   }
 
   shownText(info: WidgetInfo, ref: CellRef): string | undefined {

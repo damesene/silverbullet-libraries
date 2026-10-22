@@ -210,7 +210,7 @@ export class SilverBulletAdapter implements TableAdapter {
         : "row" in part
           ? part.row === 0
             ? info.table.rows[0]
-            : this.rows.bodyRows(info)[part.row - 1]
+            : this.rows.rowAt(info, part.row)
           : info.table.rows[0]?.cells[part.column];
     return element?.isConnected ? element.getBoundingClientRect() : undefined;
   }

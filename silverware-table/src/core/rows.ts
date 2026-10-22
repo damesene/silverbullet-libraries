@@ -42,6 +42,16 @@ export class TableRows {
     return Array.from(info.table.querySelectorAll<HTMLTableRowElement>("tr[data-swt-row]")).sort((a, b) => Number(a.dataset.swtRow) - Number(b.dataset.swtRow));
   }
 
+  /**
+   * One body row by its row in the markdown (1 the first), hidden or not: without
+   * copying the rows (asked for each cell: a copy each time made a pass over a
+   * table's cells cost as many times its rows)
+   */
+  rowAt(info: WidgetInfo, row: number): HTMLTableRowElement | undefined {
+    const kept = this.body.get(info.table);
+    return kept ? kept[row - 1] : this.bodyRows(info)[row - 1];
+  }
+
   /** The header row and the shown body rows, in display order */
   shownRows(info: WidgetInfo): HTMLTableRowElement[] {
     // As the view placed them, also those a feature keeps out of the document
@@ -52,7 +62,7 @@ export class TableRows {
 
   /** A cell by its row in the markdown; hidden rows only with includeHidden */
   cellAt(info: WidgetInfo, ref: CellRef, includeHidden = false): HTMLTableCellElement | undefined {
-    const tr = ref.row === 0 ? info.table.rows[0] : this.bodyRows(info)[ref.row - 1];
+    const tr = ref.row === 0 ? info.table.rows[0] : this.rowAt(info, ref.row);
     if (!tr || (tr.classList.contains("swt-hidden") && !includeHidden)) return undefined;
     return tr.cells[ref.column];
   }
