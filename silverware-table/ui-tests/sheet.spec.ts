@@ -281,6 +281,47 @@ test.describe("Sheet view", () => {
     await expect(sheetTable(page)).toHaveCount(0, { timeout: 5000 });
   });
 
+  test("drawn anew with the table moved in the page: its place follows", async ({ page }) => {
+    await openSheet(page);
+    const before = Number(await sheetTable(page).locator("table").getAttribute("data-pos"));
+    await page.locator("#source").fill(`A paragraph before.\n\n${await markdown(page)}`);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(sheetTable(page).locator("table")).toHaveAttribute("data-pos", String(before + "A paragraph before.\n\n".length));
+  });
+
+  test("a cell being edited in it stays edited while the table is drawn anew from a change elsewhere", async ({ page }) => {
+    await openSheet(page);
+    await sheetCell(page, 1, 0).dblclick();
+    const field = sheetTable(page).locator(".swt-cell-editor");
+    await expect(field).toBeFocused();
+    await page.keyboard.type("typed");
+    // Another cell changed in the markdown (another client, a formula elsewhere)
+    await page.evaluate(() => {
+      const source = document.querySelector<HTMLTextAreaElement>("#source")!;
+      source.value = source.value.replace("Šípek", "Šípky");
+      source.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+    await expect(field).toBeFocused();
+    await expect(field).toHaveValue(/typed$/);
+    // Left with Esc: the table drawn anew shows the change
+    await page.keyboard.press("Escape");
+    await expect(sheetTable(page)).toContainText("Šípky");
+  });
+
+  test("scrolled past the table, a value written there keeps the box where it was", async ({ page }) => {
+    await openSheet(page);
+    const box = sheetTable(page);
+    await box.evaluate((w) => (w.scrollLeft = 400));
+    const scrolled = await box.evaluate((w) => w.scrollLeft);
+    expect(scrolled).toBeGreaterThan(300);
+    const point = await emptyCell(page, { right: 6, row: 1 });
+    await page.mouse.click(point.x, point.y);
+    await page.keyboard.type("far");
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
+    expect(Math.abs((await sheetTable(page).evaluate((w) => w.scrollLeft)) - scrolled)).toBeLessThan(2);
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");

@@ -29,6 +29,7 @@ import { OVER_WINDOW_CLASS, OverWindow, type RowsPast } from "../../overwindow.t
 import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
 import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
 import { drawTable } from "../drawn.ts";
+import { parseTable } from "../../../markdown.ts";
 import { columnLetters } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 
@@ -66,9 +67,13 @@ export class Sheet implements AdapterFeature {
   private readonly over: OverWindow;
   // Renders the cells of the table it draws
   private readonly renderer: CellRenderer;
-  // The table it drew, from which markdown; `drawing` counts the drawings asked for (only the last is shown)
-  private drawn: { readonly widget: HTMLElement; readonly source: string } | undefined;
+  // The table it drew, from which markdown at which place; `drawing` counts the drawings asked for (only the last is shown)
+  private drawn: { readonly widget: HTMLElement; readonly source: string; readonly hint: number } | undefined;
   private drawing = 0;
+  // SilverBullet's table of the sheet's key as last enhanced: what is drawn anew from
+  private latest: WidgetInfo | undefined;
+  // A drawing put off while a cell of the table drawn is edited (swapping it would take the editor's cell away)
+  private putOff = false;
   // The empty cells, in the table's box: right of the table and below it
   private readonly grid: HTMLElement;
   private readonly right: HTMLElement;
@@ -149,9 +154,11 @@ export class Sheet implements AdapterFeature {
   enhanced(info: WidgetInfo): void {
     const widget = this.host.widgetOf(info);
     this.over.enhanced(widget, info);
-    // SilverBullet's table of the sheet rendered anew with other markdown (a write): drawn anew from it
+    // SilverBullet's table of the sheet rendered anew with other markdown, or moved in the page: drawn anew from it
     if (!widget.classList.contains(DRAWN_CLASS)) {
-      if (info.key === this.over.key && this.drawn && info.source !== this.drawn.source) void this.draw(info);
+      if (info.key !== this.over.key) return;
+      this.latest = info;
+      if (this.drawn && (info.source !== this.drawn.source || info.hint !== this.drawn.hint)) void this.draw(info);
       return;
     }
     if (widget !== this.over.widget) return;
@@ -278,7 +285,20 @@ export class Sheet implements AdapterFeature {
     if (this.chosen && info && this.host.selectedCells(info).length > 0) this.unselect();
   }
 
+  // `${…}` results may change once the page is indexed: a table with such cells drawn anew
+  pageIndexed(): void {
+    const drawn = this.drawn;
+    const latest = this.latest;
+    if (!drawn || !latest) return;
+    if (parseTable(drawn.source).rows.some((row) => row.cells.some((cell) => this.renderer.refreshesAfterIndex(cell)))) void this.draw(latest);
+  }
+
   editorClosed(editor: RenderedEditor): void {
+    // A drawing put off while a cell of the drawn table was edited: done now (a write draws anew anyway)
+    if (this.putOff && this.latest) {
+      this.putOff = false;
+      void this.draw(this.latest);
+    }
     if (!this.cell || editor.cell !== this.cell.element) return;
     this.chosen = undefined;
     this.dropCell();
@@ -396,6 +416,7 @@ export class Sheet implements AdapterFeature {
 
   /** Shows the table on the sheet: drawn first, then over the window */
   private async open(info: WidgetInfo): Promise<void> {
+    this.latest = info;
     const widget = await this.draw(info);
     if (widget) this.over.begin(widget, info);
   }
@@ -410,26 +431,34 @@ export class Sheet implements AdapterFeature {
     const asked = ++this.drawing;
     const widget = await drawTable(this.host.doc, info.source, info.hint, this.renderer);
     if (asked !== this.drawing) return undefined;
-    // Links and hashtags: SilverBullet's navigation, not the browser's (it would load the window anew)
+    const before = this.drawn?.widget;
+    // A cell of the table drawn being edited: swapped once the editor closes (its cell would go with the table)
+    const editing = this.host.editing;
+    if (before && editing && before.contains(editing.cell)) {
+      this.putOff = true;
+      return undefined;
+    }
+    // Links and hashtags, a plain click: SilverBullet's navigation, not the browser's (it would load the window
+    // anew); with a modifier the browser's (a new tab)
     widget.addEventListener("click", (e) => {
       const link = e.target instanceof Element ? e.target.closest<HTMLElement>("a[data-ref]") : null;
       const navigate = this.host.bridge.navigate;
-      if (!link?.dataset.ref || !navigate) return;
+      if (!link?.dataset.ref || !navigate || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       void navigate(link.dataset.ref);
     });
-    const before = this.drawn?.widget;
     if (before) {
       widget.classList.add(OVER_WINDOW_CLASS, SHEET_CLASS);
-      // Where the box was scrolled to, kept
       const { scrollLeft, scrollTop } = before;
       before.replaceWith(widget);
+      // The empty cells come along, so the box can be scrolled where it was (past the table) before they are placed anew
+      if (this.grid.parentElement === before) widget.append(this.grid);
       widget.scrollLeft = scrollLeft;
       widget.scrollTop = scrollTop;
     } else {
       this.host.doc.body.append(widget);
     }
-    this.drawn = { widget, source: info.source };
+    this.drawn = { widget, source: info.source, hint: info.hint };
     return widget;
   }
 
@@ -438,6 +467,8 @@ export class Sheet implements AdapterFeature {
     this.drawing++;
     this.drawn?.widget.remove();
     this.drawn = undefined;
+    this.latest = undefined;
+    this.putOff = false;
     this.chosen = undefined;
     this.pendingPress = undefined;
     this.after = undefined;
