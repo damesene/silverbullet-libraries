@@ -1117,7 +1117,10 @@ export class Controller implements TableHost {
   focusPage(): void {
     // Not after a touch (core/touch-keyboard.ts)
     if (this.touchKeyboard.letGoOfFocus()) return;
-    this.doc.querySelector<HTMLElement>(EDITOR_SELECTOR)?.focus({ preventScroll: true });
+    // The editor the tables are in: another CodeMirror may come before it in the document (SilverBullet's workbench input)
+    const shown = this.shownTables().find((info) => info.table.isConnected);
+    const editor = shown?.table.closest<HTMLElement>(EDITOR_SELECTOR) ?? this.doc.querySelector<HTMLElement>(EDITOR_SELECTOR);
+    editor?.focus({ preventScroll: true });
   }
 
   get editing(): RenderedEditor | undefined {

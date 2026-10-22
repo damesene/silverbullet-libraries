@@ -6,6 +6,17 @@ import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashe
 describe("Controller", () => {
   useTablePage();
 
+  it("hands the keyboard back to the editor the tables are in, not to another one before it", async () => {
+    // As SilverBullet's workbench input: a CodeMirror of its own, earlier in the document
+    const other = document.createElement("div");
+    other.className = "cm-content";
+    other.tabIndex = 0;
+    document.body.prepend(other);
+    await setup(PAGE);
+    controller.focusPage();
+    expect(document.activeElement).toBe(editor);
+  });
+
   it("leaves out the modules turned off with silverware.table.modules.<name>.enabled", async () => {
     const TYPED = "| Item | Done #check |\n|---|---|\n| Pear | yes |\n";
     await setup(TYPED, {
