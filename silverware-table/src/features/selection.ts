@@ -562,8 +562,10 @@ export class Selection implements Feature {
     const a = index(selection.anchor.row);
     const b = index(selection.focus.row);
     if (a < 0 || b < 0) return undefined;
+    // Within the table's columns: a column selected may be gone (deleted, the last one)
     const left = Math.min(selection.anchor.column, selection.focus.column);
-    const right = Math.max(selection.anchor.column, selection.focus.column);
+    const right = Math.min(Math.max(selection.anchor.column, selection.focus.column), info.columns - 1);
+    if (left > right) return undefined;
     return shown.slice(Math.min(a, b), Math.max(a, b) + 1).map((tr) => Array.from(tr.cells).slice(left, right + 1));
   }
 
