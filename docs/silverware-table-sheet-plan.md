@@ -163,8 +163,10 @@ other pages on a sheet.
   local SilverBullet (two tables 120 lines apart, the second not in
   SilverBullet's DOM, shown together; widths; a formula shown and stored;
   growth of each; Remove from sheet in one edit). Merged into `main`. Left
-  open: formula titles are computed before a sort is applied (they follow on
-  the next rendering); pointing at a range in a sorted table without a name
-  extends nothing (on the sheet such a range has no address); pointing at
-  another table of the sheet is phase 3. Next: phase 3 on branch
+  open: pointing at another table of the sheet is phase 3. Next: phase 3 on branch
   `sheet-editing`.
+- 2026-10-23, on `sheet-editing` before phase 3: a formula's title follows a
+  sort on the sheet at once (the sheet asks the core for the looks again when
+  a table's rows' order changes); in a sorted or filtered table on the sheet a
+  range of rows is not pointed at, for any table (the hint says why and names
+  the column to use; a header click gives it), a range within one row is.
