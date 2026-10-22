@@ -21,7 +21,12 @@ npm run deploy -- <space folder>   # copy the library into a local space
 ## Working rules
 
 - **Rebuild before every commit**: `silverware-table/silverware-table.js` is committed, because SilverBullet installs it from the repo and runs no build. A commit with `src/` changes and a stale `.js` ships the old code. `npm run check-build` (part of `npm run verify`) fails on a stale bundle.
-- **Commit messages**: one line, `Silverware Table: <what changed>` (a plugin's name; `Silverware: …` for the repository as a whole, `Playground: …`), no body, **no AI co-author trailer**. One feature or fix per commit.
+- **Commit messages**: [Conventional Commits](https://www.conventionalcommits.org), one line `<type>(<scope>): <description>`, no body, **no AI co-author trailer**. One feature or fix per commit.
+  - Types: `feat` (something new for the user), `fix` (a bug), `refactor` (no change in behaviour), `perf`, `test`, `docs` (the library page, README, this file), `build` (bundling, scripts, dependencies), `chore`, `style` (formatting only).
+  - Scope: the plugin (`table` for Silverware Table; a new plugin by its name), `playground`, or none for the repository as a whole (`build: …`).
+  - A change that breaks what a space has (settings, the Space Lua API, a theme's selectors or variables, stored markdown) is marked `!`: `feat(table)!: …`.
+  - The description in the imperative, lowercase, no period: `fix(table): keep the toolbar over a table rendered anew`.
+  - History before 2026-10-22 uses `Table Plus: …` / `Silverware: …` subjects.
 - **Commit only when the user says so** ("commit"); until then changes stay in the working copy. Never push without being asked; never push to `main` directly unless asked. A change spanning several fixes is split into commits, each with `silverware-table.js` built from its own changes.
 - The conversation with the user is in Czech; everything in the repository (code, comments, docs, commit messages) is English.
 - **A fix goes where it belongs**: the core gets generic mechanisms only (it knows no module by name, nor a module's classes or settings), a module's fix stays in the module. Features read rows through the host (`bodyRows`, `shownRows`, `cellAt`), never by querying the table's DOM.
