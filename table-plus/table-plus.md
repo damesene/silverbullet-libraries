@@ -75,7 +75,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * Cells copy what they show: a formula's result, a link's text.
 * The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
 * **Delete** empties the selected cells, formulas included, as one edit (Ctrl+Z brings them back). Header cells keep their names: a column needs one. Names of rows and cells stay with their cells.
-* **Delete whole rows or columns**: select them (click a row's or column's grip; for more, Shift+click a grip or *Select rows* in its menu, see [[#Rows and columns]]), then Delete: the first press empties them, a second deletes the rows (columns) once they are empty. A column is deleted only when it is empty in every row, also the rows a filter hides. *Delete N rows* and *Delete N columns* in the cell menu or the grip menu delete them right away.
+* **Delete whole rows or columns**: select them (click a row's or column's grip; for more, Shift+click another grip, see [[#Rows and columns]]), then Delete: the first press empties them, a second deletes the rows (columns) once they are empty. A column is deleted only when it is empty in every row, also the rows a filter hides. *Delete N rows* and *Delete N columns* in the cell menu or the grip menu delete them right away.
 * **Ctrl+Alt+arrows** move the rows of the selection up / down (PageUp / PageDown: 10 places) or its columns left / right (Home / End: to the start / end), together, as one edit; the selection goes with them. Rows do not move while the table is sorted or filtered, nor with the header selected; pinned and unpinned rows (columns) do not move together.
 * Typing, Enter or F2 edits the first cell selected (see [[#Editing cells]]).
 * Esc or a click elsewhere ends the selection.
@@ -603,9 +603,9 @@ Hover a cell to show two grips: ⠿ left of its row, and ⠿ above its column; m
   * With several rows (columns) selected, it acts on them all (*Copy 3 rows*, *Delete 3 rows*).
   * With rows (columns) selected whole, a right click on one of their cells (on a touch screen: a tap or a long press) gives this menu too, not a cell's, as in a spreadsheet. A right click on a header (a long press) gives its column's menu, the column selected.
   * *Paste* in a column's menu pastes from its header a column copied with its header (*Copy column*), which names it; anything else (cells from a spreadsheet, cells cut) goes under the header, the column keeping its name. *Paste as new rows* with rows cut moves them there (as a spreadsheet inserts cut cells).
-* **Select rows** (*Select columns*) in the menu: from that row, the rows up to the one under the pointer are selected as you move it; a click anywhere in the table ends the selection there (without editing the cell). Esc keeps just the first row. **Shift+click on a grip** selects at once the rows from the one selected with a click (else the first of the rows or cells selected) to that one; Shift+click another grip to change where they end. A click on the grip of a selected row then opens its menu with *Delete N rows*.
+* **Shift+click on a grip** selects at once the rows from the one selected with a click (else the first of the rows or cells selected) to that one; Shift+click another grip to change where they end. A click on the grip of a selected row then opens its menu with *Delete N rows*.
 * **Drag a grip** to move the row or column: a copy follows the pointer and the others move aside to show where it goes; near the top or bottom of the view the page scrolls. Esc cancels the drag.
-* **Several rows (columns) at once**: select them whole (a grip's click, then Shift+click another, *Select rows*, or on a touch screen the dots at the selection's corners), then drag the grip of any of them: they move together, in their order, as one edit. *Move up* / *Move down* (*Move left* / *Move right*) in the menu of one of them move them all (*Move 3 rows down*). They must follow each other and be in one zone of pinned rows (columns).
+* **Several rows (columns) at once**: select them whole (a grip's click, then Shift+click another, or on a touch screen the dots at the selection's edges), then drag the grip of any of them: they move together, in their order, as one edit. *Move up* / *Move down* (*Move left* / *Move right*) in the menu of one of them move them all (*Move 3 rows down*). They must follow each other and be in one zone of pinned rows (columns).
 * **Insert with +**: with a mouse or a pen, hover just left of the row grips, or just above the column grips: a **+** shows on the border nearest the pointer and inserts a row (column) there. On the last border it adds one at the end; while a cell of the last row (column) is hovered, selected or edited, a faint **+** under the table (right of the header) adds one at the end. A new column is named *Column N*, ready to rename. On a touch screen, insert from the row's or column's menu.
 * **Numbered column**: *Insert numbered column left* in a column's menu adds a column `#` with `=ROW()` in every row: it numbers the rows as written (sorting or filtering the view does not renumber them), rows added later get the formula too, and inserting, deleting or moving rows numbers them again. Add as many as you like. It needs the *Store table metadata* setting, as every new formula.
 * Rows can be moved only in the original order (no sorting, no filter), so a row always lands where you see it.
@@ -2880,11 +2880,6 @@ html[data-theme="dark"] .tp-excel-error {
 /* What the hovered grip acts on */
 .sb-table-widget.tp-table .tp-handle-hover {
   box-shadow: inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 10%, transparent);
-}
-/* Select rows (columns): the pointer picks the last one */
-body.tp-picking-rows .sb-table-widget.tp-table :is(td, th),
-body.tp-picking-columns .sb-table-widget.tp-table :is(td, th) {
-  cursor: cell;
 }
 .tp-insert {
   /* Over its line */

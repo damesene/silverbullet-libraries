@@ -192,32 +192,22 @@ describe("Row and column grips", () => {
     expect(text).toBe("| A | B |\n|---|---|\n| 4 | d |\n| <meta pin-bottom=\"1\"> |\n");
   });
 
-  it("selects rows (columns) from the menu's one to the one under the pointer, until a click", async () => {
+  it("has no item to select rows (columns): Shift+click on a grip selects columns between too", async () => {
     await setup(PAGE);
     const selected = () => Array.from(editor.querySelectorAll(".tp-selected"));
-    item(openMenu(1, "row"), "Select rows").click();
-    expect(selected()).toEqual([cell(1, 0), cell(1, 1)]);
-    // The header is not a row to select: the selection stays
-    cell(0, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    expect(selected().length).toBe(2);
-    cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    expect(selected().length).toBe(4);
-    // A click in the table ends it there, without editing the cell
-    clickOn(cell(3, 1));
-    expect(editor.querySelector(".tp-cell-editor")).toBeNull();
-    expect(selected().length).toBe(6);
+    const labels = Array.from(openMenu(1, "row").querySelectorAll(".tp-menu-item")).map((b) => b.textContent);
+    expect(labels.some((l) => /^Select/.test(l ?? ""))).toBe(false);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    // The first column's grip, then Shift+click on the second's: both columns, header and rows
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const grip = document.querySelector<HTMLElement>(".tp-grip-column")!;
+    grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    // With its menu open the grip follows the pointer
     cell(1, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    expect(selected().length).toBe(6);
-    expect(item(openMenu(2, "row"), "Delete 3 rows")).toBeDefined();
-
-    // Columns; Esc keeps just the first
-    item(openMenu(1, "column", 0), "Select columns").click();
-    cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, shiftKey: true }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
     expect(selected().length).toBe(8);
-    key(editor, "Escape");
-    expect(selected()).toEqual([cell(0, 0), cell(1, 0), cell(2, 0), cell(3, 0)]);
-    cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    expect(selected().length).toBe(4);
   });
 
   it("deletes whole rows (columns) with a second Delete, once they are empty", async () => {

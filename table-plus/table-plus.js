@@ -1565,8 +1565,6 @@ var ICONS = {
   theme: svg('<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.9 1.4-1.8l-.3-.8a1.7 1.7 0 0 1 1.6-2.4H17a4 4 0 0 0 4-4c0-4.9-4-9-9-9z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>'),
   lazy: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'),
   editMode: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>'),
-  selectRows: svg('<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18" stroke-dasharray="2 2"/><path d="M12 9v6"/>'),
-  selectColumns: svg('<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 3v18M15 3v18" stroke-dasharray="2 2"/><path d="M9 12h6"/>'),
   arrowUp: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   arrowDown: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
   // AutoFill: a cell, its fill handle, and the way it fills
@@ -9628,8 +9626,6 @@ var Grips = class {
    */
   menu;
   dragging = false;
-  // Select rows (columns): from the row (column) `from` to the one under the pointer, in the table `key`
-  picking;
   // The grips select lines themselves (their menu stays for them)
   selectingLines = false;
   // The line a grip's click selected last: Shift+click on another grip selects from it, as a spreadsheet's anchor
@@ -9694,7 +9690,6 @@ var Grips = class {
     return [info.table.rows[0], ...this.host.bodyRows(info)].flatMap((tr) => tr.cells[target.column] ?? []);
   }
   stop() {
-    this.endPicking();
     this.closeMenu(false);
     this.rowGrip.remove();
     this.columnGrip.remove();
@@ -9702,27 +9697,16 @@ var Grips = class {
   owns(node) {
     return this.rowGrip.contains(node) || this.columnGrip.contains(node) || !!this.menu?.element.contains(node);
   }
-  // While a grip is dragged the hover controls stay; with a menu open, or rows being selected, the grips stay in its table
+  // While a grip is dragged the hover controls stay; with a menu open the grips stay in its table
   pointerBusy() {
-    return this.dragging ? "drag" : this.menu || this.picking ? "menu" : void 0;
+    return this.dragging ? "drag" : this.menu ? "menu" : void 0;
   }
   // A press outside an open menu closes it
   mouseDown(e) {
-    if (this.picking && this.pickedBy(e)) return true;
     if (this.menu && e.target instanceof Node && !this.host.isFloating(e.target)) this.closeMenu(false);
     return false;
   }
   keyDown(e) {
-    const picking = this.picking;
-    if (e.key === "Escape" && picking) {
-      e.preventDefault();
-      e.stopPropagation();
-      const widget = this.host.widgetForKey(picking.key);
-      const info = widget && this.host.infoOf(widget);
-      if (info) this.selectLines(info, picking.axis, picking.from, picking.from);
-      this.endPicking();
-      return true;
-    }
     if (e.key !== "Escape" || !this.menu) return false;
     e.preventDefault();
     e.stopPropagation();
@@ -9734,10 +9718,6 @@ var Grips = class {
     const ref = this.host.cellRef(info, cell);
     if (!ref) return;
     this.target = { widget, info, column: ref.column, ...ref.row > 0 ? { row: ref.row } : {} };
-    const picking = this.picking;
-    if (picking?.key === info.key && (picking.axis === "column" || ref.row > 0)) {
-      this.selectLines(info, picking.axis, picking.from, picking.axis === "row" ? ref.row : ref.column);
-    }
     const tr = cell.parentElement;
     const shown = this.host.shownRect(widget, info);
     const rearranged = this.host.rearranged(info);
@@ -9911,7 +9891,6 @@ var Grips = class {
     const last = ends[ends.length - 1];
     const farther = first === void 0 || last === void 0 ? line : Math.abs(place(first) - place(line)) >= Math.abs(place(last) - place(line)) ? first : last;
     const from = anchor && anchor.key === info.key && anchor.axis === axis && lines.includes(anchor.line) ? anchor.line : farther;
-    this.endPicking();
     this.selectLines(info, axis, from, line);
     this.lineAnchor = { key: info.key, axis, line: from };
   }
@@ -9983,50 +9962,6 @@ var Grips = class {
     if (!this.selectingLines) this.lineAnchor = void 0;
     if (!this.selectingLines && this.menu && !this.menuAgain()) this.closeMenu(false, false);
     this.markGrips();
-  }
-  // ---- Select rows (columns): the pointer picks the other end, a click ends it ----------
-  startPicking(info, axis, line) {
-    void this.host.saveEditing();
-    this.picking = { key: info.key, axis, from: line };
-    this.host.doc.body.classList.add(axis === "row" ? "tp-picking-rows" : "tp-picking-columns");
-    this.selectLines(info, axis, line, line);
-    void this.host.bridge.flash(
-      `Table Plus: move to the last ${axis} to select and click in the table; Esc keeps just this one`,
-      "info"
-    );
-  }
-  /**
-   * A press while selecting rows (columns): in the table, the selection ends at
-   * the row (column) pressed (taken: no cell editor opens); elsewhere it just ends
-   */
-  pickedBy(e) {
-    const picking = this.picking;
-    this.endPicking();
-    const widget = this.host.widgetForKey(picking.key);
-    const info = widget && this.host.infoOf(widget);
-    if (!info || e.button !== 0 || !(e.target instanceof Element)) return false;
-    const cell = this.host.tableCellOf(info, e.target);
-    const ref = cell && this.host.cellRef(info, cell);
-    if (!ref) return false;
-    e.preventDefault();
-    e.stopPropagation();
-    const to = picking.axis === "row" ? ref.row > 0 ? ref.row : void 0 : ref.column;
-    if (to !== void 0) this.selectLines(info, picking.axis, picking.from, to);
-    return true;
-  }
-  endPicking() {
-    if (!this.picking) return;
-    this.picking = void 0;
-    this.host.doc.body.classList.remove("tp-picking-rows", "tp-picking-columns");
-  }
-  selectEntry(info, axis, line) {
-    return {
-      kind: "item",
-      label: axis === "row" ? "Select rows" : "Select columns",
-      icon: axis === "row" ? ICONS.selectRows : ICONS.selectColumns,
-      hint: `Select from this ${axis} to the one you click next`,
-      run: this.runAndClose(() => this.startPicking(info, axis, line))
-    };
   }
   /**
    * The lines a grip moves: the rows (columns) selected whole, when they hold
@@ -10360,7 +10295,6 @@ var Grips = class {
       },
       { kind: "separator" },
       ...this.section(this.host.rowMenuEntries(widget, info, row, column)),
-      this.selectEntry(info, "row", row),
       this.deleteEntry(widget, info, "row", row)
     ];
   }
@@ -10497,7 +10431,6 @@ var Grips = class {
       },
       { kind: "separator" },
       ...this.section(host.columnMenuTopEntries(widget, info, column)),
-      this.selectEntry(info, "column", column),
       this.deleteEntry(widget, info, "column", column)
     ];
     return entries;
