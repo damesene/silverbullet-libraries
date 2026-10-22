@@ -61,7 +61,7 @@ import {
   type Table,
   type TableRange,
 } from "./markdown.ts";
-import { focusMenu, keepFocus, type MenuBack, type MenuEntry, type MenuNaming, renderMenu, startNaming, wrapRuns } from "./menu.ts";
+import { focusMenu, keepFocus, type MenuBack, type MenuEntry, type MenuNaming, onMenuClose, renderMenu, startNaming, wrapRuns } from "./menu.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { appendColumnAt, appendRowAt } from "./pins.ts";
 import { keepTags } from "./tags.ts";
@@ -2547,6 +2547,7 @@ export class Controller implements TableHost {
     const element = renderMenu(this.doc, title, closing, back, naming);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     keepFocus(element);
+    onMenuClose(element, () => this.closeTableMenu(true));
     this.doc.body.append(element);
     this.tableMenu = { element, widget, ...place };
     place.anchor?.classList.add("tp-active");

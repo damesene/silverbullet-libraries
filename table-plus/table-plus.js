@@ -9334,6 +9334,10 @@ function keepFocus(menu) {
     if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
   });
 }
+var MENU_CLOSE = "tp-menu-close";
+function onMenuClose(menu, close) {
+  menu.addEventListener(MENU_CLOSE, close);
+}
 function startNaming(menu) {
   menu.querySelector(".tp-menu-rename:not([aria-disabled])")?.click();
 }
@@ -9363,6 +9367,17 @@ function renderMenu(doc, title, entries, back, naming) {
   heading.append(titleText);
   menu.append(heading);
   if (naming) addNaming(doc, menu, heading, naming);
+  const close = doc.createElement("button");
+  close.type = "button";
+  close.className = "tp-menu-close";
+  close.title = "Close";
+  close.setAttribute("aria-label", "Close");
+  close.innerHTML = CLOSE;
+  close.addEventListener("click", (e) => {
+    e.preventDefault();
+    menu.dispatchEvent(new Event(MENU_CLOSE));
+  });
+  heading.append(close);
   let bubble;
   const showDetail = (item, detail) => {
     if (!bubble) {
@@ -9504,7 +9519,7 @@ function renderMenu(doc, title, entries, back, naming) {
     e.stopPropagation();
     if (e.target instanceof HTMLInputElement) return;
     const buttons = Array.from(
-      menu.querySelectorAll("button:not([aria-disabled]):not(.tp-menu-rename)")
+      menu.querySelectorAll("button:not([aria-disabled]):not(.tp-menu-rename):not(.tp-menu-close)")
     );
     const index = buttons.indexOf(doc.activeElement);
     const focus = (i) => buttons[(i + buttons.length) % buttons.length]?.focus({ preventScroll: true });
@@ -9592,6 +9607,7 @@ function addNaming(doc, menu, heading, naming) {
   });
 }
 var problemIds = 0;
+var CLOSE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 var PENCIL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg>';
 function focusMenu(menu) {
   const current = menu.dataset.tpList !== void 0 ? menu.querySelector('.tp-menu-item[aria-checked="true"]') : null;
@@ -10157,6 +10173,7 @@ var Grips = class {
     const element = renderMenu(doc, title, entries, void 0, naming);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     keepFocus(element);
+    onMenuClose(element, () => this.closeMenu(true));
     doc.body.append(element);
     if (at) {
       const c = at.cell.getBoundingClientRect();
@@ -10183,6 +10200,7 @@ var Grips = class {
     const element = renderMenu(this.host.doc, title, closing, { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) });
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     keepFocus(element);
+    onMenuClose(element, () => this.closeMenu(true));
     this.swapMenu(element);
   }
   /** Puts `element` in the open menu's place */
@@ -16001,6 +16019,7 @@ var Controller = class {
     const element = renderMenu(this.doc, title, closing, back, naming);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     keepFocus(element);
+    onMenuClose(element, () => this.closeTableMenu(true));
     this.doc.body.append(element);
     this.tableMenu = { element, widget, ...place };
     place.anchor?.classList.add("tp-active");

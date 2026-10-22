@@ -21,7 +21,7 @@ import {
 import { cellText } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import { type Align, parseTable, type Table } from "../markdown.ts";
-import { focusMenu, keepFocus, type MenuEntry, type MenuNaming, renderMenu, wrapRuns } from "../menu.ts";
+import { focusMenu, keepFocus, type MenuEntry, type MenuNaming, onMenuClose, renderMenu, wrapRuns } from "../menu.ts";
 import { setAlign } from "../ops.ts";
 import { columnZone, insertColumnAt, insertRowAt, rowZone } from "../pins.ts";
 import { type ViewState, withoutSort, withSort } from "../view.ts";
@@ -688,6 +688,7 @@ export class Grips implements Feature {
     const element = renderMenu(doc, title, entries, undefined, naming);
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     keepFocus(element);
+    onMenuClose(element, () => this.closeMenu(true));
     doc.body.append(element);
     if (at) {
       // By the point pressed, following its cell as the page scrolls
@@ -716,6 +717,7 @@ export class Grips implements Feature {
     const element = renderMenu(this.host.doc, title, closing, { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) });
     element.classList.add("tp-floating", "tp-menu", "tp-visible");
     keepFocus(element);
+    onMenuClose(element, () => this.closeMenu(true));
     this.swapMenu(element);
   }
 

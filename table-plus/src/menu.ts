@@ -95,6 +95,14 @@ export function keepFocus(menu: HTMLElement): void {
   });
 }
 
+// The event the × in a menu's title sends to the menu: whoever shows it closes it (onMenuClose)
+const MENU_CLOSE = "tp-menu-close";
+
+/** What closes the menu when its × is pressed (as Esc does: the one who shows it knows how) */
+export function onMenuClose(menu: HTMLElement, close: () => void): void {
+  menu.addEventListener(MENU_CLOSE, close);
+}
+
 /** The menu's title as a field, its name to type (the pencil pressed) */
 export function startNaming(menu: HTMLElement): void {
   menu.querySelector<HTMLButtonElement>(".tp-menu-rename:not([aria-disabled])")?.click();
@@ -128,6 +136,18 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
   heading.append(titleText);
   menu.append(heading);
   if (naming) addNaming(doc, menu, heading, naming);
+  // A × closing it, as Esc or a press beside it do (on a touch screen a tap beside it may land on something)
+  const close = doc.createElement("button");
+  close.type = "button";
+  close.className = "tp-menu-close";
+  close.title = "Close";
+  close.setAttribute("aria-label", "Close");
+  close.innerHTML = CLOSE;
+  close.addEventListener("click", (e) => {
+    e.preventDefault();
+    menu.dispatchEvent(new Event(MENU_CLOSE));
+  });
+  heading.append(close);
 
   // One bubble for the menu's details, beside it: right, or left where the right has no room
   let bubble: HTMLElement | undefined;
@@ -279,7 +299,7 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
     if (e.target instanceof HTMLInputElement) return;
     // The title's buttons (the pencil) are Tab's, the arrows go along the entries
     const buttons = Array.from(
-      menu.querySelectorAll<HTMLButtonElement>("button:not([aria-disabled]):not(.tp-menu-rename)"),
+      menu.querySelectorAll<HTMLButtonElement>("button:not([aria-disabled]):not(.tp-menu-rename):not(.tp-menu-close)"),
     );
     const index = buttons.indexOf(doc.activeElement as HTMLButtonElement);
     const focus = (i: number) =>
@@ -376,6 +396,10 @@ function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, namin
 
 // Ids tying a name field to its refusal (aria-describedby)
 let problemIds = 0;
+
+// A ×: what closes
+const CLOSE =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 // A pencil: what names
 const PENCIL =

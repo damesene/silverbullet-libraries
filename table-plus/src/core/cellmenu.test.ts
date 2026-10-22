@@ -74,6 +74,23 @@ describe("Cell menu", () => {
     expect(cell(0, 1).isConnected).toBe(true);
   });
 
+  it("closes a menu with the × in its title: a cell's, a column's, the table's", async () => {
+    await setup(PAGE);
+    const close = () => menu()!.querySelector<HTMLElement>(".tp-menu-title .tp-menu-close")!;
+    rightClick(cell(1, 1));
+    expect(close().getAttribute("aria-label")).toBe("Close");
+    close().click();
+    expect(menu()).toBeNull();
+    // A header's: its column's menu (the grips')
+    rightClick(cell(0, 1));
+    close().click();
+    expect(menu()).toBeNull();
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    document.querySelector<HTMLElement>(".tp-bar .tp-bar-more")!.click();
+    close().click();
+    expect(menu()).toBeNull();
+  });
+
   it("filters by a cell's value, adding to the column's list; and leaves it out with ≠", async () => {
     await setup(PAGE);
     cellMenuItem(cell(1, 1), /^Filter: = 3$/)!.click();

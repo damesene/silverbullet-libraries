@@ -184,7 +184,7 @@ Right-click a cell (on a touch screen: press and hold it; in the cell editor: th
 
 The menu of one cell is titled with the cell's name (*Cell: vat*), else its column and row; the pencil after the title names the cell, see [[#Named cells]]. A row is named in its row menu, see [[#Named rows]].
 
-The menus of a cell, of a row and of a column keep one order, so the same actions are in the same place: first a bar of icons for the clipboard (*Copy*, *Cut*, *Paste* and, for rows, *+ Rows*: paste as new rows; their full names show on hover), then *Clear*, then inserting, moving and pinning, the column's type, sorting and filtering, and deleting last. Pairs of actions sit in one row of icon buttons after their name (*Insert* above / below, *Move* up / down, *Pin* top / bottom, *Sort*, *Filter* and its ×, *Align*); a button that cannot be used now is greyed out, and hovering it says why.
+The menus of a cell, of a row and of a column keep one order, so the same actions are in the same place: first a bar of icons for the clipboard (*Copy*, *Cut*, *Paste* and, for rows, *+ Rows*: paste as new rows; their full names show on hover), then *Clear*, then inserting, moving and pinning, the column's type, sorting and filtering, and deleting last. Pairs of actions sit in one row of icon buttons after their name (*Insert* above / below, *Move* up / down, *Pin* top / bottom, *Sort*, *Filter* and its ×, *Align*); a button that cannot be used now is greyed out, and hovering it says why. The × at the title's right closes a menu, as Esc or a press beside it do.
 
 Each comes from a module (`formulas`, `names`, `selection`, `paste`, `autofill`, `filters`, see [[#Settings]]): a module turned off leaves its items out, and with none left the right click gives the browser's menu.
 
@@ -2968,9 +2968,35 @@ html[data-theme="dark"] .tp-excel-error {
   width: 14px;
   height: 14px;
 }
+/* The × closing the menu, at the title's right */
+.tp-menu-close {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  display: inline-flex;
+  margin: -3px -5px -3px 0;
+  padding: 3px;
+  color: inherit;
+  opacity: 0.6;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.tp-menu-close:hover,
+.tp-menu-close:focus-visible {
+  opacity: 1;
+  background: color-mix(in srgb, var(--ui-accent-color) 14%, transparent);
+  outline: none;
+}
+.tp-menu .tp-menu-close svg {
+  width: 14px;
+  height: 14px;
+}
 /* What the menu is about named in its title: a pencil after the title, the title a field once pressed */
 .tp-menu-rename {
   grid-column: 3;
+  grid-row: 1;
   justify-self: start;
   display: inline-flex;
   margin: -3px 0;
