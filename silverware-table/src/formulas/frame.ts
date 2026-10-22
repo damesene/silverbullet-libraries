@@ -14,9 +14,13 @@ export type WrittenArea = { readonly table?: TableRef; readonly area: Area; read
  * it; undefined leaves the reference as written
  */
 export function withAreasWritten(formula: string, write: (ref: WrittenArea) => string | undefined): string {
-  // Where each table's name starts, by where it ends (a reference's own text starts there)
+  // Where each table's name starts, by where the reference after it starts (spaces may be between)
   const tableFrom = new Map<number, number>();
-  for (const token of tokenize(formula).tokens) if (token.kind === "table") tableFrom.set(token.to, token.from);
+  const { tokens } = tokenize(formula);
+  tokens.forEach((token, i) => {
+    const next = tokens[i + 1];
+    if (token.kind === "table" && next) tableFrom.set(next.from, token.from);
+  });
   let result = formula;
   for (const ref of references(formula).reverse()) {
     if (ref.kind !== "area") continue;

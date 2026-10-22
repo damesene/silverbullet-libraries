@@ -429,7 +429,7 @@ export class Formulas implements Feature {
   }
 
   editorClosed(): void {
-    this.unframed = undefined;
+    // (unframed stays: the editor's value is read after it closed; the next editor opened sets it anew)
     this.functions.close();
     this.stopPointing?.();
     this.pointed = undefined;
@@ -473,13 +473,17 @@ export class Formulas implements Feature {
     return hit && hit.table === undefined ? { ...ref, area: hit.area } : undefined;
   }
 
-  /** An area of the table edited as the formula edited writes it: in a frame's addresses where one lays the table out */
-  private areaWritten(info: TableInfo, active: CellEditor, area: Area, fixed?: Fixed): string {
+  /**
+   * An area of the table edited as the formula edited writes it: in a frame's
+   * addresses where one lays the table out. Not one area there (a range in a
+   * sorted table): by the table's name, as stored; undefined if it has none.
+   */
+  private areaWritten(info: TableInfo, active: CellEditor, area: Area, fixed?: Fixed): string | undefined {
     const frame = this.frameFor(info, active);
     const out = frame?.outward(undefined, area);
     if (!frame || out) return areaText(out ?? area, fixed);
-    // Not one area there (a range in a sorted table): by the table's name, as stored
-    return writtenArea(area, fixed, metaName(parseTable(info.source)));
+    const own = metaName(parseTable(info.source));
+    return own ? writtenArea(area, fixed, own) : undefined;
   }
 
   /**
@@ -716,7 +720,8 @@ export class Formulas implements Feature {
       bottom: Math.max(anchor.row, to.row),
       right: Math.max(anchor.column, to.column),
     });
-    put(this.areaWritten(info, active, areaTo({ row: cell.row - 1, column: cell.column })), anchor);
+    const first = this.areaWritten(info, active, areaTo({ row: cell.row - 1, column: cell.column }));
+    if (first) put(first, anchor);
     // Dragging with the button held makes it a range; it ends with the button,
     // a key, the window losing focus or the editor closing
     const end = () => {

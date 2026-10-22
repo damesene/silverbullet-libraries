@@ -13,6 +13,10 @@ describe("withAreasWritten", () => {
     expect(withAreasWritten("=A1+B1", (ref) => (ref.area.left === 1 ? writtenArea(ref.area, ref.fixed, "costs") : undefined))).toBe("=A1+costs!B1");
   });
 
+  it("replaces a table's name with spaces before the cell", () => {
+    expect(withAreasWritten("=prices! B2", (ref) => writtenArea(ref.area))).toBe("=B2");
+  });
+
   it("leaves functions, names and text alone", () => {
     expect(withAreasWritten('=LOG2(8) & "A1" & vat & pear[price]', () => "X9")).toBe('=LOG2(8) & "A1" & vat & pear[price]');
   });
