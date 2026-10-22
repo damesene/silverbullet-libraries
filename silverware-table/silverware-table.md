@@ -719,13 +719,14 @@ The header's background and its text color go together: SilverBullet's header is
 
 The sheet icon (a grid) in a table's toolbar shows the table like a spreadsheet, over the whole window: the columns' letters above, the rows' numbers beside them (as formulas refer to cells, `B3`), and empty rows and columns past the table's last row and column. More appear as you scroll on.
 
-* **Select an empty cell** as a table's cell: a click selects it (in *Edit mode* it edits it at once); typing, a second click, Enter or F2 edits it; Esc unselects it, a second Esc closes the view.
-* **Grow the table**: click an empty cell and type. Enter or Tab saves it, and the table grows to hold it, in one edit (one Ctrl+Z): the rows and columns between are added empty, a new column is named *Column 5* (rename it like any header). Typing into the header's line right of the table adds a column with that name.
+* **Select an empty cell** as a table's cell: a click selects it (in *Edit mode* it edits it at once); typing, a second click, Enter or F2 edits it; Esc unselects it, a second Esc closes the view. Arrows go on from the table's last row or column into the empty cells and back.
+* **Grow the table**: click an empty cell and type. Enter or Tab saves it, and the table grows to hold it, in one edit (one Ctrl+Z): the rows and columns between are added empty, a new column is named *Column 5* (rename it like any header). Typing into the header's line right of the table adds a column with that name. As in the table, Enter then edits the cell below, Tab the next one (Shift the other way), Esc leaves the cell selected.
+* **Paste into an empty cell**: Ctrl+V pastes cells copied from a spreadsheet there, and the table grows to hold all of them; a single value goes into the cell's editor.
 * **Nothing is added for a cell left empty**: Enter on an empty cell, or Esc, writes nothing.
 * **Rows pinned to the bottom stay last**: a new row goes above them, as Tab on the last cell does; a column, left of the columns pinned to the right.
 * **Close it** with the same icon (*Exit sheet view*) or Esc. *Full screen* stays as it was: the table over the window without empty cells.
 
-Everything else works as in the page: editing, selecting, menus, formulas. A table sorted or filtered shows a row added so where its sorting or filter puts it (or hides it); the rows' numbers past the table go on from the table's last row in the markdown. The empty cells are not cells yet: they cannot be selected, copied into or pasted over, and a formula cannot refer to them.
+Everything else works as in the page: editing, selecting, menus, formulas. A table sorted or filtered shows a row added so where its sorting or filter puts it (or hides it); the rows' numbers past the table go on from the table's last row in the markdown. The empty cells are not cells yet: a selection, AutoFill or a drag stays within the table, a formula cannot refer to them, and the cell menu has nothing for them.
 
 ## Large tables
 

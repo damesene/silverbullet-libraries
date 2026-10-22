@@ -46,7 +46,13 @@ test.describe("Sheet view", () => {
     await page.mouse.click(empty.x, empty.y);
     await page.mouse.click(empty.x, empty.y);
     await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toBeFocused();
+    // Enter on it left empty: nothing written, the cell below edited (as in a table); Esc leaves it selected, a second unselects it
     await page.keyboard.press("Enter");
+    await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
+    await expect(page.locator(".swt-sheet-cell")).toHaveCount(1);
+    await page.keyboard.press("Escape");
     await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
     expect(await markdown(page)).toBe(before);
     const point = await emptyCell(page, { below: 1, column: 0 });
@@ -76,6 +82,59 @@ test.describe("Sheet view", () => {
     await cell(page, 1, 1).click();
     await expect(table(page).locator(".swt-selected")).toHaveCount(1);
     await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
+  });
+
+  test("arrows go between the table's cells and the empty ones", async ({ page }) => {
+    await openSheet(page);
+    // Origin of Pear, the last column: right, an empty cell; left again, the table's
+    await cell(page, 1, 3).click();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator(".swt-sheet-cell")).toBeVisible();
+    await expect(table(page).locator(".swt-selected")).toHaveCount(0);
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
+    await expect(cell(page, 2, 3)).toHaveClass(/swt-selected/);
+  });
+
+  test("Enter in an empty cell saves it and edits the one below, Tab the next one", async ({ page }) => {
+    await openSheet(page);
+    const point = await emptyCell(page, { below: 0, column: 0 });
+    await page.mouse.click(point.x, point.y);
+    await page.keyboard.type("Plum");
+    await rendersAnew(page, () => page.keyboard.press("Enter"));
+    const field = page.locator(".swt-sheet-cell .swt-cell-editor");
+    await expect(field).toBeFocused();
+    await page.keyboard.type("Lime");
+    await rendersAnew(page, () => page.keyboard.press("Tab"));
+    // Lime's row is the table's now: Tab edits its next cell, a cell of the table
+    await expect(page.locator(".swt-cell-editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    const lines = (await markdown(page)).split("\n");
+    const last = lines.findIndex((line) => line.startsWith("| Šípek"));
+    expect(lines[last + 1]).toMatch(/^\| Plum +\|/);
+    expect(lines[last + 2]).toMatch(/^\| Lime +\|/);
+  });
+
+  test("cells pasted into an empty cell grow the table to hold them", async ({ page }) => {
+    await openSheet(page);
+    const point = await emptyCell(page, { right: 0, row: 1 });
+    await page.mouse.click(point.x, point.y);
+    await page.keyboard.press("Control+v");
+    const field = page.locator(".swt-sheet-cell .swt-cell-editor");
+    await expect(field).toBeFocused();
+    // As a spreadsheet copies: tabs and lines
+    await rendersAnew(page, () =>
+      field.evaluate((input) => {
+        const data = new DataTransfer();
+        data.setData("text/plain", "x\ty\n1\t2");
+        input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      }),
+    );
+    const text = await markdown(page);
+    expect(text).toMatch(/\| Column 5 +\| Column 6 +\|/);
+    expect(text).toMatch(/\| Czechia +\| x +\| y +\|/);
+    expect(text).toMatch(/\| Poland +\| 1 +\| 2 +\|/);
   });
 
   test("Esc unselects an empty cell, a second Esc closes the view", async ({ page }) => {

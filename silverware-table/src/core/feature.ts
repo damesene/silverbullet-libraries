@@ -258,6 +258,12 @@ export interface TableHost {
   selectedCells(info: WidgetInfo): readonly CellRef[];
   /** The cells selected changed (the selection module): what follows them (the quiet + of a last row or column) follows */
   selectionChanged(): void;
+  /**
+   * An arrow on a cell selected alone at the table's edge, away from the
+   * table (the selection module): whether a feature took the selection on past
+   * it (Feature.selectionLeaves), so the table's selection ends
+   */
+  selectionLeaves(info: WidgetInfo, from: CellRef, step: readonly [number, number]): boolean;
   /** Whether a module is on (one feature serves another: pageLinks reads pages for formulas) */
   moduleOn(name: FeatureName): boolean;
   /** Tables changed outside the page (another page read anew): features check them again */
@@ -574,5 +580,11 @@ export interface Feature {
   fillCell?(info: WidgetInfo, cell: string, from: CellRef, to: CellRef): string | undefined;
   /** The cells selected changed (the selection module): what goes with them follows */
   selectionChanged?(): void;
+  /**
+   * An arrow on a cell selected alone at the table's edge, away from it
+   * (`step`: rows and columns, one of them ±1): true, the feature selects on
+   * past the edge (the sheet view's empty cells), the table's selection ends
+   */
+  selectionLeaves?(info: WidgetInfo, from: CellRef, step: readonly [number, number]): boolean;
   editorClosed?(editor: CellEditor): void;
 }

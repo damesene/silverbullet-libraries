@@ -1678,6 +1678,10 @@ export class Controller implements TableHost {
     for (const feature of this.features) feature.selectionChanged?.();
   }
 
+  selectionLeaves(info: WidgetInfo, from: CellRef, step: readonly [number, number]): boolean {
+    return this.features.some((f) => f.selectionLeaves?.(info, from, step));
+  }
+
   // ---- floating UI: the toolbar ----------------------------------------------
 
   floating<K extends keyof HTMLElementTagNameMap>(

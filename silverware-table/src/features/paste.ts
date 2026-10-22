@@ -14,7 +14,7 @@ import type { CellEditor, CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo
 import { Outline } from "../core/outline.ts";
 import type { MenuEntry } from "../menu.ts";
 import { cellValue, WIDGET_SELECTOR } from "../dom.ts";
-import { cellMoveRules, moveRowsTo } from "../core/structure.ts";
+import { cellMoveRules, growTo, moveRowsTo } from "../core/structure.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import { moveCells, parseClipboardCells, pasteCells, planPaste } from "../paste.ts";
@@ -496,7 +496,12 @@ export class Paste implements Feature {
       void this.host.bridge.flash("Silverware Table: cells cut move into the rows under the header: paste them on a cell there", "info");
       return;
     }
-    const plan = planPaste(parseTable(info.source), info.pins, at, cut ? cut.held : data, insert);
+    // A cell past the table (the sheet view's empty cell): the table grown to it first, in the same edit
+    const growth = at.row >= info.rows || at.column >= info.columns ? growTo(info, at) : undefined;
+    const source = parseTable(info.source);
+    const base = growth ? growth.grow(source) : source;
+    if (!base) return;
+    const plan = planPaste(base, info.pins, growth ? growth.cell : at, cut ? cut.held : data, insert);
     if ("error" in plan) {
       void this.host.bridge.flash(`Silverware Table: cannot paste here: ${plan.error}`, "error");
       return;
@@ -507,7 +512,8 @@ export class Paste implements Feature {
     const result = await this.host.write(
       closed?.widget ?? widget,
       (t) => {
-        const edited = closed ? closed.save(t) : t;
+        const saved = closed ? closed.save(t) : t;
+        const edited = saved && growth ? growth.grow(saved) : saved;
         if (!edited) return undefined;
         if (cut) return moveCells(edited, cut.cells, plan, cellMoveRules(this.host));
         const pasted = pasteCells(edited, plan, data, {
@@ -519,9 +525,9 @@ export class Paste implements Feature {
         return pasted.table;
       },
       {
-        columnMap: newColumns.count ? (c) => (c >= newColumns.at ? c + newColumns.count : c) : undefined,
+        columnMap: newColumns.count || growth ? (c) => after(growth ? growth.columnMap(c) : c, newColumns) : undefined,
         pins: plan.pins,
-        rowMap: newRows.count ? (r) => (r >= newRows.at ? r + newRows.count : r) : undefined,
+        rowMap: newRows.count || growth ? (r) => after(growth ? growth.rowMap(r) : r, newRows) : undefined,
       },
     );
     if (result !== "written") {
@@ -542,4 +548,9 @@ export class Paste implements Feature {
     void this.host.bridge.flash(`Silverware Table: ${what}${added.length ? ` (${added.join(", ")})` : ""}`, "info");
     if (closed) this.host.focusEditor(closed.widget);
   }
+}
+
+/** Where a row or column is once `added` were inserted (a paste's new rows or columns) */
+function after(index: number | undefined, added: { readonly at: number; readonly count: number }): number | undefined {
+  return index === undefined || index < added.at ? index : index + added.count;
 }

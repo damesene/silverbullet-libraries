@@ -277,6 +277,13 @@ export class Selection implements Feature {
       return true;
     }
     if (!inField && this.editFromKey(e)) return true;
+    // An arrow on a cell selected alone at the table's edge, away from it: a feature may select on past it
+    if (!inField && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && this.leavesTable(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.clear();
+      return true;
+    }
     // Keys that move the selection's last cell: Shift extends to it, else the selection is that cell
     const target = !inField && !e.altKey && !e.metaKey ? this.keyTarget(e) : undefined;
     if (target) {
@@ -343,6 +350,23 @@ export class Selection implements Feature {
    * / End the table's first / last cell, PageUp / PageDown 10 rows (PageUp
    * stops at the first body row, as in the cell editor); undefined: not such a key
    */
+  /** Whether an arrow takes the cell selected alone past the table's edge, a feature selecting on there */
+  private leavesTable(e: KeyboardEvent): boolean {
+    const selection = this.selection;
+    const step = STEPS[e.key];
+    const widget = selection && this.host.widgetForKey(selection.key);
+    const info = widget && this.host.infoOf(widget);
+    if (!step || !selection || !info) return false;
+    const { anchor, focus } = selection;
+    if (anchor.row !== focus.row || anchor.column !== focus.column) return false;
+    const shown = this.host.shownRows(info);
+    const at = shown.findIndex((tr) => this.host.rowOf(info, tr) === focus.row);
+    const r = at + step[0];
+    const column = focus.column + step[1];
+    const inside = r >= 0 && r < shown.length && column >= 0 && column < info.columns;
+    return at >= 0 && !inside && this.host.selectionLeaves(info, focus, step);
+  }
+
   private keyTarget(e: KeyboardEvent): CellRef | undefined {
     const selection = this.selection;
     const widget = selection && this.host.widgetForKey(selection.key);

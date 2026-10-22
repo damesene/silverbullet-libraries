@@ -16,6 +16,7 @@ import type { CellEditor, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo
 import { oncePerFrame } from "../core/frame.ts";
 import { STICKY_GAP } from "../core/layout.ts";
 import { firstRowBelow } from "../core/geometry.ts";
+import { growTo } from "../core/structure.ts";
 import { OverWindow, type RowsPast } from "../core/overwindow.ts";
 import { UI_CLASS } from "../dom.ts";
 import { columnLetters } from "../formulas/index.ts";
@@ -24,6 +25,13 @@ import { ICONS } from "../icons.ts";
 // An empty column's width, an empty row's height when the table has no body row to take it from
 const COLUMN_WIDTH = 100;
 const ROW_HEIGHT = 32;
+// Arrows: the rows and columns they go by
+const ARROWS: Readonly<Record<string, readonly [number, number]>> = {
+  ArrowUp: [-1, 0],
+  ArrowDown: [1, 0],
+  ArrowLeft: [0, -1],
+  ArrowRight: [0, 1],
+};
 // Empty columns and rows beyond the view's edge: the box scrolls on into them, and more come
 const COLUMNS_BEYOND = 4;
 const ROWS_BEYOND = 10;
@@ -57,6 +65,9 @@ export class Sheet implements Feature {
   private chosen: CellRef | undefined;
   // A press on an empty cell while a cell was edited: acted on once that edit is saved and the cells placed anew
   private pendingPress: { x: number; y: number } | undefined;
+  // Where the keyboard goes on from the empty cell edited (Enter, Tab, Esc), once its editor is closed: from `at`
+  // (`grown`: the cell in the table its write grew, so once that is rendered anew; `ready` then)
+  private after: { at: CellRef; key: "Enter" | "Tab" | "Escape"; back: boolean; grown: boolean; ready: boolean } | undefined;
 
   constructor(private readonly host: TableHost) {
     this.over = new OverWindow(host, {
@@ -117,7 +128,9 @@ export class Sheet implements Feature {
 
   enhanced(widget: HTMLElement, info: WidgetInfo): void {
     this.over.enhanced(widget, info);
-    if (widget === this.over.widget) this.queuePlace();
+    if (widget !== this.over.widget) return;
+    if (this.after?.grown) this.after.ready = true;
+    this.queuePlace();
   }
 
   viewApplied(widget: HTMLElement): void {
@@ -135,27 +148,67 @@ export class Sheet implements Feature {
 
   /**
    * An empty cell selected: typing edits it (the key goes into its field, as on
-   * a table's cell), so do Enter and F2; Esc unselects it (a second one closes
-   * the sheet view)
+   * a table's cell), so do Enter and F2, and Ctrl+V (the paste goes into its
+   * field, which the paste module takes: cells copied from a spreadsheet grow
+   * the table); arrows select the next cell, the table's too; Esc unselects it
+   * (a second one closes the sheet view)
    */
   keyDown(e: KeyboardEvent): boolean {
     const at = this.chosen;
-    if (at && !this.host.editing && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+    const widget = this.over.widget;
+    const info = widget && this.host.infoOf(widget);
+    if (at && info && !this.host.editing && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
       // AltGr arrives as Ctrl+Alt
       const typing = e.key.length === 1 && (!(e.ctrlKey || e.metaKey) || (e.ctrlKey && e.altKey));
+      const paste = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v";
+      const step = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey ? ARROWS[e.key] : undefined;
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
         this.unselect();
         return true;
       }
-      if (typing || e.key === "Enter" || e.key === "F2") {
-        if (!typing) e.preventDefault();
+      if (step) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.go(info, this.stepFrom(info, at, step), false);
+        return true;
+      }
+      if (typing || paste || e.key === "Enter" || e.key === "F2") {
+        if (!typing && !paste) e.preventDefault();
         this.edit(at);
         return true;
       }
     }
     return this.over.keyDown(e);
+  }
+
+  /**
+   * Enter, Tab or Esc in the empty cell's editor: the core's editor saves it (or
+   * drops it); where the keyboard goes then is the module's, as in a table:
+   * Enter edits the cell below (the enterKey setting: else selects the cell
+   * saved), Tab the next one, Shift the other way, Esc leaves the cell selected
+   */
+  editorKeyDown(e: KeyboardEvent, editor: CellEditor): boolean {
+    if (!this.cell || editor.cell !== this.cell.element || e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (e.key !== "Enter" && e.key !== "Tab" && e.key !== "Escape") return false;
+    const widget = this.over.widget;
+    const info = widget && this.host.infoOf(widget);
+    if (!info) return false;
+    // Something typed is written, the table grown to hold it: on from its place in the table grown
+    const grown = e.key !== "Escape" && editor.field.value.trim() !== "";
+    const at = { row: editor.row, column: editor.column };
+    this.after = { at: grown ? growTo(info, at).cell : at, key: e.key, back: e.shiftKey, grown, ready: false };
+    return false;
+  }
+
+  /** An arrow on a table's cell selected alone at its edge: on into the empty cells past it */
+  selectionLeaves(info: WidgetInfo, from: CellRef, step: readonly [number, number]): boolean {
+    if (info.key !== this.over.key) return false;
+    const to = this.stepFrom(info, from, step);
+    if (to.row < info.rows && to.column < info.columns) return false;
+    this.select(to);
+    return true;
   }
 
   // The numbers past the table follow the empty rows: placed after them (place)
@@ -202,6 +255,49 @@ export class Sheet implements Feature {
     if (!this.cell || editor.cell !== this.cell.element) return;
     this.chosen = undefined;
     this.dropCell();
+    // Nothing written (Esc, nothing typed): on at once, as the cells are now
+    if (this.after && !this.after.grown) this.after.ready = true;
+    this.queuePlace();
+  }
+
+  /** Where the keyboard goes on after the empty cell's editor (`after`), the cells placed as they are now */
+  private async goOn(info: WidgetInfo): Promise<void> {
+    const after = this.after;
+    if (!after) return;
+    this.after = undefined;
+    const sign = after.back ? -1 : 1;
+    if (after.key === "Escape") {
+      this.go(info, after.at, false);
+    } else if (after.key === "Tab") {
+      this.go(info, this.stepFrom(info, after.at, [0, sign]), true);
+    } else if ((await this.host.setting("enterKey")) === "moveDown") {
+      this.go(info, this.stepFrom(info, after.at, [sign, 0]), true);
+    } else {
+      this.go(info, after.at, false);
+    }
+  }
+
+  /** Selects or edits a cell: the table's, or an empty one */
+  private go(info: WidgetInfo, to: CellRef, edit: boolean): void {
+    if (to.row < info.rows && to.column < info.columns) {
+      this.unselect();
+      if (edit) this.host.editCell(info, to);
+      else this.host.selectCells(info, to, to);
+    } else if (edit) this.edit(to);
+    else this.select(to);
+  }
+
+  /**
+   * The cell a step away from `at`: rows as shown (the header first, then the
+   * body rows in their order, then the empty rows), never before the first row
+   * or column
+   */
+  private stepFrom(info: WidgetInfo, at: CellRef, step: readonly [number, number]): CellRef {
+    const order = this.host.shownRows(info).map((tr) => this.host.rowOf(info, tr));
+    const place = at.row >= info.rows ? order.length + at.row - info.rows : order.indexOf(at.row);
+    const next = Math.max(0, (place < 0 ? 0 : place) + step[0]);
+    const row = next < order.length ? order[next]! : info.rows + next - order.length;
+    return { row, column: Math.max(0, at.column + step[1]) };
   }
 
   private inGrid(target: EventTarget | null): boolean {
@@ -223,7 +319,7 @@ export class Sheet implements Feature {
 
   private select(at: CellRef): void {
     this.chosen = at;
-    this.showCell(at);
+    this.showCell(at)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }
 
   private unselect(): void {
@@ -274,6 +370,7 @@ export class Sheet implements Feature {
   private hide(): void {
     this.chosen = undefined;
     this.pendingPress = undefined;
+    this.after = undefined;
     if (this.cell && this.host.editing?.cell === this.cell.element) this.host.cancelEditing();
     this.dropCell();
     this.grid.remove();
@@ -301,11 +398,9 @@ export class Sheet implements Feature {
    */
   private place(): void {
     const widget = this.over.widget;
+    // Rendered anew, not enhanced yet: placed once it is (what is selected or comes next kept meanwhile)
     const info = widget?.isConnected ? this.host.infoOf(widget) : undefined;
-    if (!widget || !info) {
-      this.hide();
-      return;
-    }
+    if (!widget || !info) return;
     const origin = this.origin(widget);
     const view = this.host.innerBox(widget);
     const table = info.table.getBoundingClientRect();
@@ -349,6 +444,7 @@ export class Sheet implements Feature {
       this.pendingPress = undefined;
       this.press(pending.x, pending.y);
     }
+    if (this.after?.ready && !this.host.editing) void this.goOn(info);
   }
 
   /** The table's columns where its header cells are, in the viewport */
