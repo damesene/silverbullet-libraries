@@ -10,7 +10,7 @@
 // clipboard's text and planning the paste is paste.ts; this is the editor's
 // and the menu's side.
 import { clipboardHtml, clipboardText, copyingFromMenu, writeClipboard } from "../clipboard.ts";
-import type { CellEditor, CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import { CELL_MENU_ORDER, type CellEditor, type CellMenuGroup, type CellRef, type Feature, type TableHost, type WidgetInfo } from "../core/feature.ts";
 import { Outline } from "../core/outline.ts";
 import type { MenuEntry } from "../menu.ts";
 import { cellValue, WIDGET_SELECTOR } from "../dom.ts";
@@ -174,7 +174,7 @@ export class Paste implements Feature {
       fromHeader: false,
     });
     // First: the clipboard's bar heads the menu
-    return { order: -1, entries: [bar] };
+    return { order: CELL_MENU_ORDER.clipboard, entries: [bar] };
   }
 
   /**

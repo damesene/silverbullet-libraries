@@ -13,19 +13,21 @@
 // filters were typed that are not stored (yet, or the setting is off): so an
 // undo of the metadata (Ctrl+Z after Remove metadata, after a store) shows
 // what the markdown has again.
-import type {
-  CellEditor,
-  CellRef,
-  Feature,
-  HeaderRow,
-  MarkLayer,
-  Panel,
-  PanelAnchor,
-  PanelOptions,
-  TableHost,
-  TableLooks,
-  ToolbarButton,
-  WidgetInfo,
+import {
+  CELL_MENU_ORDER,
+  HEADER_ICON_ORDER,
+  type CellEditor,
+  type CellRef,
+  type Feature,
+  type HeaderRow,
+  type MarkLayer,
+  type Panel,
+  type PanelAnchor,
+  type PanelOptions,
+  type TableHost,
+  type TableLooks,
+  type ToolbarButton,
+  type WidgetInfo,
 } from "../core/feature.ts";
 import { type FilterOptions, normalizeForFilter, parseFilter } from "../filter.ts";
 import { ICONS } from "../icons.ts";
@@ -193,7 +195,7 @@ export class Filters implements Feature {
 
   /** A filter mark in each header, shown while its column filters (also with the filter row hidden): a click changes the filter */
   looks(info: WidgetInfo): TableLooks {
-    const mark = { svg: ICONS.filter, title: "Filtered: click to change the filter", className: "swt-filter-mark", order: 2, action: "filter" };
+    const mark = { svg: ICONS.filter, title: "Filtered: click to change the filter", className: "swt-filter-mark", order: HEADER_ICON_ORDER.state, action: "filter" };
     return { headers: Array.from({ length: info.columns }, (_, column) => ({ column, icons: [mark] })) };
   }
 
@@ -287,7 +289,7 @@ export class Filters implements Feature {
     };
     const label = valuesLabel(values);
     return {
-      order: 2,
+      order: CELL_MENU_ORDER.viewing,
       entries: [
         { kind: "item", label: `Filter: = ${label}`, icon: ICONS.filter, hint: "Show only the rows with this value here", run: apply("=") },
         { kind: "item", label: `Filter: ≠ ${label}`, icon: ICONS.filter, hint: "Hide the rows with this value here", run: apply("!=") },

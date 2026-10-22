@@ -51,12 +51,19 @@ export type CellLook = {
   readonly title?: string;
 };
 
+/**
+ * Where an icon goes among a header's icons, by what it tells (HeaderIcon.order):
+ * what the column is (its type), then what is done with it (filtered).
+ * A feature picks a slot by meaning, never by another feature's icon.
+ */
+export const HEADER_ICON_ORDER = { kind: 1, state: 2 } as const;
+
 /** An icon after a header's name (a column type's, the filter mark), before the sorting; `action`: a click on it is the feature's (Feature.action) */
 export type HeaderIcon = {
   readonly svg: string;
   readonly title: string;
   readonly className: string;
-  // Where it goes among the icons (smaller first)
+  // Where it goes among the icons (HEADER_ICON_ORDER)
   readonly order: number;
   readonly action?: string;
 };
@@ -256,7 +263,15 @@ export type WritePage = { readonly text: string; readonly tables: readonly PageT
 /** An edit as features' write steps see it: how rows and columns moved, and the page */
 export type WriteEdit = WriteOptions & { readonly page: WritePage };
 
-/** A group of entries in the cell menu, between separators */
+/**
+ * Where a group goes in the cell menu, by what its entries do
+ * (CellMenuGroup.order): the clipboard's bar first, naming, editing the cells,
+ * inserting into them, filling from them, viewing (filters), deleting last.
+ * A feature picks a slot by meaning, never by another feature's entries.
+ */
+export const CELL_MENU_ORDER = { clipboard: -1, naming: 0, editing: 1, inserting: 1.2, filling: 1.5, viewing: 2, deleting: 9 } as const;
+
+/** A group of entries in the cell menu, between separators (CELL_MENU_ORDER) */
 export type CellMenuGroup = { readonly order: number; readonly entries: readonly MenuEntry[] };
 
 /**

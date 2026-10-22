@@ -11,7 +11,7 @@
 // recalculated: results stay as written.
 
 import { columnIdOf } from "../columns.ts";
-import { editorRect } from "../core/feature.ts";
+import { CELL_MENU_ORDER, editorRect } from "../core/feature.ts";
 import type { CellEditor, CellField, CellMenuGroup, CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo, WriteEdit } from "../core/feature.ts";
 import { EVERYWHERE, intersect, isEmpty, type Rect } from "../core/geometry.ts";
 import { WIDGET_SELECTOR } from "../dom.ts";
@@ -403,7 +403,7 @@ export class Formulas implements Feature {
     const allowed = this.host.metadataEnabled || hasFormula;
     return {
       // After clearing and moving: what is written into the cell
-      order: 1.2,
+      order: CELL_MENU_ORDER.inserting,
       entries: [
         {
           kind: "item",

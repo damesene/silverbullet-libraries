@@ -17,7 +17,7 @@
 // line as the pin mark is, placed by CSS: they move with the table as it
 // scrolls and go under its held header, with nothing measured.
 import { cellValue, type Cell, type FillLine, filled, fillLine } from "../autofill/index.ts";
-import type { CellMenuGroup, CellRef, Feature, TableHost, WidgetInfo } from "../core/feature.ts";
+import { CELL_MENU_ORDER, type CellMenuGroup, type CellRef, type Feature, type TableHost, type WidgetInfo } from "../core/feature.ts";
 import { Outline } from "../core/outline.ts";
 import { watchPress } from "../core/press.ts";
 import { OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
@@ -144,14 +144,14 @@ export class AutoFill implements Feature {
     const label = "AutoFill to…";
     if (this.host.rearranged(info)) {
       const disabled = "Not while the table is sorted or filtered: the rows shown are not where the cells would go";
-      return { order: 1.5, entries: [{ kind: "item", label, icon: ICONS.autofill, disabled, run: () => {} }] };
+      return { order: CELL_MENU_ORDER.filling, entries: [{ kind: "item", label, icon: ICONS.autofill, disabled, run: () => {} }] };
     }
     const selected = this.selection();
     if (!selected || selected.info.key !== info.key) return undefined;
     const press = this.host.pressedWith === "touch" ? "tap" : "click";
     return {
       // After copying and clearing: it changes the cells selected too
-      order: 1.5,
+      order: CELL_MENU_ORDER.filling,
       entries: [
         {
           kind: "item",

@@ -11,7 +11,7 @@
 // selection of several cells opens their menu. The cells selected move by
 // their edge, dragged with a mouse (with Ctrl: copied), or with Move to… in
 // their menu and a click (a tap) on the cell to move them to.
-import type { CellMenuGroup, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import { CELL_MENU_ORDER, type CellMenuGroup, type CellRef, type Feature, type TableHost, type ToolbarButton, type WidgetInfo } from "../core/feature.ts";
 import { intersect, isEmpty, scrollNearEdge } from "../core/geometry.ts";
 import { Outline } from "../core/outline.ts";
 import { watchPress } from "../core/press.ts";
@@ -542,8 +542,8 @@ export class Selection implements Feature {
       });
     }
     return [
-      { order: 1, entries },
-      { order: 9, entries: deleting },
+      { order: CELL_MENU_ORDER.editing, entries },
+      { order: CELL_MENU_ORDER.deleting, entries: deleting },
     ];
   }
 

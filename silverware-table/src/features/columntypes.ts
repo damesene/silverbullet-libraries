@@ -2,7 +2,7 @@
 // (`| Price #currency |`) shows its cells as that type (columntypes/), hides that
 // hashtag, and marks the cells that are not values of the type. The markdown
 // keeps the values as written: sorting, filters and copying use them.
-import type { CellEditor, CellLook, CellRef, Feature, HeaderLook, Panel, TableHost, TableLooks, WidgetInfo } from "../core/feature.ts";
+import { type CellEditor, type CellLook, type CellRef, type Feature, HEADER_ICON_ORDER, type HeaderLook, type Panel, type TableHost, type TableLooks, type WidgetInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import type { MenuDetail, MenuEntry } from "../menu.ts";
 import { setCell } from "../ops.ts";
@@ -281,7 +281,7 @@ export class ColumnTypes implements Feature {
       headers.push({
         column,
         hidesTag: (tag) => !!typeOfTag(tag),
-        icons: [{ svg: iconOf(typed.type), title: `${typeLabel(typed.type.name)} (#${typed.tag}): ${typed.type.description}`, className: "swt-type-icon", order: 1 }],
+        icons: [{ svg: iconOf(typed.type), title: `${typeLabel(typed.type.name)} (#${typed.tag}): ${typed.type.description}`, className: "swt-type-icon", order: HEADER_ICON_ORDER.kind }],
       });
       table.rows.forEach((r, row) => {
         const raw = r.cells[column];
