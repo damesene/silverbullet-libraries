@@ -3,6 +3,7 @@
 // pinned to the edges stay there (pins.ts), and formulas and the stored
 // sorting follow through the write steps (rowMap, columnMap).
 import type { Table } from "../markdown.ts";
+import { metaPins } from "../meta.ts";
 import {
   columnAfterMove,
   deleteColumn,
@@ -28,6 +29,8 @@ import {
   insertColumnAt,
   insertRowAt,
   pinColumn,
+  appendColumnAt,
+  appendRowAt,
   pinRow,
   type RowZone,
 } from "../pins.ts";
@@ -198,6 +201,44 @@ export function moveColumnsTo(host: TableHost, widget: HTMLElement, info: Widget
   const to = columnBlockTo(info, first, last, asked);
   if (to === first) return Promise.resolve("unchanged");
   return host.write(widget, (t) => moveColumns(t, first, last, to), { columnMap: (c) => lineAfterBlockMove(c, first, last, to) });
+}
+
+/** A table grown to hold a cell past its last row or column (growTo) */
+export type Growth = {
+  // The table grown; undefined when it is no longer the shape it was rendered with (its rows, columns and pins)
+  readonly grow: (table: Table) => Table | undefined;
+  // Where the cell is in the table grown
+  readonly cell: CellRef;
+  readonly rowMap: IndexMap;
+  readonly columnMap: IndexMap;
+};
+
+/**
+ * A cell past a table's last row or column (`at`: row `info.rows` is the
+ * first row past it, column `info.columns` the first column) made part of it:
+ * as many rows as reach it added above the rows pinned to the bottom, as many
+ * columns (named, as an empty header is not shown) left of those pinned to
+ * the right. Pins stay as they are.
+ */
+export function growTo(info: WidgetInfo, at: CellRef): Growth {
+  const rows = Math.max(0, at.row - info.rows + 1);
+  const columns = Math.max(0, at.column - info.columns + 1);
+  const rowsAt = appendRowAt(info.pins, info.rows);
+  const columnsAt = appendColumnAt(info.pins, info.columns);
+  return {
+    grow: (table) => {
+      const pins = metaPins(table);
+      const same = (["top", "bottom", "left", "right"] as const).every((side) => pins[side] === info.pins[side]);
+      if (table.rows.length !== info.rows || table.align.length !== info.columns || !same) return undefined;
+      let grown = table;
+      for (let i = 0; i < columns; i++) grown = insertColumn(grown, columnsAt + i);
+      for (let i = 0; i < rows; i++) grown = insertRow(grown, rowsAt + i);
+      return grown;
+    },
+    cell: { row: rows ? rowsAt + rows - 1 : at.row, column: columns ? columnsAt + columns - 1 : at.column },
+    rowMap: (r) => (r >= rowsAt ? r + rows : r),
+    columnMap: (c) => (c >= columnsAt ? c + columns : c),
+  };
 }
 
 /** Adds a column asked for at `at` and edits its name */

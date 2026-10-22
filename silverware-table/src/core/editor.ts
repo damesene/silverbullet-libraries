@@ -8,9 +8,9 @@ import { escapeCell, type Table, unescapeCell } from "../markdown.ts";
 import { columnAfterMove, moveColumn, moveRow, setCell } from "../ops.ts";
 import { appendRowAt, clampColumnMove, clampRowMove } from "../pins.ts";
 import { OUT_OF_LINE_CLASS, UI_CLASS } from "../dom.ts";
-import type { CellEditor, CellField, Feature, FocusTarget, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
+import type { CellEditor, CellField, CellRef, Feature, FocusTarget, TableHost, WidgetInfo, WriteResult } from "./feature.ts";
 import { STICKY_GAP } from "./layout.ts";
-import { insertRowWith, MOVE_BLOCKED } from "./structure.ts";
+import { type Growth, growTo, insertRowWith, MOVE_BLOCKED } from "./structure.ts";
 import { withoutTags } from "../tags.ts";
 
 // Ctrl+Alt + these keys move the edited cell's row or column
@@ -37,6 +37,8 @@ type ActiveEditor = CellEditor & {
   readonly cellStyle: string | null;
   // The popup's panel
   readonly panel?: HTMLElement;
+  // A cell past the table's last row or column (editBeyond): saved, the table grows to hold it
+  readonly growth?: Growth;
 };
 
 // Opened in the cell's popup: with what was typed so far (from the cell's editor) and its selection
@@ -108,11 +110,13 @@ export class CellEditing {
     replace = false,
     // In the cell's popup
     popup?: PopupOptions,
+    // A cell past the table's last row or column, shown by a feature's element (`cell`)
+    beyond?: CellRef,
   ): void {
-    const ref = this.host.cellRef(info, cell);
+    const ref = beyond ?? this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
     // Measured below: in the document (a large table keeps only the rows in view there)
-    if (ref.row > 0) this.host.rowNeeded(info, cell.parentElement as HTMLTableRowElement);
+    if (ref.row > 0 && !beyond) this.host.rowNeeded(info, cell.parentElement as HTMLTableRowElement);
     this.context.holdRow(widget, info, ref.row);
     // The cell as shown: with an edit a feature holds for it (the lazy module)
     const original = this.host.tableOf(info).rows[ref.row]?.cells[ref.column] ?? "";
@@ -165,7 +169,20 @@ export class CellEditing {
     }
     field.value = popup?.value ?? initial;
     cell.classList.add("swt-editing");
-    this.editor = { widget, cell, ...ref, original, initial, field, kept, cellStyle, popup: !!popup, ...(panel ? { panel } : {}) };
+    const opened: ActiveEditor = {
+      widget,
+      cell,
+      ...ref,
+      original,
+      initial,
+      field,
+      kept,
+      cellStyle,
+      popup: !!popup,
+      ...(panel ? { panel } : {}),
+      ...(beyond ? { growth: growTo(info, beyond) } : {}),
+    };
+    this.editor = opened;
     if (replace) field.value = "";
     this.reveal(widget, cell);
     if (panel) {
@@ -186,6 +203,14 @@ export class CellEditing {
       const editing = this.editor;
       if (editing?.field === field && this.context.features.some((f) => f.editorKeyDown?.(e, editing))) {
         e.preventDefault();
+        return;
+      }
+      // A cell past the table: Enter and Tab save it (the table grows), Esc drops it; nothing moves from it
+      if (editing?.growth) {
+        if (e.key === "Escape" || e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          void (e.key === "Escape" ? this.cancel() : this.finish(true));
+        }
         return;
       }
       // In the popup the keys are the text's (Ctrl+arrows go by words, Ctrl+Home to its start), as in a
@@ -224,7 +249,6 @@ export class CellEditing {
     if (popup?.selection) field.setSelectionRange(popup.selection[0], popup.selection[1]);
     else if (select) field.select();
     else field.setSelectionRange(field.value.length, field.value.length);
-    const opened = this.editor;
     for (const feature of this.context.features) feature.editorOpened?.(opened);
   }
 
@@ -241,7 +265,7 @@ export class CellEditing {
   toPopup(): void {
     const active = this.editor;
     const info = active && this.host.infoOf(active.widget);
-    if (!active || !info || active.popup) return;
+    if (!active || !info || active.popup || active.growth) return;
     const { field, widget, cell, initial } = active;
     const value = field.value;
     const selection = [field.selectionStart ?? value.length, field.selectionEnd ?? value.length] as const;
@@ -329,6 +353,26 @@ export class CellEditing {
     // Leaving the row: sorting and filters place it (Tab within the row keeps it held)
     if (!(sameTable && next?.row === closed.row)) this.context.releaseRow();
     let result: WriteResult = "unchanged";
+    const growth = closed.growth;
+    if (growth) {
+      // Past the table: written with the rows and columns that reach it, unless nothing was typed. Nothing moves on
+      // from it (`next`: its keys only save it), as the cells after it are not there before the write.
+      if (changed && withoutTags(closed.value) !== "") {
+        let changedMeanwhile = false;
+        await this.host.write(
+          closed.widget,
+          (t) => {
+            const grown = growth.grow(t);
+            changedMeanwhile = !grown;
+            return grown && setCell(grown, growth.cell.row, growth.cell.column, closed.value);
+          },
+          { rowMap: growth.rowMap, columnMap: growth.columnMap },
+        );
+        if (changedMeanwhile) void this.host.bridge.flash("Silverware Table: the table changed meanwhile, so it was not grown; type the value again", "info");
+      }
+      if (refocus) this.host.focusEditor(closed.widget);
+      return;
+    }
     // A feature may keep a cell's edit to write it later (the lazy module); a header's name is written at once
     const info = changed && closed.row > 0 ? this.host.infoOf(closed.widget) : undefined;
     const edit = { row: closed.row, column: closed.column, original: closed.original, value: closed.value };
@@ -389,7 +433,7 @@ export class CellEditing {
     const active = this.editor;
     const info = active && this.host.infoOf(active.widget);
     await this.finish(false);
-    if (active && info && this.host.selectsCells()) {
+    if (active && info && !active.growth && this.host.selectsCells()) {
       const at = { row: active.row, column: active.column };
       this.host.selectCells(info, at, at);
     }

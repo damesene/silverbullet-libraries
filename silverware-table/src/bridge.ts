@@ -82,6 +82,7 @@ export const FEATURE_NAMES = [
   "autoscroll",
   "largeTables",
   "fullScreen",
+  "sheet",
 ] as const;
 export type FeatureName = (typeof FEATURE_NAMES)[number];
 
@@ -114,6 +115,7 @@ export const MODULE_LABELS: Readonly<Record<FeatureName, string>> = {
   autoscroll: "Middle-button scrolling",
   largeTables: "Large tables",
   fullScreen: "Full screen",
+  sheet: "Sheet view",
 };
 
 // What each module does, in a few words (the settings dialog shows it beside the module's name)
@@ -137,6 +139,7 @@ export const MODULE_DESCRIPTIONS: Readonly<Record<FeatureName, string>> = {
   autoscroll: "The middle mouse button over a table scrolls it in the direction the pointer moves",
   largeTables: "Tables with many rows scroll in a box of their own (Maximum table height, else the window's height), and only the rows in view are in the page: editing stays quick",
   fullScreen: "An icon in the table's toolbar shows the table over the whole window; the same icon or Esc closes it",
+  sheet: "An icon in the table's toolbar shows the table as a spreadsheet over the whole window, with empty rows and columns past it: a value typed into one grows the table",
 };
 
 /**

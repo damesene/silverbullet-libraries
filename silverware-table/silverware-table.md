@@ -21,6 +21,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Paste from a spreadsheet**: copy cells in Excel or Google Sheets, click a cell, Ctrl+V; Ctrl+Shift+V adds them as new rows. See [[#Pasting from a spreadsheet]].
 * **Column types**: `| Price #currency |` shows `12.99` as `€12.99`, `#stars` a rating as stars, `#check` yes / no as ✅ / ❌. See [[#Column types]].
 * **Formulas**: type `=SUM(B1:B3)` or `=SUM([qty])` into a cell; the result is written into the markdown. See [[#Formulas]].
+* **Sheet view**: the sheet icon in the toolbar shows the table like a spreadsheet over the whole window, with empty rows and columns around it; type into one to grow the table. See [[#Sheet view]].
 * **Pin rows and columns** to the edges, where they stay in view (needs *Store table metadata*). See [[#Pinning]].
 * **Themes**: how tables look (header, lines, stripes, spacing), for all tables in the settings or for one in its ⋯ menu; your own in a `space-style` block. See [[#Themes]].
 * **Change how Enter or filters work**: *Configuration: Open*, category *Silverware Table*. See [[#Settings]].
@@ -714,6 +715,17 @@ A theme's name is letters, digits, `-` and `_`; menus show it capitalized (`sand
 
 The header's background and its text color go together: SilverBullet's header is dark with light text, so a light header needs `--swt-head-color` too. For more than these, a theme's block can style the table further (`.sb-table-widget[data-swt-theme="sand"] td { … }`).
 
+## Sheet view
+
+The sheet icon (a grid) in a table's toolbar shows the table like a spreadsheet, over the whole window: the columns' letters above, the rows' numbers beside them (as formulas refer to cells, `B3`), and empty rows and columns past the table's last row and column. More appear as you scroll on.
+
+* **Grow the table**: click an empty cell and type. Enter or Tab saves it, and the table grows to hold it, in one edit (one Ctrl+Z): the rows and columns between are added empty, a new column is named *Column 5* (rename it like any header). Typing into the header's line right of the table adds a column with that name.
+* **Nothing is added for a cell left empty**: Enter on an empty cell, or Esc, writes nothing.
+* **Rows pinned to the bottom stay last**: a new row goes above them, as Tab on the last cell does; a column, left of the columns pinned to the right.
+* **Close it** with the same icon (*Exit sheet view*) or Esc. *Full screen* stays as it was: the table over the window without empty cells.
+
+Everything else works as in the page: editing, selecting, menus, formulas. A table sorted or filtered shows a row added so where its sorting or filter puts it (or hides it); the rows' numbers past the table go on from the table's last row in the markdown. The empty cells are not cells yet: they cannot be selected, copied into or pasted over, and a formula cannot refer to them.
+
 ## Large tables
 
 * **Sticky header**: while you scroll past a long table, its header stays at the top of the view, with the toolbar above it.
@@ -804,6 +816,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("silverwa
 | `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
 | `autoscroll` | The middle mouse button over a table scrolls it. |
 | `fullScreen` | The toolbar's full screen icon shows the table over the whole window (not the browser's full screen), with its toolbar, menus and editing as in the page, the columns' letters above the header and the rows' numbers left of them, as formulas refer to them (`B3`); the same icon (*Exit full screen*) or Esc closes it. |
+| `sheet` | The toolbar's sheet icon shows the table as a spreadsheet over the whole window, as `fullScreen` does, with empty rows and columns past its last row and column (more as you scroll on), their letters and numbers too. Click an empty cell and type: Enter or Tab saves it, and the table grows to hold it, the rows and columns between added empty, a new column named *Column 4*. A cell left empty adds nothing; Esc drops it. The same icon (*Exit sheet view*) or Esc closes it. See [[#Sheet view]]. |
 | `largeTables` | Off by default. A table with many rows (setting `minRows`, default `200`) scrolls in a box of its own: as tall as *Maximum table height*, else the window. Only the rows in and around the box's view are in the page, so editing, sorting and filtering a table of thousands of rows stays quick. The browser's find (Ctrl+F) finds only those rows. Off: every row is in the page, the table as tall as its rows (unless *Maximum table height* is set). |
 
 ## Table names
@@ -1252,6 +1265,18 @@ config.define("silverware.table", {
             },
           },
         },
+        sheet = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "An icon in a table's toolbar shows the table as a spreadsheet over the whole window, with empty rows and columns past it: a value typed into one grows the table.",
+              ui = { category = "Silverware Table: Modules", label = "Sheet view", priority = 1.75 },
+            },
+          },
+        },
       },
     },
   },
@@ -1653,10 +1678,11 @@ html[data-swt-select-mode] .sb-table-widget.swt-table td.swt-selected-alone {
   width: max-content;
 }
 
-/* The fullScreen module: the table's box over the whole window, under
+/* A table over the whole window (core/overwindow.ts: the fullScreen module, the
+   sheet view): the table's box over the window, under
    Silverware Table's controls (toolbar, grips, menus: z-index 49 and up) and SilverBullet's
    dialogs, over its page and top bar; the Maximum table height (set inline) does not apply */
-.sb-table-widget.swt-fullscreen {
+.sb-table-widget.swt-over-window {
   position: fixed !important;
   inset: 0;
   z-index: 45;
@@ -1678,7 +1704,7 @@ html[data-swt-select-mode] .sb-table-widget.swt-table td.swt-selected-alone {
   overflow: auto;
   background: var(--root-background-color, #fff);
 }
-.sb-table-widget.swt-fullscreen > table {
+.sb-table-widget.swt-over-window > table {
   margin-top: 42px;
 }
 /* The columns' letters above the header and the rows' numbers left of the
@@ -1688,13 +1714,13 @@ html[data-swt-select-mode] .sb-table-widget.swt-table td.swt-selected-alone {
 .sb-table-widget .swt-col-letter {
   display: none;
 }
-.sb-table-widget.swt-fullscreen.swt-table > table {
+.sb-table-widget.swt-over-window.swt-table > table {
   overflow: visible !important;
 }
-.sb-table-widget.swt-fullscreen thead tr:first-child > td:not(.swt-pin-left):not(.swt-pin-right) {
+.sb-table-widget.swt-over-window thead tr:first-child > td:not(.swt-pin-left):not(.swt-pin-right) {
   position: relative;
 }
-.sb-table-widget.swt-fullscreen .swt-col-letter {
+.sb-table-widget.swt-over-window .swt-col-letter {
   display: block;
   position: absolute;
   left: 0;
@@ -1710,7 +1736,7 @@ html[data-swt-select-mode] .sb-table-widget.swt-table td.swt-selected-alone {
   opacity: 0.5;
   pointer-events: none;
 }
-.swt-floating.swt-fullscreen-rows {
+.swt-floating.swt-over-window-rows {
   z-index: 46;
   left: 0;
   width: 28px;
@@ -1718,10 +1744,10 @@ html[data-swt-select-mode] .sb-table-widget.swt-table td.swt-selected-alone {
   pointer-events: none;
   display: block !important;
 }
-.swt-floating.swt-fullscreen-rows:not(.swt-visible) {
+.swt-floating.swt-over-window-rows:not(.swt-visible) {
   display: none !important;
 }
-.swt-fullscreen-rows > span {
+.swt-over-window-rows > span {
   position: absolute;
   left: 0;
   right: 2px;
@@ -1733,13 +1759,106 @@ html[data-swt-select-mode] .sb-table-widget.swt-table td.swt-selected-alone {
   color: var(--root-color, #333);
   opacity: 0.5;
 }
-.swt-fullscreen-rows > span[hidden] {
+.swt-over-window-rows > span[hidden] {
+  display: none;
+}
+
+/* The sheet module: empty cells past the table, in its box over the window.
+   Two areas (right of the table, below it), placed in the box's content by
+   script; their lines are gradients where they are regular (the empty
+   columns' width, the empty rows' height) and elements where they follow the
+   table (its rows right of it, its columns below it). The cell edited is a
+   td laid over its place. */
+/* The sheet shows every column's letter in a layer of its own (swt-sheet-letters) */
+.sb-table-widget.swt-sheet .swt-col-letter {
+  display: none;
+}
+/* As wide as its columns, so the empty columns show right of it */
+.sb-table-widget.swt-sheet > table {
+  width: max-content !important;
+  max-width: none !important;
+}
+.sb-table-widget .swt-sheet-grid {
+  --swt-sheet-line: var(--swt-border, color-mix(in srgb, currentColor 14%, transparent));
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+}
+.swt-sheet-grid > :is(.swt-sheet-right, .swt-sheet-below) {
+  position: absolute;
+  cursor: cell;
+}
+.swt-sheet-grid > .swt-sheet-right {
+  background-image: linear-gradient(to right, transparent calc(var(--swt-sheet-column) - 1px), var(--swt-sheet-line) 0);
+  background-size: var(--swt-sheet-column) 100%;
+}
+.swt-sheet-grid > .swt-sheet-below {
+  background-image: linear-gradient(to bottom, transparent calc(var(--swt-sheet-row) - 1px), var(--swt-sheet-line) 0);
+  background-size: 100% var(--swt-sheet-row);
+}
+.swt-sheet-grid > .swt-sheet-below::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--swt-sheet-table-width);
+  right: 0;
+  background-image: linear-gradient(to right, transparent calc(var(--swt-sheet-column) - 1px), var(--swt-sheet-line) 0);
+  background-size: var(--swt-sheet-column) 100%;
+}
+.swt-sheet-grid .swt-sheet-row-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--swt-sheet-line);
+}
+.swt-sheet-grid .swt-sheet-column-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--swt-sheet-line);
+}
+.swt-sheet-grid > td.swt-sheet-cell {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 6px;
+  background: var(--root-background-color, #fff);
+  box-shadow: inset 0 0 0 2px var(--ui-accent-color, #3b82f6);
+}
+.swt-floating.swt-sheet-letters {
+  z-index: 46;
+  overflow: hidden;
+  background: var(--root-background-color, #fff);
+  pointer-events: none;
+  display: block !important;
+}
+.swt-floating.swt-sheet-letters:not(.swt-visible) {
+  display: none !important;
+}
+.swt-sheet-letters > span {
+  position: absolute;
+  bottom: 0;
+  height: 22px;
+  text-align: center;
+  font: 12px/22px var(--ui-font, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  color: var(--root-color, #333);
+  opacity: 0.5;
+}
+.swt-sheet-letters > span[hidden] {
   display: none;
 }
 
 /* CodeMirror's scroller is a stacking context (z-index 0) under SilverBullet's
    top bar (z-index 20): lifted over it while it holds a table shown so */
-.cm-scroller:has(.sb-table-widget.swt-fullscreen) {
+.cm-scroller:has(.sb-table-widget.swt-over-window) {
   z-index: 30 !important;
 }
 /* The largeTables module: a large table scrolls in its own box, at most the
@@ -3906,8 +4025,8 @@ html {
   outline: var(--swt-outline, 0px) solid var(--swt-border, transparent);
   outline-offset: calc(-1 * var(--swt-outline, 0px));
 }
-/* Over the whole window (full screen): a box without corners or shadow */
-:is(#sb-main, html) .sb-table-widget.swt-fullscreen[data-swt-theme] {
+/* Over the whole window (full screen, the sheet view): a box without corners or shadow */
+:is(#sb-main, html) .sb-table-widget.swt-over-window[data-swt-theme] {
   border-radius: 0;
   box-shadow: none;
 }

@@ -22,6 +22,7 @@ import { PageLinks } from "./features/pagelinks.ts";
 import { Paste } from "./features/paste.ts";
 import { CellPopup } from "./features/popup.ts";
 import { Selection } from "./features/selection.ts";
+import { Sheet } from "./features/sheet.ts";
 import { Sticky } from "./features/sticky.ts";
 import { Themes } from "./features/themes.ts";
 import { Widths } from "./features/widths.ts";
@@ -60,6 +61,7 @@ export function featureEntries(host: TableHost, metadata: Feature): readonly Fea
     optional("themes", () => new Themes(host)),
     optional("export", () => new Export(host)),
     optional("excel", () => new Excel(host)),
+    optional("sheet", () => new Sheet(host)),
     // Its icon last in the toolbar, before the menu
     optional("fullScreen", () => new FullScreen(host)),
     always(() => new Expressions(host)),

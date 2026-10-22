@@ -240,6 +240,16 @@ export interface TableHost {
    * typed replaces the text; "select": the text selected (a paste replaces it)
    */
   editCell(info: WidgetInfo, ref: CellRef, how?: "replace" | "select", popup?: boolean): void;
+  /**
+   * Edits a cell past the table's last row or column (`at`: row `info.rows` is
+   * the first row past it, column `info.columns` the first column), shown by
+   * the caller's element `cell` (a td of its own where that cell would be):
+   * Enter or Tab saves it, the table grown to hold it in the same edit (rows
+   * above those pinned to the bottom, named columns left of those pinned to
+   * the right), nothing written while it is empty; Esc drops it. Not while
+   * another cell is edited.
+   */
+  editBeyond(widget: HTMLElement, info: WidgetInfo, at: CellRef, cell: HTMLTableCellElement): void;
   /** The cell being edited goes on in its popup (a textarea, wrapped), what is typed kept */
   editInPopup(): void;
   /** Whether a feature selects cells (Feature.selectCells) */

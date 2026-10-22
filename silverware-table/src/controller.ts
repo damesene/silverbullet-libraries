@@ -382,6 +382,11 @@ export class Controller implements TableHost {
     if (widget && current && cell) this.cellEditor.open(widget, current, cell, how === "select" ? true : undefined, how === "replace", popup ? {} : undefined);
   }
 
+  editBeyond(widget: HTMLElement, info: WidgetInfo, at: CellRef, cell: HTMLTableCellElement): void {
+    if (at.row < info.rows && at.column < info.columns) return;
+    this.cellEditor.open(widget, info, cell, false, false, undefined, at);
+  }
+
   editInPopup(): void {
     this.cellEditor.toPopup();
   }

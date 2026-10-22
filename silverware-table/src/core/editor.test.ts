@@ -19,6 +19,66 @@ describe("Cell editor", () => {
     expect(cursorMoves).toEqual([]);
   });
 
+  describe("a cell past the table (editBeyond)", () => {
+    const beyond = (row: number, column: number) => {
+      const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
+      const info = controller.infoOf(widget)!;
+      const td = document.createElement("td");
+      document.body.append(td);
+      controller.editBeyond(widget, info, { row: info.rows + row, column: info.columns + column }, td);
+      return td.querySelector<HTMLInputElement>(".swt-cell-editor")!;
+    };
+
+    it("grows the table to hold it: the rows and columns up to it added, the new columns named", async () => {
+      await setup(PAGE);
+      const field = beyond(1, 1);
+      expect(field.value).toBe("");
+      field.value = "x";
+      key(field, "Enter");
+      await flush();
+      expect(text).toBe(
+        "Intro\n\n| Name | Qty | Column 3 | Column 4 |\n|---|---|---|---|\n| Pear | 3 | | |\n| apple | 10 | | |\n| Fig | 2 | | |\n| | | | |\n| | | | x |\n",
+      );
+    });
+
+    it("in the header's line right of the table: a column of that name", async () => {
+      await setup(PAGE);
+      const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
+      const info = controller.infoOf(widget)!;
+      const td = document.createElement("td");
+      document.body.append(td);
+      controller.editBeyond(widget, info, { row: 0, column: info.columns }, td);
+      const field = td.querySelector<HTMLInputElement>(".swt-cell-editor")!;
+      field.value = "Price";
+      key(field, "Enter");
+      await flush();
+      expect(text).toContain("| Name | Qty | Price |\n|---|---|---|\n| Pear | 3 | |");
+    });
+
+    it("writes nothing while it is empty, nor on Esc", async () => {
+      await setup(PAGE);
+      const field = beyond(0, 0);
+      key(field, "Enter");
+      await flush();
+      expect(text).toBe(PAGE);
+      const again = beyond(0, 0);
+      again.value = "x";
+      key(again, "Escape");
+      await flush();
+      expect(text).toBe(PAGE);
+      expect(editor.querySelector(".swt-cell-editor")).toBeNull();
+    });
+
+    it("keeps rows pinned to the bottom last: the new rows go above them", async () => {
+      await setup("| A |\n|---|\n| 1 |\n| total |\n| <meta pin-bottom='1'> |\n", { "silverware.table.metadata": true });
+      const field = beyond(0, 0);
+      field.value = "2";
+      key(field, "Tab");
+      await flush();
+      expect(text).toContain("| A | Column 2 |\n|---|---|\n| 1 | |\n| | 2 |\n| total | |\n");
+    });
+  });
+
   it("moves down on Enter with the 'moveDown' setting", async () => {
     await setup(PAGE, { "silverware.table.editor.enterKey": "moveDown" });
     const editing = () => editor.querySelector<HTMLInputElement>(".swt-cell-editor");

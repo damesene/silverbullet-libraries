@@ -163,3 +163,18 @@ export function scrollNearEdge(widget: HTMLElement, x: number, y: number, sidewa
     else if (x > box.right - AUTOSCROLL_EDGE) widget.scrollLeft += AUTOSCROLL_STEP;
   }
 }
+
+/**
+ * The first of rows shown in order (their tops going down) whose bottom is
+ * below `y` (a viewport's top), found by halving: what is in view starts there
+ */
+export function firstRowBelow(rows: readonly HTMLElement[], y: number): number {
+  let low = 0;
+  let high = rows.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (rows[mid]!.getBoundingClientRect().bottom <= y) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}

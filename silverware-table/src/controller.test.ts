@@ -77,7 +77,7 @@ describe("Controller", () => {
     await setup(`| A |\n|---|\n| 1 |\n| <meta name='prices'> |\n`, { "silverware.table.metadata": true });
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     const bar = document.querySelector(".swt-bar")!;
-    expect(Array.from(bar.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["prices", "Filter", "Edit mode", "Lazy saving", "Full screen", "More"]);
+    expect(Array.from(bar.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["prices", "Filter", "Edit mode", "Lazy saving", "Sheet view", "Full screen", "More"]);
     tableMenuItem(/^Edit markdown$/);
     const menu = document.querySelector(".swt-menu")!;
     expect(Array.from(menu.querySelectorAll(".swt-menu-item, .swt-menu-separator")).map((e) => e.textContent || "—")).toEqual([

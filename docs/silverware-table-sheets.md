@@ -1,7 +1,11 @@
 # Silverware Table: an Excel-like sheet of several tables (analysis, not started)
 
-Status: analysed on 2026-10-22, the decisions taken the same day (below),
-nothing built. To be picked up later, starting with step 1.
+Status: analysed on 2026-10-22, the decisions taken the same day (below).
+Step 1 built the same day: the sheet module (`features/sheet.ts`), *Sheet
+view* in a table's toolbar, beside full screen (which stays as it was); the
+table over the window shared with it (`core/overwindow.ts`), a cell past the
+table edited by the core's cell editor (`TableHost.editBeyond`, the table
+grown in one write: `growTo`). Steps 2 to 4 not started.
 
 ## The request
 
@@ -112,9 +116,10 @@ A whole example, the sheet's first table, sorted:
   that grows moves everything below it down, or right of it right, as
   inserting rows or columns in Excel does; a table that shrinks (rows or
   columns deleted) moves them back up or left.
-- **A new column's header** is a default, `Column 4` (its place in the
-  table), `Column 4 (2)` where taken: SilverBullet makes a column key of it
-  and formulas refer to it.
+- **A new column's header** is a default, `Column 5` (one more than the
+  table's columns, the next free number where taken: how a column inserted
+  is named already): SilverBullet makes a column key of it and formulas
+  refer to it.
 - A sorted or filtered table takes no paste and no AutoFill, as today
   (`rearranged`): a fill down a sorted view would write irregular references
   (D9, D3, D12). The hint says to unsort.
@@ -231,8 +236,8 @@ step 4 by how much of today's features the sheet takes over.
 8. Typing far from every table asks to make a new table, named in the
    dialog, written after the sheet's last table.
 9. A new table's first row is its header.
-10. A new column's header is `Column 4` (its place), `Column 4 (2)` where
-    taken.
+10. A new column's header is `Column N` (one more than the table's
+    columns, the next free number where taken, as inserted columns are named).
 11. Growth moves everything below or right of it, as Excel; shrinking moves
     it back. Pasting over the edge grows the table; AutoFill stays within it.
 12. Tables may touch; a table dragged onto another is refused.
