@@ -107,3 +107,19 @@ other pages on a sheet.
   numbers, empty cells, growth) runs on it unchanged (its 12 UI scenarios pass
   on the drawn table), nothing of the old way left. Phase 1 is merged whole.
   Next: step 6 (review, fixes, click-through in SilverBullet, merge).
+- 2026-10-22, phase 1 step 6: reviewed; fixed: full screen from the sheet,
+  a query's table inside a cell, the sheet ending once its table is gone, the
+  scroll kept across a drawing, no swap under a cell being edited, the scroll
+  of the table under the drawn one, a table moved in the page, modified clicks
+  on links, `${…}` cells drawn anew after indexing, SilverBullet's DOM in
+  `dom.ts`. Left open, known:
+  - Each write in the sheet renders SilverBullet's table (under it, enhanced
+    in full) and draws the sheet's: two layouts per change. Large tables on
+    the sheet are for later; then SilverBullet's table under a drawn one could
+    skip the view's work.
+  - A table's key is its place among the page's tables (`Page#n`): if the
+    sheet's table is removed and another table follows it, that one takes the
+    key and the sheet shows it (filters and sorting kept by key do the same).
+    The sheet ends only when no table has the key.
+  - Task states, command buttons and interactive widgets in the sheet's cells
+    do nothing (static HTML; tasks in cells are text anyway).
