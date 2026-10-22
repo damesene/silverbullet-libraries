@@ -166,8 +166,9 @@ export type PanelAnchor =
   | { readonly kind: "element"; readonly element: HTMLElement };
 
 /**
- * Where a panel goes: below its anchor (else above, where there is no room
- * below), `gap` away, `offsetX` from its left edge, at least as wide as it
+ * Where a panel goes: below its anchor, or above it where it does not fit
+ * below in the page's view and there is more room above (marked swt-above),
+ * `gap` away, `offsetX` from its left edge, at least as wide as it
  * (`minWidth: "anchor"`)
  */
 export type PanelOptions = { readonly place?: "below" | "above"; readonly minWidth?: "anchor"; readonly gap?: number; readonly offsetX?: number };
@@ -459,6 +460,14 @@ export interface TableHost {
    * moves, `finish` where they go (the block's first line), none: cancelled
    */
   dragLines(info: WidgetInfo, axis: "row" | "column", block: { readonly first: number; readonly last: number }, pressedAt: number, blockTo: (asked: number) => number): LineDrag | undefined;
+  /**
+   * The part of the area from one cell to another (their corners) in view:
+   * cut to the table's box, the page's view and, for body cells, what is held
+   * over the body (the header, rows pinned to the bottom); undefined: none of it
+   */
+  areaRect(info: WidgetInfo, first: CellRef, last: CellRef): Rect | undefined;
+  /** The cell of a table at a point of the window, by where its rows and columns are (whatever is over them); undefined: not on it */
+  cellAtPoint(info: WidgetInfo, x: number, y: number): CellRef | undefined;
   /**
    * Hashtags in headers not shown, by name (a column type's): hidden from the
    * moment a table is rendered (before its looks apply); given again, they replace those of `owner`
@@ -850,6 +859,8 @@ export interface Feature {
   editorOpened?(editor: CellEditor): void;
   /** What the cell editor holds changed (typed, pasted, set) */
   editorInput?(editor: CellEditor): void;
+  /** The cell editor's caret may have moved (a key let go, a click in its field, the focus back) */
+  editorCaret?(editor: CellEditor): void;
   /** Text pasted into the cell editor (`text`, the clipboard's): true, the feature takes it (the browser does not paste it into the field) */
   editorPaste?(editor: CellEditor, text: string): boolean;
   /**

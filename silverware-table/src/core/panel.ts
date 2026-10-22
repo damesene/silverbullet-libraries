@@ -14,6 +14,8 @@ export type PanelContext = {
   place(element: HTMLElement, left: number, top: number): void;
   /** Where an anchor is in the window, if in view */
   anchorRect(anchor: PanelAnchor): Rect | undefined;
+  /** Where the page is in view around an anchor (above an on-screen keyboard) */
+  view(anchor: PanelAnchor): Rect;
 };
 
 const GAP = 2;
@@ -62,13 +64,15 @@ class FloatingPanel implements Panel {
     const gap = at.options.gap ?? GAP;
     const left = rect.left + (at.options.offsetX ?? 0);
     if (at.options.minWidth === "anchor") this.element.style.minWidth = `${Math.round(rect.right - rect.left)}px`;
-    const below = rect.bottom + gap;
-    this.context.place(this.element, left, below);
+    this.context.place(this.element, left, rect.bottom + gap);
     const height = this.element.offsetHeight;
-    const above = rect.top - gap - height;
-    const viewHeight = this.context.doc.defaultView!.innerHeight;
-    const wantsAbove = at.options.place === "above" ? above >= 0 : below + height > viewHeight - 4 && above >= 4;
-    if (wantsAbove) this.context.place(this.element, left, above);
+    // The page in view (cut to what an on-screen keyboard leaves): above where it does not fit below and there is more room above
+    const view = this.context.view(at.anchor);
+    const roomBelow = view.bottom - (rect.bottom + gap);
+    const roomAbove = rect.top - gap - view.top;
+    const above = at.options.place === "above" ? roomAbove >= height || roomAbove > roomBelow : height > roomBelow && roomAbove > roomBelow;
+    this.element.classList.toggle("swt-above", above);
+    if (above) this.context.place(this.element, left, rect.top - gap - height);
   }
 }
 

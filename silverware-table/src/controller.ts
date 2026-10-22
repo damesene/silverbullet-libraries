@@ -205,6 +205,11 @@ export class Controller implements TableHost {
       floating: (className) => this.floating("div", className),
       place: (element, left, top) => this.place(element, left, top),
       anchorRect: (anchor) => this.anchorRect(anchor),
+      view: (anchor) => {
+        const active = this.cellEditor.active;
+        const info = anchor.kind === "cell" ? this.tableFor(anchor.key) : anchor.kind === "editor" && active ? this.infos.get(active.widget) : undefined;
+        return this.adapter.pageView(info);
+      },
     });
     this.dialogs = new Dialogs(doc);
     this.anchor = new ViewAnchor(doc, (key) => this.widgetForKey(key));
@@ -1170,6 +1175,14 @@ export class Controller implements TableHost {
 
   dragLines(info: WidgetInfo, axis: "row" | "column", block: { readonly first: number; readonly last: number }, pressedAt: number, blockTo: (asked: number) => number): LineDrag | undefined {
     return this.adapter.dragLines(info, axis, block, pressedAt, blockTo);
+  }
+
+  areaRect(info: WidgetInfo, first: CellRef, last: CellRef): Rect | undefined {
+    return this.adapter.areaRect(info, first, last);
+  }
+
+  cellAtPoint(info: WidgetInfo, x: number, y: number): CellRef | undefined {
+    return this.adapter.cellAtPoint(info, x, y);
   }
 
   get metadataEnabled(): boolean {

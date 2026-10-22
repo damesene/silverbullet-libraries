@@ -54,6 +54,12 @@ export interface TableAdapter {
   rectOf(info: WidgetInfo, part: { readonly row: number; readonly column: number } | { readonly row: number } | { readonly column: number } | "table"): Rect | undefined;
   /** Rows (columns) dragged (TableHost.dragLines) */
   dragLines(info: WidgetInfo, axis: "row" | "column", block: { readonly first: number; readonly last: number }, pressedAt: number, blockTo: (asked: number) => number): LineDrag | undefined;
+  /** The part of an area of cells in view (TableHost.areaRect) */
+  areaRect(info: WidgetInfo, first: CellRef, last: CellRef): Rect | undefined;
+  /** The cell at a point, by where the rows and columns are (TableHost.cellAtPoint) */
+  cellAtPoint(info: WidgetInfo, x: number, y: number): CellRef | undefined;
+  /** Where the page is in view (a table's, else the page's): its scroller, cut to what an on-screen keyboard leaves */
+  pageView(info: WidgetInfo | undefined): Rect;
   /** Whether a node is one of the adapter's own elements over the cells (a piece of an outline, a handle) */
   owns(node: Node): boolean;
   /** Silverware Table stops: what the adapter added to the page goes */

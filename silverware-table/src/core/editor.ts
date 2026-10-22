@@ -231,6 +231,12 @@ export class CellEditing {
     field.addEventListener("input", () => {
       if (this.editor === opened) this.input(opened);
     });
+    // The caret may have moved: features that follow it (a formula's help for the argument it is in) hear it
+    for (const type of ["keyup", "click", "focus"]) {
+      field.addEventListener(type, () => {
+        if (this.editor === opened) for (const feature of this.context.features) feature.editorCaret?.(opened);
+      });
+    }
     // Text pasted: a feature may take it (cells from a spreadsheet go into the table)
     (field as HTMLElement).addEventListener("paste", (e) => {
       if (this.editor !== opened) return;

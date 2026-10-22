@@ -11,10 +11,21 @@
 // recalculated: results stay as written.
 
 import { columnIdOf } from "../columns.ts";
-import { CELL_MENU_ORDER, editorRect } from "../core/feature.ts";
-import type { CellEditor, CellField, CellMenuGroup, CellRef, Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo, WriteEdit } from "../core/feature.ts";
-import { EVERYWHERE, intersect, isEmpty, type Rect } from "../core/geometry.ts";
-import { WIDGET_SELECTOR } from "../dom.ts";
+import { CELL_MENU_ORDER } from "../core/feature.ts";
+import type {
+  CellEditor,
+  CellMenuGroup,
+  CellRef,
+  Feature,
+  MetadataPart,
+  Panel,
+  Rect,
+  TableHost,
+  TableLooks,
+  ToolbarButton,
+  WidgetInfo,
+  WriteEdit,
+} from "../core/feature.ts";
 import {
   type Area,
   areaText,
@@ -96,11 +107,11 @@ function choiceHelp(choice: FormulaChoice): FormulaHelp {
 const REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
 
 export class Formulas implements Feature {
-  private readonly formulaHint: HTMLElement;
+  private readonly formulaHint: Panel;
   private referenceMarks: HTMLElement[] = [];
   private stopReferenceDrag: (() => void) | undefined;
-  // The reference last inserted by pointing at the table, and the cell its range started at
-  private pointed: (PointedSpan & { readonly field: CellField; readonly anchor?: CellRef }) | undefined;
+  // The reference last inserted by pointing at the table (in the editor it was typed in), and the cell its range started at
+  private pointed: (PointedSpan & { readonly editor: CellEditor; readonly anchor?: CellRef }) | undefined;
   private stopPointing: (() => void) | undefined;
   // The functions and names offered for the name typed (a list under the cell): which one is picked, for which name
   // typed where (`key`), and the name Esc closed the list for (it opens again once the name changes)
@@ -110,15 +121,15 @@ export class Formulas implements Feature {
   private dismissed: string | undefined;
   // Every function, to find one by what it does and insert it (fx, Shift+F3, Insert function…)
   private readonly functions: FunctionDialog;
-  // Tables whose formula cells show results from before a change made outside Silverware Table
-  private readonly stale = new WeakSet<HTMLTableElement>();
-  // Tables (as rendered) with formulas: their toolbar can recalculate them
-  private readonly withFormulas = new WeakSet<HTMLTableElement>();
+  // Tables (by key, as of their markdown) whose formula cells show results from before a change made outside Silverware Table
+  private readonly stale = new Map<string, { readonly source: string; readonly stale: boolean }>();
+  // The table whose cells can be pointed at (marked)
+  private pointing: string | undefined;
   // The page's tables for formulas, as of the page's text and the other pages read
   private source: { readonly key: string; readonly source: TableSource } | undefined;
 
   constructor(private readonly host: TableHost) {
-    this.formulaHint = host.floating("div", "swt-formula-hint");
+    this.formulaHint = host.panel("swt-formula-hint");
     this.functions = new FunctionDialog(host);
   }
 
@@ -183,7 +194,7 @@ export class Formulas implements Feature {
    * in every row, a calculated column (rows added later get it too). As many
    * as wanted. New formulas need the metadata setting.
    */
-  columnMenuInsertEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
+  columnMenuInsertEntries(_widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
     const insert = insertColumnAt(info.pins, info.columns, column);
     const blocked = !this.host.metadataEnabled
       ? FORMULAS_NEED_METADATA
@@ -199,15 +210,15 @@ export class Formulas implements Feature {
         icon: ICONS.columnLeft,
         hint: "A column numbering the rows: =ROW() in each",
         disabled: blocked,
-        run: () => void this.insertNumbered(widget, info, column),
+        run: () => void this.insertNumbered(info, column),
       },
     ];
   }
 
-  private insertNumbered(widget: HTMLElement, info: WidgetInfo, column: number): Promise<unknown> {
+  private insertNumbered(info: WidgetInfo, column: number): Promise<unknown> {
     const insert = insertColumnAt(info.pins, info.columns, column);
-    return this.host.write(
-      widget,
+    return this.host.writeTable(
+      this.host.tableFor(info.key) ?? info,
       (t) => {
         let table = setCell(insertColumn(t, insert.at), 0, insert.at, "#");
         // The write step calculates them
@@ -251,20 +262,17 @@ export class Formulas implements Feature {
     return text.startsWith("=") ? `'${text}` : undefined;
   }
 
-  editorOpened(editor: CellEditor): void {
-    const field = editor.field;
-    // The formula's references are shown in the table, its function explained under the cell
-    for (const type of ["input", "keyup", "click", "focus"]) {
-      field.addEventListener(type, () => {
-        if (this.host.editing?.field === field && !this.stopReferenceDrag) this.updateFormulaUi();
-      });
-    }
-    // Typing makes the reference just pointed at part of the formula: pointing no longer replaces it
-    (field as HTMLElement).addEventListener("keydown", (e) => {
-      // (F4 cycles the reference just pointed at: pointing again still replaces it)
-      if (!["Shift", "Control", "Alt", "Meta", "F4"].includes(e.key)) this.pointed = undefined;
-    });
+  // The formula's references are shown in the table, its function explained under the cell
+  editorOpened(): void {
     this.updateFormulaUi();
+  }
+
+  editorInput(editor: CellEditor): void {
+    if (this.host.editing === editor && !this.stopReferenceDrag) this.updateFormulaUi();
+  }
+
+  editorCaret(editor: CellEditor): void {
+    if (this.host.editing === editor && !this.stopReferenceDrag) this.updateFormulaUi();
   }
 
   /**
@@ -275,6 +283,9 @@ export class Formulas implements Feature {
    * as it is.
    */
   editorKeyDown(e: KeyboardEvent, editor: CellEditor): boolean {
+    // Typing makes the reference just pointed at part of the formula: pointing no longer replaces it
+    // (F4 cycles the reference just pointed at: pointing again still replaces it)
+    if (!["Shift", "Control", "Alt", "Meta", "F4"].includes(e.key)) this.pointed = undefined;
     if (e.ctrlKey || e.altKey || e.metaKey) return false;
     // Shift+F3, as in a spreadsheet: every function, to find one and insert it
     if (e.key === "F3" && e.shiftKey && editor.row > 0 && this.allowed(editor)) {
@@ -282,7 +293,7 @@ export class Formulas implements Feature {
       return true;
     }
     // F4: in a formula, the reference the caret is in cycles its $ (A1, $A$1, A$1, $A1)
-    if (e.key === "F4" && !e.shiftKey && editor.row > 0 && this.allowed(editor) && isFormulaInput(editor.field.value)) return this.cycleFixed(editor);
+    if (e.key === "F4" && !e.shiftKey && editor.row > 0 && this.allowed(editor) && isFormulaInput(editor.text)) return this.cycleFixed(editor);
     const choices = this.choicesNow(editor);
     if (!choices || !this.choosing) return false;
     const { index } = this.choosing;
@@ -295,7 +306,7 @@ export class Formulas implements Feature {
       case "Tab": {
         if (e.shiftKey) return false;
         // The name typed in full is the one picked (a cell's): nothing to insert, Tab moves on as elsewhere
-        const typed = editor.field.value.slice(choices.from, choices.to);
+        const typed = editor.text.slice(choices.from, choices.to);
         if (choiceText(choices.choices[index]!) === typed) return false;
         this.insertChoice(editor, choices, index);
         return true;
@@ -311,7 +322,7 @@ export class Formulas implements Feature {
   }
 
   owns(node: Node): boolean {
-    return this.formulaHint.contains(node);
+    return this.formulaHint.element.contains(node);
   }
 
   /**
@@ -339,7 +350,7 @@ export class Formulas implements Feature {
     if (isFormulaInput(typed)) {
       const slips = autofixFormula(typed.trim());
       // Names of other tables' cells written bare, as before a name was its table's: prices!vat
-      const info = this.host.infoOf(editor.widget);
+      const info = this.host.tableFor(editor.key);
       const names = info ? qualifyCellNames(slips.formula, this.host.tableOf(info), this.tableSource()) : { formula: slips.formula, fixes: [] };
       const formula = names.formula;
       const fixes = [...slips.fixes, ...names.fixes];
@@ -360,8 +371,8 @@ export class Formulas implements Feature {
   }
 
   // While a formula waits for a reference, a press in its table inserts one
-  beforeCellPress(widget: HTMLElement, info: WidgetInfo, cell: CellRef, e: MouseEvent): boolean {
-    return this.pointReference(widget, info, cell, e);
+  beforeCellPress(_widget: HTMLElement, info: WidgetInfo, cell: CellRef, e: MouseEvent): boolean {
+    return this.pointReference(info, cell, e);
   }
 
   // The outlines follow the table when it scrolls or moves
@@ -371,14 +382,13 @@ export class Formulas implements Feature {
 
   // ---- formula cells in the table -------------------------------------------------
 
-  /** Formula cells show that they hold one, and their formula (or error) on hover */
-  decorate(_widget: HTMLElement, info: WidgetInfo): void {
+  /** Formula cells show that they hold one, and their formula (or error) on hover; a table whose results are out of date is noted */
+  looks(info: WidgetInfo): TableLooks | undefined {
     const model = parseTable(info.source);
-    if (formulaCount(model) === 0) return;
-    this.withFormulas.add(info.table);
+    if (formulaCount(model) === 0) return undefined;
     const tables = this.tableSource();
-    if (recalculate(model, tables) !== model) this.stale.add(info.table);
-    this.markCells(info, model, tables);
+    if (this.stale.get(info.key)?.source !== info.source) this.stale.set(info.key, { source: info.source, stale: recalculate(model, tables) !== model });
+    return { cells: this.formulaLooks(model, tables) };
   }
 
   /**
@@ -416,9 +426,8 @@ export class Formulas implements Feature {
             this.host.editCell(info, cell, hasFormula ? undefined : "replace");
             const active = this.host.editing;
             if (!active || active.row !== cell.row || active.column !== cell.column) return;
-            const field = active.field;
-            if (!hasFormula) field.value = "=";
-            field.setSelectionRange(field.value.length, field.value.length);
+            if (!hasFormula) active.setText("=");
+            else active.select(active.text.length, active.text.length);
             this.updateFormulaUi();
             this.openFunctions(active);
           },
@@ -428,29 +437,28 @@ export class Formulas implements Feature {
   }
 
   /** Formula cells marked, with their formulas and the reasons of their errors as their titles */
-  private markCells(info: WidgetInfo, model: Table, tables: TableSource): void {
+  private formulaLooks(model: Table, tables: TableSource): { row: number; column: number; marks: string[]; title: string }[] {
     // The reasons of errors evaluate the table again: only once a cell shows one
     let errors: Map<string, string> | undefined;
-    for (const tr of this.host.bodyRows(info)) {
-      const row = this.host.rowOf(info, tr);
-      model.rows[row]?.cells.forEach((raw, column) => {
+    const looks: { row: number; column: number; marks: string[]; title: string }[] = [];
+    model.rows.forEach((r, row) => {
+      if (row === 0) return;
+      r.cells.forEach((raw, column) => {
         const stored = formulaOf(raw);
-        const cell = tr.cells[column];
-        if (!stored || !cell) return;
+        if (!stored) return;
         const error = isErrorText(stored.value) ? (errors ??= formulaErrors(model, tables)).get(`${row},${column}`) : undefined;
-        cell.classList.add("swt-formula");
-        cell.classList.toggle("swt-formula-error", !!error);
-        cell.title = error ? `${stored.formula}\n${error}` : stored.formula;
+        looks.push({ row, column, marks: error ? ["formula", "formula-error"] : ["formula"], title: error ? `${stored.formula}\n${error}` : stored.formula });
       });
-    }
+    });
+    return looks;
   }
 
   /**
    * A table rendered anew (it changed) may be one that others refer to: their
    * results are checked again, as SilverBullet keeps their widgets as they were
    */
-  enhanced(widget: HTMLElement): void {
-    this.recheck(widget, false);
+  enhanced(_widget: HTMLElement, info: WidgetInfo): void {
+    this.recheck(info.key, false);
   }
 
   /** Another page whose tables formulas read was changed, or the custom functions were defined anew */
@@ -463,26 +471,26 @@ export class Formulas implements Feature {
    * are out of date; `withCustom`: those that call custom functions too (they
    * were defined anew, which an edit of a table does not do)
    */
-  private recheck(except: HTMLElement | undefined, withCustom: boolean): void {
+  private recheck(except: string | undefined, withCustom: boolean): void {
     const tables = this.tableSource();
-    for (const other of Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.swt-table`))) {
-      const info = other === except ? undefined : this.host.infoOf(other);
-      if (!info || !this.withFormulas.has(info.table)) continue;
+    for (const info of this.host.shownTables()) {
+      if (info.key === except) continue;
       const model = parseTable(info.source);
+      if (formulaCount(model) === 0) continue;
       const refersElsewhere = referredTableNames(model).size > 0 || referredPages(model).size > 0;
       if (!refersElsewhere && !(withCustom && callsCustomFunctions(model))) continue;
-      if (recalculate(model, tables) !== model) this.stale.add(info.table);
-      else this.stale.delete(info.table);
+      this.stale.set(info.key, { source: info.source, stale: recalculate(model, tables) !== model });
       // An error's reason may have changed (another page read)
-      this.markCells(info, model, tables);
+      this.host.looksChanged(info);
     }
     this.host.toolbarChanged();
   }
 
   /** Recalculate, first in the toolbar of a table with formulas; highlighted when results are out of date */
-  toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
-    if (!this.withFormulas.has(info.table)) return [];
-    const stale = this.stale.has(info.table);
+  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+    if (formulaCount(parseTable(info.source)) === 0) return [];
+    const known = this.stale.get(info.key);
+    const stale = known?.source === info.source && known.stale;
     return [
       {
         label: "Recalculate",
@@ -493,7 +501,7 @@ export class Formulas implements Feature {
           ? "Recalculate: some formula results are out of date (the table was changed outside Silverware Table, TODAY() moved on, or a custom function changed)"
           : "Recalculate the formulas (their results are up to date)",
         // A write recalculates: an edit that changes nothing else
-        run: () => void this.host.write(this.host.widgetForKey(info.key) ?? widget, (t) => t),
+        run: () => void this.host.writeTable(this.host.tableFor(info.key) ?? info, (t) => t),
       },
     ];
   }
@@ -507,8 +515,8 @@ export class Formulas implements Feature {
    */
   private updateFormulaUi(): void {
     const active = this.host.editing;
-    const info = active && this.host.infoOf(active.widget);
-    const formula = active?.field.value ?? "";
+    const info = active && this.host.tableFor(active.key);
+    const formula = active?.text ?? "";
     if (!active || !info || active.row === 0 || !formula.trimStart().startsWith("=")) {
       this.hideFormulaUi();
       return;
@@ -516,16 +524,15 @@ export class Formulas implements Feature {
     if (!this.allowed(active)) {
       // No outlines, no pointing: only why the formula will be text
       this.hideFormulaUi();
-      this.formulaHint.replaceChildren(
+      this.formulaHint.element.replaceChildren(
         Object.assign(this.host.doc.createElement("div"), { className: "swt-formula-help", textContent: FORMULAS_NEED_METADATA }),
       );
-      const rect = editorRect(active);
-      this.host.place(this.formulaHint, rect.left, rect.bottom + 4);
+      this.formulaHint.show({ kind: "editor" }, { gap: 4 });
       return;
     }
     const refs = references(formula);
     // Where a reference can go, the table shows that cells can be pointed at
-    active.widget.classList.toggle("swt-pointing", this.pointingSlot(active) !== undefined);
+    this.markPointing(this.pointingSlot(active) !== undefined ? info.key : undefined);
     this.showFormulaHint(active, formula, refs);
     for (const mark of this.referenceMarks) mark.remove();
     this.referenceMarks = [];
@@ -534,7 +541,7 @@ export class Formulas implements Feature {
       const area = this.referenceArea(info, table, ref, active.row - 1);
       if (!area) return;
       const color = REFERENCE_COLORS[index % REFERENCE_COLORS.length]!;
-      const boxes = this.areaBoxes(active.widget, info, area);
+      const boxes = this.areaBoxes(info, area);
       boxes.forEach((box, b) => {
         const mark = this.host.floating("div", "swt-ref-mark");
         mark.style.setProperty("--swt-ref-color", color);
@@ -565,6 +572,14 @@ export class Formulas implements Feature {
     });
   }
 
+  /** The table whose cells can be pointed at now, marked (none: undefined) */
+  private markPointing(key: string | undefined): void {
+    if (this.pointing === key) return;
+    if (this.pointing !== undefined) this.host.tableMark(this.pointing, "pointing", false);
+    this.pointing = key;
+    if (key !== undefined) this.host.tableMark(key, "pointing", true);
+  }
+
   /**
    * Pointing, as in a spreadsheet: while a formula is edited and its caret is
    * where a reference can go, a click on a cell of the same table inserts the
@@ -572,19 +587,18 @@ export class Formulas implements Feature {
    * ([Qty]). Pointing again replaces the reference just inserted. Returns
    * whether the click was taken.
    */
-  private pointReference(widget: HTMLElement, info: WidgetInfo, cell: CellRef, e: MouseEvent): boolean {
+  private pointReference(info: WidgetInfo, cell: CellRef, e: MouseEvent): boolean {
     const active = this.host.editing;
-    if (!active || active.widget !== widget) return false;
+    if (!active || active.key !== info.key) return false;
     const slot = this.pointingSlot(active);
     if (!slot) return false;
     this.stopPointing?.();
-    const field = active.field;
     let span = slot;
     const put = (text: string, anchor?: CellRef) => {
-      this.replaceInField(field, span.from, span.to, text);
+      active.insert(span.from, span.to, text);
       span = { from: span.from, to: span.from + text.length };
-      field.setSelectionRange(span.to, span.to);
-      this.pointed = { field, ...span, text, anchor };
+      active.select(span.to, span.to);
+      this.pointed = { editor: active, ...span, text, anchor };
       this.updateFormulaUi();
     };
     if (cell.row === 0) {
@@ -597,7 +611,7 @@ export class Formulas implements Feature {
     // Shift+click extends the range just pointed at, from the cell it started at
     const last = this.pointed;
     const anchor =
-      e.shiftKey && last?.field === field && last.anchor && last.from === slot.from
+      e.shiftKey && last?.editor === active && last.anchor && last.from === slot.from
         ? last.anchor
         : { row: cell.row - 1, column: cell.column };
     const areaTo = (to: CellRef): Area => ({
@@ -609,49 +623,45 @@ export class Formulas implements Feature {
     put(areaText(areaTo({ row: cell.row - 1, column: cell.column })), anchor);
     // Dragging with the button held makes it a range; it ends with the button,
     // a key, the window losing focus or the editor closing
-    const win = this.host.doc.defaultView!;
     const end = () => {
-      win.removeEventListener("mousemove", move, true);
-      win.removeEventListener("mouseup", up, true);
-      win.removeEventListener("keydown", end, true);
-      win.removeEventListener("blur", end);
+      stop();
       this.stopPointing = undefined;
     };
-    const move = (ev: MouseEvent) => {
-      if (this.host.editing?.field !== field || ev.buttons === 0) {
-        end();
-        return;
-      }
-      const to = this.bodyCellAt(info, ev.clientX, ev.clientY);
-      const text = to && areaText(areaTo(to));
-      if (text && text !== field.value.slice(span.from, span.to)) put(text, anchor);
-    };
-    const up = () => {
-      end();
-      if (this.host.editing?.field === field) field.focus({ preventScroll: true });
-    };
-    win.addEventListener("mousemove", move, true);
-    win.addEventListener("mouseup", up, true);
-    win.addEventListener("keydown", end, true);
-    win.addEventListener("blur", end);
+    const stop = this.host.drag(e, {
+      key: info.key,
+      events: "mouse",
+      onMove: (at) => {
+        if (this.host.editing !== active) {
+          end();
+          return;
+        }
+        const to = this.bodyCellAt(info, at.x, at.y);
+        const text = to && areaText(areaTo(to));
+        if (text && text !== active.text.slice(span.from, span.to)) put(text, anchor);
+      },
+      onKey: end,
+      onEnd: (_, cancelled) => {
+        this.stopPointing = undefined;
+        if (!cancelled && this.host.editing === active) active.focus();
+      },
+    });
     this.stopPointing = end;
     return true;
   }
 
   /** F4 in a formula: the $ of the reference at the caret cycled, the caret after it */
   private cycleFixed(active: CellEditor): boolean {
-    const field = active.field;
-    const caret = field.selectionEnd ?? field.value.length;
-    const cycled = cycleFixed(field.value, caret);
+    const caret = active.selection[1];
+    const cycled = cycleFixed(active.text, caret);
     if (!cycled) return false;
     // Replaced as typing would (Ctrl+Z in the field undoes it)
-    this.replaceInField(field, cycled.from, cycled.to, cycled.text);
+    active.insert(cycled.from, cycled.to, cycled.text);
     // The reference just pointed at, cycled: still the one pointing again replaces
     const pointed = this.pointed;
-    if (pointed?.field === field && pointed.from === cycled.from && pointed.to === cycled.to) {
+    if (pointed?.editor === active && pointed.from === cycled.from && pointed.to === cycled.to) {
       this.pointed = { ...pointed, to: cycled.from + cycled.text.length, text: cycled.text };
     }
-    field.setSelectionRange(cycled.from + cycled.text.length, cycled.from + cycled.text.length);
+    active.select(cycled.from + cycled.text.length, cycled.from + cycled.text.length);
     this.updateFormulaUi();
     return true;
   }
@@ -663,13 +673,13 @@ export class Formulas implements Feature {
    */
   private choicesNow(active: CellEditor): FormulaChoices | undefined {
     if (active.row === 0 || !this.allowed(active)) return undefined;
-    const field = active.field;
-    const length = field.value.length;
-    const info = this.host.infoOf(active.widget);
+    const text = active.text;
+    const [from, to] = active.selection;
+    const info = this.host.tableFor(active.key);
     const own = info ? metaName(this.host.tableOf(info)) : undefined;
-    const choices = formulaChoices(field.value, field.selectionStart ?? length, field.selectionEnd ?? length, info ? this.namesFor(info) : [], own);
+    const choices = formulaChoices(text, from, to, info ? this.namesFor(info) : [], own);
     if (!choices) return undefined;
-    const typed = field.value.slice(choices.from, choices.to);
+    const typed = text.slice(choices.from, choices.to);
     const key = `${choices.from}:${typed}`;
     if (this.dismissed === key) return undefined;
     if (this.choosing?.key !== key) this.choosing = { key, index: 0 };
@@ -699,9 +709,9 @@ export class Formulas implements Feature {
    */
   private insertChoice(active: CellEditor, choices: FormulaChoices, index: number): void {
     const text = choiceText(choices.choices[index]!);
-    this.replaceInField(active.field, choices.from, choices.to, text);
+    active.insert(choices.from, choices.to, text);
     const caret = choices.from + text.length;
-    active.field.setSelectionRange(caret, caret);
+    active.select(caret, caret);
     this.choosing = undefined;
     this.updateFormulaUi();
   }
@@ -713,23 +723,20 @@ export class Formulas implements Feature {
    * formula yet, as the formula's start (=NAME()
    */
   private openFunctions(active: CellEditor): void {
-    const field = active.field;
-    const length = field.value.length;
-    const start = field.selectionStart ?? length;
-    const end = field.selectionEnd ?? length;
-    const value = field.value;
+    const [start, end] = active.selection;
+    const value = active.text;
     const shown = value.trimStart().startsWith("=") ? `${value.slice(0, start)}▌${value.slice(end)}` : "=▌";
     this.functions.open(shown, (name) => {
       if (this.host.editing !== active) return;
       const text = `${name}(`;
-      if (!field.value.trimStart().startsWith("=")) {
-        this.replaceInField(field, 0, field.value.length, `=${text}`);
-        field.setSelectionRange(field.value.length, field.value.length);
+      if (!active.text.trimStart().startsWith("=")) {
+        active.insert(0, active.text.length, `=${text}`);
+        active.select(active.text.length, active.text.length);
       } else {
-        const typed = nameTyped(field.value, start, end) ?? { from: start, to: end };
-        const inserted = needsOperator(field.value, typed.from) ? `+${text}` : text;
-        this.replaceInField(field, typed.from, typed.to, inserted);
-        field.setSelectionRange(typed.from + inserted.length, typed.from + inserted.length);
+        const typed = nameTyped(active.text, start, end) ?? { from: start, to: end };
+        const inserted = needsOperator(active.text, typed.from) ? `+${text}` : text;
+        active.insert(typed.from, typed.to, inserted);
+        active.select(typed.from + inserted.length, typed.from + inserted.length);
       }
       this.choosing = undefined;
       this.updateFormulaUi();
@@ -739,31 +746,15 @@ export class Formulas implements Feature {
   /** Where a reference pointed at in the table would go in the edited formula, if anywhere */
   private pointingSlot(active: CellEditor): { from: number; to: number } | undefined {
     if (active.row === 0 || !this.allowed(active)) return undefined;
-    const field = active.field;
-    const length = field.value.length;
-    const pointed = this.pointed?.field === field ? this.pointed : undefined;
-    return referenceSlot(field.value, field.selectionStart ?? length, field.selectionEnd ?? length, pointed);
-  }
-
-  /**
-   * Replaces part of the field's text, as typing would where the browser
-   * allows it (so Ctrl+Z in the field undoes it), else directly
-   */
-  private replaceInField(field: CellField, from: number, to: number, text: string): void {
-    const expected = field.value.slice(0, from) + text + field.value.slice(to);
-    field.setSelectionRange(from, to);
-    try {
-      if (typeof this.host.doc.execCommand === "function") this.host.doc.execCommand("insertText", false, text);
-    } catch {
-      // Not supported: set directly below
-    }
-    if (field.value !== expected) field.value = expected;
+    const pointed = this.pointed?.editor === active ? this.pointed : undefined;
+    const [from, to] = active.selection;
+    return referenceSlot(active.text, from, to, pointed);
   }
 
   /** The formula with its references in their colors, and help for what is typed */
   private showFormulaHint(active: CellEditor, formula: string, refs: readonly Reference[]): void {
     const { doc } = this.host;
-    const hint = this.formulaHint;
+    const hint = this.formulaHint.element;
     // fx at the hint's edge by the cell, the formula and its help beside it
     const body = doc.createElement("div");
     body.className = "swt-formula-hint-body";
@@ -789,32 +780,16 @@ export class Formulas implements Feature {
       body.append(this.helpLine(choiceHelp(choices.choices[this.choosing.index]!)));
       body.append(Object.assign(doc.createElement("div"), { className: "swt-formula-tab", textContent: "Tab: insert · ↑ ↓: pick · Enter: save as typed · Esc: close" }));
     } else {
-      const help = formulaHelp(formula, active.field.selectionStart ?? formula.length);
+      const help = formulaHelp(formula, active.selection[0]);
       if (help) body.append(this.helpLine(help));
     }
-    // Its cell scrolled out of view (the field with it, or the popup cut so): no help either
-    const info = this.host.infoOf(active.widget);
-    const cell = active.cell.getBoundingClientRect();
-    if (info && (cell.width > 0 || cell.height > 0) && !this.host.shownPart(active.widget, info, active.cell)) {
-      hint.classList.remove("swt-visible");
-      return;
-    }
-    const rect = editorRect(active);
-    hint.classList.remove("swt-above");
-    this.host.place(hint, rect.left, rect.bottom + 4);
+    // Under the cell, above it where it does not fit and there is more room (fx at its bottom, by the cell again);
+    // its cell scrolled out of view (the field with it, or the popup cut so): none, as there is no help either
+    this.formulaHint.show({ kind: "editor" }, { gap: 4 });
     // The list made anew: the one picked scrolled into its view (the list's own scroll, not the page's)
     const list = hint.querySelector<HTMLElement>(".swt-formula-choices");
     const picked = list?.querySelector<HTMLElement>('[aria-selected="true"]');
     if (list && picked) list.scrollTop = Math.max(0, picked.offsetTop + picked.offsetHeight - list.clientHeight);
-    // The page in view, cut to what an on-screen keyboard leaves: not fitting below the cell, above it where there is more room
-    const view = this.host.viewBounds(active.widget);
-    const below = view.bottom - (rect.bottom + 4);
-    const above = rect.top - 4 - view.top;
-    if (hint.offsetHeight > below && above > below) {
-      // Above the cell: fx at its bottom, by the cell again
-      hint.classList.add("swt-above");
-      this.host.place(hint, rect.left, rect.top - 4 - hint.offsetHeight);
-    }
   }
 
   /** The functions and names a name typed may be, the one picked marked; a click inserts one */
@@ -888,8 +863,8 @@ export class Formulas implements Feature {
 
   private hideFormulaUi(): void {
     this.stopReferenceDrag?.();
-    for (const widget of Array.from(this.host.doc.querySelectorAll(".swt-pointing"))) widget.classList.remove("swt-pointing");
-    this.formulaHint.classList.remove("swt-visible");
+    this.markPointing(undefined);
+    this.formulaHint.hide();
     for (const mark of this.referenceMarks) mark.remove();
     this.referenceMarks = [];
   }
@@ -917,42 +892,27 @@ export class Formulas implements Feature {
     return { top, left, bottom: Math.min(bottom, lastRow), right: Math.min(right, lastColumn) };
   }
 
-  /** The body rows as shown (header and filter row excluded), with their row in the markdown minus one */
-  private shownBodyRows(info: WidgetInfo): { tr: HTMLTableRowElement; row: number }[] {
-    return this.host
-      .shownRows(info)
-      .filter((tr) => this.host.rowOf(info, tr) > 0)
-      .map((tr) => ({ tr, row: this.host.rowOf(info, tr) - 1 }));
-  }
-
   /**
    * Screen boxes outlining an area: one per run of its rows that are shown
    * next to each other (sorting and filters can split an area), clipped to
-   * the table's visible box
+   * what of the table is in view (the core's)
    */
-  private areaBoxes(widget: HTMLElement, info: WidgetInfo, area: Area): Rect[] {
-    // The table's box, cut to the page in view (a table taller than the view scrolls with the page)
-    const clip = intersect(this.host.innerBox(widget), this.host.viewBounds(widget));
-    // Body rows scroll under the header held at the top and the rows pinned to the bottom
-    const held = this.host.heldBounds(info);
+  private areaBoxes(info: WidgetInfo, area: Area): Rect[] {
     const boxes: Rect[] = [];
-    let run: HTMLTableRowElement[] = [];
+    let run: number[] = [];
     const flush = () => {
-      const first = run[0]?.cells[area.left];
-      const last = run[run.length - 1]?.cells[area.right];
+      const first = run[0];
+      const last = run[run.length - 1];
       run = [];
-      if (!first || !last) return;
-      const a = first.getBoundingClientRect();
-      const b = last.getBoundingClientRect();
-      const outline = intersect(
-        { left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) },
-        clip,
-        { ...EVERYWHERE, top: first.closest("tbody") ? held.top : -Infinity, bottom: last.closest("tbody") ? held.bottom : Infinity },
-      );
-      if (!isEmpty(outline)) boxes.push(outline);
+      if (first === undefined || last === undefined) return;
+      const box = this.host.areaRect(info, { row: first, column: area.left }, { row: last, column: area.right });
+      if (box) boxes.push(box);
     };
-    for (const { tr, row } of this.shownBodyRows(info)) {
-      if (row >= area.top && row <= area.bottom) run.push(tr);
+    // The body rows as shown, by their row in the markdown minus one
+    for (const shown of this.host.shownOrder(info)) {
+      if (shown === 0) continue;
+      const row = shown - 1;
+      if (row >= area.top && row <= area.bottom) run.push(shown);
       else flush();
     }
     flush();
@@ -961,16 +921,8 @@ export class Formulas implements Feature {
 
   /** The body cell (row in the markdown minus one, column) under a point, if any */
   private bodyCellAt(info: WidgetInfo, x: number, y: number): { row: number; column: number } | undefined {
-    for (const { tr, row } of this.shownBodyRows(info)) {
-      const rect = tr.getBoundingClientRect();
-      if (y < rect.top || y > rect.bottom) continue;
-      const column = Array.from(tr.cells).findIndex((cell) => {
-        const r = cell.getBoundingClientRect();
-        return x >= r.left && x <= r.right;
-      });
-      return column < 0 ? undefined : { row, column };
-    }
-    return undefined;
+    const cell = this.host.cellAtPoint(info, x, y);
+    return cell && cell.row > 0 ? { row: cell.row - 1, column: cell.column } : undefined;
   }
 
   /**
@@ -981,13 +933,11 @@ export class Formulas implements Feature {
    */
   private dragReference(e: PointerEvent, index: number, mode: "move" | "resize"): void {
     const active = this.host.editing;
-    const info = active && this.host.infoOf(active.widget);
+    const info = active && this.host.tableFor(active.key);
     if (e.button !== 0 || !active || !info) return;
     // Not prevented: the mousedown that follows is (swt-floating), which keeps the focus in the field
     e.stopPropagation();
-    const handle = e.currentTarget as HTMLElement;
-    const field = active.field;
-    const originalFormula = field.value;
+    const originalFormula = active.text;
     const ref = references(originalFormula)[index];
     const table = parseTable(info.source);
     const headers = table.rows[0]?.cells ?? [];
@@ -998,7 +948,6 @@ export class Formulas implements Feature {
     const lastColumn = info.columns - 1;
     const clamp = (n: number, max: number) => Math.max(0, Math.min(n, max));
     this.stopReferenceDrag?.();
-    this.host.doc.body.classList.add("swt-ref-dragging");
 
     const textFor = (cell: { row: number; column: number }): string | undefined => {
       const dRow = cell.row - start.row;
@@ -1026,50 +975,32 @@ export class Formulas implements Feature {
       return areaText({ top, left, bottom: top + height, right: left + width }, ref.fixed);
     };
 
-    const win = this.host.doc.defaultView!;
-    const move = (ev: PointerEvent) => {
-      const cell = this.bodyCellAt(info, ev.clientX, ev.clientY);
-      const current = references(field.value)[index];
-      const text = cell && current && textFor(cell);
-      if (!text || !current || field.value.slice(current.from, current.to) === text) return;
-      this.replaceInField(field, current.from, current.to, text);
-      const caret = current.from + text.length;
-      field.setSelectionRange(caret, caret);
-      this.updateFormulaUi();
-    };
-    const escape = (ev: KeyboardEvent) => {
-      if (ev.key !== "Escape") return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      field.value = originalFormula;
-      finish();
-    };
-    const finish = () => {
-      this.stopReferenceDrag?.();
-      if (this.host.editing?.field === field) {
-        field.focus({ preventScroll: true });
+    const stop = this.host.drag(e, {
+      key: info.key,
+      events: "pointer",
+      escape: true,
+      pageMark: "ref-dragging",
+      onMove: (at) => {
+        const cell = this.bodyCellAt(info, at.x, at.y);
+        const current = references(active.text)[index];
+        const text = cell && current && textFor(cell);
+        if (!text || !current || active.text.slice(current.from, current.to) === text) return;
+        active.insert(current.from, current.to, text);
+        const caret = current.from + text.length;
+        active.select(caret, caret);
         this.updateFormulaUi();
-      }
-    };
-    // Captured, so the drag ends even when the pointer is released outside the window;
-    // a cancelled pointer (touch scroll, context menu) ends it too
-    try {
-      handle.setPointerCapture(e.pointerId);
-    } catch {
-      // No active pointer to capture (e.g. a synthetic event): the window listeners suffice
-    }
-    win.addEventListener("pointermove", move);
-    win.addEventListener("pointerup", finish);
-    win.addEventListener("pointercancel", finish);
-    handle.addEventListener("lostpointercapture", finish);
-    win.addEventListener("keydown", escape, true);
+      },
+      // Esc puts the formula back
+      onEnd: (_, cancelled) => {
+        this.stopReferenceDrag = undefined;
+        if (this.host.editing !== active) return;
+        if (cancelled) active.setText(originalFormula);
+        active.focus();
+        this.updateFormulaUi();
+      },
+    });
     this.stopReferenceDrag = () => {
-      win.removeEventListener("pointermove", move);
-      win.removeEventListener("pointerup", finish);
-      win.removeEventListener("pointercancel", finish);
-      handle.removeEventListener("lostpointercapture", finish);
-      win.removeEventListener("keydown", escape, true);
-      this.host.doc.body.classList.remove("swt-ref-dragging");
+      stop();
       this.stopReferenceDrag = undefined;
     };
   }

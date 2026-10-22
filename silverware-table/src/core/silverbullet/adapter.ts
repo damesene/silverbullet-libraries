@@ -2,7 +2,7 @@
 // core asks of the rendering, done on the DOM SilverBullet renders tables to.
 // Everything assumed about that DOM is in ../../dom.ts and in this folder.
 import { UI_CLASS, WIDGET_SELECTOR } from "../../dom.ts";
-import { scrollNearEdge, shownPart, shownRect } from "../geometry.ts";
+import { EVERYWHERE, heldBounds, innerBox, intersect, isEmpty, scrollNearEdge, shownPart, shownRect, viewBounds } from "../geometry.ts";
 import { dragLines } from "./linedrag.ts";
 import { Overlays } from "./overlays.ts";
 import { parseMetaRow, type TableMeta } from "../../markdown.ts";
@@ -213,6 +213,43 @@ export class SilverBulletAdapter implements TableAdapter {
             : this.rows.bodyRows(info)[part.row - 1]
           : info.table.rows[0]?.cells[part.column];
     return element?.isConnected ? element.getBoundingClientRect() : undefined;
+  }
+
+  areaRect(info: WidgetInfo, first: CellRef, last: CellRef): Rect | undefined {
+    const widget = info.table.closest<HTMLElement>(WIDGET_SELECTOR);
+    const a = this.rows.cellAt(info, first, true);
+    const b = this.rows.cellAt(info, last, true);
+    if (!widget || !a?.isConnected || !b?.isConnected) return undefined;
+    const ra = a.getBoundingClientRect();
+    const rb = b.getBoundingClientRect();
+    // Body rows scroll under the header held at the top and the rows pinned to the bottom
+    const held = heldBounds(info);
+    const area = intersect(
+      { left: Math.min(ra.left, rb.left), top: Math.min(ra.top, rb.top), right: Math.max(ra.right, rb.right), bottom: Math.max(ra.bottom, rb.bottom) },
+      innerBox(widget),
+      viewBounds(widget),
+      { ...EVERYWHERE, top: a.closest("tbody") ? held.top : -Infinity, bottom: b.closest("tbody") ? held.bottom : Infinity },
+    );
+    return isEmpty(area) ? undefined : area;
+  }
+
+  cellAtPoint(info: WidgetInfo, x: number, y: number): CellRef | undefined {
+    for (const tr of this.rows.shownRows(info)) {
+      if (!tr.isConnected) continue;
+      const rect = tr.getBoundingClientRect();
+      if (y < rect.top || y > rect.bottom) continue;
+      const column = Array.from(tr.cells).findIndex((cell) => {
+        const r = cell.getBoundingClientRect();
+        return x >= r.left && x <= r.right;
+      });
+      return column < 0 ? undefined : { row: this.rows.rowOf(info, tr), column };
+    }
+    return undefined;
+  }
+
+  pageView(info: WidgetInfo | undefined): Rect {
+    const widget = info?.table.closest<HTMLElement>(WIDGET_SELECTOR);
+    return viewBounds(widget ?? this.doc.body);
   }
 
   dragLines(info: WidgetInfo, axis: "row" | "column", block: { readonly first: number; readonly last: number }, pressedAt: number, blockTo: (asked: number) => number): LineDrag | undefined {

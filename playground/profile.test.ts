@@ -65,7 +65,7 @@ describe("Profiling Silverware Table from outside", () => {
     await controller.write(widget, (t) => ({ ...t, padded: true }));
     await controller.scan();
     await flush();
-    for (const label of ["core · write", "core · enhanceNow", "core · decorate", "core · applyView", "formulas · decorate", "columnTypes · looks"]) {
+    for (const label of ["core · write", "core · enhanceNow", "core · decorate", "core · applyView", "formulas · looks", "columnTypes · looks"]) {
       expect(labels, label).toContain(label);
     }
   });
