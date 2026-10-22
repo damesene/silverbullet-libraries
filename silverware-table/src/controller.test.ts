@@ -113,6 +113,7 @@ describe("Controller", () => {
       "Theme: Native (global)",
       "Copy as CSV",
       "Export to Excel…",
+      "Add to sheet…",
       "Format table",
       "Edit markdown",
       "Silverware Table settings…",
