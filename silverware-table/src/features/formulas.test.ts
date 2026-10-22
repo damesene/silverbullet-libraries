@@ -976,6 +976,38 @@ describe("Formulas", () => {
       expect(text).toContain(`| Total | 13 <meta f='=SUM(B1:B2)'> |`);
     });
 
+    it("keeps a reference dragged when the pointer is cancelled, and stops following a mouse let go outside the window", async () => {
+      await setup(TOTAL);
+      clickOn(cell(3, 1));
+      field().value = "=SUM(B1)";
+      field().dispatchEvent(new Event("input"));
+      pointer(marks()[0]!.querySelector(".swt-ref-top")!, "pointerdown", 150, 30);
+      pointer(window, "pointermove", 150, 50);
+      expect(field().value).toBe("=SUM(B2)");
+      // A touch scroll or a context menu cancels the pointer: what was dragged stays (only Esc puts it back)
+      window.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }));
+      expect(field().value).toBe("=SUM(B2)");
+      // Dragged again, let go outside the window: the next move without a button ends the drag, moving nothing
+      pointer(marks()[0]!.querySelector(".swt-ref-top")!, "pointerdown", 150, 50);
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", buttons: 0, clientX: 150, clientY: 30 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", buttons: 0, clientX: 150, clientY: 70 }));
+      expect(field().value).toBe("=SUM(B2)");
+    });
+
+    it("puts the formula back with Esc while a reference is dragged", async () => {
+      await setup(TOTAL);
+      clickOn(cell(3, 1));
+      field().value = "=SUM(B1)";
+      field().dispatchEvent(new Event("input"));
+      pointer(marks()[0]!.querySelector(".swt-ref-top")!, "pointerdown", 150, 30);
+      pointer(window, "pointermove", 150, 50);
+      expect(field().value).toBe("=SUM(B2)");
+      key(field(), "Escape");
+      expect(field().value).toBe("=SUM(B1)");
+      // The editor stays open (Esc ended the drag, not the edit)
+      expect(document.activeElement).toBe(field());
+    });
+
     it("keeps a reference's $ as its outline is dragged or resized", async () => {
       await setup(TOTAL);
       clickOn(cell(3, 1));

@@ -52,8 +52,8 @@ export function followDrag(context: DragContext, start: MouseEvent | PointerEven
   };
 
   const onMove = (e: MouseEvent) => {
-    // A mouse let go outside the window: no mouseup came
-    if (options.events === "mouse" && e.buttons === 0) {
+    // A mouse let go outside the window: no mouseup (pointerup) came
+    if (e.buttons === 0 && (options.events === "mouse" || (e as PointerEvent).pointerType === "mouse")) {
       finish(false);
       return;
     }

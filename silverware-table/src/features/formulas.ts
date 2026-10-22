@@ -974,8 +974,19 @@ export class Formulas implements Feature {
     const stop = this.host.drag(e, {
       key: info.key,
       events: "pointer",
-      escape: true,
       pageMark: "ref-dragging",
+      // Esc puts the formula back; a cancelled pointer (a touch scroll, a context menu) keeps what was dragged
+      onKey: (ev) => {
+        if (ev.type !== "keydown" || ev.key !== "Escape") return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        stop();
+        this.stopReferenceDrag = undefined;
+        if (this.host.editing !== active) return;
+        active.setText(originalFormula);
+        active.focus();
+        this.updateFormulaUi();
+      },
       onMove: (at) => {
         const cell = this.bodyCellAt(info, at.x, at.y);
         const current = references(active.text)[index];
@@ -986,11 +997,9 @@ export class Formulas implements Feature {
         active.select(caret, caret);
         this.updateFormulaUi();
       },
-      // Esc puts the formula back
-      onEnd: (_, cancelled) => {
+      onEnd: () => {
         this.stopReferenceDrag = undefined;
         if (this.host.editing !== active) return;
-        if (cancelled) active.setText(originalFormula);
         active.focus();
         this.updateFormulaUi();
       },
