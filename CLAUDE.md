@@ -236,6 +236,7 @@ A new `space-lua` block on a page is not active until Space Lua is reloaded; an 
 - **An Excel-like sheet of several tables** (each its own block, placed on one grid by its metadata, formulas shown in the sheet's addresses): analysed and decided (2026-10-22); step 1 (one table, the sheet module) done the same day; the design, its limits and the decisions are in [docs/silverware-table-sheets.md](docs/silverware-table-sheets.md).
 - Lua functions for formulas (results kept by arguments, waited for before writes; also the value of a `${…}` cell for formulas) were offered, not done.
 - A parameter picker for column types in the menu (today only the base form is offered; parameters are typed in the markdown). Types declare their parameters (`params`), so a picker can be made from them.
+- Downloads (`TableHost.download`, the Excel file) are a link clicked in the page; SilverBullet has `editor.downloadFile(filename, dataUrl)` (`plug-api/syscalls/editor.ts`), which the bridge could hand over (its mobile app, where the link is not verified). Not done.
 - A pre-commit hook running `npm run verify` (the check itself is `npm run check-build`).
 - The band of the + could be found without hovering the table first (coming from the left or below, no + shows and a press there reaches SilverBullet). Offered, not done.
 - Enter after editing in select mode follows `enterKey` (edits the cell below); a spreadsheet would only select it.

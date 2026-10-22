@@ -28,10 +28,8 @@ describe("isolation", () => {
     expect(matches(features, /from "\.\.\/core\/(?!(feature|structure|press)\.ts")/)).toEqual([]);
     // Their own UI only: no table's rows or cells looked for, nothing of SilverBullet's or CodeMirror's
     expect(matches(features, /(querySelector\w*|closest)\([^)]*(["'`](td|th|tr|table)\b|\bsb-|\bcm-)/)).toEqual([]);
-    // Their floating UI made by the core (host.floating, panel, floatingMenu), which knows it so: nothing put into the page apart
-    // (but a download's link, clicked and removed at once)
-    const intoPage = matches(features, /\.body\.(append|prepend|appendChild|insertBefore)\(/).filter((m) => !/^\.\/features\/excel\.ts:\d+: doc\.body\.append\(link\);$/.test(m));
-    expect(intoPage).toEqual([]);
+    // Their floating UI made by the core (host.floating, panel, floatingMenu), which knows it so, a download given to it: nothing put into the page apart
+    expect(matches(features, /\.body\.(append|prepend|appendChild|insertBefore)\(/)).toEqual([]);
   });
 
   it("the core and the adapter name no module", () => {

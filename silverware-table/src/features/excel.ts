@@ -305,18 +305,7 @@ export class Excel implements Feature {
       console.error("Silverware Table: the Excel file could not be made", e);
       return { text: `Could not make the file: ${String(e)}`, ok: false };
     }
-    const { doc } = this.host;
-    const win = doc.defaultView!;
-    const url = win.URL.createObjectURL(new Blob([bytes as BlobPart], { type: XLSX_TYPE }));
-    const link = doc.createElement("a");
-    link.href = url;
-    link.download = file;
-    link.style.display = "none";
-    doc.body.append(link);
-    link.click();
-    link.remove();
-    // Once the browser has taken the file
-    win.setTimeout(() => win.URL.revokeObjectURL(url), 60_000);
+    this.host.download(file, bytes, XLSX_TYPE);
     const values = workbook.skipped.length;
     return { text: `Downloaded ${file}${values ? `, ${plural(values, "formula", "formulas")} as values` : ""}.`, ok: true };
   }
