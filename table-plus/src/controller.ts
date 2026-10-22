@@ -1781,7 +1781,8 @@ export class Controller implements TableHost {
   private onMouseMove = (e: MouseEvent): void => {
     // A pressed button: dragging a scrollbar or selecting; the controls stay where they are
     const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
-    if (this.tableMenu || busy === "drag" || e.buttons !== 0) return;
+    // The toolbar's ⋯ menu keeps the controls where they are; with a cell's menu open the grips follow the pointer
+    if (this.tableMenu?.kind === "table" || busy === "drag" || e.buttons !== 0) return;
     const target = e.target;
     if ((target instanceof Node && this.isFloating(target)) || this.inInsertBand) {
       this.cancelHide();
@@ -2635,6 +2636,16 @@ export class Controller implements TableHost {
             ? `Cell: ${naming.name}`
             : `Cell: ${header}, row ${at.row}`;
     for (const feature of this.features) feature.cellMenuOpened?.();
+    // The grips at the cell the menu is for (a long press, the Menu key: no pointer moved there)
+    const cell = this.cellAt(info, at);
+    if (cell && !this.cellEditor.active && cell !== this.hoverCell) {
+      if (this.hoverWidget !== widget) {
+        this.hoverWidget = widget;
+        this.showTableControls(widget, info);
+      }
+      this.hoverCell = cell;
+      this.cellHovered(widget, info, cell);
+    }
     this.showMenu(widget, title, entries, { kind: "cell", point }, undefined, naming);
     return true;
   }

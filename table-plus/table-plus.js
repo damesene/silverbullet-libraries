@@ -15415,7 +15415,7 @@ var Controller = class {
   };
   onMouseMove = (e) => {
     const busy = this.features.map((f) => f.pointerBusy?.()).find(Boolean);
-    if (this.tableMenu || busy === "drag" || e.buttons !== 0) return;
+    if (this.tableMenu?.kind === "table" || busy === "drag" || e.buttons !== 0) return;
     const target = e.target;
     if (target instanceof Node && this.isFloating(target) || this.inInsertBand) {
       this.cancelHide();
@@ -16105,6 +16105,15 @@ var Controller = class {
     const naming = cells.length === 1 ? this.closingNaming(this.menuNaming(widget, info, at.row === 0 ? { kind: "column", column: at.column } : { kind: "cell", row: at.row, column: at.column })) : void 0;
     const title = cells.length > 1 ? `${cells.length} cells` : at.row === 0 ? naming?.name ? `Column: ${naming.name}` : `Column: ${header}` : naming?.name ? `Cell: ${naming.name}` : `Cell: ${header}, row ${at.row}`;
     for (const feature of this.features) feature.cellMenuOpened?.();
+    const cell = this.cellAt(info, at);
+    if (cell && !this.cellEditor.active && cell !== this.hoverCell) {
+      if (this.hoverWidget !== widget) {
+        this.hoverWidget = widget;
+        this.showTableControls(widget, info);
+      }
+      this.hoverCell = cell;
+      this.cellHovered(widget, info, cell);
+    }
     this.showMenu(widget, title, entries, { kind: "cell", point }, void 0, naming);
     return true;
   }

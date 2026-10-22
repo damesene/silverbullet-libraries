@@ -74,6 +74,28 @@ describe("Cell menu", () => {
     expect(cell(0, 1).isConnected).toBe(true);
   });
 
+  it("moves the grips to the cell a menu opens for, and with the pointer while it is open", async () => {
+    await setup(PAGE);
+    const rowGrip = () => document.querySelector<HTMLElement>(".tp-grip:not(.tp-grip-column)")!;
+    // Grips at a row: their menu says which
+    const gripRow = () => {
+      rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+      const title = document.querySelector(".tp-menu-title")!.textContent;
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      return title;
+    };
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    rightClick(cell(1, 0));
+    // A right click on another cell: the grips go there with its menu
+    rightClick(cell(3, 1));
+    expect(menu()!.querySelector(".tp-menu-title")!.textContent).toBe("Cell: Qty, row 3");
+    // The pointer moved on while it is open: they follow
+    cell(2, 1).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(gripRow()).toBe("Row 2");
+  });
+
   it("closes a menu with the × in its title: a cell's, a column's, the table's", async () => {
     await setup(PAGE);
     const close = () => menu()!.querySelector<HTMLElement>(".tp-menu-title .tp-menu-close")!;
