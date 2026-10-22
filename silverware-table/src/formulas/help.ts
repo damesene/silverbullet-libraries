@@ -16,9 +16,9 @@ export type FormulaHelp = {
 };
 
 export const REFERENCE_HELP: FormulaHelp = {
-  syntax: "A1 · A1:B3 · $A$1 · [Column] · [@Column] · table!A1 · table![Column] · cell_name",
+  syntax: "A1 · A1:B3 · $A$1 · [Column] · [@Column] · table!A1 · table![Column] · cell_name · table!cell_name",
   description:
-    "A cell (A1 is the first row under the header), a range, a cell with its column or row kept where it is when the formula is filled into other cells (F4 cycles them), a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell. Click or drag in the table to insert one, click a header for its column.",
+    "A cell (A1 is the first row under the header), a range, a cell with its column or row kept where it is when the formula is filled into other cells (F4 cycles them), a whole column by its name, that column in this row, a cell, range or column of another table on the page by its name, or a named cell of this table (of another: its table's name, !, then the cell's). Click or drag in the table to insert one, click a header for its column.",
 };
 
 // After these a reference can follow: clicking the table inserts one there
@@ -65,9 +65,10 @@ export function needsOperator(formula: string, at: number): boolean {
 
 /**
  * What a name typed in a formula may be: a function, or a name the page has
- * (a named cell, a named row of the table edited, a named table)
+ * (a named cell of the table edited, or of another table: `table`, written
+ * table!name; a named row of the table edited; a named table)
  */
-export type FormulaChoice = { readonly kind: "function" | "cell" | "row" | "table"; readonly name: string };
+export type FormulaChoice = { readonly kind: "function" | "cell" | "row" | "table"; readonly name: string; readonly table?: string };
 
 /** The choices a name typed right before the caret may be, and where the name is (from..to) */
 export type FormulaChoices = { readonly from: number; readonly to: number; readonly choices: readonly FormulaChoice[] };
@@ -80,12 +81,30 @@ export type FormulaChoices = { readonly from: number; readonly to: number; reado
  * functions, each in order. Undefined in a text in quotes, for a cell (A1), in
  * the middle of a name or before a "(" already there, or when nothing starts so.
  */
-export function formulaChoices(text: string, start: number, end: number, names: readonly FormulaChoice[] = []): FormulaChoices | undefined {
+export function formulaChoices(
+  text: string,
+  start: number,
+  end: number,
+  names: readonly FormulaChoice[] = [],
+  // The name of the table edited: after its own name and ! (prices!va in prices), its own cells (offered bare)
+  own?: string,
+): FormulaChoices | undefined {
   const typed = nameTyped(text, start, end);
   if (!typed) return undefined;
   const prefix = text.slice(typed.from, typed.to).toLowerCase();
-  const functions = functionNames().map((name): FormulaChoice => ({ kind: "function", name }));
-  const all = [...names, ...functions].filter((choice) => choice.name.toLowerCase().startsWith(prefix));
+  // Right after a table's name and ! (prices!va): that table's cells, by their names alone; another
+  // page's table ([[Page]]prices!va): nothing, its names are not known while typing
+  const before = text.slice(0, typed.from);
+  if (/\]\][A-Za-z_][A-Za-z0-9_]*!$/.test(before)) return undefined;
+  const table = /([A-Za-z_][A-Za-z0-9_]*)!$/.exec(before)?.[1]?.toLowerCase();
+  const ownCells = table !== undefined && table === own?.toLowerCase();
+  const candidates =
+    table === undefined
+      ? [...names, ...functionNames().map((name): FormulaChoice => ({ kind: "function", name }))]
+      : names
+          .filter((choice) => choice.kind === "cell" && (ownCells ? !choice.table : choice.table?.toLowerCase() === table))
+          .map((choice): FormulaChoice => ({ kind: "cell", name: choice.name }));
+  const all = candidates.filter((choice) => choice.name.toLowerCase().startsWith(prefix));
   const whole = (choice: FormulaChoice) => Number(choice.name.toLowerCase() === prefix);
   const isName = (choice: FormulaChoice) => Number(choice.kind !== "function");
   const choices = all.sort((a, b) => whole(b) - whole(a) || isName(b) - isName(a) || a.name.localeCompare(b.name));
@@ -102,7 +121,7 @@ export function choiceText(choice: FormulaChoice): string {
     case "table":
       return `${choice.name}!`;
     case "cell":
-      return choice.name;
+      return choice.table ? `${choice.table}!${choice.name}` : choice.name;
   }
 }
 

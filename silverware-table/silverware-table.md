@@ -322,10 +322,11 @@ A column can have a name of its own, by which formulas and the stored sorting na
 
 ### Named cells
 
-A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)`, or on another page `[[Prices]]vat`. The name stays with the cell wherever it is moved (also in the markdown), so such references never need to change. Open the cell's menu (right-click it, see [[#Cell menu]]), click the pencil after its title, type the name (letters, digits and `_`) and press Enter; an empty name removes it.
+A cell can have a name, by which formulas use it: in its own table by the name alone (`=[@price]*(1+vat)`), in another table with its table's name (`=[@price]*(1+rates!vat)`), on another page with the page's too (`[[Prices]]rates!vat`). The name stays with the cell wherever it is moved (also in the markdown), so such references never need to change. Open the cell's menu (right-click it, see [[#Cell menu]]), click the pencil after its title, type the name (letters, digits and `_`) and press Enter; an empty name removes it.
 
 * It is stored in the cell as a hidden `<meta cn='vat'>`: `| VAT | 0.21 <meta cn='vat'> |`. A named cell has a mark in its corner; hover it for the name.
-* A name is the page's: two cells on a page cannot have the same one, and it cannot be a function's name or read as a cell (`A1`). A formula looks for it in its own table first, then in the page's other tables.
+* A name is its table's: two cells of a table cannot have the same one, cells of different tables can. It cannot be a function's name or read as a cell (`A1`). A name alone is always the formula's own table's; another table's cell needs that table to have a name (the pencil in the title of its toolbar's ⋯ menu).
+* A formula written with another table's cell name alone (as written before a cell's name was its table's) keeps its result until the table is recalculated (its *Recalculate* is highlighted), then shows `#NAME?` saying how to write it; saving the formula writes it so itself (`vat` becomes `rates!vat`, also `[[Prices]]vat`) where one named table of the page has that name.
 * When a table with named cells is edited, the tables that use them get their new results in the same edit. When the cell is changed in the markdown, *Recalculate* is highlighted.
 * Editing the cell changes its value only: the name stays. It needs the *Store table metadata* setting; *Remove metadata* removes it.
 
@@ -511,7 +512,7 @@ Then `=VAT([@price])` works in every table, and typing it shows its syntax and d
 | Shows | Because |
 |---|---|
 | `#REF!` | A reference outside the table, a column name that does not exist, or a table name that no table on the page (or on the page named) has |
-| `#NAME?` | An unknown function, or a name no cell on the page (or on the page named) has |
+| `#NAME?` | An unknown function, or a name no cell of the table has (of the table named before it: `rates!vat`) |
 | `#VALUE!` | A value of the wrong kind (text where a number is needed), or a wrong number of arguments |
 | `#DIV/0!` | Division by zero, or an average of no numbers |
 | `#NUM!` | A result that is not a finite number, or a number a function cannot take (`LARGE` with k past the count, `WEEKDAY` with an unknown type) |

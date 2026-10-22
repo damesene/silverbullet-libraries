@@ -8,8 +8,9 @@ export type Node =
   | { readonly kind: "area"; readonly area: Area; readonly range: boolean; readonly table?: TableRef; readonly fixed?: Fixed }
   | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly table?: TableRef }
   | { readonly kind: "call"; readonly name: string; readonly args: readonly Node[] }
-  // A named cell (names.ts): vat, or [[Page]]vat on another page
-  | { readonly kind: "named"; readonly name: string; readonly page?: string }
+  // A named cell (names.ts): vat in the formula's own table, prices!vat in another, [[Page]]prices!vat on another page;
+  // [[Page]]vat as written before names were the table's (an error saying how to write it)
+  | { readonly kind: "named"; readonly name: string; readonly page?: string; readonly table?: TableRef }
   // A named row's cell: pear[price], prices!pear[price]
   | { readonly kind: "rowCell"; readonly row: string; readonly column: string; readonly table?: TableRef }
   | { readonly kind: "unary"; readonly op: string; readonly arg: Node }
@@ -101,12 +102,18 @@ class Parser {
           this.at++;
           return { ...this.rowCell(next.text), table: tableRefOf(token) };
         }
-        if (next?.kind === "name" && parseCellName(next.text) && !(this.tokens[this.at + 1]?.kind === "op" && this.text(this.tokens[this.at + 1]!) === "(")) {
+        const call = this.tokens[this.at + 1]?.kind === "op" && this.text(this.tokens[this.at + 1]!) === "(";
+        if (next?.kind === "name" && parseCellName(next.text) && !call) {
           this.at++;
           const area = this.name(next.text);
           if (area.kind === "area") return { ...area, table: tableRefOf(token) };
         }
-        throw new FormulaError("#ERROR!", `${prefix} is followed by a cell, a range or a [column], as in ${prefix}A1`);
+        // prices!vat: the cell named vat in prices
+        if (next?.kind === "name" && !call && !/^(true|false)$/i.test(next.text)) {
+          this.at++;
+          return { kind: "named", name: next.text, table: tableRefOf(token) };
+        }
+        throw new FormulaError("#ERROR!", `${prefix} is followed by a cell, a range, a [column] or a named cell, as in ${prefix}A1`);
       }
       case "op":
         if (token.text === "(") {

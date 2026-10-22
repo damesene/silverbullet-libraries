@@ -70,6 +70,9 @@ describe("Excel's formulas", () => {
   it("says why a formula cannot be one in Excel", () => {
     expect(write("=prices!B2")).toEqual({ reason: "it refers to the table prices" });
     expect(write("=[[Prices]]vat")).toEqual({ reason: "it refers to vat on another page" });
+    expect(write("=prices!vat")).toEqual({ reason: "it refers to the table prices" });
+    // The table's own name before its own cell: that cell
+    expect(excelFormula("=shop!vat*2", { ...SHOP, meta: { name: "shop" } }, 0, 3)).toEqual({ text: "C3*2", array: false });
     expect(write('=TEXT(A1, "dd.mm.yyyy")')).toEqual({ reason: "Excel reads TEXT's format codes in its own language" });
     expect(write("=DATEADD(A1, 1, [@unit])")).toEqual({ reason: "its unit is not written in the formula (it comes from a cell)" });
     expect(write("=VAT(C1)")).toEqual({ reason: "VAT has no Excel form" });

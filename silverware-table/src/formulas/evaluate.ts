@@ -20,8 +20,10 @@ const DECIMAL_COMMA_RE = /\d,\d/;
  * undefined when there is none
  */
 export type TableSource = ((name: string, page?: string) => Table | undefined) & {
-  /** The cell named so (compared ignoring case) on the page or on `page`, its row of the markdown (header 0) */
+  /** The first cell named so (compared ignoring case) on the page or on `page`, its row of the markdown (header 0); a source without cellsNamed gives this one */
   readonly cell?: (name: string, page?: string) => NamedCell | undefined;
+  /** Every cell named so on the page or on `page` (a name is unique in a table only), in the order of the tables */
+  readonly cellsNamed?: (name: string, page?: string) => readonly NamedCell[];
   /** Whether formulas may not read `page` (links to other pages are off): those referring to it keep their results */
   readonly unread?: (page: string) => boolean;
 };
@@ -42,11 +44,12 @@ class Book {
     return !!unread && formulaPages(formula).some(unread);
   }
 
-  /** The cell named so on `page` (undefined: the formulas' page), in its table's sheet */
-  cell(name: string, page: string | undefined): { sheet: Sheet; row: number; column: number } | undefined {
-    const found = this.source?.cell?.(name, page);
-    if (!found || found.row < 1) return undefined;
-    return { sheet: this.sheetOf(found.table, page), row: found.row - 1, column: found.column };
+  /** The cells named so on `page` (undefined: the formulas' page), in every table: what a bare name not in its own table may have meant */
+  cellsNamed(name: string, page: string | undefined): readonly NamedCell[] {
+    const found = this.source?.cellsNamed?.(name, page);
+    if (found) return found;
+    const first = this.source?.cell?.(name, page);
+    return first ? [first] : [];
   }
 
   /** The table's sheet, made on its first use (by its name or by a named cell's) */
@@ -242,15 +245,48 @@ class Sheet {
     return this.totals;
   }
 
-  /** A named cell's value: in this table, else on this table's page (or `page`) */
-  private named(name: string, page: string | undefined): Value {
-    if (page === undefined || page === this.page) {
-      const own = this.cellNamed(name);
+  /**
+   * A named cell's value: of this table (vat), or of the table named before it
+   * (prices!vat). A bare name is this table's only, as a name is unique in its
+   * table only: one of another table is an error saying how to write it.
+   */
+  private named(node: Extract<Node, { kind: "named" }>): Value {
+    if (node.table) {
+      const sheet = this.sheetOf(node.table);
+      if (isError(sheet)) return sheet;
+      return sheet.ownNamed(node.name, node.table.name);
+    }
+    if (node.page === undefined || node.page === this.page) {
+      const own = this.cellNamed(node.name);
       if (own) return this.value(own.row, own.column);
     }
-    const found = this.book.cell(name, page ?? this.page);
-    if (!found) return new FormulaError("#NAME?", `there is no cell named ${name}${page ? ` on ${page}` : " on this page"}`);
-    return found.sheet.value(found.row, found.column);
+    return new FormulaError("#NAME?", this.namedElsewhere(node.name, node.page));
+  }
+
+  /** This table's cell named so, for a reference from another table (`table`: this one's name, as written there) */
+  ownNamed(name: string, table: string): Value {
+    const own = this.cellNamed(name);
+    return own ? this.value(own.row, own.column) : new FormulaError("#NAME?", `there is no cell named ${name} in ${table}`);
+  }
+
+  /** Why a bare name is not found: no such cell, or how to write the one of another table */
+  private namedElsewhere(name: string, page: string | undefined): string {
+    const at = page === undefined ? "" : `[[${page}]]`;
+    // Another table's (by the table, or its name: the page's copy of this one may be as it was before the edit)
+    const own = this.name?.toLowerCase();
+    const others = this.book
+      .cellsNamed(name, page ?? this.page)
+      .filter((cell) => cell.row > 0 && cell.table !== this.table && !(page === undefined && own && cell.table.meta?.name?.trim().toLowerCase() === own));
+    if (others.length === 0) return `there is no cell named ${name} ${page === undefined ? "in this table" : `on ${page}`}`;
+    const names = others.map((cell) => cell.table.meta?.name?.trim() || undefined);
+    if (others.length > 1) {
+      const named = names.filter((n): n is string => !!n);
+      return `${name} is a cell of several tables${named.length ? ` (${named.join(", ")})` : ""}: write which, as ${named[0] ?? "table"}!${name}`;
+    }
+    const table = names[0];
+    return table
+      ? `${name} is a cell of the table ${table}: write ${at}${table}!${name}`
+      : `${name} is a cell of another table, which has no name: name that table (the pencil in its ⋯ menu's title), then write its name!${name}`;
   }
 
   /** The body cell of this table named so (ignoring case), if any */
@@ -285,7 +321,7 @@ class Sheet {
         return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
       }
       case "named":
-        return this.named(node.name, node.page);
+        return this.named(node);
       case "rowCell": {
         const sheet = this.sheetOf(node.table);
         if (isError(sheet)) return sheet;

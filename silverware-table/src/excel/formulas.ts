@@ -85,6 +85,11 @@ export function excelFormula(formula: string, table: Table, row: number, column:
         return first === last ? { text: excelCell(first, c), range: false } : { text: `${excelCell(first, c)}:${excelCell(last, c)}`, range: true };
       }
       case "named": {
+        // The table's own name before its cell (prices!vat in prices) is that cell
+        const ownName = table.meta?.name?.trim().toLowerCase();
+        if (node.table && (node.table.page !== undefined || node.table.name.toLowerCase() !== ownName)) {
+          throw new NotInExcel(`it refers to the table ${node.table.name}`);
+        }
         if (node.page !== undefined) throw new NotInExcel(`it refers to ${node.name} on another page`);
         const found = namedCells(table).get(node.name.toLowerCase());
         if (!found) throw new NotInExcel(`${node.name} is not a cell of this table`);

@@ -181,16 +181,12 @@ describe("Formulas", () => {
     });
 
     it("saves the formula as typed with Enter, the list open: a cell's name that starts a function's is the cell", async () => {
-      await setup(`| Item | Price |
-|---|---|
-| Rate | 2 <meta cn='day'> |
-| Total | |
-`);
+      await setup(`| Item | Price |\n|---|---|\n| Rate | 2 <meta cn='day'> |\n| Total | |\n`);
       clickOn(cell(2, 1));
       typeIn("=day");
       // The cell first (the whole name typed, and the user's own), the function after it
       expect(options().map((o) => o.querySelector("code")!.textContent)).toEqual(["day", "DAY"]);
-      expect(options()[0]!.textContent).toContain("Named cell");
+      expect(options()[0]!.textContent).toContain("Named cell of this table");
       key(field(), "Enter");
       await flush();
       expect(text).toContain(`| Total | 2 <meta f='=day'> |`);
@@ -198,16 +194,8 @@ describe("Formulas", () => {
 
     it("offers the page's named cells, rows of the table and tables, and inserts each as a formula writes it", async () => {
       await setup(
-        `| Fruit | Price |
-|---|---|
-| Pear <meta n='pear'> | 3 <meta cn='pear_price'> |
-| Total | |
-| <meta name='prices'> |
-
-| Rate |
-|---|
-| 0.21 <meta cn='vat'> |
-`,
+        `| Fruit | Price |\n|---|---|\n| Pear <meta n='pear'> | 3 <meta cn='pear_price'> |\n| Total | |\n| <meta name='prices'> |\n\n` +
+          `| Rate |\n|---|\n| 0.21 <meta cn='vat'> |\n| <meta name='rates'> |\n\n| Plain |\n|---|\n| 1 <meta cn='hidden'> |\n`,
         { "silverware.table.metadata": true },
       );
       clickOn(cell(2, 1));
@@ -220,15 +208,24 @@ describe("Formulas", () => {
       expect(picked()).toBe("prices");
       key(field(), "Tab");
       expect(field().value).toBe("=prices!");
-      // A cell of another table of the page, as it is written
+      // A cell of another table, as it is written there (a name is its table's): with the table's name
       typeIn("=1+va");
-      expect(picked()).toBe("vat");
+      expect(picked()).toBe("rates!vat");
+      expect(options()[0]!.textContent).toContain("Named cell of rates");
       key(field(), "Tab");
-      expect(field().value).toBe("=1+vat");
+      expect(field().value).toBe("=1+rates!vat");
+      // A table without a name: its cells cannot be referred to from another table, so not offered
+      typeIn("=hid");
+      expect(options().map((o) => o.querySelector("code")!.textContent)).not.toContain("hidden");
+      // After a table's name: its cells, inserted by their names alone
+      typeIn("=1+rates!v");
+      expect(options().map((o) => o.querySelector("code")!.textContent)).toEqual(["vat"]);
+      key(field(), "Tab");
+      expect(field().value).toBe("=1+rates!vat");
       // The name in full, nothing left to insert: Tab saves and moves on, as elsewhere
       key(field(), "Tab");
       await flush();
-      expect(text).toContain(`<meta f='=1+vat'>`);
+      expect(text).toContain(`<meta f='=1+rates!vat'>`);
     });
   });
 
@@ -697,10 +694,11 @@ describe("Formulas", () => {
       "| Rate | Value |",
       "|---|---|",
       "| VAT | 0.21 |",
+      "| <meta name='rates'> |",
       "",
       "| Item | Price | Gross |",
       "|---|---|---|",
-      `| Pear | 100 | 121 <meta f='=[@price]*(1+vat)'> |`,
+      `| Pear | 100 | 121 <meta f='=[@price]*(1+rates!vat)'> |`,
       "",
     ].join("\n");
     const openRowMenu = (row: number, column: number) => {
@@ -715,12 +713,12 @@ describe("Formulas", () => {
     const item = (label: RegExp) => menuButtons().find((b) => label.test(buttonLabel(b)))!;
 
     it("names a cell from its menu; the tables using the name get its value in the same edit", async () => {
-      await setup(PAGE4.replace(`121 <meta f='=[@price]*(1+vat)'>`, `0 <meta f='=[@price]*(1+vat)'>`), { "silverware.table.editor.enterKey": "save" });
+      await setup(PAGE4.replace(`121 <meta f='=[@price]*(1+rates!vat)'>`, `0 <meta f='=[@price]*(1+rates!vat)'>`), { "silverware.table.editor.enterKey": "save" });
       cellMenuItem(cell(1, 1), /^Copy$/);
       expect(await nameInMenu("vat")).toBeUndefined();
       await controller.scan();
       expect(text).toContain(`| VAT | 0.21 <meta cn='vat'> |`);
-      expect(text).toContain(`| Pear | 100 | 121 <meta f='=[@price]*(1+vat)'> |`);
+      expect(text).toContain(`| Pear | 100 | 121 <meta f='=[@price]*(1+rates!vat)'> |`);
       expect(cell(1, 1).classList.contains("swt-named")).toBe(true);
       expect(cell(1, 1).title).toBe("Name: vat");
       // Its value changed: the other table follows, in the same edit
@@ -728,7 +726,7 @@ describe("Formulas", () => {
       expect(field().value).toBe("0.21");
       await type("0.1");
       expect(text).toContain(`| VAT | 0.1 <meta cn='vat'> |`);
-      expect(text).toContain(`| Pear | 100 | 110 <meta f='=[@price]*(1+vat)'> |`);
+      expect(text).toContain(`| Pear | 100 | 110 <meta f='=[@price]*(1+rates!vat)'> |`);
     });
 
     it("names a row from its menu, refusing a name another row of the table has", async () => {
@@ -786,20 +784,25 @@ describe("Formulas", () => {
       expect(text).toBe(`| Price |\n|---|\n| 12 |\n| 3 <meta cn='fig_price'> |\n`);
     });
 
-    it("refuses a name another cell on the page has, or a function's", async () => {
-      await setup(`| A | B |\n|---|---|\n| 1 <meta cn='one'> | 2 |\n`);
+    const TWO_TABLES = `| A | B |\n|---|---|\n| 1 <meta cn='one'> | 2 |\n\n| C |\n|---|\n| 3 <meta cn='two'> |\n`;
+
+    it("refuses a name another cell of the table has, or a function's; takes one a cell of another table has", async () => {
+      await setup(TWO_TABLES);
       cellMenuItem(cell(1, 1), /^Copy$/);
-      expect(await nameInMenu("ONE")).toBe("another cell on this page is named ONE");
+      expect(await nameInMenu("ONE")).toBe("another cell of this table is named ONE");
       expect(await nameInMenu("sum")).toBe("sum is a function's name");
       // A custom one's too
       defineCustomFunctions([{ name: "VAT", syntax: "VAT()", description: "", minArgs: 0, call: () => 1 }]);
       const why = await nameInMenu("vat");
       clearCustomFunctions();
       expect(why).toBe("vat is a function's name");
-      expect(text).toBe(`| A | B |\n|---|---|\n| 1 <meta cn='one'> | 2 |\n`);
+      expect(text).toBe(TWO_TABLES);
+      // A name is the table's: the other table's cell two does not take it
+      expect(await nameInMenu("two")).toBeUndefined();
+      expect(text).toContain(`| 1 <meta cn='one'> | 2 <meta cn='two'> |`);
     });
 
-    it("leaves the names out of a duplicated row: a name is the page's", async () => {
+    it("leaves the names out of a duplicated row: a name is the table's", async () => {
       await setup(`| A | B |\n|---|---|\n| 1 <meta cn='one'> | 2 |\n`);
       openRowMenu(1, 1);
       item(/^Duplicate row/).click();

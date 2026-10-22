@@ -19,8 +19,8 @@
 // files beside it, the functions in builtin/ (only functions: what a formula
 // can call), custom functions in custom.ts, which exist in registry.ts.
 export { formulaCell, formulaCount, formulaOf, isErrorText, isFormulaInput, type StoredFormula } from "./cell.ts";
-export { type Area, areaText, callsCustomFunctions, cellName, cellNamesOf, columnLetters, columnRefText, namedReferences, type Reference, referencedColumn, referencedColumnId, references, referredCellNames, referredPages, referredTableNames, type TableRef, withColumnKeys } from "./references.ts";
-export { autofixFormula, type FormulaFix } from "./autofix.ts";
+export { type Area, areaText, callsCustomFunctions, cellName, cellNamesOf, columnLetters, columnRefText, type NamedReference, namedReferences, type Reference, referencedColumn, referencedColumnId, references, referredPages, referredTableNames, type TableRef, withColumnKeys } from "./references.ts";
+export { autofixFormula, type FormulaFix, qualifyCellNames } from "./autofix.ts";
 export { formulaErrors, type NamedCell, recalculate, type TableSource, totalRows } from "./evaluate.ts";
 export { type Node as FormulaNode, parse as parseFormula } from "./parser.ts";
 export { parseDate, toUnit, type Unit } from "./dates.ts";

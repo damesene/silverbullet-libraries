@@ -19,8 +19,8 @@ import {
   isFormulaInput,
   type IndexMap,
   namedReferences,
+  qualifyCellNames,
   recalculate,
-  referredCellNames,
   references,
   referredTableNames,
   type TableSource,
@@ -485,6 +485,18 @@ describe("formulaChoices of the page's names", () => {
     // A name may start with _
     expect(choiceNames(formulaChoices("=_t", 3, 3, names))!.names).toEqual(["_tmp"]);
   });
+
+  it("offers after a table's name and ! that table's cells by their names, its own name its own cells, another page's nothing", () => {
+    const page = [
+      { kind: "cell" as const, name: "vat", table: "rates" },
+      { kind: "cell" as const, name: "fee", table: "rates" },
+      { kind: "cell" as const, name: "total" },
+    ];
+    expect(choiceNames(formulaChoices("=rates!v", 8, 8, page))!.names).toEqual(["vat"]);
+    // In the table named prices, its own cells are offered bare: prices!to is its total
+    expect(choiceNames(formulaChoices("=prices!to", 10, 10, page, "prices"))!.names).toEqual(["total"]);
+    expect(formulaChoices("=[[Other]]rates!v", 17, 17, page)).toBeUndefined();
+  });
 });
 
 describe("formulaChoices of functions", () => {
@@ -730,7 +742,7 @@ describe("other tables", () => {
     expect(errors('=XLOOKUP("fig", prices![qty], prices![price], 0)')).toBe('#REF! there is no column named "qty" in prices');
     expect(errors("=[[Other page]]prices!A1")).toBe("#REF! there is no table named prices on Other page");
     expect(errors("=prices![@price]")).toContain("is a cell of the formula's own row");
-    expect(errors("=prices!SUM(A1)")).toContain("is followed by a cell, a range or a [column]");
+    expect(errors("=prices!SUM(A1)")).toContain("is followed by a cell, a range, a [column] or a named cell");
     expect(errors("=prices!")).toBeDefined();
   });
 
@@ -803,8 +815,9 @@ describe("references to another table follow its edits", () => {
       "=cost!B1*cost![price]",
       "=cost!A1",
     ]);
-    // A reference to its deleted cells is renamed too
+    // A reference to its deleted cells is renamed too, and one to its named cell
     expect(formulas(followTable(referring("=prices!#REF!"), prices, renamed))).toEqual(["=cost!#REF!"]);
+    expect(formulas(followTable(referring("=1+prices!vat"), prices, renamed))).toEqual(["=1+cost!vat"]);
     expect(referredTableNames(referring("=prices!#REF!"))).toEqual(new Set(["prices"]));
     // The name removed: the references stay, and show #REF!
     expect(formulas(followTable(referring("=prices!B1"), prices, withMeta(prices, "name", undefined)))).toEqual(["=prices!B1"]);
@@ -825,20 +838,22 @@ describe("references to another table follow its edits", () => {
 });
 
 describe("named cells", () => {
-  const RATES = parseTable(`| Rate | Value |\n|---|---|\n| VAT | 0.21 <meta cn='vat'> |\n| Fee | 2 <meta f='=vat*10'> <meta cn='fee'> |`);
-  // A source with the named cells of `tables` on this page, and of `elsewhere` on the page "Other"
-  const sourceOf = (tables: ReturnType<typeof parseTable>[], elsewhere: ReturnType<typeof parseTable>[] = []): TableSource => {
-    const find = (list: ReturnType<typeof parseTable>[], name: string) => {
-      for (const table of list) {
-        for (let row = 1; row < table.rows.length; row++) {
-          const column = table.rows[row]!.cells.findIndex((cell) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase());
-          if (column >= 0) return { table, row, column };
-        }
-      }
-      return undefined;
-    };
-    return Object.assign(() => undefined, {
-      cell: (name: string, page?: string) => find(page === "Other" ? elsewhere : tables, name),
+  const RATES = parseTable(`| Rate | Value |\n|---|---|\n| VAT | 0.21 <meta cn='vat'> |\n| Fee | 2 <meta f='=vat*10'> <meta cn='fee'> |\n| <meta name='rates'> |`);
+  const UNNAMED = parseTable(`| Rate | Value |\n|---|---|\n| VAT | 0.21 <meta cn='vat'> |`);
+  type Tables = ReturnType<typeof parseTable>[];
+  // A source with `tables` on this page and `elsewhere` on the page "Other": the tables by their names, the cells by theirs
+  const sourceOf = (tables: Tables, elsewhere: Tables = []): TableSource => {
+    const list = (page?: string) => (page === "Other" ? elsewhere : tables);
+    const cells = (name: string, page?: string) =>
+      list(page).flatMap((table) =>
+        table.rows.flatMap((row, r) => {
+          const column = row.cells.findIndex((cell) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase());
+          return r > 0 && column >= 0 ? [{ table, row: r, column }] : [];
+        }),
+      );
+    return Object.assign((name: string, page?: string) => list(page).find((table) => table.meta?.name?.toLowerCase() === name.toLowerCase()), {
+      cell: (name: string, page?: string) => cells(name, page)[0],
+      cellsNamed: cells,
     });
   };
   const result = (formula: string, tables?: TableSource, own = "| A |\n|---|\n| |") => {
@@ -846,27 +861,59 @@ describe("named cells", () => {
     const rows = table.rows.map((r, i) => (i === table.rows.length - 1 ? { cells: [formulaCell("", formula)] } : r));
     return formulaOf(recalculate({ ...table, rows }, tables).rows[table.rows.length - 1]!.cells[0]!)!.value;
   };
+  const error = (formula: string, tables: TableSource) => {
+    const table = parseTable("| A |\n|---|\n| |");
+    return formulaErrors({ ...table, rows: [table.rows[0]!, { cells: [formulaCell("", formula)] }] }, tables).get("1,0");
+  };
 
-  it("uses a named cell of its own table, of the page and of another page", () => {
+  it("uses a named cell of its own table, and another table's by its name, also on another page", () => {
     expect(result("=rate*100", undefined, `| A |\n|---|\n| 0.5 <meta cn='rate'> |\n| |`)).toBe("50");
-    expect(result("=100*(1+VAT)", sourceOf([RATES]))).toBe("121");
-    // A named cell's formula is calculated too
-    expect(result("=fee+1", sourceOf([RATES]))).toBe("3.1");
-    expect(result("=[[Other]]vat*2", sourceOf([], [RATES]))).toBe("0.42");
+    expect(result("=100*(1+rates!VAT)", sourceOf([RATES]))).toBe("121");
+    // A named cell's formula is calculated too (its bare vat is its own table's)
+    expect(result("=rates!fee+1", sourceOf([RATES]))).toBe("3.1");
+    expect(result("=[[Other]]rates!vat*2", sourceOf([], [RATES]))).toBe("0.42");
   });
 
-  it("says when no cell has the name, and finds circles", () => {
-    expect(result("=tax", sourceOf([RATES]))).toBe("#NAME?");
-    const table = parseTable("| A |\n|---|\n| |");
-    const errors = formulaErrors({ ...table, rows: [table.rows[0]!, { cells: [formulaCell("", "=[[Other]]tax")] }] }, sourceOf([], [RATES]));
-    expect(errors.get("1,0")).toBe("#NAME? there is no cell named tax on Other");
+  it("takes a bare name as its own table's only, and says how to write another table's", () => {
+    expect(error("=VAT", sourceOf([RATES]))).toBe("#NAME? VAT is a cell of the table rates: write rates!VAT");
+    expect(error("=vat", sourceOf([UNNAMED]))).toContain("vat is a cell of another table, which has no name: name that table");
+    expect(error("=vat", sourceOf([RATES, UNNAMED]))).toBe("#NAME? vat is a cell of several tables (rates): write which, as rates!vat");
+    expect(error("=[[Other]]vat", sourceOf([], [RATES]))).toBe("#NAME? vat is a cell of the table rates: write [[Other]]rates!vat");
+    expect(error("=tax", sourceOf([RATES]))).toBe("#NAME? there is no cell named tax in this table");
+    expect(error("=rates!tax", sourceOf([RATES]))).toBe("#NAME? there is no cell named tax in rates");
+    expect(error("=[[Other]]tax", sourceOf([], [RATES]))).toBe("#NAME? there is no cell named tax on Other");
+  });
+
+  it("writes another table's cell named bare, as before a name was its table's, as that table's: only where one named table has it", () => {
+    const own = parseTable("| A |\n|---|\n| |");
+    expect(qualifyCellNames("=1+vat*2", own, sourceOf([RATES]))).toEqual({ formula: "=1+rates!vat*2", fixes: ["vat → rates!vat"] });
+    expect(qualifyCellNames("=[[Other]]vat", own, sourceOf([], [RATES]))).toEqual({ formula: "=[[Other]]rates!vat", fixes: ["[[Other]]vat → [[Other]]rates!vat"] });
+    // Left as written: its own table's, already a table's, a table without a name, several tables, no such cell
+    expect(qualifyCellNames("=vat", parseTable(`| A |\n|---|\n| 1 <meta cn='vat'> |`), sourceOf([RATES])).fixes).toEqual([]);
+    expect(qualifyCellNames("=rates!vat", own, sourceOf([RATES])).fixes).toEqual([]);
+    expect(qualifyCellNames("=vat", own, sourceOf([UNNAMED])).fixes).toEqual([]);
+    expect(qualifyCellNames("=vat", own, sourceOf([RATES, UNNAMED])).fixes).toEqual([]);
+    expect(qualifyCellNames("=tax", own, sourceOf([RATES])).fixes).toEqual([]);
+    // A table's name that no formula can write (typed by hand), or one another table answers to first: left as written
+    const spaced = parseTable(`| Rate | Value |\n|---|---|\n| VAT | 0.21 <meta cn='vat'> |\n| <meta name='my rates'> |`);
+    expect(qualifyCellNames("=vat", own, sourceOf([spaced])).fixes).toEqual([]);
+    const twin = parseTable(`| X |\n|---|\n| 1 |\n| <meta name='rates'> |`);
+    expect(qualifyCellNames("=vat", own, sourceOf([twin, RATES])).fixes).toEqual([]);
+  });
+
+  it("finds circles", () => {
     const loop = parseTable(`| A |\n|---|\n| 0 <meta f='=self+1'> <meta cn='self'> |`);
     expect(formulaOf(recalculate(loop).rows[1]!.cells[0]!)!.value).toBe("#CYCLE!");
   });
 
-  it("finds the named cells a formula refers to, not functions, cells or other tables' references", () => {
-    expect(namedReferences("=SUM(A1:B2)*vat+prices!C3+[[Other]]fee+TRUE+[qty]")).toEqual([{ name: "vat" }, { name: "fee", page: "Other" }]);
-    expect([...referredCellNames(parseTable(`| A |\n|---|\n| 1 <meta f='=VAT*2'> |`))]).toEqual(["vat"]);
+  it("finds the named cells a formula refers to, not functions, cells or other tables' cell references", () => {
+    const named = (formula: string) => namedReferences(formula).map(({ name, page, table }) => ({ name, ...(page ? { page } : {}), ...(table ? { table } : {}) }));
+    expect(named("=SUM(A1:B2)*vat+prices!C3+[[Other]]fee+TRUE+[qty]+rates!fee+[[Other]]rates!vat")).toEqual([
+      { name: "vat" },
+      { name: "fee", page: "Other" },
+      { name: "fee", table: { name: "rates" } },
+      { name: "vat", table: { name: "rates", page: "Other" } },
+    ]);
     expect([...cellNamesOf(RATES)]).toEqual(["vat", "fee"]);
   });
 });
@@ -895,7 +942,7 @@ describe("named rows", () => {
     expect(errors("=prices!plum[price]")).toBe("#REF! there is no row named plum in prices");
     expect(errors("=prices!pear[cost]")).toBe('#REF! there is no column named "cost" in prices');
     expect(errors("=prices!pear[@price]")).toContain("a row's cell is written pear[price]");
-    expect(namedReferences("=pear[price]+vat")).toEqual([{ name: "vat" }]);
+    expect(namedReferences("=pear[price]+vat").map((ref) => ref.name)).toEqual(["vat"]);
     expect(references("=prices!pear[price]")[0]).toMatchObject({ kind: "column", name: "price", row: "pear", table: { name: "prices" } });
   });
 

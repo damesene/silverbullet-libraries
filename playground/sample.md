@@ -127,13 +127,13 @@ The next table is named `prices` (the pencil in the title of its toolbar's ⋯ m
 | VAT rate | 0.21 <meta cn='vat'> |
 | <meta name='prices'> |
 
-The order refers to it: `prices!B1` by position, `prices![price]` by column, `prices!pear[price]` by row name, `XLOOKUP` by a value, and `vat` by the cell's name. Change a price above: these follow.
+The order refers to it: `prices!B1` by position, `prices![price]` by column, `prices!pear[price]` by row name, `XLOOKUP` by a value, and `prices!vat` by the cell's name (a cell's name is its table's: within `prices` it is just `vat`). Change a price above: these follow.
 
 | Item | Qty | Unit price | With VAT |
 |---|--:|--:|--:|
-| Pear | 3 | 12 <meta f='=prices!pear[price]'> | 43.56 <meta f='=[@qty]*[@unit_price]*(1+vat)'> |
-| Fig | 2 | 25 <meta f='=prices!fig[price]'> | 60.5 <meta f='=[@qty]*[@unit_price]*(1+vat)'> |
-| Kiwi | 5 | 6 <meta f='=XLOOKUP("kiwi", prices![fruit], prices![price])'> | 36.3 <meta f='=[@qty]*[@unit_price]*(1+vat)'> |
+| Pear | 3 | 12 <meta f='=prices!pear[price]'> | 43.56 <meta f='=[@qty]*[@unit_price]*(1+prices!vat)'> |
+| Fig | 2 | 25 <meta f='=prices!fig[price]'> | 60.5 <meta f='=[@qty]*[@unit_price]*(1+prices!vat)'> |
+| Kiwi | 5 | 6 <meta f='=XLOOKUP("kiwi", prices![fruit], prices![price])'> | 36.3 <meta f='=[@qty]*[@unit_price]*(1+prices!vat)'> |
 | First price | | 12 <meta f='=prices!B1'> | |
 | Total | 10 <meta f='=SUM([qty])'> | 43 <meta f='=SUM(prices!B1:B3)'> | 140.36 <meta f='=SUM([with_vat])'> |
 

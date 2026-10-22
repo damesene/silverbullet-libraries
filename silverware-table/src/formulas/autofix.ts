@@ -1,5 +1,10 @@
-// Fixing a formula typed with a common slip (a missing ")"), saying what was fixed.
+// Fixing a formula typed with a common slip (a missing ")"), saying what was
+// fixed; and names of cells written as before they were their table's.
+import type { Table } from "../markdown.ts";
+import { namedCells } from "../names.ts";
+import type { TableSource } from "./evaluate.ts";
 import { parse } from "./parser.ts";
+import { namedReferences } from "./references.ts";
 import { isError } from "./values.ts";
 
 export type FormulaFix = {
@@ -63,4 +68,34 @@ export function autofixFormula(formula: string): FormulaFix {
   }
   if (fixes.length === 0 || isError(parse(fixed))) return unchanged;
   return { formula: fixed, fixes };
+}
+
+/**
+ * A formula's bare names of cells that are not its own table's (`own`), and
+ * [[Page]]name, written as another table's: prices!vat, [[Page]]prices!vat.
+ * A name is unique in its table only, so a bare one is the formula's own
+ * table's; formulas written while names were the page's refer to other
+ * tables so. Each is fixed only where one table of the page (of [[Page]]) has
+ * the name and that table has a name; others stay as written (their error
+ * says why).
+ */
+export function qualifyCellNames(formula: string, own: Table, tables: TableSource): FormulaFix {
+  const ownNames = namedCells(own);
+  const ownName = own.meta?.name?.trim().toLowerCase();
+  let fixed = formula;
+  const fixes: string[] = [];
+  for (const ref of namedReferences(formula).reverse()) {
+    if (ref.table || (ref.page === undefined && ownNames.has(ref.name.toLowerCase()))) continue;
+    // Other tables' cells (the page's copy of the table edited is its own, maybe as it was)
+    const found = (tables.cellsNamed?.(ref.name, ref.page) ?? []).filter(
+      (cell) => cell.row > 0 && cell.table !== own && !(ref.page === undefined && ownName && cell.table.meta?.name?.trim().toLowerCase() === ownName),
+    );
+    const table = found.length === 1 ? found[0]!.table.meta?.name?.trim() : undefined;
+    // A name a formula can write (not one typed by hand into the metadata row), which reaches that very table
+    if (!table || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(table) || tables(table, ref.page) !== found[0]!.table) continue;
+    const text = `${ref.page === undefined ? "" : `[[${ref.page}]]`}${table}!${ref.name}`;
+    fixes.unshift(`${formula.slice(ref.from, ref.to)} → ${text}`);
+    fixed = fixed.slice(0, ref.from) + text + fixed.slice(ref.to);
+  }
+  return { formula: fixes.length ? fixed : formula, fixes };
 }

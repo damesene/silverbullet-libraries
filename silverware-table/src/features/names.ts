@@ -5,8 +5,9 @@
 // column by it, so renaming the header (also in the markdown) does not break
 // them, nor references from other pages. Setting or removing it rewrites the
 // references to the column on the page (the write steps follow the column's
-// new name). And a cell's name (its cell menu), by which formulas on the page
-// (vat) and on other pages ([[Page]]vat) use the cell wherever it is moved.
+// new name). And a cell's name (its cell menu), unique in its table, by which
+// formulas use the cell wherever it is moved: in its table vat, in another
+// prices!vat, on another page [[Page]]prices!vat.
 // And a row's name (its row menu): pear[price] is the row's Price cell,
 // wherever the row is moved or sorted.
 import { columnIdOf } from "../columns.ts";
@@ -199,22 +200,20 @@ export class Names implements Feature {
     return undefined;
   }
 
-  /** Names a cell (empty: unnames it); refused, with why, when not valid, a function's or another cell's on the page */
+  /**
+   * Names a cell (empty: unnames it); refused, with why, when not valid, a
+   * function's or another cell's of the table (a name is the table's: another
+   * table may have a cell of the same name, written there as its name!name)
+   */
   private async nameCell(shownWidget: HTMLElement, shownInfo: WidgetInfo, row: number, column: number, name: string): Promise<string | undefined> {
-    const current = cellNameOf(parseTable(shownInfo.source).rows[row]?.cells[column] ?? "") ?? "";
+    const table = this.host.tableOf(shownInfo);
+    const current = cellNameOf(table.rows[row]?.cells[column] ?? "") ?? "";
     if (name === current) return this.unchanged(shownWidget);
     let problem = name === "" ? undefined : nameProblem(name, "cell");
     if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
     if (!problem && name) {
-      // The name is the page's: no other cell on it may have it
-      const text = await this.host.bridge.getText();
-      const own = locateBySource(text, shownInfo.hint, shownInfo.source);
-      const taken = findTables(text).some((range) =>
-        parseTable(range.text).rows.some((r, ri) =>
-          ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(own && range.from === own.from && ri === row && ci === column)),
-        ),
-      );
-      if (taken) problem = `another cell on this page is named ${name}`;
+      const taken = table.rows.some((r, ri) => ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(ri === row && ci === column)));
+      if (taken) problem = `another cell of this table is named ${name}`;
     }
     if (problem) return problem;
     const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;

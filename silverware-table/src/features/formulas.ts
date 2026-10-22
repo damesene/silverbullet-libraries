@@ -40,10 +40,10 @@ import {
   isErrorText,
   isFormulaInput,
   type PointedSpan,
+  qualifyCellNames,
   recalculate,
   type Reference,
   referencedColumn,
-  referredCellNames,
   referredPages,
   referredTableNames,
   references,
@@ -51,7 +51,7 @@ import {
   type TableSource,
   withColumnKeys,
 } from "../formulas/index.ts";
-import { addAffected, affectedBy, isAffected, pageNameChoices, pageTables, referredBy, rowNameChoices } from "../formulas/page.ts";
+import { addAffected, affectedBy, isAffected, ownNameChoices, pageNameChoices, pageTables, referredBy } from "../formulas/page.ts";
 import { functionNamed } from "../formulas/registry.ts";
 import { FunctionDialog } from "./functiondialog.ts";
 import { ICONS } from "../icons.ts";
@@ -69,7 +69,7 @@ export const FORMULAS_NEED_METADATA =
 
 // What a name offered while typing names (the list says so beside it)
 const NAME_KINDS: Readonly<Record<Exclude<FormulaChoice["kind"], "function">, string>> = {
-  cell: "Named cell",
+  cell: "Named cell of this table",
   row: "Named row of this table",
   table: "Named table",
 };
@@ -82,7 +82,9 @@ function choiceHelp(choice: FormulaChoice): FormulaHelp {
       return { syntax: f.syntax, description: f.description };
     }
     case "cell":
-      return { syntax: choice.name, description: "A named cell: its value, wherever it is on the page." };
+      return choice.table
+        ? { syntax: `${choice.table}!${choice.name}`, description: `The cell named ${choice.name} in the table ${choice.table}.` }
+        : { syntax: choice.name, description: "A named cell of this table: its value." };
     case "row":
       return { syntax: `${choice.name}[column]`, description: "A named row of this table: its cell in a column, e.g. pear[price]." };
     case "table":
@@ -335,9 +337,14 @@ export class Formulas implements Feature {
       return escapeCell(typed);
     }
     if (isFormulaInput(typed)) {
-      const { formula, fixes } = autofixFormula(typed.trim());
+      const slips = autofixFormula(typed.trim());
+      // Names of other tables' cells written bare, as before a name was its table's: prices!vat
+      const info = this.host.infoOf(editor.widget);
+      const names = info ? qualifyCellNames(slips.formula, this.host.tableOf(info), this.tableSource()) : { formula: slips.formula, fixes: [] };
+      const formula = names.formula;
+      const fixes = [...slips.fixes, ...names.fixes];
       if (fixes.length) void this.host.bridge.flash(`Silverware Table: formula fixed: ${fixes.join(", ")}`, "info");
-      const headers = parseTable(this.host.infoOf(editor.widget)?.source ?? "").rows[0]?.cells ?? [];
+      const headers = parseTable(info?.source ?? "").rows[0]?.cells ?? [];
       return formulaCell("", withColumnKeys(formula, headers));
     }
     return typed.startsWith("'=") ? escapeCell(typed.slice(1)) : undefined;
@@ -462,7 +469,7 @@ export class Formulas implements Feature {
       const info = other === except ? undefined : this.host.infoOf(other);
       if (!info || !this.withFormulas.has(info.table)) continue;
       const model = parseTable(info.source);
-      const refersElsewhere = referredTableNames(model).size > 0 || referredPages(model).size > 0 || referredCellNames(model).size > 0;
+      const refersElsewhere = referredTableNames(model).size > 0 || referredPages(model).size > 0;
       if (!refersElsewhere && !(withCustom && callsCustomFunctions(model))) continue;
       if (recalculate(model, tables) !== model) this.stale.add(info.table);
       else this.stale.delete(info.table);
@@ -659,7 +666,8 @@ export class Formulas implements Feature {
     const field = active.field;
     const length = field.value.length;
     const info = this.host.infoOf(active.widget);
-    const choices = formulaChoices(field.value, field.selectionStart ?? length, field.selectionEnd ?? length, info ? this.namesFor(info) : []);
+    const own = info ? metaName(this.host.tableOf(info)) : undefined;
+    const choices = formulaChoices(field.value, field.selectionStart ?? length, field.selectionEnd ?? length, info ? this.namesFor(info) : [], own);
     if (!choices) return undefined;
     const typed = field.value.slice(choices.from, choices.to);
     const key = `${choices.from}:${typed}`;
@@ -672,13 +680,16 @@ export class Formulas implements Feature {
 
   /**
    * The names a formula in this table can refer to: the page's (read once per
-   * page's text), and the table's rows as edited (the table only, so cheap
-   * whatever edits a feature holds)
+   * page's text), its own cells bare instead of as its table's, and its own
+   * names as edited (the table only, so cheap whatever edits a feature holds)
    */
   private namesFor(info: WidgetInfo): readonly FormulaChoice[] {
     const text = this.host.pageText;
     if (this.pageNames?.text !== text) this.pageNames = { text, choices: pageNameChoices(pageTablesOf(text)) };
-    return [...this.pageNames.choices, ...rowNameChoices(this.host.tableOf(info))];
+    const table = this.host.tableOf(info);
+    const own = metaName(table)?.toLowerCase();
+    const others = this.pageNames.choices.filter((choice) => !(choice.table && choice.table.toLowerCase() === own));
+    return [...others, ...ownNameChoices(table)];
   }
 
   /**
@@ -818,11 +829,15 @@ export class Formulas implements Feature {
       option.setAttribute("role", "option");
       option.setAttribute("aria-selected", String(i === index));
       const code = doc.createElement("code");
-      code.textContent = choice.name;
+      code.textContent = choiceText(choice).replace(/[([!]$/, "");
       const description = doc.createElement("span");
       // A function: its first sentence (the rest shows under the list for the one picked); a name: what it names
       description.textContent =
-        choice.kind === "function" ? (functionNamed(choice.name)?.description ?? "").split(/(?<=\.)\s/)[0]! : NAME_KINDS[choice.kind];
+        choice.kind === "function"
+          ? (functionNamed(choice.name)?.description ?? "").split(/(?<=\.)\s/)[0]!
+          : choice.table
+            ? `Named cell of ${choice.table}`
+            : NAME_KINDS[choice.kind];
       option.append(code, description);
       // The field keeps the focus (the editor stays open)
       option.addEventListener("mousedown", (e) => e.preventDefault());

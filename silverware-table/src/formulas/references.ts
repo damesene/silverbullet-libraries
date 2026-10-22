@@ -166,36 +166,36 @@ export function tableRefOf(token: { readonly name: string; readonly page?: strin
   return token.page === undefined ? { name: token.name } : { name: token.name, page: token.page };
 }
 
+/** A named cell a formula refers to, where it is written (from..to: the name, with its table or page before it) */
+export type NamedReference = { readonly name: string; readonly page?: string; readonly table?: TableRef; readonly from: number; readonly to: number };
+
 /**
- * The named cells a formula refers to: vat, or [[Page]]vat. A bare name that
- * is a function's (before "("), a cell's (A1), TRUE or FALSE is not one.
+ * The named cells a formula refers to: vat (its own table's), prices!vat,
+ * [[Page]]prices!vat, or [[Page]]vat (as written before names were the
+ * table's). A bare name that is a function's (before "("), a cell's (A1), a
+ * row's (before [column]), TRUE or FALSE is not one.
  */
-export function namedReferences(formula: string): { readonly name: string; readonly page?: string }[] {
+export function namedReferences(formula: string): NamedReference[] {
   const { tokens } = tokenize(formula);
-  const result: { name: string; page?: string }[] = [];
+  const result: NamedReference[] = [];
   tokens.forEach((token, i) => {
     if (token.kind === "named") {
-      result.push({ name: token.name, page: token.page });
+      result.push({ name: token.name, page: token.page, from: token.from, to: token.to });
       return;
     }
     if (token.kind !== "name" || parseCellName(token.text) || /^(true|false)$/i.test(token.text)) return;
     const next = tokens[i + 1];
     if ((next?.kind === "op" && next.text === "(") || next?.kind === "column") return;
     const previous = tokens[i - 1];
-    // The end of a range (A1:B2) or a table's reference (prices!B2) is a cell
-    if (previous?.kind === "table" || (previous?.kind === "op" && previous.text === ":")) return;
-    result.push({ name: token.text });
+    // The end of a range (A1:B2) is a cell
+    if (previous?.kind === "op" && previous.text === ":") return;
+    if (previous?.kind === "table") {
+      result.push({ name: token.text, table: tableRefOf(previous), from: previous.from, to: token.to });
+      return;
+    }
+    result.push({ name: token.text, from: token.from, to: token.to });
   });
   return result;
-}
-
-/** The names (lowercase) of the cells on the page a table's formulas refer to */
-export function referredCellNames(table: Table): Set<string> {
-  const names = new Set<string>();
-  forFormulas(table, (formula) => {
-    for (const ref of namedReferences(formula)) if (ref.page === undefined) names.add(ref.name.toLowerCase());
-  });
-  return names;
 }
 
 /** The names (lowercase) of a table's named body cells */
@@ -216,7 +216,7 @@ export function referredPages(table: Table): Set<string> {
 export function formulaPages(formula: string): string[] {
   return [
     ...references(formula).flatMap((ref) => (ref.table?.page ? [ref.table.page] : [])),
-    ...namedReferences(formula).flatMap((ref) => (ref.page ? [ref.page] : [])),
+    ...namedReferences(formula).flatMap((ref) => (ref.page ? [ref.page] : ref.table?.page ? [ref.table.page] : [])),
   ];
 }
 
