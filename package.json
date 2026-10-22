@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "check-build": "node scripts/build.mjs --check",
+    "verify": "tsc --noEmit --noUnusedLocals && vitest run && node scripts/build.mjs --check",
     "watch": "node scripts/build.mjs --watch",
     "deploy": "node scripts/deploy.mjs",
     "check": "tsc --noEmit",
