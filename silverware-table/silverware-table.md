@@ -1754,6 +1754,40 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 .sb-table-widget.swt-over-window > table {
   margin-top: 42px;
 }
+/* A table Silverware Table draws itself (the sheet: core/silverbullet/drawn.ts),
+   outside SilverBullet's editor: SilverBullet's own rules for its tables
+   (#sb-main .cm-editor) do not reach it, so they are said again here */
+.sb-table-widget.swt-drawn {
+  display: inline-block;
+  vertical-align: top;
+  font-family: var(--editor-font);
+  font-weight: normal;
+  border-radius: 4px 4px 0 0;
+}
+.sb-table-widget.swt-drawn table {
+  width: 100%;
+  border-spacing: 0;
+  border-radius: 4px 4px 0 0;
+}
+.sb-table-widget.swt-drawn thead tr {
+  font-weight: bold;
+}
+.sb-table-widget.swt-drawn thead tr td {
+  padding: 11px 8px;
+}
+.sb-table-widget.swt-drawn td {
+  padding: 8px;
+  white-space: nowrap;
+}
+.sb-table-widget.swt-drawn .sb-table-align-left {
+  text-align: left;
+}
+.sb-table-widget.swt-drawn .sb-table-align-right {
+  text-align: right;
+}
+.sb-table-widget.swt-drawn .sb-table-align-center {
+  text-align: center;
+}
 /* Full screen keeps the same room right of the table: else the table ends at the
    window's edge, the + of a new column is pushed back over the toolbar and its
    line drawn on the edge (the sheet view shows its empty columns there) */

@@ -675,7 +675,9 @@ export class Controller implements TableHost {
       if (scrollTop) widget.scrollTop = scrollTop;
       // Where it was in the page's view, then the cell to edit next scrolled into view from there
       this.anchor.keep(info.key, widget);
-      this.cellEditor.takePending(widget, info);
+      // The cell to edit next opens in the table that stands for its key (a table drawn by Silverware Table
+      // over SilverBullet's, which is rendered anew first)
+      if (this.widgetForKey(info.key) === widget) this.cellEditor.takePending(widget, info);
       this.anchor.again(widget, info.key);
       for (const feature of this.features) feature.enhanced?.(info);
       // The cell showing the move cursor was rendered anew (Ctrl+arrows saved a cell)

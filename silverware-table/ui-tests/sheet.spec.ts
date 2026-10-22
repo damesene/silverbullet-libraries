@@ -2,20 +2,34 @@
 import type { Page } from "@playwright/test";
 import { cell, expect, hoverCell, markdown, rendersAnew, table, test } from "./playground.ts";
 
+/** The table the sheet shows: the one it drew itself (in SilverBullet's form), standing for the page's */
+const sheetTable = (page: Page) => page.locator(".sb-table-widget.swt-table.swt-drawn");
+
+/** A body cell of the sheet's table by its row in the markdown and its column */
+const sheetCell = (page: Page, row: number, column: number) => sheetTable(page).locator(`tr[data-swt-row="${row}"] > td`).nth(column);
+
+/** As rendersAnew, for the sheet's table: drawn anew from the markdown written, and enhanced */
+async function sheetRendersAnew(page: Page, action: () => Promise<unknown>): Promise<void> {
+  await sheetTable(page).locator("table").evaluate((t) => t.setAttribute("data-test-old", ""));
+  await action();
+  await expect(page.locator(".swt-drawn table[data-test-old]")).toHaveCount(0);
+  await expect(sheetTable(page).locator("table:not([data-test-old]) tr[data-swt-row]").first()).toBeAttached();
+}
+
 /** Shows the first table as a sheet, from its toolbar */
 async function openSheet(page: Page): Promise<void> {
   await hoverCell(page, cell(page, 1, 0));
   await page.locator('.swt-bar button[aria-label="Sheet view"]').click();
-  await expect(table(page)).toHaveClass(/swt-sheet/);
+  await expect(sheetTable(page)).toHaveClass(/swt-sheet/);
 }
 
 /** A point in the empty cells: `right` empty columns right of the table at a row's middle, or `below` empty rows under it in a column */
 async function emptyCell(page: Page, at: { right?: number; below?: number; row?: number; column?: number }): Promise<{ x: number; y: number }> {
-  const box = (await table(page).locator("table").boundingBox())!;
+  const box = (await sheetTable(page).locator("table").boundingBox())!;
   // The empty rows are as high as the table's body rows
-  const rowHeight = (await cell(page, 1, 0).boundingBox())!.height;
-  const rowBox = at.row !== undefined ? (await cell(page, at.row, 0).boundingBox())! : undefined;
-  const columnBox = at.column !== undefined ? (await cell(page, 1, at.column).boundingBox())! : undefined;
+  const rowHeight = (await sheetCell(page, 1, 0).boundingBox())!.height;
+  const rowBox = at.row !== undefined ? (await sheetCell(page, at.row, 0).boundingBox())! : undefined;
+  const columnBox = at.column !== undefined ? (await sheetCell(page, 1, at.column).boundingBox())! : undefined;
   const x = at.right !== undefined ? box.x + box.width + 100 * at.right + 50 : columnBox!.x + columnBox!.width / 2;
   const y = at.below !== undefined ? box.y + box.height + rowHeight * at.below + rowHeight / 2 : rowBox!.y + rowBox!.height / 2;
   return { x, y };
@@ -24,7 +38,7 @@ async function emptyCell(page: Page, at: { right?: number; below?: number; row?:
 test.describe("Sheet view", () => {
   test("a value typed into an empty cell right of a row grows the table by a named column", async ({ page }) => {
     await openSheet(page);
-    const columns = await table(page).locator("table tr").first().locator("th, td").count();
+    const columns = await sheetTable(page).locator("table tr").first().locator("th, td").count();
     const point = await emptyCell(page, { right: 0, row: 1 });
     // Select mode (the playground's): a click selects the empty cell, typing edits it
     await page.mouse.click(point.x, point.y);
@@ -32,10 +46,10 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
     await page.keyboard.type("note");
     await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toHaveValue("note");
-    await rendersAnew(page, () => page.keyboard.press("Enter"));
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
     expect(await markdown(page)).toMatch(/\| Column \d+ \|/);
-    await expect(table(page).locator("table tr").first().locator("th, td")).toHaveCount(columns + 1);
-    await expect(table(page)).toHaveClass(/swt-sheet/);
+    await expect(sheetTable(page).locator("table tr").first().locator("th, td")).toHaveCount(columns + 1);
+    await expect(sheetTable(page)).toHaveClass(/swt-sheet/);
   });
 
   test("a value typed two rows below the table adds those rows, one left empty adds nothing", async ({ page }) => {
@@ -58,7 +72,7 @@ test.describe("Sheet view", () => {
     const point = await emptyCell(page, { below: 1, column: 0 });
     await page.mouse.click(point.x, point.y);
     await page.keyboard.type("Plum");
-    await rendersAnew(page, () => page.keyboard.press("Enter"));
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
     // An empty row, then Plum's, after the last one
     const lines = (await markdown(page)).split("\n");
     const last = lines.findIndex((line) => line.startsWith("| Šípek"));
@@ -74,27 +88,27 @@ test.describe("Sheet view", () => {
     await page.keyboard.type("a");
     // Another empty cell: the edit is saved (the table grows), that cell selected
     const second = await emptyCell(page, { below: 2, column: 1 });
-    await rendersAnew(page, () => page.mouse.click(second.x, second.y));
+    await sheetRendersAnew(page, () => page.mouse.click(second.x, second.y));
     await expect(page.locator(".swt-sheet-cell")).toBeVisible();
     await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
     expect(await markdown(page)).toMatch(/\| Column 5 \| Column 6 \|/);
     // A table's cell: selected, the empty cell no longer
-    await cell(page, 1, 1).click();
-    await expect(table(page).locator(".swt-selected")).toHaveCount(1);
+    await sheetCell(page, 1, 1).click();
+    await expect(sheetTable(page).locator(".swt-selected")).toHaveCount(1);
     await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
   });
 
   test("arrows go between the table's cells and the empty ones", async ({ page }) => {
     await openSheet(page);
     // Origin of Pear, the last column: right, an empty cell; left again, the table's
-    await cell(page, 1, 3).click();
+    await sheetCell(page, 1, 3).click();
     await page.keyboard.press("ArrowRight");
     await expect(page.locator(".swt-sheet-cell")).toBeVisible();
-    await expect(table(page).locator(".swt-selected")).toHaveCount(0);
+    await expect(sheetTable(page).locator(".swt-selected")).toHaveCount(0);
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowLeft");
     await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
-    await expect(cell(page, 2, 3)).toHaveClass(/swt-selected/);
+    await expect(sheetCell(page, 2, 3)).toHaveClass(/swt-selected/);
   });
 
   test("Enter in an empty cell saves it and edits the one below, Tab the next one", async ({ page }) => {
@@ -102,11 +116,11 @@ test.describe("Sheet view", () => {
     const point = await emptyCell(page, { below: 0, column: 0 });
     await page.mouse.click(point.x, point.y);
     await page.keyboard.type("Plum");
-    await rendersAnew(page, () => page.keyboard.press("Enter"));
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
     const field = page.locator(".swt-sheet-cell .swt-cell-editor");
     await expect(field).toBeFocused();
     await page.keyboard.type("Lime");
-    await rendersAnew(page, () => page.keyboard.press("Tab"));
+    await sheetRendersAnew(page, () => page.keyboard.press("Tab"));
     // Lime's row is the table's now: Tab edits its next cell, a cell of the table
     await expect(page.locator(".swt-cell-editor")).toBeFocused();
     await page.keyboard.press("Escape");
@@ -127,7 +141,7 @@ test.describe("Sheet view", () => {
     const field = page.locator(".swt-sheet-cell .swt-cell-editor");
     await expect(field).toBeFocused();
     // As a spreadsheet copies: tabs and lines
-    await rendersAnew(page, () =>
+    await sheetRendersAnew(page, () =>
       field.evaluate((input) => {
         const data = new DataTransfer();
         data.setData("text/plain", "x\ty\n1\t2");
@@ -147,9 +161,9 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-sheet-cell")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
-    await expect(table(page)).toHaveClass(/swt-sheet/);
+    await expect(sheetTable(page)).toHaveClass(/swt-sheet/);
     await page.keyboard.press("Escape");
-    await expect(table(page)).not.toHaveClass(/swt-sheet/);
+    await expect(sheetTable(page)).toHaveCount(0);
   });
 
   test("the rows past the table are numbered on, and every column has its letter", async ({ page }) => {
@@ -167,12 +181,13 @@ test.describe("Sheet view", () => {
     await expect(table(page)).toHaveClass(/swt-fullscreen/);
     await hoverCell(page, cell(page, 1, 0));
     await icon("Sheet view").click();
-    await expect(table(page)).toHaveClass(/swt-sheet/);
+    await expect(sheetTable(page)).toHaveClass(/swt-sheet/);
     await expect(table(page)).not.toHaveClass(/swt-fullscreen/);
-    await hoverCell(page, cell(page, 1, 0));
+    await hoverCell(page, sheetCell(page, 1, 0));
     await expect(icon("Full screen")).toHaveAttribute("aria-pressed", "false");
     await expect(icon("Exit sheet view")).toHaveAttribute("aria-pressed", "true");
     await page.keyboard.press("Escape");
+    await expect(sheetTable(page)).toHaveCount(0);
     await expect(table(page)).not.toHaveClass(/swt-over-window/);
     // Full screen as before: over the window, no empty cells
     await hoverCell(page, cell(page, 1, 0));
@@ -225,10 +240,29 @@ test.describe("Sheet view", () => {
     await expect(table(page, 1)).toHaveClass(/swt-fullscreen/);
   });
 
+  test("draws the table itself, its cells rendered as the page's, a link followed by the editor's navigation", async ({ page }) => {
+    await page.locator("#source").fill("# Test\n\n| Item | Note |\n|---|---|\n| Pear | [[Fruit]] **ripe** #fresh |\n| Fig | plain |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(2);
+    await openSheet(page);
+    // Not SilverBullet's table over the window: one of its own, standing for it
+    await expect(table(page)).not.toHaveClass(/swt-over-window/);
+    const note = sheetCell(page, 1, 1);
+    await expect(note.locator("a[data-ref='Fruit']")).toHaveText("Fruit");
+    await expect(note.locator("strong")).toHaveText("ripe");
+    await expect(note.locator("a.hashtag")).toHaveText("#fresh");
+    await expect(sheetCell(page, 2, 1)).toHaveText("plain");
+    // A link: the editor's navigation (the playground says so), the window not loaded anew
+    await page.evaluate(() => ((window as unknown as { stillHere: boolean }).stillHere = true));
+    await note.locator("a[data-ref='Fruit']").click();
+    await expect(page.locator("#flash > div", { hasText: "would open Fruit" })).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { stillHere?: boolean }).stillHere)).toBe(true);
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");
-    await expect(table(page)).not.toHaveClass(/swt-sheet/);
+    await expect(sheetTable(page)).toHaveCount(0);
     await expect(table(page)).not.toHaveClass(/swt-over-window/);
   });
 });

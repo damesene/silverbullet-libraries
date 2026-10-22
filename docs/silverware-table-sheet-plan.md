@@ -100,3 +100,10 @@ other pages on a sheet.
 ## Status
 
 - 2026-10-22: plan agreed (phase 1 merged in parts, every phase merged without asking); phase 1 started on branch `sheet-drawn`.
+- 2026-10-22, phase 1: steps 1 to 3 done (a drawn table stands for its key;
+  the cell renderer; the sheet draws its table, `core/silverbullet/drawn.ts`).
+  Steps 4 and 5 came with step 3: the drawn table has SilverBullet's DOM form,
+  so the core's cell editor edits it, and today's sheet (grid, letters,
+  numbers, empty cells, growth) runs on it unchanged (its 12 UI scenarios pass
+  on the drawn table), nothing of the old way left. Phase 1 is merged whole.
+  Next: step 6 (review, fixes, click-through in SilverBullet, merge).

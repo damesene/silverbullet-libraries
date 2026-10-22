@@ -12,13 +12,23 @@
 // the table, and below it) draw their lines, right of the table along its rows
 // in view, below it along its columns. A press there finds the cell under it,
 // and a td of the module's own is laid over that cell for the cell editor.
+//
+// The table on the sheet is drawn by the module itself from the markdown
+// (drawn.ts, its cells rendered as SilverBullet renders them: cells.ts), not
+// SilverBullet's table taken over the window: it stands for the page's table
+// of its key while it is shown, so the core and the modules work on it as on
+// SilverBullet's. A write renders SilverBullet's table anew: the module draws
+// its own anew from the markdown written, and swaps it in once drawn. Links in
+// it go to SilverBullet's navigation (the browser would load the window anew).
 import type { AdapterFeature, CellRef, RenderedEditor, TableHost, ToolbarButton, WidgetInfo } from "../../feature.ts";
 import { oncePerFrame } from "../../frame.ts";
 import { STICKY_GAP } from "../../layout.ts";
 import { firstRowBelow } from "../../geometry.ts";
 import { growTo } from "../../structure.ts";
-import { OverWindow, type RowsPast } from "../../overwindow.ts";
-import { UI_CLASS } from "../../../dom.ts";
+import { OVER_WINDOW_CLASS, OverWindow, type RowsPast } from "../../overwindow.ts";
+import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
+import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
+import { drawTable } from "../drawn.ts";
 import { columnLetters } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 
@@ -49,8 +59,16 @@ type Layout = {
   readonly rows: number;
 };
 
+// The class the sheet's table shows over the window with
+const SHEET_CLASS = "swt-sheet";
+
 export class Sheet implements AdapterFeature {
   private readonly over: OverWindow;
+  // Renders the cells of the table it draws
+  private readonly renderer: CellRenderer;
+  // The table it drew, from which markdown; `drawing` counts the drawings asked for (only the last is shown)
+  private drawn: { readonly widget: HTMLElement; readonly source: string } | undefined;
+  private drawing = 0;
   // The empty cells, in the table's box: right of the table and below it
   private readonly grid: HTMLElement;
   private readonly right: HTMLElement;
@@ -71,14 +89,20 @@ export class Sheet implements AdapterFeature {
 
   constructor(private readonly host: TableHost) {
     this.over = new OverWindow(host, {
-      className: "swt-sheet",
+      className: SHEET_CLASS,
       changed: () => {
         host.toolbarChanged();
         if (this.over.key === undefined) this.hide();
         else this.queuePlace();
       },
       past: (widget) => this.rowsPast(widget),
+      // The table it drew, not SilverBullet's of the same key under it
+      shows: (widget) => widget.classList.contains(DRAWN_CLASS),
     });
+    const { bridge } = host;
+    this.renderer = new StaticCellRenderer(host.doc, (markdown) =>
+      bridge.markdownToHtml ? bridge.markdownToHtml(markdown) : Promise.reject(new Error("SilverBullet's markdown.markdownToHtml is not handed over")),
+    );
     this.queuePlace = oncePerFrame(host.doc, () => this.place());
     const doc = host.doc;
     this.grid = doc.createElement("div");
@@ -99,7 +123,6 @@ export class Sheet implements AdapterFeature {
   }
 
   toolbarButtons(info: WidgetInfo): ToolbarButton[] {
-    const widget = this.host.widgetOf(info);
     const on = this.over.key === info.key;
     return [
       {
@@ -110,7 +133,7 @@ export class Sheet implements AdapterFeature {
         place: "icon",
         icon: ICONS.sheet,
         pressed: on,
-        run: () => (on ? this.over.end() : this.over.begin(widget, info)),
+        run: () => (on ? this.over.end() : void this.open(info)),
       },
     ];
   }
@@ -126,6 +149,11 @@ export class Sheet implements AdapterFeature {
   enhanced(info: WidgetInfo): void {
     const widget = this.host.widgetOf(info);
     this.over.enhanced(widget, info);
+    // SilverBullet's table of the sheet rendered anew with other markdown (a write): drawn anew from it
+    if (!widget.classList.contains(DRAWN_CLASS)) {
+      if (info.key === this.over.key && this.drawn && info.source !== this.drawn.source) void this.draw(info);
+      return;
+    }
     if (widget !== this.over.widget) return;
     if (this.after?.grown) this.after.ready = true;
     this.queuePlace();
@@ -366,7 +394,50 @@ export class Sheet implements AdapterFeature {
     this.cell = undefined;
   }
 
+  /** Shows the table on the sheet: drawn first, then over the window */
+  private async open(info: WidgetInfo): Promise<void> {
+    const widget = await this.draw(info);
+    if (widget) this.over.begin(widget, info);
+  }
+
+  /**
+   * Draws the table from its markdown and puts it in place of the one drawn
+   * before (or into the page); the last drawing asked for wins. Shown over the
+   * window at once, before the core enhances it, so it does not show in the
+   * page's flow meanwhile.
+   */
+  private async draw(info: WidgetInfo): Promise<HTMLElement | undefined> {
+    const asked = ++this.drawing;
+    const widget = await drawTable(this.host.doc, info.source, info.hint, this.renderer);
+    if (asked !== this.drawing) return undefined;
+    // Links and hashtags: SilverBullet's navigation, not the browser's (it would load the window anew)
+    widget.addEventListener("click", (e) => {
+      const link = e.target instanceof Element ? e.target.closest<HTMLElement>("a[data-ref]") : null;
+      const navigate = this.host.bridge.navigate;
+      if (!link?.dataset.ref || !navigate) return;
+      e.preventDefault();
+      void navigate(link.dataset.ref);
+    });
+    const before = this.drawn?.widget;
+    if (before) {
+      widget.classList.add(OVER_WINDOW_CLASS, SHEET_CLASS);
+      // Where the box was scrolled to, kept
+      const { scrollLeft, scrollTop } = before;
+      before.replaceWith(widget);
+      widget.scrollLeft = scrollLeft;
+      widget.scrollTop = scrollTop;
+    } else {
+      this.host.doc.body.append(widget);
+    }
+    this.drawn = { widget, source: info.source };
+    return widget;
+  }
+
   private hide(): void {
+    // The table drawn goes (a drawing on its way is not shown)
+    this.drawing++;
+    this.drawn?.widget.remove();
+    this.drawn = undefined;
     this.chosen = undefined;
     this.pendingPress = undefined;
     this.after = undefined;

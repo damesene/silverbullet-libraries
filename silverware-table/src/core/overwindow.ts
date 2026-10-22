@@ -44,6 +44,9 @@ export type OverWindowOptions = {
   readonly past?: (widget: HTMLElement, info: WidgetInfo) => RowsPast | undefined;
   // The rows' numbers in a room right of the table too (the CSS keeps it: its module's class)
   readonly numbersRight?: boolean;
+  // Which of the widgets of the table's key is shown so (the sheet: the one it drew, not SilverBullet's under it);
+  // undefined: any, a table rendered anew in its place too
+  readonly shows?: (widget: HTMLElement) => boolean;
 };
 
 // The table over the window in each document, whichever module shows it
@@ -148,6 +151,7 @@ export class OverWindow {
   // else the one in its place among the page's tables (a table before it written too moved its start)
   tableAdded(widget: HTMLElement, table: HTMLTableElement): void {
     const old = this.shownWidget;
+    if (this.options.shows) return;
     if (this.shownKey === undefined || !old || old.isConnected || this.guessed?.isConnected) return;
     if (table.dataset.pos !== old.querySelector("table")?.dataset.pos && this.widgets().indexOf(widget) !== this.place) return;
     this.guessed = widget;
@@ -156,7 +160,8 @@ export class OverWindow {
 
   // Enhanced: shown over the window if it is that table, else not (tableAdded may have guessed wrong)
   enhanced(widget: HTMLElement, info: WidgetInfo): void {
-    if (info.key === this.shownKey) this.mark(widget);
+    const shows = this.options.shows?.(widget) ?? true;
+    if (info.key === this.shownKey && shows) this.mark(widget);
     else if (widget.classList.contains(this.options.className)) this.unmark(widget);
   }
 
