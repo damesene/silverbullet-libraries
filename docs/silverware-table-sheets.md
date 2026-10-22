@@ -201,6 +201,20 @@ A whole example, the sheet's first table, sorted:
 4. **Selecting, copying, AutoFill, filters, sorting, widths, pins on the
    sheet**, each within its table; the .xlsx of a sheet.
 
+Rendering (2026-10-22, see CLAUDE.md, *Which tables are in the DOM*): with
+tables rendered by SilverBullet and laid on the sheet (variant A), only the
+open page's tables can be on a sheet, and only those CodeMirror keeps in the
+DOM: within about the view's height + 1000 px of the page, text between them
+included (some 40 to 50 rows on a laptop). The sheet would scroll the page to
+its tables when it opens; new tables are written after its last one already,
+*Add to sheet…* of a table far from the others would offer to move its block
+there, a table not drawn would show as a place with why. The largeTables
+module keeps a tall table to a box of the window's height in the page. A
+sheet drawing its tables itself (variant B) has no such limit, but loses what
+SilverBullet renders in cells (`${…}`, links, hashtags, formatting, tasks).
+Leaning to A since (it keeps them); tables of other pages are reached by
+formulas (`[[Page]]t!B2`), not placed on the sheet.
+
 Open before step 4: how today's modules (selection, clipboard, AutoFill,
 widths, pins) work on the sheet's drawing. (A) The sheet makes its own: the
 core stays as it is, the features twice. (B) The core takes a table that
