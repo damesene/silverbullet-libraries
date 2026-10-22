@@ -71,7 +71,16 @@ export class SilverBulletAdapter implements TableAdapter {
     this.overlays = new Overlays(doc, rows);
   }
 
-  applyLooks(info: WidgetInfo, looks: MergedLooks, editing: CellRef | undefined): void {
+  applyLooks(info: WidgetInfo, looks: MergedLooks, editing: CellRef | undefined, only?: readonly CellRef[]): void {
+    if (only) {
+      for (const ref of only) {
+        const cell = this.rows.cellAt(info, ref, true);
+        if (!cell) continue;
+        if (ref.row === 0) applyHeaderLook(cell, ref.column, looks.headers.get(ref.column));
+        else applyCellLook(cell, looks.cells.get(refKey(ref)), editing !== undefined && editing.row === ref.row && editing.column === ref.column);
+      }
+      return;
+    }
     Array.from(info.table.rows[0]?.cells ?? []).forEach((cell, column) => applyHeaderLook(cell, column, looks.headers.get(column)));
     for (const tr of this.rows.bodyRows(info)) {
       const row = this.rows.rowOf(info, tr);

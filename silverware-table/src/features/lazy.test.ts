@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PAGE, cell, clickOn, controller, editor, flashes, flush, key, setup, text, useTablePage } from "../testing/page.ts";
 
 describe("Lazy saving", () => {
@@ -26,6 +26,18 @@ describe("Lazy saving", () => {
     expect(text).toBe(page);
     expect(cell(1, 1).textContent).toBe("new");
     expect(cell(1, 1).classList.contains("swt-lazy-pending")).toBe(true);
+  });
+
+  it("shows a held cell without applying the table's view again (its other cells untouched)", async () => {
+    const page = "| A | B |\n|---|---|\n| 1 |  |\n| 2 |  |\n";
+    await setup(page, { "silverware.table.modules.lazy.delay": 5000 });
+    button().click();
+    const views = vi.spyOn(controller as unknown as { applyView(...args: unknown[]): void }, "applyView");
+    type(1, 1, "new");
+    key(field()!, "Enter");
+    await flush();
+    expect(cell(1, 1).textContent).toBe("new");
+    expect(views).not.toHaveBeenCalled();
   });
 
   it("keeps the cells edited until editing stops for the delay, then writes them in one edit", async () => {

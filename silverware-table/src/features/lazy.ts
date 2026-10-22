@@ -123,7 +123,7 @@ export class Lazy implements Feature {
     else held.edits.set(id, { ...edit, original });
     if (held.edits.size) this.held.set(info.key, held);
     else this.held.delete(info.key);
-    this.host.looksChanged(info);
+    this.host.looksChanged(info, [{ row: edit.row, column: edit.column }]);
     this.host.toolbarChanged();
     void this.schedule();
     return true;

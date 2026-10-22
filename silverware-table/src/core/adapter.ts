@@ -12,8 +12,8 @@ import type { CellRef, HandlePlace, HeaderRow, LineDrag, PointerTarget, Rect, Si
 import type { MergedLooks } from "./looks.ts";
 
 export interface TableAdapter {
-  /** The features' looks applied to a table's cells and headers; `editing`: the cell edited (its field shows, not a display) */
-  applyLooks(info: WidgetInfo, looks: MergedLooks, editing: CellRef | undefined): void;
+  /** The features' looks applied to a table's cells and headers (`only`: to those); `editing`: the cell edited (its field shows, not a display) */
+  applyLooks(info: WidgetInfo, looks: MergedLooks, editing: CellRef | undefined, only?: readonly CellRef[]): void;
   /** A cell's text as its markdown renders, before any look; undefined: not rendered */
   renderedText(info: WidgetInfo, ref: CellRef): string | undefined;
   /** A whole table's look (the features' merged) applied, what it had before and has no more taken back */

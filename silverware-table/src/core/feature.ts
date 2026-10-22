@@ -418,8 +418,12 @@ export interface ModelHost {
   shownText(info: TableInfo, ref: CellRef): string | undefined;
   /** A cell's value as sorting, filters and copying see it (a look's value, else its text shown; the edited cell's typed text) */
   shownValue(info: TableInfo, ref: CellRef): string | undefined;
-  /** What features want the table's cells to look like changed (Feature.looks): applied anew */
-  looksChanged(info: TableInfo): void;
+  /**
+   * What features want the table's cells to look like changed (Feature.looks):
+   * applied anew to `cells` (none: every cell and header); the view stays as it
+   * is (its order and the rows hidden: a value changed for sorting sorts at the next view)
+   */
+  looksChanged(info: TableInfo, cells?: readonly CellRef[]): void;
   /** What features want the tables to look like as a whole changed (Feature.tableLook: a setting): applied anew to every table shown */
   tableLooksChanged(): void;
   /** A small table for a feature's own UI, with this header and rows, looking as the page's tables do with `look` */

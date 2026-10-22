@@ -928,12 +928,12 @@ export class Controller implements TableHost {
     return cell && this.cellValue(cell);
   }
 
-  looksChanged(info: WidgetInfo): void {
+  looksChanged(info: WidgetInfo, cells?: readonly CellRef[]): void {
     const widget = this.widgetForKey(info.key);
     const now = widget && this.infos.get(widget);
     if (!widget || !now) return;
-    this.applyLooks(now);
-    this.applyView(widget, now);
+    // Only the cells changed: the view (sorting, rows placed, the layout) is a whole table's work
+    this.applyLooks(now, cells);
   }
 
   /** How a table looks as a whole: the features' (Feature.tableLook), a later one's attribute winning */
@@ -950,11 +950,11 @@ export class Controller implements TableHost {
   }
 
   /** The features' looks of the table's cells and headers (core/looks.ts), applied by the adapter */
-  private applyLooks(info: WidgetInfo): void {
+  private applyLooks(info: WidgetInfo, only?: readonly CellRef[]): void {
     const table = this.tableOf(info);
     const active = this.cellEditor.active;
     const editing = active && this.infos.get(active.widget)?.key === info.key ? { row: active.row, column: active.column } : undefined;
-    this.adapter.applyLooks(info, mergeLooks(this.features.map((f) => f.looks?.(info, table))), editing);
+    this.adapter.applyLooks(info, mergeLooks(this.features.map((f) => f.looks?.(info, table))), editing, only);
   }
 
   panel(className: string): Panel {

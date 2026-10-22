@@ -477,8 +477,10 @@ export class Formulas implements Feature {
       const refersElsewhere = referredTableNames(model).size > 0 || referredPages(model).size > 0;
       if (!refersElsewhere && !(withCustom && callsCustomFunctions(model))) continue;
       this.stale.set(info, recalculate(model, tables) !== model);
-      // An error's reason may have changed (another page read)
-      this.host.looksChanged(info);
+      // An error's reason may have changed (another page read): the formula cells' looks
+      const cells: CellRef[] = [];
+      model.rows.forEach((r, row) => r.cells.forEach((raw, column) => (formulaOf(raw) ? cells.push({ row, column }) : undefined)));
+      this.host.looksChanged(info, cells);
     }
     this.host.toolbarChanged();
   }
