@@ -11,7 +11,7 @@ describe("Export", () => {
   });
 
   it("copies the table as CSV from the toolbar's menu, its rows as shown", async () => {
-    await setup('| Name | Note |\n|---|---|\n| Pear | ripe, "sweet" |\n| apple | 10 |\n| Fig | 2 <meta f="=1+1"> |\n');
+    await setup(`| Name | Note |\n|---|---|\n| Pear | ripe, "sweet" |\n| apple | 10 |\n| Fig | 2 <meta f='=1+1'> |\n`);
     let copied = "";
     Object.defineProperty(window.navigator, "clipboard", { value: { writeText: async (t: string) => void (copied = t) }, configurable: true });
     clickOn(cell(0, 0).querySelector(".swt-sort")!);

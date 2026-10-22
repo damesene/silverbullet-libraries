@@ -244,24 +244,39 @@ export function parseMetaRow(line: string): TableMeta | undefined {
   return meta;
 }
 
+// The entities of a value as read (the regexes take it from either quotes):
+// &#39; of a value in apostrophes (metaAttribute), &quot; of one in quotes, as
+// tables written before have them
 export function unescapeMetaValue(value: string): string {
   return value
     .replace(/\\\|/g, "|")
     .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
     .replace(/&gt;/g, ">")
     .replace(/&#92;/g, "\\")
     .replace(/&amp;/g, "&");
 }
 
-// A backslash is written as &#92;, so the only one left escapes a pipe:
-// "\|" in a value would else be "\\|", a pipe that ends the cell
+// For a value in apostrophes (metaAttribute): a formula's quotes ("done") stay
+// as they are, an apostrophe is &#39;. A backslash is written as &#92;, so the
+// only one left escapes a pipe: "\|" in a value would else be "\\|", a pipe
+// that ends the cell
 export function escapeMetaValue(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/\\/g, "&#92;")
-    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
     .replace(/>/g, "&gt;")
     .replace(/\|/g, "\\|");
+}
+
+/**
+ * An attribute of a hidden tag as written, its value always in apostrophes
+ * (valid HTML, and SilverBullet hides such a tag in a cell: verified): values
+ * are mostly formulas, whose texts are in quotes, so they need no escaping
+ */
+export function metaAttribute(name: string, value: string): string {
+  return `${name}='${escapeMetaValue(value)}'`;
 }
 
 /** A table of a page: where it is, and its model */
@@ -285,7 +300,7 @@ export function pageTablesOf(text: string): PageTable[] {
 /** The metadata row for `meta`: one cell, so it never widens a column */
 export function metaRow(indent: string, meta: TableMeta): string {
   const attributes = Object.entries(meta)
-    .map(([name, value]) => ` ${name}="${escapeMetaValue(value)}"`)
+    .map(([name, value]) => ` ${metaAttribute(name, value)}`)
     .join("");
   return `${indent}| <meta${attributes}> |`;
 }

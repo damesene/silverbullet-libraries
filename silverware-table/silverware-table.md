@@ -277,11 +277,12 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 | ----- | --: |
 | Pear  |   3 |
 | Apple |  10 |
-| Total |  13 <meta f="=SUM([qty])"> |
+| Total |  13 <meta f='=SUM([qty])'> |
 ```
 
 * Formulas are metadata, as the sorting stored in a table is: with the setting off, a typed formula is saved as text (Silverware Table says so, and shows it while it is typed). Formulas already in a table keep working: they can be edited, are recalculated, and fill new rows of calculated columns.
-* SilverBullet and browsers show only the result, other renderers (GitHub, Obsidian) drop the tag. Queries over the table (`index.tag "table"`) see the cell's text with the tag, e.g. `13 <meta f="=SUM([qty])">`.
+* SilverBullet and browsers show only the result, other renderers (GitHub, Obsidian) drop the tag. Queries over the table (`index.tag "table"`) see the cell's text with the tag, e.g. `13 <meta f='=SUM([qty])'>`.
+* Hidden tags are written with their values in apostrophes, so the quotes of a formula's texts stay as typed (`<meta f='=IF([@status]="done", "✓", "")'>`); an apostrophe in a value is written `&#39;`. Tags written by hand with quotes (`f="…"`) are read too.
 * Saving a formula fixes mistakes that have only one possible fix, and says what it changed: missing `)` at the end are added (`=SUM(A1:A3` becomes `=SUM(A1:A3)`), a text in quotes or a `[column]` left open at the end is closed, and extra `)` at the very end are dropped. Anything else stays as typed and shows `#ERROR!`.
 * **Calculated columns**: when every row of a column holds the same formula, such as `=[@qty]*[@price]`, a new row (the **+** on a border, Ctrl+Enter, Tab on the last cell, *Insert row*) gets it too. Total rows (with a formula over a whole column, such as `=SUM([qty])`) do not count.
 * Click the cell to edit its formula. Typing a plain value removes the formula. To type a text that starts with `=`, start it with `'=`; such a text opens with the `'` again, so it stays text.
@@ -314,7 +315,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 
 A column can have a name of its own, by which formulas and the stored sorting name it whatever its header says: renaming the header (also in the markdown) breaks nothing, nor references to the column from other pages. Open the column's menu (the ⠿ grip above the column, or right-click its header), click the pencil after its title, type the name (letters, digits and `_`) and press Enter (Esc leaves it as it was); an empty name removes it. A name that cannot be used is refused with why, under the field. Named, the menu's title is the name.
 
-* It is stored in the header cell as a hidden `<meta n="price">`: `| Unit price <meta n="price"> |`. SilverBullet does not show it, and a query still reads the column as `unit_price`. The header has a mark in its corner; hover it for the name.
+* It is stored in the header cell as a hidden `<meta n='price'>`: `| Unit price <meta n='price'> |`. SilverBullet does not show it, and a query still reads the column as `unit_price`. The header has a mark in its corner; hover it for the name.
 * `[price]` is the column with that name before any column whose header is Price, which is then `[price:2]`.
 * Setting or removing it rewrites the references to the column on the page: `[unit_price]` becomes `[price]`.
 * Editing the header changes only the header's text: the column's name stays. It needs the *Store table metadata* setting, as formulas do; *Remove metadata* removes it.
@@ -323,7 +324,7 @@ A column can have a name of its own, by which formulas and the stored sorting na
 
 A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)`, or on another page `[[Prices]]vat`. The name stays with the cell wherever it is moved (also in the markdown), so such references never need to change. Open the cell's menu (right-click it, see [[#Cell menu]]), click the pencil after its title, type the name (letters, digits and `_`) and press Enter; an empty name removes it.
 
-* It is stored in the cell as a hidden `<meta cn="vat">`: `| VAT | 0.21 <meta cn="vat"> |`. A named cell has a mark in its corner; hover it for the name.
+* It is stored in the cell as a hidden `<meta cn='vat'>`: `| VAT | 0.21 <meta cn='vat'> |`. A named cell has a mark in its corner; hover it for the name.
 * A name is the page's: two cells on a page cannot have the same one, and it cannot be a function's name or read as a cell (`A1`). A formula looks for it in its own table first, then in the page's other tables.
 * When a table with named cells is edited, the tables that use them get their new results in the same edit. When the cell is changed in the markdown, *Recalculate* is highlighted.
 * Editing the cell changes its value only: the name stays. It needs the *Store table metadata* setting; *Remove metadata* removes it.
@@ -332,7 +333,7 @@ A cell can have a name, by which formulas on the page use it: `=[@price]*(1+vat)
 
 A row can have a name, by which formulas use its cells: `pear[price]` is the Price cell of the row named pear, `prices!pear[price]` of the table named prices, `[[Shop]]prices!pear[price]` on another page. The name stays with the row wherever it is moved or sorted (also in the markdown), and does not depend on what the row's cells say. Open the row's menu (the ⠿ grip left of the row), click the pencil after its title (*Row 3*, or the row's name), type the name and press Enter; an empty name removes it.
 
-* It is stored in the row's first cell as a hidden `<meta n="pear">`: `| Pear <meta n="pear"> | 12 |`, as a column's name is in its header. A named row has a mark in the top left corner of its first cell; hover it for the name. A first cell that is also a named cell holds both in one tag: `<meta n="pear" cn="first">`.
+* It is stored in the row's first cell as a hidden `<meta n='pear'>`: `| Pear <meta n='pear'> | 12 |`, as a column's name is in its header. A named row has a mark in the top left corner of its first cell; hover it for the name. A first cell that is also a named cell holds both in one tag: `<meta n='pear' cn='first'>`.
 * A row's name is its table's: two rows of a table cannot have the same one. The column after it is written as any column reference (`[price]`, a column's name, `[price:2]`) and follows the column when it is renamed or moved.
 * `XLOOKUP("Pear", prices![name], prices![price])` does the same by a key column's value; a row's name works without one, and is not changed by editing the row's cells.
 * Deleting the column that holds rows' or cells' names removes the names with it: Silverware Table says which and asks first, as the formulas that use them then show `#REF!` or `#NAME?`.
@@ -350,7 +351,7 @@ A formula can use the cells of another table on the same page, once that table h
 ```
 | Fruit | Qty | Total                                                  |
 | ----- | --: | -----------------------------------------------------: |
-| Pear  |   3 | 38.97 <meta f="=[@qty]*XLOOKUP([@fruit], prices![name], prices![price])"> |
+| Pear  |   3 | 38.97 <meta f='=[@qty]*XLOOKUP([@fruit], prices![name], prices![price])'> |
 ```
 
 * `XLOOKUP(value, lookup_range, result_range)` finds a value in one column and gives the one beside it in another: the usual way to take a price, a rate or a name from another table, whatever its order. See [[#Functions]].
@@ -656,9 +657,9 @@ Every edit rewrites the whole table in your page, which takes a moment in a larg
 A theme sets how tables look: their header, the lines between rows and columns, the striping, corners, shadow and spacing. *Native* (the default) leaves tables as SilverBullet shows them.
 
 * **For every table**: the *Theme* setting (`silverware.table.modules.themes.theme`, in *Silverware Table settings…* or `config.set("silverware.table.modules.themes", { theme = "slate" })`).
-* **For one table**: *Theme* in the ⋯ menu of its toolbar picks a theme of its own, stored in the table (`<meta theme="slate">`, needs *Store table metadata*, see [[#Table metadata]]). Hovering a theme there (or moving to it with the arrow keys) shows a small table in it beside the list, with the table's stripes (not for *Global theme*: its theme is the one marked *(default)*). *Global theme*, first in that list, makes the table follow the settings again, its theme and its stripes; a theme (or stripes, the icons under it) picked stays the table's whatever the settings become, also the settings' own one (marked *(default)*).
+* **For one table**: *Theme* in the ⋯ menu of its toolbar picks a theme of its own, stored in the table (`<meta theme='slate'>`, needs *Store table metadata*, see [[#Table metadata]]). Hovering a theme there (or moving to it with the arrow keys) shows a small table in it beside the list, with the table's stripes (not for *Global theme*: its theme is the one marked *(default)*). *Global theme*, first in that list, makes the table follow the settings again, its theme and its stripes; a theme (or stripes, the icons under it) picked stays the table's whatever the settings become, also the settings' own one (marked *(default)*).
 * **Light or dark**: each theme has both, and SilverBullet decides which one shows (its own light or dark mode).
-* **Stripes** are not the theme's: the *Stripes* setting (`silverware.table.modules.themes.stripes`) tints every other row (`rows`, the default, as SilverBullet does), every other column (`columns`) or nothing (`none`), in the theme's color; for one table, the three icons in *Theme* in its ⋯ menu (no stripes, rows, columns) choose (`<meta stripes="columns">`), *Global theme* there the setting's again. It works with *Native* too.
+* **Stripes** are not the theme's: the *Stripes* setting (`silverware.table.modules.themes.stripes`) tints every other row (`rows`, the default, as SilverBullet does), every other column (`columns`) or nothing (`none`), in the theme's color; for one table, the three icons in *Theme* in its ⋯ menu (no stripes, rows, columns) choose (`<meta stripes='columns'>`), *Global theme* there the setting's again. It works with *Native* too.
 * Built in: *Native*, *Plain* (no lines, fills nor bold header: plain text in rows and columns, e.g. for a layout), *Playground* (the look of the Silverware Table playground: a light header, soft striping), *Minimal* (a small-caps header, thin lines, no other fills), *Slate* (a card with rounded corners and a soft shadow, sans-serif type), *Grid* (a spreadsheet, every cell outlined, compact, sans-serif type), *Ocean* (a deep teal header, teal striping), *Paper* (warm tones, serif type), *Contrast* (high contrast: a black header, strong lines, roomy cells), *Compact* (small type, tight cells, for tables of data), *Bold* (thick lines, square corners, a hard shadow, yellow on black), *Soft* (airy: a pastel header, large corners, rounded type where the device has it), *Ledger* (an account book: lines between columns, green-bar stripes, figures in a monospace font, so they line up).
 * The `themes` module can be turned off (see [[#Modules]]): tables look as SilverBullet shows them, and a theme stored in a table is kept but not used.
 
@@ -806,7 +807,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("silverwa
 
 ## Table names
 
-A table can have a name, so formulas in other tables can refer to it. Open the ⋯ menu of the table's toolbar, click the pencil after its title, type the name and press Enter; an empty name removes it. Named, the menu's title is *Table: name*, and the name shows at the toolbar's left: a click on it opens the menu with the name to type. The name is stored in the table's metadata row (`<meta name="prices">`), so it needs the *Store table metadata* setting, or a table that has a metadata row already.
+A table can have a name, so formulas in other tables can refer to it. Open the ⋯ menu of the table's toolbar, click the pencil after its title, type the name and press Enter; an empty name removes it. Named, the menu's title is *Table: name*, and the name shows at the toolbar's left: a click on it opens the menu with the name to type. The name is stored in the table's metadata row (`<meta name='prices'>`), so it needs the *Store table metadata* setting, or a table that has a metadata row already.
 
 * A name is letters, digits and `_`, not starting with a digit, e.g. `prices` or `price_list`. Names that read as a cell (`A1`, `AB12`) or as `TRUE` / `FALSE` are refused.
 * Names are compared ignoring case, and two tables on a page cannot have the same name.
@@ -823,7 +824,7 @@ With the *Store table metadata* setting on, Silverware Table stores a table's se
 | Pear  |   3 |
 | Apple |  10 |
 | Total |  13 |
-| <meta sort.qty="desc" pin-bottom="1"> |
+| <meta sort.qty='desc' pin-bottom='1'> |
 ```
 
 * `sort.qty` is the sorting (by the column Qty, `asc` or `desc`), `filter.qty` a column's filter (as typed), `pin-top`, `pin-bottom`, `pin-left` and `pin-right` how many rows (columns) at each edge are pinned, `name` the table's name (see [[#Table names]]), `theme` its own theme and `stripes` its stripes (`rows`, `columns` or `none`, see [[#Themes]]).

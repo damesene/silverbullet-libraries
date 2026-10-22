@@ -1,7 +1,7 @@
 // Formulas in table cells. `=SUM(A1:A3)` typed into a cell is stored as its
-// result followed by a `<meta f="…">` tag that holds the formula:
+// result followed by a `<meta f='…'>` tag that holds the formula:
 //
-//   | Total | 19 <meta f="=SUM(B1:B3)"> |
+//   | Total | 19 <meta f='=SUM(B1:B3)'> |
 //
 // Browsers do not show <meta> and other renderers drop it, so the result is
 // what every reader of the markdown sees. Silverware Table writes the results again
@@ -12,7 +12,7 @@
 // that whole column, such as a total below it), [@Qty] the Qty cell of the
 // formula's own row. Columns are named as columns.ts names them: of several
 // columns named Qty, [Qty:2] is the second. Another table of the page, named
-// in its metadata row (<meta name="prices">), is referred to by its name and
+// in its metadata row (<meta name='prices'>), is referred to by its name and
 // "!": prices!B2, prices!A1:B3, prices![Price].
 //
 // This is the formulas' API for the rest of Silverware Table; the parts are the

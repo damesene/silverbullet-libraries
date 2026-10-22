@@ -29,7 +29,7 @@ describe("parseClipboardCells", () => {
 });
 
 const TABLE = parseTable(
-  ["| Name | Qty |", "|---|---|", "| Pear | 3 |", "| Apple | 10 |", '| Total | 13 <meta f="=SUM([qty])"> |'].join("\n"),
+  ["| Name | Qty |", "|---|---|", "| Pear | 3 |", "| Apple | 10 |", `| Total | 13 <meta f='=SUM([qty])'> |`].join("\n"),
 );
 
 function paste(data: string[][], at: { row: number; column: number }, insert = false, pins = NO_PINS) {
@@ -55,7 +55,7 @@ describe("pasting cells", () => {
     );
     expect(result).toMatchObject({ skipped: 1 });
     expect("markdown" in result && result.markdown).toBe(
-      ["| Name | Qty |", "|---|---|", "| Fig | 2 |", "| Plum | 5 |", '| Kiwi | 13 <meta f="=SUM([qty])"> |'].join("\n"),
+      ["| Name | Qty |", "|---|---|", "| Fig | 2 |", "| Plum | 5 |", `| Kiwi | 13 <meta f='=SUM([qty])'> |`].join("\n"),
     );
   });
 
@@ -76,7 +76,7 @@ describe("pasting cells", () => {
         "| Pear | 3 | |",
         "| Fig | 2 | red |",
         "| Plum | 5 | blue |",
-        '| Total | 13 <meta f="=SUM([qty])"> | |',
+        `| Total | 13 <meta f='=SUM([qty])'> | |`,
       ].join("\n"),
     );
     expect("plan" in result && result.plan.newRows).toEqual({ at: 3, count: 1 });
@@ -100,7 +100,7 @@ describe("pasting cells", () => {
         "| Fig | 2 |",
         "| Plum | 5 |",
         "| Apple | 10 |",
-        '| Total | 13 <meta f="=SUM([qty])"> |',
+        `| Total | 13 <meta f='=SUM([qty])'> |`,
       ].join("\n"),
     );
   });
@@ -114,7 +114,7 @@ describe("pasting cells", () => {
       { row: 0, column: 0 },
     );
     expect("markdown" in result && result.markdown).toBe(
-      ["| Fruit | Qty |", "|---|---|", "| Fig | 2 |", "| Apple | 10 |", '| Total | 13 <meta f="=SUM([qty])"> |'].join("\n"),
+      ["| Fruit | Qty |", "|---|---|", "| Fig | 2 |", "| Apple | 10 |", `| Total | 13 <meta f='=SUM([qty])'> |`].join("\n"),
     );
   });
 

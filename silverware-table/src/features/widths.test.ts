@@ -24,7 +24,7 @@ describe("Column widths", () => {
     // Moving back and forth: the width follows the pointer from the press, at least 40px
     drag(0, 120, [30, 300, -200, 60]);
     await flush();
-    expect(text).toBe(`${PAGE}| <meta width.name="180"> |\n`);
+    expect(text).toBe(`${PAGE}| <meta width.name='180'> |\n`);
     await controller.scan();
     expect(cell(0, 0).style.width).toBe("180px");
     expect(cell(1, 0).style.width).toBe("180px");
@@ -34,7 +34,7 @@ describe("Column widths", () => {
   });
 
   it("goes back to the automatic width on a double-click, the stored width removed", async () => {
-    await setup(`${PAGE}| <meta width.qty="90"> |\n`, { "silverware.table.metadata": true });
+    await setup(`${PAGE}| <meta width.qty='90'> |\n`, { "silverware.table.metadata": true });
     expect(cell(0, 1).style.width).toBe("90px");
     // The second press of a double-click, released where it was pressed
     Object.defineProperty(cell(0, 1), "getBoundingClientRect", { configurable: true, value: () => new DOMRect(0, 0, 90, 30) });
@@ -54,7 +54,7 @@ describe("Column widths", () => {
     window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, cancelable: true, buttons: 1, clientX: 150 }));
     window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 150, detail: 2 }));
     await flush();
-    expect(text).toBe(`${PAGE}| <meta width.name="150"> |\n`);
+    expect(text).toBe(`${PAGE}| <meta width.name='150'> |\n`);
     await controller.scan();
     // Released outside the window (no mouseup): the next move, without the button, ends it there
     Object.defineProperty(cell(0, 0), "getBoundingClientRect", { configurable: true, value: () => new DOMRect(0, 0, 150, 30) });
@@ -62,7 +62,7 @@ describe("Column widths", () => {
     window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, cancelable: true, buttons: 1, clientX: 120 }));
     window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, cancelable: true, buttons: 0, clientX: 300 }));
     await flush();
-    expect(text).toBe(`${PAGE}| <meta width.name="170"> |\n`);
+    expect(text).toBe(`${PAGE}| <meta width.name='170'> |\n`);
     expect(document.body.classList.contains("swt-resizing")).toBe(false);
   });
 
@@ -80,7 +80,7 @@ describe("Column widths", () => {
       await controller.scan();
     }
     expect(text).toContain("| Plum | 3 |");
-    expect(text).toContain('<meta width.qty="100">');
+    expect(text).toContain(`<meta width.qty='100'>`);
   });
 
   it("keeps the handle in a header cell being edited (it shows there, quiet, as on hover)", async () => {
@@ -94,14 +94,14 @@ describe("Column widths", () => {
   });
 
   it("resets every column's width from the table's menu, right before Remove metadata, the rest of the metadata kept", async () => {
-    await setup(`${PAGE}| <meta width.name="180" width.qty="90" sort.qty="desc"> |
+    await setup(`${PAGE}| <meta width.name='180' width.qty='90' sort.qty='desc'> |
 `, { "silverware.table.metadata": true });
     tableMenuItem(/^Edit markdown$/);
     const labels = Array.from(document.querySelectorAll(".swt-menu .swt-menu-item")).map((e) => e.textContent);
     expect(labels.slice(-2)).toEqual(["Reset column widths", "Remove metadata"]);
     tableMenuItem(/^Reset column widths$/)!.click();
     await flush();
-    expect(text).toBe(`${PAGE}| <meta sort.qty="desc"> |
+    expect(text).toBe(`${PAGE}| <meta sort.qty='desc'> |
 `);
     await controller.scan();
     expect(cell(0, 0).style.width).toBe("");
@@ -126,7 +126,7 @@ describe("Column widths", () => {
 
   it("reads no style of columns without a width (between the writes of a view, every read makes the browser compute the table again)", async () => {
     const read = vi.spyOn(window, "getComputedStyle");
-    await setup(`${PAGE}| <meta width.qty="90"> |\n`, { "silverware.table.metadata": true });
+    await setup(`${PAGE}| <meta width.qty='90'> |\n`, { "silverware.table.metadata": true });
     const header = editor.querySelector("table")!.rows[0]!;
     const of = (column: number) => read.mock.calls.filter(([element]) => element === header.cells[column]).length;
     expect(of(0)).toBe(0);
@@ -147,7 +147,7 @@ describe("Column widths", () => {
   });
 
   it("keeps a press on the edge from selecting or editing the header, and a stored width with its column when it moves", async () => {
-    await setup(`| Name | Qty |\n|---|---|\n| Pear | 3 |\n| <meta width.qty="90"> |\n`, { "silverware.table.metadata": true });
+    await setup(`| Name | Qty |\n|---|---|\n| Pear | 3 |\n| <meta width.qty='90'> |\n`, { "silverware.table.metadata": true });
     const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, detail: 1 });
     Object.defineProperty(cell(0, 1), "getBoundingClientRect", { configurable: true, value: () => new DOMRect(0, 0, 90, 30) });
     handle(1).dispatchEvent(down);
@@ -160,7 +160,7 @@ describe("Column widths", () => {
       columnMap: (c) => (c === 0 ? 1 : 0),
     });
     await controller.scan();
-    expect(text).toContain('<meta width.qty="90">');
+    expect(text).toContain(`<meta width.qty='90'>`);
     expect(cell(0, 0).style.width).toBe("90px");
   });
 });

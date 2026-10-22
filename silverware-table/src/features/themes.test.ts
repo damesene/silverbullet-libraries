@@ -11,7 +11,7 @@ describe("Themes", () => {
   const widget = () => editor.querySelector<HTMLElement>(".sb-table-widget")!;
   const menuLabels = () => Array.from(document.querySelectorAll(".swt-menu .swt-menu-item, .swt-menu .swt-menu-separator")).map((e) => e.textContent || "—");
   const checked = () => Array.from(document.querySelectorAll('.swt-menu .swt-menu-item[aria-checked="true"]')).map((e) => e.textContent);
-  const META = '| Name | Qty |\n|---|---|\n| Pear | 3 |\n| <meta theme="ocean"> |\n';
+  const META = `| Name | Qty |\n|---|---|\n| Pear | 3 |\n| <meta theme='ocean'> |\n`;
 
   it("marks every table with the setting's theme; native leaves it unmarked", async () => {
     await setup(PAGE, { "silverware.table.modules.themes.theme": "slate" });
@@ -43,7 +43,7 @@ describe("Themes", () => {
     Array.from(document.querySelectorAll<HTMLElement>(".swt-menu .swt-menu-item")).find((b) => b.textContent === "Paper")!.click();
     await flush();
     await controller.scan();
-    expect(text).toBe(`${PAGE}| <meta theme="paper"> |\n`);
+    expect(text).toBe(`${PAGE}| <meta theme='paper'> |\n`);
     expect(widget().dataset.swtTheme).toBe("paper");
     // Native for this table, though the setting's is another
     tableMenuItem(/^Theme/)!.click();
@@ -67,14 +67,14 @@ describe("Themes", () => {
     expect(widget().dataset.swtTheme).toBeUndefined();
     controller.stop();
     document.body.replaceChildren();
-    await setup('| A |\n|---|\n| 1 |\n| <meta stripes="rows" theme="grid"> |\n', { "silverware.table.modules.themes.stripes": "none" });
+    await setup(`| A |\n|---|\n| 1 |\n| <meta stripes='rows' theme='grid'> |\n`, { "silverware.table.modules.themes.stripes": "none" });
     await flush();
     // Rows: SilverBullet's own, no mark
     expect(widget().dataset.swtStripes).toBeUndefined();
     expect(widget().dataset.swtTheme).toBe("grid");
     controller.stop();
     document.body.replaceChildren();
-    await setup('| A |\n|---|\n| 1 |\n| <meta stripes="columns"> |\n');
+    await setup(`| A |\n|---|\n| 1 |\n| <meta stripes='columns'> |\n`);
     await flush();
     expect(widget().dataset.swtStripes).toBe("columns");
   });
@@ -93,7 +93,7 @@ describe("Themes", () => {
     await flush();
     await controller.scan();
     expect(document.querySelector(".swt-menu")).toBeNull();
-    expect(text).toBe(`${PAGE}| <meta stripes="columns"> |\n`);
+    expect(text).toBe(`${PAGE}| <meta stripes='columns'> |\n`);
     expect(widget().dataset.swtStripes).toBe("columns");
     // Rows, as the setting: kept as the table's own
     tableMenuItem(/^Theme/)!.click();
@@ -102,12 +102,12 @@ describe("Themes", () => {
     segments()[1]!.click();
     await flush();
     await controller.scan();
-    expect(text).toBe(`${PAGE}| <meta stripes="rows"> |\n`);
+    expect(text).toBe(`${PAGE}| <meta stripes='rows'> |\n`);
     tableMenuItem(/^Theme/)!.click();
     pick("Ocean");
     await flush();
     await controller.scan();
-    expect(text).toBe(`${PAGE}| <meta stripes="rows" theme="ocean"> |\n`);
+    expect(text).toBe(`${PAGE}| <meta stripes='rows' theme='ocean'> |\n`);
     // Global theme: both go, in one edit
     tableMenuItem(/^Theme/)!.click();
     Array.from(document.querySelectorAll<HTMLElement>(".swt-menu .swt-menu-item")).find((b) => b.textContent?.startsWith("Global theme"))!.click();

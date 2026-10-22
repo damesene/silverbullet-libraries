@@ -1,6 +1,6 @@
-// A formula in a cell: its result followed by a hidden <meta f="…"> holding
+// A formula in a cell: its result followed by a hidden <meta f='…'> holding
 // the formula, and the formula cells of a table.
-import { escapeCell, escapeMetaValue, type Table, unescapeMetaValue } from "../markdown.ts";
+import { escapeCell, metaAttribute, type Table, unescapeMetaValue } from "../markdown.ts";
 import { cellNameOf, withCellName } from "../names.ts";
 import { withoutTags } from "../tags.ts";
 import { ERROR_CODES } from "./values.ts";
@@ -31,7 +31,7 @@ export function formulaOf(cell: string): StoredFormula | undefined {
 
 /** A cell holding `formula`, showing `value` (plain text), and named `name` if given */
 export function formulaCell(value: string, formula: string, name?: string): string {
-  const tag = `<meta f="${escapeMetaValue(formula)}">`;
+  const tag = `<meta ${metaAttribute("f", formula)}>`;
   const shown = escapeCell(value);
   return withCellName(shown === "" ? tag : `${shown} ${tag}`, name);
 }

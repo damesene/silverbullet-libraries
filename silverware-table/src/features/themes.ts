@@ -59,7 +59,7 @@ export class Themes implements Feature {
     }
   }
 
-  // Before the browser lays the table out: its metadata row's choices as rendered (<meta theme="…" stripes="…">), else the settings'
+  // Before the browser lays the table out: its metadata row's choices as rendered (<meta theme='…' stripes='…'>), else the settings'
   tableAdded(widget: HTMLElement, _table: HTMLTableElement, rows: readonly HTMLTableRowElement[]): void {
     const meta = rows[rows.length - 1]?.querySelector("meta");
     this.mark(widget, themeName(meta?.getAttribute("theme")) ?? this.theme, stripesName(meta?.getAttribute("stripes")) ?? this.stripes);

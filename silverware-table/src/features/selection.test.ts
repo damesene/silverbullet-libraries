@@ -37,7 +37,7 @@ describe("Selecting cells", () => {
   });
 
   it("selects the cells dragged across and copies them for a spreadsheet", async () => {
-    await setup('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| a "b" | 10 <meta f="=5*2"> |\n| Fig | 2 |\n');
+    await setup(`| Name | Qty |\n|---|---|\n| Pear | 3 |\n| a "b" | 10 <meta f='=5*2'> |\n| Fig | 2 |\n`);
     drag(cell(0, 0), cell(2, 1));
     await flush();
     expect(editor.querySelector(".swt-cell-editor")).toBeNull();
@@ -67,17 +67,17 @@ describe("Selecting cells", () => {
   });
 
   it("keeps the hidden tags the formulas module would take when it is off", async () => {
-    const TAGGED = '| Name | Qty |\n|---|---|\n| Pear <meta n="pear"> | 3 |\n| Fig | 2 <meta f="=1+1"> |\n';
+    const TAGGED = `| Name | Qty |\n|---|---|\n| Pear <meta n='pear'> | 3 |\n| Fig | 2 <meta f='=1+1'> |\n`;
     await setup(TAGGED, { "silverware.table.modules.formulas.enabled": false });
     drag(cell(1, 0), cell(2, 1));
     key(editor, "Delete");
     await flush();
     // Nothing recalculated: the cell empty, its formula kept for when formulas are on
-    expect(text).toBe('| Name | Qty |\n|---|---|\n| <meta n="pear"> | |\n| | <meta f="=1+1"> |\n');
+    expect(text).toBe(`| Name | Qty |\n|---|---|\n| <meta n='pear'> | |\n| | <meta f='=1+1'> |\n`);
   });
 
   it("empties the selected cells with Delete, formulas included, keeping the header", async () => {
-    await setup('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f="=1+1"> |\n| Plum | 5 |\n');
+    await setup(`| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f='=1+1'> |\n| Plum | 5 |\n`);
     drag(cell(0, 1), cell(2, 1));
     key(editor, "Delete");
     await flush();
@@ -350,7 +350,7 @@ describe("Selecting cells", () => {
   });
 
   describe("moving the cells selected", () => {
-    const GRID = '| A | B |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| 3 | 4 |\n| 5 <meta n="five"> | 6 |\n| | |\n';
+    const GRID = `| A | B |\n|---|---|\n| 1 | 2 <meta f='=A1*2'> |\n| 3 | 4 |\n| 5 <meta n='five'> | 6 |\n| | |\n`;
     const info = () => controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!;
     const under = (target: Element) => Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => target });
     const edge = () => editor.querySelector<HTMLElement>(".swt-select-edge-right")!;
@@ -368,7 +368,7 @@ describe("Selecting cells", () => {
         window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
         await flush();
         // The formula keeps its reference as written: A1, now empty
-        expect(text).toBe('| A | B |\n|---|---|\n| | |\n| 3 | 4 |\n| 1 <meta n="five"> | 0 <meta f="=A1*2"> |\n| | |\n');
+        expect(text).toBe(`| A | B |\n|---|---|\n| | |\n| 3 | 4 |\n| 1 <meta n='five'> | 0 <meta f='=A1*2'> |\n| | |\n`);
         await controller.scan();
         // Copied back with Ctrl: the formula's reference moved with it
         controller.selectCells(info(), { row: 3, column: 0 }, { row: 3, column: 1 });
@@ -378,8 +378,8 @@ describe("Selecting cells", () => {
         expect(document.querySelector(".swt-move-tip")!.textContent).toBe("+ A4:B4");
         window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, ctrlKey: true }));
         await flush();
-        expect(text).toContain('| 1 | 6 <meta f="=A2*2"> |');
-        expect(text).toContain('| 1 <meta n="five"> | 0 <meta f="=A1*2"> |');
+        expect(text).toContain(`| 1 | 6 <meta f='=A2*2'> |`);
+        expect(text).toContain(`| 1 <meta n='five'> | 0 <meta f='=A1*2'> |`);
       } finally {
         delete (document as { elementFromPoint?: unknown }).elementFromPoint;
       }
@@ -413,7 +413,7 @@ describe("Selecting cells", () => {
       expect(outlined()).toEqual([]);
       expect(document.querySelector(".swt-move-tip.swt-visible")).toBeNull();
       await flush();
-      expect(text).toBe('| A | B |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| | 4 |\n| <meta n="five"> | 3 |\n| | 5 |\n');
+      expect(text).toBe(`| A | B |\n|---|---|\n| 1 | 2 <meta f='=A1*2'> |\n| | 4 |\n| <meta n='five'> | 3 |\n| | 5 |\n`);
     });
   });
 

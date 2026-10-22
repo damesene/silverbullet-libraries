@@ -140,7 +140,7 @@ describe("Column types", () => {
 
   it("shows a formula's result in its column's type", async () => {
     await setup(
-      '| Item | Price #currency-usd |\n|---|---|\n| Pear | 12.99 |\n| Fig | 3.5 |\n| Total | 16.49 <meta f="=SUM([price])"> |\n',
+      `| Item | Price #currency-usd |\n|---|---|\n| Pear | 12.99 |\n| Fig | 3.5 |\n| Total | 16.49 <meta f='=SUM([price])'> |\n`,
     );
     expect(cell(3, 1).textContent).toBe(usd(16.49));
     expect(cell(3, 1).classList.contains("swt-formula")).toBe(true);

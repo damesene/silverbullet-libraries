@@ -14,9 +14,9 @@ const SHOP = parseTable(
   [
     "| Fruit | Qty | Price | Unit |",
     "|---|---|---|---|",
-    '| Pear <meta n="pear"> | 3 | 12,50 | d |',
-    '| Apple | 10 | 4,50 <meta cn="vat"> | w |',
-    '| Total | 13 <meta f="=SUM([qty])"> | | |',
+    `| Pear <meta n='pear'> | 3 | 12,50 | d |`,
+    `| Apple | 10 | 4,50 <meta cn='vat'> | w |`,
+    `| Total | 13 <meta f='=SUM([qty])'> | | |`,
   ].join("\n"),
 );
 // The formula as Excel writes it in the body cell (row, column), or why not
@@ -90,7 +90,7 @@ describe("Excel's formulas", () => {
     }
     expect(write("=ABS(B1)")).toBe("ABS(B2)");
     // Total rows between a column's rows
-    const split = parseTable(["| Qty |", "|---|", "| 1 |", '| 1 <meta f="=SUM([qty])"> |', "| 2 |"].join("\n"));
+    const split = parseTable(["| Qty |", "|---|", "| 1 |", `| 1 <meta f='=SUM([qty])'> |`, "| 2 |"].join("\n"));
     expect(excelFormula("=SUM([qty])", split, 2, 0)).toEqual({ reason: "[qty] has total rows between its rows" });
   });
 

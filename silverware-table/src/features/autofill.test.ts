@@ -170,17 +170,17 @@ describe("AutoFill", () => {
   });
 
   it("copies a formula with its references moved", async () => {
-    await setup("| N | Twice |\n|---|---|\n| 1 | 2 <meta f=\"=A1*2\"> |\n| 5 | |\n| 7 | |\n", { "silverware.table.metadata": true });
+    await setup("| N | Twice |\n|---|---|\n| 1 | 2 <meta f='=A1*2'> |\n| 5 | |\n| 7 | |\n", { "silverware.table.metadata": true });
     select({ row: 1, column: 1 }, { row: 1, column: 1 });
     press();
     pointer(window, "pointermove", 150, 70);
     pointer(window, "pointerup", 150, 70);
     await flush();
-    expect(text).toBe('| N | Twice |\n|---|---|\n| 1 | 2 <meta f="=A1*2"> |\n| 5 | 10 <meta f="=A2*2"> |\n| 7 | 14 <meta f="=A3*2"> |\n');
+    expect(text).toBe(`| N | Twice |\n|---|---|\n| 1 | 2 <meta f='=A1*2'> |\n| 5 | 10 <meta f='=A2*2'> |\n| 7 | 14 <meta f='=A3*2'> |\n`);
   });
 
   it("stops before pinned rows, ends a drag taken away without filling, and fills down to the end without a value beside", async () => {
-    await setup('| N | Day |\n|---|---|\n| 1 | Mon |\n| 2 | |\n| 3 | |\n| Total | x |\n| <meta pin-bottom="1"> |\n', { "silverware.table.metadata": true });
+    await setup(`| N | Day |\n|---|---|\n| 1 | Mon |\n| 2 | |\n| 3 | |\n| Total | x |\n| <meta pin-bottom='1'> |\n`, { "silverware.table.metadata": true });
     select({ row: 1, column: 1 }, { row: 1, column: 1 });
     // Dragged over the total row (row 4, y 80–100): the fill stops before it
     press();

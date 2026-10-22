@@ -119,12 +119,12 @@ describe("parseTable / serializeTable", () => {
   });
 
   it("lines up a formatted table as it shows: hidden tags take no room", () => {
-    const table = { ...parseTable('|A|B|\n|-|-|\n|1 <meta f="=2-1">|x|\n|10|y|'), padded: true };
-    expect(serializeTable(table)).toBe(['| A   | B   |', '| --- | --- |', '| 1 <meta f="=2-1">  | x   |', '| 10  | y   |'].join("\n"));
+    const table = { ...parseTable(`|A|B|\n|-|-|\n|1 <meta f='=2-1'>|x|\n|10|y|`), padded: true };
+    expect(serializeTable(table)).toBe(['| A   | B   |', '| --- | --- |', `| 1 <meta f='=2-1'>  | x   |`, '| 10  | y   |'].join("\n"));
     // Read again, it is a formatted table
     expect(parseTable(serializeTable(table)).padded).toBe(true);
     // Padded by its text as written (another tool), it is one too
-    expect(parseTable(['| A                 | B   |', '| ----------------- | --- |', '| 1 <meta f="=2-1"> | x   |', '| 10                | y   |'].join("\n")).padded).toBe(true);
+    expect(parseTable(['| A                 | B   |', '| ----------------- | --- |', `| 1 <meta f='=2-1'> | x   |`, '| 10                | y   |'].join("\n")).padded).toBe(true);
   });
 
   it("keeps an aligned table aligned", () => {

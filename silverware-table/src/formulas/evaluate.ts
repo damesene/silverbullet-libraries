@@ -1,6 +1,6 @@
 // Calculating formulas: a table's cells as a sheet, the other tables they
 // refer to as a book, results and the reasons of errors.
-import { type Table, unescapeCell } from "../markdown.ts";
+import { escapeCell, type Table, unescapeCell } from "../markdown.ts";
 import { namedCells, namedRows } from "../names.ts";
 import { setCell } from "../ops.ts";
 import { keepTags, withoutTags } from "../tags.ts";
@@ -411,8 +411,11 @@ export function recalculate(table: Table, tables?: TableSource): Table {
       const stored = formulaOf(cell);
       // A result kept as it is written (a link to a page not read)
       if (!stored || (book.keepsResult(stored.formula) && stored.value.trim() !== "")) return;
-      const updated = keepTags(formulaCell(sheet.text(r - 1, c, stored.formula), stored.formula), cell);
-      if (updated !== cell) result = setCell(result, r, c, updated);
+      // Up to date when the result written is the one calculated: the cell's tag as
+      // written stays (a table written before tags' values went into apostrophes too)
+      const text = sheet.text(r - 1, c, stored.formula);
+      if (escapeCell(text) === stored.value) return;
+      result = setCell(result, r, c, keepTags(formulaCell(text, stored.formula), cell));
     });
   });
   return result;

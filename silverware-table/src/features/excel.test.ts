@@ -44,11 +44,11 @@ describe("Excel", () => {
     "|---|---|---|",
     "| Pear | 3 | 12,50 € |",
     "| Apple | 10 | 4,50 € |",
-    '| Total | 13 <meta f="=SUM([qty])"> | |',
-    '| <meta name="shop"> |',
+    `| Total | 13 <meta f='=SUM([qty])'> | |`,
+    `| <meta name='shop'> |`,
     "",
   ].join("\n");
-  const VAT = ["| Fruit | Qty |", "|---|---|", "| Pear | 3 |", '| Total | 6 <meta f="=VAT([qty])"> |', ""].join("\n");
+  const VAT = ["| Fruit | Qty |", "|---|---|", "| Pear | 3 |", `| Total | 6 <meta f='=VAT([qty])'> |`, ""].join("\n");
 
   it("downloads the whole table as an .xlsx file named after it, with its formulas, and says so", async () => {
     await setup(SHOP);
@@ -143,7 +143,7 @@ describe("Excel", () => {
   });
 
   it("lists at most 50 kinds of formulas written as values, and says how many more", async () => {
-    const rows = Array.from({ length: 60 }, (_, i) => `| ${i} | 1 <meta f="=NOPE${i}(1)"> |`);
+    const rows = Array.from({ length: 60 }, (_, i) => `| ${i} | 1 <meta f='=NOPE${i}(1)'> |`);
     await setup(["| N | X |", "|---|---|", ...rows, ""].join("\n"));
     await open();
     expect(formulas().querySelector(".swt-excel-formulas-title")!.textContent).toBe("60 formulas of 60 will be written as their values (cells as Excel names them):");

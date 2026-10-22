@@ -102,20 +102,20 @@ describe("custom functions", () => {
   it("are called by formulas, replace a built-in function of their name, and are forgotten when cleared", () => {
     defineCustomFunctions([only([{ name: "VAT", syntax: "VAT(amount)", description: "With VAT.", minArgs: 1, maxArgs: 1, call: ([a]: Value[]) => (toNumber(a!) as number) * 2 }])]);
     defineCustomFunctions([only([{ name: "ABS", call: () => "own" }])]);
-    const table = parseTable('| A | B | C |\n|---|---|---|\n| 5 | <meta f="=VAT(A1)"> | <meta f="=ABS(-1)"> |\n');
-    expect(recalculate(table).rows[1]!.cells.slice(1)).toEqual(['10 <meta f="=VAT(A1)">', 'own <meta f="=ABS(-1)">']);
+    const table = parseTable(`| A | B | C |\n|---|---|---|\n| 5 | <meta f='=VAT(A1)'> | <meta f='=ABS(-1)'> |\n`);
+    expect(recalculate(table).rows[1]!.cells.slice(1)).toEqual([`10 <meta f='=VAT(A1)'>`, `own <meta f='=ABS(-1)'>`]);
     expect(functionNames()).toContain("VAT");
     expect(functionChoices("=VA", 3, 3)).toEqual({ from: 1, to: 3, names: ["VAT"] });
     expect(formulaHelp("=VAT(", 5)).toEqual({ syntax: "VAT(amount)", description: "With VAT.", argument: { from: 4, to: 10 } });
     // Arguments counted as for built-in functions
-    const wrong = recalculate(parseTable('| A |\n|---|\n| <meta f="=VAT()"> |\n'));
-    expect(wrong.rows[1]!.cells[0]).toBe('#VALUE! <meta f="=VAT()">');
+    const wrong = recalculate(parseTable(`| A |\n|---|\n| <meta f='=VAT()'> |\n`));
+    expect(wrong.rows[1]!.cells[0]).toBe(`#VALUE! <meta f='=VAT()'>`);
     // The built-in one's help gives way too
     expect(formulaHelp("=ABS(", 5)).toEqual({ syntax: "ABS(…)", description: "", argument: { from: 4, to: 5 } });
     clearCustomFunctions();
     expect(functionNamed("VAT")).toBeUndefined();
     expect(functionNamed("ABS")).toBe(BUILT_IN_FUNCTIONS.ABS);
-    expect(recalculate(table).rows[1]!.cells[1]).toBe('#NAME? <meta f="=VAT(A1)">');
+    expect(recalculate(table).rows[1]!.cells[1]).toBe(`#NAME? <meta f='=VAT(A1)'>`);
   });
 
   it("keeps the functions of before until Space Lua defines its own again", () => {

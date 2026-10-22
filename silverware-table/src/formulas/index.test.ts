@@ -60,11 +60,29 @@ const FRUIT = [
 
 describe("formulas in cells", () => {
   it("stores the result with the formula in a <meta> tag", () => {
-    expect(formulaCell("19", '=IF(A1>1,"a|b","c")')).toBe('19 <meta f="=IF(A1&gt;1,&quot;a\\|b&quot;,&quot;c&quot;)">');
-    expect(formulaOf('19 <meta f="=IF(A1&gt;1,&quot;a\\|b&quot;,&quot;c&quot;)">')).toEqual({
+    expect(formulaCell("19", '=IF(A1>1,"a|b","c")')).toBe(`19 <meta f='=IF(A1&gt;1,"a\\|b","c")'>`);
+    expect(formulaOf(`19 <meta f='=IF(A1&gt;1,"a\\|b","c")'>`)).toEqual({
       formula: '=IF(A1>1,"a|b","c")',
       value: "19",
     });
+  });
+
+  it("writes an apostrophe in a formula as &#39;, its quotes as they are", () => {
+    const cell = formulaCell("it's", `="it's"&" done"`);
+    expect(cell).toBe(`it's <meta f='="it&#39;s"&amp;" done"'>`);
+    expect(formulaOf(cell)?.formula).toBe(`="it's"&" done"`);
+  });
+
+  it("leaves a table written in quotes as it is while its results are right, and writes a changed result in apostrophes", () => {
+    const table = parseTable('| A | B |\n|---|---|\n| 2 | 4 <meta f="=A1*2"> |\n| 3 | x <meta f="=IF(A2&gt;1,&quot;big&quot;,&quot;&quot;)"> |\n');
+    expect(recalculate(table)).not.toBe(table);
+    const right = parseTable('| A | B |\n|---|---|\n| 2 | 4 <meta f="=A1*2"> |\n| 3 | big <meta f="=IF(A2&gt;1,&quot;big&quot;,&quot;&quot;)"> |\n');
+    expect(recalculate(right)).toBe(right);
+    expect(recalculate(table).rows[2]!.cells[1]).toBe(`big <meta f='=IF(A2&gt;1,"big","")'>`);
+  });
+
+  it("reads a formula written in quotes, as tables before apostrophes have it", () => {
+    expect(formulaOf('19 <meta f="=IF(A1&gt;1,&quot;it&#39;s&quot;,&quot;c&quot;)">')?.formula).toBe(`=IF(A1>1,"it's","c")`);
   });
 
   it("keeps backslashes and pipes in a formula without breaking the row", () => {
@@ -75,18 +93,18 @@ describe("formulas in cells", () => {
   });
 
   it("takes the last tag as the formula when the result contains the text of one", () => {
-    expect(formulaOf('<meta f="=1"> <meta f="=2">')!.formula).toBe("=2");
+    expect(formulaOf(`<meta f='=1'> <meta f='=2'>`)!.formula).toBe("=2");
   });
 
   it("reads the tag before the value, self-closing and in single quotes", () => {
-    expect(formulaOf('<meta f="=1+1"> 2')).toEqual({ formula: "=1+1", value: "2" });
+    expect(formulaOf(`<meta f='=1+1'> 2`)).toEqual({ formula: "=1+1", value: "2" });
     expect(formulaOf("2 <meta f='=1+1' />")).toEqual({ formula: "=1+1", value: "2" });
     expect(formulaOf("plain")).toBeUndefined();
   });
 
   it("keeps a formula with an empty result apart from the metadata row", () => {
-    expect(parseMetaRow('| <meta f="=A1"> |')).toBeUndefined();
-    expect(parseMetaRow('| <meta sort="Qty:desc"> |')).toEqual({ sort: "Qty:desc" });
+    expect(parseMetaRow(`| <meta f='=A1'> |`)).toBeUndefined();
+    expect(parseMetaRow(`| <meta sort='Qty:desc'> |`)).toEqual({ sort: "Qty:desc" });
   });
 
   it("knows typed formulas", () => {
@@ -297,7 +315,7 @@ describe("evaluation", () => {
     const current = { ...table, rows };
     expect(recalculate(current)).toBe(current);
     expect(serializeTable(recalculate({ ...current, rows: rows.map((r, i) => (i === 1 ? { cells: ["Pear", "4", ""] } : r)) }))).toContain(
-      '16 <meta f="=SUM(B1:B3)">',
+      `16 <meta f='=SUM(B1:B3)'>`,
     );
   });
 });
@@ -310,7 +328,7 @@ describe("shiftReferences", () => {
     "| a | 1 | |",
     "| b | 2 | |",
     "| c | 3 | |",
-    '| Total | 6 <meta f="=SUM(B1:B3)+B1"> | 6 <meta f="=SUM([Qty])"> |',
+    `| Total | 6 <meta f='=SUM(B1:B3)+B1'> | 6 <meta f='=SUM([Qty])'> |`,
   ].join("\n");
   const formulas = (table: ReturnType<typeof parseTable>) =>
     table.rows.flatMap((r) => r.cells.map((c) => formulaOf(c)?.formula).filter((f) => f !== undefined));
@@ -427,15 +445,15 @@ describe("calculated columns", () => {
   const ROWS = [
     "| Item | Qty | Price | Amount |",
     "|---|---|---|---|",
-    '| a | 2 | 3 | 6 <meta f="=[@Qty]*[@Price]"> |',
-    '| b | 1 | 4 | 4 <meta f="=[@Qty]*[@Price]"> |',
+    `| a | 2 | 3 | 6 <meta f='=[@Qty]*[@Price]'> |`,
+    `| b | 1 | 4 | 4 <meta f='=[@Qty]*[@Price]'> |`,
     "| new | | | |",
-    '| Total | 3 <meta f="=SUM([Qty])"> | | |',
+    `| Total | 3 <meta f='=SUM([Qty])'> | | |`,
   ].join("\n");
 
   it("fills a new row's empty cells with the formula its column computes every row with", () => {
     const filled = withCalculatedCells(parseTable(ROWS), 3);
-    expect(filled.rows[3]!.cells).toEqual(["new", "", "", '<meta f="=[@Qty]*[@Price]">']);
+    expect(filled.rows[3]!.cells).toEqual(["new", "", "", `<meta f='=[@Qty]*[@Price]'>`]);
     expect(formulaOf(recalculate(filled).rows[4]!.cells[1]!)!.value).toBe("3");
   });
 
@@ -662,7 +680,7 @@ describe("other tables", () => {
     const tables = markdown.map((m) => parseTable(m));
     return (name, page) => (page === undefined ? tables.find((t) => t.meta?.name?.toLowerCase() === name.toLowerCase()) : undefined);
   };
-  const PRICES = '| Name | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 2,5 |\n| Total | 14,5 <meta f="=SUM([price])"> |\n| <meta name="prices"> |';
+  const PRICES = `| Name | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 2,5 |\n| Total | 14,5 <meta f='=SUM([price])'> |\n| <meta name='prices'> |`;
   // What `formula` shows in the last cell of a one-cell table, with `tables` around it
   const result = (formula: string, tables: TableSource, own = "| A |\n|---|\n| |") => {
     const table = parseTable(own);
@@ -698,10 +716,10 @@ describe("other tables", () => {
   });
 
   it("refers to its own table by its name, and finds circles across tables", () => {
-    const own = '| A |\n|---|\n| 5 |\n| |\n| <meta name="mine"> |';
+    const own = `| A |\n|---|\n| 5 |\n| |\n| <meta name='mine'> |`;
     expect(result("=mine!A1*2", tablesOf(), own)).toBe("10");
-    const ping = '| A |\n|---|\n| 1 <meta f="=pong!A1"> |\n| <meta name="ping"> |';
-    const pong = '| A |\n|---|\n| 1 <meta f="=ping!A1"> |\n| <meta name="pong"> |';
+    const ping = `| A |\n|---|\n| 1 <meta f='=pong!A1'> |\n| <meta name='ping'> |`;
+    const pong = `| A |\n|---|\n| 1 <meta f='=ping!A1'> |\n| <meta name='pong'> |`;
     expect(formulaOf(recalculate(parseTable(ping), tablesOf(ping, pong)).rows[1]!.cells[0]!)!.value).toBe("#CYCLE!");
   });
 
@@ -712,12 +730,12 @@ describe("other tables", () => {
       ["column", "prices"],
     ]);
     expect(references("=[[Ceník]]prices!A1")[0]!.table).toEqual({ name: "prices", page: "Ceník" });
-    expect(referredTableNames(parseTable('| A |\n|---|\n| 1 <meta f="=Prices!B1+[[Other]]stock!A1"> |'))).toEqual(new Set(["prices"]));
-    expect(referredTableNames(parseTable('| A |\n|---|\n| 1 <meta f="=B1"> |')).size).toBe(0);
+    expect(referredTableNames(parseTable(`| A |\n|---|\n| 1 <meta f='=Prices!B1+[[Other]]stock!A1'> |`))).toEqual(new Set(["prices"]));
+    expect(referredTableNames(parseTable(`| A |\n|---|\n| 1 <meta f='=B1'> |`)).size).toBe(0);
   });
 
   it("leaves references to other tables alone when this table's rows and columns move", () => {
-    const own = '| Price | Qty |\n|---|---|\n| 1 | 2 |\n| 3 <meta f="=prices!B1+prices![price]+A1"> | |';
+    const own = `| Price | Qty |\n|---|---|\n| 1 | 2 |\n| 3 <meta f='=prices!B1+prices![price]+A1'> | |`;
     const before = parseTable(own);
     // Columns swapped: A1 follows to B1, prices!B1 and prices![price] stay
     const after = { ...before, rows: before.rows.map((r) => ({ cells: [r.cells[1]!, r.cells[0]!] })) };
@@ -727,13 +745,13 @@ describe("other tables", () => {
 
   it("does not count another table's column as a total of its own", () => {
     // [price] of this table without the row that sums prices![price]
-    const own = '| Price |\n|---|\n| 3 |\n| 0 <meta f="=SUM(prices![price])"> |\n| |';
+    const own = `| Price |\n|---|\n| 3 |\n| 0 <meta f='=SUM(prices![price])'> |\n| |`;
     expect(result("=SUM([price])", tablesOf(PRICES), own)).toBe("17.5");
   });
 });
 
 describe("references to another table follow its edits", () => {
-  const PRICES = '| Name | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 3 |\n| <meta name="prices"> |';
+  const PRICES = `| Name | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 3 |\n| <meta name='prices'> |`;
   const prices = parseTable(PRICES);
   const formulas = (table: ReturnType<typeof parseTable>) =>
     table.rows.slice(1).flatMap((row) => row.cells.map((cell) => formulaOf(cell)?.formula).filter((f) => f !== undefined));
@@ -774,7 +792,7 @@ describe("references to another table follow its edits", () => {
   });
 
   it("follows the table's own edits in references that name the table itself", () => {
-    const mine = parseTable('| A |\n|---|\n| 5 |\n| 0 <meta f="=mine!A1*2"> |\n| <meta name="mine"> |');
+    const mine = parseTable(`| A |\n|---|\n| 5 |\n| 0 <meta f='=mine!A1*2'> |\n| <meta name='mine'> |`);
     const inserted = insertRow(mine, 1);
     expect(formulas(shiftReferences(mine, inserted, (r) => (r === 0 ? 0 : r + 1)))).toEqual(["=mine!A2*2"]);
     expect(formulas(shiftReferences(mine, withMeta(mine, "name", "ours")))).toEqual(["=ours!A1*2"]);
@@ -788,7 +806,7 @@ describe("references to another table follow its edits", () => {
 });
 
 describe("named cells", () => {
-  const RATES = parseTable('| Rate | Value |\n|---|---|\n| VAT | 0.21 <meta cn="vat"> |\n| Fee | 2 <meta f="=vat*10"> <meta cn="fee"> |');
+  const RATES = parseTable(`| Rate | Value |\n|---|---|\n| VAT | 0.21 <meta cn='vat'> |\n| Fee | 2 <meta f='=vat*10'> <meta cn='fee'> |`);
   // A source with the named cells of `tables` on this page, and of `elsewhere` on the page "Other"
   const sourceOf = (tables: ReturnType<typeof parseTable>[], elsewhere: ReturnType<typeof parseTable>[] = []): TableSource => {
     const find = (list: ReturnType<typeof parseTable>[], name: string) => {
@@ -811,7 +829,7 @@ describe("named cells", () => {
   };
 
   it("uses a named cell of its own table, of the page and of another page", () => {
-    expect(result("=rate*100", undefined, '| A |\n|---|\n| 0.5 <meta cn="rate"> |\n| |')).toBe("50");
+    expect(result("=rate*100", undefined, `| A |\n|---|\n| 0.5 <meta cn='rate'> |\n| |`)).toBe("50");
     expect(result("=100*(1+VAT)", sourceOf([RATES]))).toBe("121");
     // A named cell's formula is calculated too
     expect(result("=fee+1", sourceOf([RATES]))).toBe("3.1");
@@ -823,19 +841,19 @@ describe("named cells", () => {
     const table = parseTable("| A |\n|---|\n| |");
     const errors = formulaErrors({ ...table, rows: [table.rows[0]!, { cells: [formulaCell("", "=[[Other]]tax")] }] }, sourceOf([], [RATES]));
     expect(errors.get("1,0")).toBe("#NAME? there is no cell named tax on Other");
-    const loop = parseTable('| A |\n|---|\n| 0 <meta f="=self+1"> <meta cn="self"> |');
+    const loop = parseTable(`| A |\n|---|\n| 0 <meta f='=self+1'> <meta cn='self'> |`);
     expect(formulaOf(recalculate(loop).rows[1]!.cells[0]!)!.value).toBe("#CYCLE!");
   });
 
   it("finds the named cells a formula refers to, not functions, cells or other tables' references", () => {
     expect(namedReferences("=SUM(A1:B2)*vat+prices!C3+[[Other]]fee+TRUE+[qty]")).toEqual([{ name: "vat" }, { name: "fee", page: "Other" }]);
-    expect([...referredCellNames(parseTable('| A |\n|---|\n| 1 <meta f="=VAT*2"> |'))]).toEqual(["vat"]);
+    expect([...referredCellNames(parseTable(`| A |\n|---|\n| 1 <meta f='=VAT*2'> |`))]).toEqual(["vat"]);
     expect([...cellNamesOf(RATES)]).toEqual(["vat", "fee"]);
   });
 });
 
 describe("named rows", () => {
-  const PRICES = parseTable('| Name | Price |\n|---|---|\n| Pear <meta n="pear"> | 12 |\n| Fig <meta n="fig"> | 3 |\n| <meta name="prices"> |');
+  const PRICES = parseTable(`| Name | Price |\n|---|---|\n| Pear <meta n='pear'> | 12 |\n| Fig <meta n='fig'> | 3 |\n| <meta name='prices'> |`);
   const source: TableSource = (name, page) => (name.toLowerCase() === "prices" && (page === undefined || page === "Shop") ? PRICES : undefined);
   const result = (formula: string, own = "| A |\n|---|\n| |") => {
     const table = parseTable(own);
@@ -844,7 +862,7 @@ describe("named rows", () => {
   };
 
   it("reads a named row's cell, in its own table, another one and on another page", () => {
-    const own = '| Name | Qty | Total |\n|---|---|---|\n| Pear <meta n="pear"> | 4 | |\n| x | | |';
+    const own = `| Name | Qty | Total |\n|---|---|---|\n| Pear <meta n='pear'> | 4 | |\n| x | | |`;
     const table = parseTable(own);
     const withFormula = { ...table, rows: [...table.rows.slice(0, 2), { cells: ["x", "", formulaCell("", "=pear[qty]*2")] }] };
     expect(formulaOf(recalculate(withFormula).rows[2]!.cells[2]!)!.value).toBe("8");
@@ -863,7 +881,7 @@ describe("named rows", () => {
   });
 
   it("follows its column's rename, and the rows' new order", () => {
-    const own = parseTable('| Name | Price |\n|---|---|\n| Pear <meta n="pear"> | 12 |\n| Total | 0 <meta f="=pear[price]"> |');
+    const own = parseTable(`| Name | Price |\n|---|---|\n| Pear <meta n='pear'> | 12 |\n| Total | 0 <meta f='=pear[price]'> |`);
     const renamed = setCell(own, 0, 1, "Cost");
     expect(formulaOf(shiftReferences(own, renamed).rows[2]!.cells[1]!)!.formula).toBe("=pear[cost]");
     // Sorted into the markdown: the name moves with its row
@@ -873,16 +891,16 @@ describe("named rows", () => {
 
   it("keeps a cell's own name and its row's name apart", () => {
     const cell = withName(withCellName("Pear", "first"), "pear");
-    expect(cell).toBe('Pear <meta n="pear" cn="first">');
+    expect(cell).toBe(`Pear <meta n='pear' cn='first'>`);
     expect([nameOf(cell), cellNameOf(cell), withoutName(cell)]).toEqual(["pear", "first", "Pear"]);
-    expect(withCellName(cell, undefined)).toBe('Pear <meta n="pear">');
+    expect(withCellName(cell, undefined)).toBe(`Pear <meta n='pear'>`);
     // In any order, with single quotes; a formula's tag is another one
     expect([nameOf("1 <meta cn='x' n='y'>"), cellNameOf("1 <meta cn='x' n='y'>")]).toEqual(["y", "x"]);
-    expect(withoutName('2 <meta f="=1+1"> <meta n="a" cn="b">')).toBe('2 <meta f="=1+1">');
+    expect(withoutName(`2 <meta f='=1+1'> <meta n='a' cn='b'>`)).toBe(`2 <meta f='=1+1'>`);
   });
 
   it("finds a row's name a column inserted before the first one moved", () => {
-    const table = parseTable('| New | Name | Price |\n|---|---|---|\n| | Pear <meta n="pear"> | 12 |');
+    const table = parseTable(`| New | Name | Price |\n|---|---|---|\n| | Pear <meta n='pear'> | 12 |`);
     expect(rowNameIn(table.rows[1]!.cells)).toEqual({ name: "pear", column: 1 });
     expect(namedRows(table).get("pear")).toBe(1);
   });

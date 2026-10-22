@@ -1,14 +1,14 @@
 // Names Silverware Table keeps in cells, in one hidden tag after the cell's text:
 // `n` names the line the cell heads, `cn` the cell itself. In a header cell,
-// `n` is the column's fixed name (`| Unit price <meta n="price"> |`), by which
+// `n` is the column's fixed name (`| Unit price <meta n='price'> |`), by which
 // formulas and the stored sorting name the column whatever its header says;
-// in a body cell, the row's name (`| Pear <meta n="pear"> |`: `pear[price]` is
+// in a body cell, the row's name (`| Pear <meta n='pear'> |`: `pear[price]` is
 // the row's Price cell). `cn` names a body cell for formulas
-// (`| 0.21 <meta cn="vat"> |`); a cell holding both has one tag,
-// `<meta n="pear" cn="first">`. SilverBullet does not show the tag, and leaves
+// (`| 0.21 <meta cn='vat'> |`); a cell holding both has one tag,
+// `<meta n='pear' cn='first'>`. SilverBullet does not show the tag, and leaves
 // it out of the column's key in its index (verified), so queries see the
 // header as before.
-import { escapeMetaValue, type Table, unescapeMetaValue } from "./markdown.ts";
+import { metaAttribute, type Table, unescapeMetaValue } from "./markdown.ts";
 import { setCell } from "./ops.ts";
 
 // A tag of names only: n and cn, in any order (a formula's <meta f> is another tag)
@@ -59,7 +59,7 @@ export function withoutName(cell: string): string {
 
 /** The cell's text with these names after it, in one tag */
 function named(text: string, { n, cn }: Names): string {
-  const attributes = [...(n ? [`n="${escapeMetaValue(n)}"`] : []), ...(cn ? [`cn="${escapeMetaValue(cn)}"`] : [])];
+  const attributes = [...(n ? [metaAttribute("n", n)] : []), ...(cn ? [metaAttribute("cn", cn)] : [])];
   return [text, ...(attributes.length ? [`<meta ${attributes.join(" ")}>`] : [])].filter((part) => part !== "").join(" ");
 }
 

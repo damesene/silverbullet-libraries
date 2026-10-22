@@ -65,24 +65,24 @@ describe("Pasting from a spreadsheet", () => {
   });
 
   it("gives new rows' empty cells of a calculated column its formula; a value pasted there stays", async () => {
-    const CALC = '| Name | Qty | Twice |\n|---|---|---|\n| Pear | 3 | 6 <meta f="=[@qty]*2"> |\n| Apple | 10 | 20 <meta f="=[@qty]*2"> |\n';
+    const CALC = `| Name | Qty | Twice |\n|---|---|---|\n| Pear | 3 | 6 <meta f='=[@qty]*2'> |\n| Apple | 10 | 20 <meta f='=[@qty]*2'> |\n`;
     await setup(CALC);
     clickOn(cell(2, 0));
     pasteText("Fig\t2\nPlum\t5\t99", true);
     await flush();
     expect(text).toBe(
-      '| Name | Qty | Twice |\n|---|---|---|\n| Pear | 3 | 6 <meta f="=[@qty]*2"> |\n| Fig | 2 | 4 <meta f="=[@qty]*2"> |\n| Plum | 5 | 99 |\n| Apple | 10 | 20 <meta f="=[@qty]*2"> |\n',
+      `| Name | Qty | Twice |\n|---|---|---|\n| Pear | 3 | 6 <meta f='=[@qty]*2'> |\n| Fig | 2 | 4 <meta f='=[@qty]*2'> |\n| Plum | 5 | 99 |\n| Apple | 10 | 20 <meta f='=[@qty]*2'> |\n`,
     );
   });
 
   it("keeps the hidden tags of the cells pasted over: names, and formulas with the formulas module off", async () => {
-    const TAGGED = '| Name | Qty |\n|---|---|\n| Pear <meta n="pear"> | 3 |\n| Total | 3 <meta f="=SUM([qty])"> |\n';
+    const TAGGED = `| Name | Qty |\n|---|---|\n| Pear <meta n='pear'> | 3 |\n| Total | 3 <meta f='=SUM([qty])'> |\n`;
     await setup(TAGGED, { "silverware.table.modules.formulas.enabled": false });
     clickOn(cell(1, 0));
     pasteText("Fig\t2\nAll\t9");
     await flush();
     // Nothing recalculated: the value pasted stays, the formula kept for when formulas are on
-    expect(text).toBe('| Name | Qty |\n|---|---|\n| Fig <meta n="pear"> | 2 |\n| All | 9 <meta f="=SUM([qty])"> |\n');
+    expect(text).toBe(`| Name | Qty |\n|---|---|\n| Fig <meta n='pear'> | 2 |\n| All | 9 <meta f='=SUM([qty])'> |\n`);
   });
 
   describe("from the cell menu", () => {
@@ -147,7 +147,7 @@ describe("Pasting from a spreadsheet", () => {
   });
 
   describe("cutting", () => {
-    const PAGE3 = "| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f=\"=1+1\"> |\n| | |\n| | |\n";
+    const PAGE3 = "| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f='=1+1'> |\n| | |\n| | |\n";
     const info = () => controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!;
     const cutKey = () => {
       const data: Record<string, string> = {};
@@ -173,7 +173,7 @@ describe("Pasting from a spreadsheet", () => {
       clickOn(cell(3, 0));
       pasteText("Pear\t3\nFig\t2\n");
       await flush();
-      expect(text).toBe('| Name | Qty |\n|---|---|\n| | |\n| | |\n| Pear | 3 |\n| Fig | 2 <meta f="=1+1"> |\n');
+      expect(text).toBe(`| Name | Qty |\n|---|---|\n| | |\n| | |\n| Pear | 3 |\n| Fig | 2 <meta f='=1+1'> |\n`);
       await controller.scan();
       expect(edges()).toBe(0);
     });
@@ -190,7 +190,7 @@ describe("Pasting from a spreadsheet", () => {
       await flush();
       await controller.scan();
       // Copied, not moved: the cells stay, their outline goes
-      expect(text).toBe('| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f="=1+1"> |\n| Pear | 3 |\n| | |\n');
+      expect(text).toBe(`| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f='=1+1'> |\n| Pear | 3 |\n| | |\n`);
       expect(edges()).toBe(0);
       // Copied again, Esc ends the outline
       controller.selectCells(info(), { row: 1, column: 0 }, { row: 1, column: 1 });
@@ -203,7 +203,7 @@ describe("Pasting from a spreadsheet", () => {
     });
 
     it("moves under the header only, names staying where they are, and not into a cell being typed in", async () => {
-      const NAMED = '| Name | Qty |\n|---|---|\n| Pear <meta n="pear"> | 3 |\n| Fig <meta n="fig"> | 2 |\n| | 9 <meta cn="nine"> |\n';
+      const NAMED = `| Name | Qty |\n|---|---|\n| Pear <meta n='pear'> | 3 |\n| Fig <meta n='fig'> | 2 |\n| | 9 <meta cn='nine'> |\n`;
       await setup(NAMED, { "silverware.table.metadata": true });
       controller.selectCells(info(), { row: 1, column: 0 }, { row: 1, column: 0 });
       cutKey();
@@ -230,7 +230,7 @@ describe("Pasting from a spreadsheet", () => {
       field().select();
       pasteText("Pear");
       await flush();
-      expect(text).toBe('| Name | Qty |\n|---|---|\n| <meta n="pear"> | 3 |\n| Pear <meta n="fig"> | 2 |\n| | 9 <meta cn="nine"> |\n');
+      expect(text).toBe(`| Name | Qty |\n|---|---|\n| <meta n='pear'> | 3 |\n| Pear <meta n='fig'> | 2 |\n| | 9 <meta cn='nine'> |\n`);
     });
 
     it("ends the cut when rows are added or deleted (a cell of the same value is not taken for it)", async () => {
@@ -285,7 +285,7 @@ describe("Pasting from a spreadsheet", () => {
       paste.click();
       await flush();
       await flush();
-      expect(text).toBe('| Name | Qty |\n|---|---|\n| | 3 |\n| Fig | 2 <meta f="=1+1"> |\n| | |\n| | Pear |\n');
+      expect(text).toBe(`| Name | Qty |\n|---|---|\n| | 3 |\n| Fig | 2 <meta f='=1+1'> |\n| | |\n| | Pear |\n`);
       // A header's menu is its column's; with the header among the cells selected, its name is not cut
       await controller.scan();
       openMenu(cell(0, 0));
