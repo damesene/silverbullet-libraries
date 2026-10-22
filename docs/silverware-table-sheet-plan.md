@@ -76,13 +76,28 @@ types, filters' marks) working on it unchanged.
 
 Step 2 of the design on the new base:
 
-1. The page's sheets from the tables' metadata (`sheet`, `at`), the model
-   part of `sheet-view`'s `sheet/page.ts` rewritten to the new API.
-2. Several tables on one grid by `at`, each drawn by the sheet's adapter
-   (no limit of what CodeMirror keeps in the DOM).
-3. *Add to sheet…* (a dialog through `openDialog`) and *Remove from sheet*.
-4. Formulas shown in the sheet's addresses.
-5. Review, fixes, click-through, merge.
+1. The page's sheets from the tables' metadata (`sheet`, `at`): `sheet-view`'s
+   `src/sheet/page.ts` taken over (pure model: markdown and meta only,
+   checked), with its tests.
+2. *Add to sheet…* and *Remove from sheet* in a table's ⋯ menu: a model
+   module (`features/sheets.ts`, `ModelHost` only), its dialog through
+   `openDialog` (the page's sheets or a new one, the table's name, which a
+   table on a sheet needs), written by key (`writeTable`); the old dialog's
+   checks (free name, name taken, sheet name) rewritten, its drawing not.
+   *Remove from sheet* keeps the name; a first table leaving hands the
+   sheet's `sheet.width.*` on to the next.
+3. The board: the sheet view of a table on a sheet shows the whole sheet,
+   every table of it drawn (no limit of what CodeMirror keeps in the DOM) and
+   placed at its `at` on one grid (rows one height, the sheet's columns'
+   widths), one box over the window holding them, the sheet's letters and
+   numbers, empty cells everywhere. A table on no sheet shows alone at A1, as
+   in phase 1. Typing right of a table (its rows) or below it (its columns),
+   up to the next table, grows it as in phase 1; elsewhere nothing yet
+   (phase 3: a new table).
+4. Formulas shown in the sheet's addresses (design at that step; the
+   formulas know nothing of the sheet: the core offers a table's address
+   frame).
+5. Review, fixes, click-through in SilverBullet, merge.
 
 ## Phase 3: editing on the sheet, then selection, filters, sorting (branch `sheet-editing`)
 
