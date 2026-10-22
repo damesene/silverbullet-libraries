@@ -1,4 +1,4 @@
-/* Stand-ins for the SilverBullet theme variables Table Plus uses */
+/* Stand-ins for the SilverBullet theme variables Silverware Table uses */
 :root {
   --root-color: #1f2328;
   --root-background-color: #ffffff;
@@ -107,7 +107,7 @@ main {
  * editor.scss): a column with the top bar (55px, z-index 20) above the
  * editor, which scrolls in CodeMirror's scroller; the content at most 800px
  * wide, centered, padded 5px 20px, in 18px type, one .cm-line per source line.
- * What Table Plus measures (where the view starts, the header's height, the
+ * What Silverware Table measures (where the view starts, the header's height, the
  * table's width) is SilverBullet's; colors are the playground's own.
  */
 #sb-root {

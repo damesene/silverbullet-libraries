@@ -3,7 +3,7 @@
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const libraries = ["table-plus"];
+const libraries = ["silverware-table"];
 const space = process.argv[2] ?? process.env.SB_SPACE;
 if (!space) {
   console.error("Usage: npm run deploy -- <space folder> (or set SB_SPACE)");

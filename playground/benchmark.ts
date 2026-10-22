@@ -1,13 +1,13 @@
 // The playground's benchmark: a page generated with a table as large as asked
 // (rows, columns, column types, formulas), written over the playground's page
 // (the page before it comes back with Restore page, or Ctrl+Z), and a log of
-// what Table Plus spent its time on for each action: its core's phases and
+// what Silverware Table spent its time on for each action: its core's phases and
 // each module's hooks (profile.ts), grouped by the action that started them.
-import { pageTables } from "../table-plus/src/formulas/page.ts";
-import { cellName, formulaCell, recalculate } from "../table-plus/src/formulas/index.ts";
-import { type PageTable, pageTablesOf, serializeTable } from "../table-plus/src/markdown.ts";
+import { pageTables } from "../silverware-table/src/formulas/page.ts";
+import { cellName, formulaCell, recalculate } from "../silverware-table/src/formulas/index.ts";
+import { type PageTable, pageTablesOf, serializeTable } from "../silverware-table/src/markdown.ts";
 import type { ProfileEntry } from "./profile.ts";
-import { allTypes } from "../table-plus/src/columntypes/index.ts";
+import { allTypes } from "../silverware-table/src/columntypes/index.ts";
 
 // ---- the page --------------------------------------------------------------------
 
@@ -156,7 +156,7 @@ type Action = {
   readonly at: number;
   readonly trigger: Trigger;
   readonly entries: ProfileEntry[];
-  // When Table Plus' last synchronous work for it ended, and the first frame painted after that
+  // When Silverware Table's last synchronous work for it ended, and the first frame painted after that
   done: number;
   shown: number;
   painting: boolean;
@@ -179,7 +179,7 @@ export class ProfileLog {
     const start = (what: string) => (this.trigger = { what, at: performance.now() });
     win.addEventListener("keydown", (e) => start(`Key ${keyName(e)}`), true);
     win.addEventListener("mousedown", (e) => start(`Press on ${describe(e.target)}`), true);
-    // Hovering and scrolling: what Table Plus does for them is left out
+    // Hovering and scrolling: what Silverware Table does for them is left out
     for (const type of ["mousemove", "pointermove", "pointerover", "pointerout", "mouseover", "mouseout", "scroll", "wheel"]) {
       win.addEventListener(type, () => (this.hovering = true), true);
       win.addEventListener(type, () => (this.hovering = false));
@@ -235,7 +235,7 @@ function keyName(e: KeyboardEvent): string {
 
 function describe(target: EventTarget | null): string {
   if (!(target instanceof Element)) return "the page";
-  const button = target.closest("button, [role=menuitem], .tp-menu-item");
+  const button = target.closest("button, [role=menuitem], .swt-menu-item");
   if (button) return `“${(button.getAttribute("aria-label") || button.textContent || button.getAttribute("title") || "a button").trim().slice(0, 40)}”`;
   const cell = target.closest("td, th");
   if (cell) return cell.tagName === "TH" || cell.closest("thead") ? "a header cell" : "a cell";
@@ -269,7 +269,7 @@ export function ownersOf(entries: readonly ProfileEntry[]): { owner: string; sel
 
 const ms = (n: number) => (n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2));
 
-/** An action's times: until its first frame painted, Table Plus' (and the mock's) work in it */
+/** An action's times: until its first frame painted, Silverware Table's (and the mock's) work in it */
 function timesOf(action: Action): { shown: number; work: number; done: number } {
   return {
     shown: Math.max(action.shown, action.done) - action.at,
@@ -319,7 +319,7 @@ export function renderLog(into: HTMLElement, log: ProfileLog): void {
       el("span", "bench-ms", `shown after ${ms(shown)} ms`),
       el("span", "bench-note", `measured ${ms(work)} ms`),
     );
-    summary.title = `From the key or press to the first frame painted after Table Plus' work: ${ms(shown)} ms. Measured work (Table Plus and the mock SilverBullet's rendering): ${ms(work)} ms, the last of it done after ${ms(done)} ms. The rest is the browser laying out and painting, and waiting.`;
+    summary.title = `From the key or press to the first frame painted after Silverware Table's work: ${ms(shown)} ms. Measured work (Silverware Table and the mock SilverBullet's rendering): ${ms(work)} ms, the last of it done after ${ms(done)} ms. The rest is the browser laying out and painting, and waiting.`;
     details.append(summary);
     const owners = el("div", "bench-owners");
     const parts = shownOwners(action.entries);
@@ -337,7 +337,7 @@ export function renderLog(into: HTMLElement, log: ProfileLog): void {
     const table = el("table", "bench-lines") as HTMLTableElement;
     const head = table.createTHead().insertRow();
     for (const [text, title] of [
-      ["Measure", "A phase of Table Plus' core, or a module's hook (module · hook)"],
+      ["Measure", "A phase of Silverware Table's core, or a module's hook (module · hook)"],
       ["Calls", ""],
       ["Total ms", "With what it called; an async one until it was done (waiting included)"],
       ["Self ms", "Without the measures it called"],

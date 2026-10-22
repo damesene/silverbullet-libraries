@@ -1,14 +1,15 @@
 // Interaction tests in a real browser, against the playground (npm run test:ui):
 // what needs layout, pointers, touch and tables rendered anew, which jsdom
 // (npm test) has not. Chrome as installed: no browser is downloaded. The
-// playground bundles table-plus/src, so the tests run the sources, not the
-// committed table-plus.js (npm run verify checks that one matches them).
+// playground bundles silverware-table/src, so the tests run the sources, not the
+// committed silverware-table.js (npm run verify checks that one matches them).
 import { defineConfig, devices } from "@playwright/test";
 
 const port = 8010;
 
 export default defineConfig({
-  testDir: "ui-tests",
+  // Each plugin's interaction tests, in its own folder (<plugin>/ui-tests/)
+  testMatch: "*/ui-tests/**/*.spec.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   // A flaky interaction shows as flaky (retried once), not as a pass

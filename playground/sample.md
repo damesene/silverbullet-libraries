@@ -1,4 +1,4 @@
-# Table Plus playground
+# Silverware Table playground
 
 Edit the markdown on the left, or the tables below. Alt+click a cell or *Edit markdown* puts the cursor into the markdown.
 

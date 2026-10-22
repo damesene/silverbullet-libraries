@@ -3,19 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Table Plus playground</title>
+    <title>Silverware Table playground</title>
     <link rel="stylesheet" href="playground.css" />
   </head>
   <body>
     <header>
-      <strong>Table Plus<span class="long"> playground</span></strong>
+      <strong>Silverware Table<span class="long"> playground</span></strong>
       <span class="hint">Mock SilverBullet: markdown on the left, rendered page on the right</span>
       <span class="spacer"></span>
       <!-- On a narrow screen the buttons show their icon alone -->
       <button id="markdown" type="button" aria-pressed="true" title="Show or hide the markdown"><span class="icon">M↓</span><span class="label">Markdown</span></button>
-      <button id="bench-toggle" type="button" aria-pressed="false" title="Generate a large page and see how long Table Plus takes for each action"><span class="icon">⏱</span><span class="label">Benchmark</span></button>
+      <button id="bench-toggle" type="button" aria-pressed="false" title="Generate a large page and see how long Silverware Table takes for each action"><span class="icon">⏱</span><span class="label">Benchmark</span></button>
       <button id="reset" type="button" title="Reset sample"><span class="icon">↺</span><span class="label">Reset sample</span></button>
-      <button id="tp-settings" type="button" title="Table Plus' settings dialog (as in SilverBullet: the table's ⋯ menu, or the Table Plus: Settings command)"><span class="icon">⚙</span><span class="label">Settings</span></button>
+      <button id="swt-settings" type="button" title="Silverware Table's settings dialog (as in SilverBullet: the table's ⋯ menu, or the Silverware Table: Settings command)"><span class="icon">⚙</span><span class="label">Settings</span></button>
       <button id="theme" type="button" title="Dark / light"><span class="icon">◐</span><span class="label">Dark / light</span></button>
     </header>
     <aside id="bench">
@@ -35,7 +35,7 @@
       <section class="bench-log-pane">
         <div class="bench-log-head">
           <strong>Log</strong>
-          <span class="bench-hint"><b>Shown after</b>: from the key or press to the page painted. <b>Measured</b>: Table Plus' work (and this mock SilverBullet's rendering), by part; the rest is the browser's layout and painting. Hovering and scrolling are left out.</span>
+          <span class="bench-hint"><b>Shown after</b>: from the key or press to the page painted. <b>Measured</b>: Silverware Table's work (and this mock SilverBullet's rendering), by part; the rest is the browser's layout and painting. Hovering and scrolling are left out.</span>
           <span class="spacer"></span>
           <button id="bench-clear" type="button">Clear</button>
         </div>

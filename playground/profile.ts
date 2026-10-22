@@ -1,5 +1,5 @@
-// Measuring where Table Plus spends its time, for the playground's benchmark.
-// Table Plus itself has no measuring in it (what SilverBullet runs is not
+// Measuring where Silverware Table spends its time, for the playground's benchmark.
+// Silverware Table itself has no measuring in it (what SilverBullet runs is not
 // touched): the playground wraps, from outside, the methods of its controller
 // (the core's phases), of its cell editor and of each feature once they are
 // started. They call each other through `this`, so the wrapped ones run.
@@ -97,13 +97,13 @@ const TOOLBAR_PHASES = ["show", "place"];
 const featureName = (feature: object) => feature.constructor.name.replace(/^./, (c) => c.toLowerCase());
 
 /**
- * Measures Table Plus' controller (the one `init` made, kept on the window):
+ * Measures Silverware Table's controller (the one `init` made, kept on the window):
  * its phases and cell editor now, its features once they are started. What
  * they did before that (the first tables enhanced) is not measured.
  */
-export async function profileTablePlus(): Promise<void> {
+export async function profileSilverwareTable(): Promise<void> {
   type Internals = { cellEditor: object; toolbar: object; features: object[]; featuresStarted?: Promise<void> };
-  const controller = (globalThis as unknown as Record<string, Internals | undefined>).__tablePlus;
+  const controller = (globalThis as unknown as Record<string, Internals | undefined>).__silverwareTable;
   if (!controller) return;
   profiled("core", controller, { only: CORE_PHASES, nested: true });
   profiled("core toolbar", controller.toolbar, { only: TOOLBAR_PHASES, nested: true });

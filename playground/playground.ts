@@ -1,21 +1,21 @@
 // A page without SilverBullet: markdown in a textarea, tables rendered the way
-// SilverBullet renders them, and Table Plus on top through a mock Bridge.
-import type { Bridge } from "../table-plus/src/bridge.ts";
-import { init, openSettings } from "../table-plus/src/index.ts";
-import { findTables, parseTable } from "../table-plus/src/markdown.ts";
-import libraryPage from "../table-plus/table-plus.md";
+// SilverBullet renders them, and Silverware Table on top through a mock Bridge.
+import type { Bridge } from "../silverware-table/src/bridge.ts";
+import { init, openSettings } from "../silverware-table/src/index.ts";
+import { findTables, parseTable } from "../silverware-table/src/markdown.ts";
+import libraryPage from "../silverware-table/silverware-table.md";
 import { benchmarkPage, FORMULAS, type FormulaKind, ProfileLog, renderLog, TYPE_NAMES } from "./benchmark.ts";
-import { measure, profileTablePlus, setProfileSink } from "./profile.ts";
+import { measure, profileSilverwareTable, setProfileSink } from "./profile.ts";
 import sample from "./sample.md";
 
-const TEXT_KEY = "tablePlusPlayground.text";
-const SETTINGS_KEY = "tablePlusPlayground.settings";
-const THEME_KEY = "tablePlusPlayground.theme";
-const MARKDOWN_KEY = "tablePlusPlayground.markdown";
-const BENCH_SHOWN_KEY = "tablePlusPlayground.benchShown";
-const BENCH_OPTIONS_KEY = "tablePlusPlayground.benchOptions";
+const TEXT_KEY = "silverwarePlayground.text";
+const SETTINGS_KEY = "silverwarePlayground.settings";
+const THEME_KEY = "silverwarePlayground.theme";
+const MARKDOWN_KEY = "silverwarePlayground.markdown";
+const BENCH_SHOWN_KEY = "silverwarePlayground.benchShown";
+const BENCH_OPTIONS_KEY = "silverwarePlayground.benchOptions";
 // The page before the first benchmark was generated, for Restore page
-const BEFORE_BENCH_KEY = "tablePlusPlayground.beforeBenchmark";
+const BEFORE_BENCH_KEY = "silverwarePlayground.beforeBenchmark";
 
 const source = document.querySelector<HTMLTextAreaElement>("#source")!;
 const page = document.querySelector<HTMLElement>("#page")!;
@@ -211,7 +211,7 @@ source.addEventListener("keydown", (e) => {
   e.preventDefault();
   step(...((key === "z" && !e.shiftKey ? [undoStack, redoStack] : [redoStack, undoStack]) as [Snapshot[], Snapshot[]]));
 });
-// Undo on the page when Table Plus left the key alone (e.g. no table edit to undo)
+// Undo on the page when Silverware Table left the key alone (e.g. no table edit to undo)
 page.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
   const key = e.key.toLowerCase();
@@ -223,16 +223,16 @@ page.addEventListener("keydown", (e) => {
 // --- Settings -----------------------------------------------------------------
 
 // The playground starts with metadata on, so formulas and pinning can be tried right away
-let settings: Record<string, unknown> = { "tablePlus.metadata": true };
+let settings: Record<string, unknown> = { "silverware.table.metadata": true };
 try {
   settings = JSON.parse(load(SETTINGS_KEY) ?? JSON.stringify(settings));
 } catch {
-  settings = { "tablePlus.metadata": true };
+  settings = { "silverware.table.metadata": true };
 }
 
 function settingsChanged(): void {
   save(SETTINGS_KEY, JSON.stringify(settings));
-  // A fresh render lets Table Plus pick the settings up
+  // A fresh render lets Silverware Table pick the settings up
   render();
 }
 
@@ -247,7 +247,7 @@ function flash(message: string, type: "info" | "error" = "info"): void {
 }
 
 document.querySelector("#reset")!.addEventListener("click", () => setText(sample, 0));
-document.querySelector("#tp-settings")!.addEventListener("click", () => openSettings());
+document.querySelector("#swt-settings")!.addEventListener("click", () => openSettings());
 
 // The markdown pane, shown or hidden by its button; hidden at first on a
 // narrow screen (a phone), then as last chosen
@@ -332,7 +332,7 @@ function buildBenchmark(): void {
     showRestore();
     profileLog.begin(`Generate ${options.rows} rows × ${options.columns} columns${options.formulas.length ? ` with ${options.formulas.map((f) => FORMULAS[f].label.toLowerCase()).join(", ")}` : ""}`);
     note.textContent = `Generated in ${generated.toFixed(0)} ms (the playground's work, not measured below).${
-      options.formulas.length && settings["tablePlus.metadata"] === false ? " Formulas need Store table metadata on." : ""
+      options.formulas.length && settings["silverware.table.metadata"] === false ? " Formulas need Store table metadata on." : ""
     }`;
     setText(page, 0);
   });
@@ -353,7 +353,7 @@ function buildBenchmark(): void {
   renderLog(logBox, profileLog);
 }
 
-// --- Table Plus ---------------------------------------------------------------
+// --- Silverware Table ---------------------------------------------------------------
 
 const bridge: Bridge = {
   getText: () => text,
@@ -369,7 +369,7 @@ const bridge: Bridge = {
   getCursor: () => cursor,
   undo: () => step(undoStack, redoStack),
   redo: () => step(redoStack, undoStack),
-  // Table Plus' settings dialog (Settings in the header, or a table's ⋯ menu): no CONFIG page here, the playground's own store
+  // Silverware Table's settings dialog (Settings in the header, or a table's ⋯ menu): no CONFIG page here, the playground's own store
   saveSettings: (values) => {
     for (const [path, value] of Object.entries(values)) {
       if (value === undefined) delete settings[path];
@@ -383,7 +383,7 @@ const bridge: Bridge = {
 source.value = text;
 render();
 init(bridge);
-// The benchmark's log: what each phase and module took, measured from outside (Table Plus has no measuring in it)
+// The benchmark's log: what each phase and module took, measured from outside (Silverware Table has no measuring in it)
 setProfileSink(profileLog.add);
-void profileTablePlus();
+void profileSilverwareTable();
 buildBenchmark();

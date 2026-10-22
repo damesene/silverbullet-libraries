@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { controller, editor, flush, PAGE, setup, useTablePage } from "../table-plus/src/testing/page.ts";
-import { measure, profiled, profileTablePlus, type ProfileEntry, setProfileSink } from "./profile.ts";
+import { controller, editor, flush, PAGE, setup, useTablePage } from "../silverware-table/src/testing/page.ts";
+import { measure, profiled, profileSilverwareTable, type ProfileEntry, setProfileSink } from "./profile.ts";
 
 describe("Profiling", () => {
   afterEach(() => setProfileSink(undefined));
@@ -51,16 +51,16 @@ describe("Profiling", () => {
   });
 });
 
-describe("Profiling Table Plus from outside", () => {
+describe("Profiling Silverware Table from outside", () => {
   useTablePage();
   afterEach(() => setProfileSink(undefined));
 
-  it("measures the core's phases and the features' hooks, Table Plus left as it is", async () => {
+  it("measures the core's phases and the features' hooks, Silverware Table left as it is", async () => {
     await setup(PAGE);
     const labels = new Set<string>();
     setProfileSink((e) => void labels.add(e.label));
-    (globalThis as Record<string, unknown>).__tablePlus = controller;
-    await profileTablePlus();
+    (globalThis as Record<string, unknown>).__silverwareTable = controller;
+    await profileSilverwareTable();
     const widget = editor.querySelector<HTMLElement>(".sb-table-widget")!;
     await controller.write(widget, (t) => ({ ...t, padded: true }));
     await controller.scan();
