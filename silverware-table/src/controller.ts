@@ -669,16 +669,21 @@ export class Controller implements TableHost {
       if (replaced) this.hoverWidget = widget;
       this.decorate(widget, info);
       this.applyView(widget, info);
-      const scrollLeft = this.scrollLefts.get(info.key);
-      if (scrollLeft) widget.scrollLeft = scrollLeft;
-      const scrollTop = this.scrollTops.get(info.key);
-      if (scrollTop) widget.scrollTop = scrollTop;
+      // A table under one Silverware Table drew for its key (the sheet's) keeps its place and its own scroll:
+      // what follows a table across a write is the drawn one's
+      const standsFor = this.widgetForKey(info.key) === widget;
+      if (standsFor && !widget.classList.contains(DRAWN_CLASS)) {
+        const scrollLeft = this.scrollLefts.get(info.key);
+        if (scrollLeft) widget.scrollLeft = scrollLeft;
+        const scrollTop = this.scrollTops.get(info.key);
+        if (scrollTop) widget.scrollTop = scrollTop;
+      }
       // Where it was in the page's view, then the cell to edit next scrolled into view from there
-      this.anchor.keep(info.key, widget);
+      if (standsFor) this.anchor.keep(info.key, widget);
       // The cell to edit next opens in the table that stands for its key (a table drawn by Silverware Table
       // over SilverBullet's, which is rendered anew first)
-      if (this.widgetForKey(info.key) === widget) this.cellEditor.takePending(widget, info);
-      this.anchor.again(widget, info.key);
+      if (standsFor) this.cellEditor.takePending(widget, info);
+      if (standsFor) this.anchor.again(widget, info.key);
       for (const feature of this.features) feature.enhanced?.(info);
       // The cell showing the move cursor was rendered anew (Ctrl+arrows saved a cell)
       if (this.navigating) this.markNavigating();
@@ -1692,7 +1697,8 @@ export class Controller implements TableHost {
     // Remember a wide table's sideways scroll: the editor re-renders tables
     // after edits and when they scroll far out of view
     const scrolled = e.target instanceof HTMLElement ? this.infos.get(e.target) : undefined;
-    if (scrolled && e.target instanceof HTMLElement) {
+    // A table drawn by Silverware Table (the sheet's box) scrolls as its own: the page's table keeps its scroll
+    if (scrolled && e.target instanceof HTMLElement && !e.target.classList.contains(DRAWN_CLASS)) {
       this.scrollLefts.set(scrolled.key, e.target.scrollLeft);
       this.scrollTops.set(scrolled.key, e.target.scrollTop);
     }
@@ -1978,7 +1984,7 @@ export class Controller implements TableHost {
       }
       if (focus) this.cellEditor.editAfterWrite(info.key, focus);
       this.holdAfterWrite(info.key, options);
-      if (widget) {
+      if (widget && !widget.classList.contains(DRAWN_CLASS)) {
         this.scrollLefts.set(info.key, widget.scrollLeft);
         this.scrollTops.set(info.key, widget.scrollTop);
       }
