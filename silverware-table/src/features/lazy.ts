@@ -220,8 +220,14 @@ export class Lazy implements Feature {
     const marked: HTMLTableCellElement[] = [];
     for (const edit of this.held.get(info.key)?.edits.values() ?? []) {
       const cell = this.host.cellAt(info, edit, true);
-      const content = cell?.querySelector<HTMLElement>(":scope > .swt-cell-content");
-      if (!cell || !content || cell.classList.contains("swt-editing")) continue;
+      if (!cell || cell.classList.contains("swt-editing")) continue;
+      // An empty cell has no content box (the core lays out what a cell holds): one for what was typed
+      let content = cell.querySelector<HTMLElement>(":scope > .swt-cell-content");
+      if (!content) {
+        content = this.host.doc.createElement("div");
+        content.className = "swt-cell-content";
+        cell.prepend(content);
+      }
       content.textContent = unescapeCell(withoutTags(edit.value));
       cell.classList.add(PENDING_CLASS);
       marked.push(cell);

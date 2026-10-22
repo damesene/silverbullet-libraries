@@ -16,6 +16,18 @@ describe("Lazy saving", () => {
   };
   const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  it("shows what was typed into an empty cell while it is held", async () => {
+    const page = "| A | B |\n|---|---|\n| 1 |  |\n";
+    await setup(page, { "silverware.table.modules.lazy.delay": 5000 });
+    button().click();
+    type(1, 1, "new");
+    key(field()!, "Enter");
+    await flush();
+    expect(text).toBe(page);
+    expect(cell(1, 1).textContent).toBe("new");
+    expect(cell(1, 1).classList.contains("swt-lazy-pending")).toBe(true);
+  });
+
   it("keeps the cells edited until editing stops for the delay, then writes them in one edit", async () => {
     await setup(PAGE, { "silverware.table.modules.lazy.delay": 30, "silverware.table.editor.enterKey": "moveDown" });
     button().click();
