@@ -55,7 +55,8 @@ function customOne(definition: unknown): Series | string {
   if (typeof name !== "string" || !NAME_RE.test(name)) return `its name ${JSON.stringify(name)} is not letters, digits, _ and spaces starting with a letter`;
   // Any case: a built-in series' name replaces it whatever case it is written in
   const lower = name.toLowerCase();
-  if ((words === undefined) === (match === undefined)) return `${name}: it has words (a list to go round) or match (a series), one of them`;
+  if (words === undefined && match === undefined) return `${name}: it has neither words (a list to go round) nor match (a series): give one of them`;
+  if (words !== undefined && match !== undefined) return `${name}: it has both words (a list to go round) and match (a series): give one of them`;
   if (words !== undefined) {
     if (!Array.isArray(words) || words.length < 2 || !words.every((w) => typeof w === "string" && w.trim() !== "")) return `${name}: its words are not a list of two or more texts`;
     const keys = words.map(key);
