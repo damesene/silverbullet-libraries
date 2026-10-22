@@ -13,7 +13,7 @@
 // filters were typed that are not stored (yet, or the setting is off): so an
 // undo of the metadata (Ctrl+Z after Remove metadata, after a store) shows
 // what the markdown has again.
-import type { CellEditor, CellRef, Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { CellEditor, CellRef, Feature, TableHost, TableLooks, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { cellText, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
 import { type FilterOptions, normalizeForFilter, parseFilter } from "../filter.ts";
 import { ICONS } from "../icons.ts";
@@ -178,18 +178,10 @@ export class Filters implements Feature {
     return this.matchers(info).size > 0;
   }
 
-  /** A filter mark in each header, shown while its column filters (also with the filter row hidden) */
-  decorate(_widget: HTMLElement, info: WidgetInfo): void {
-    Array.from(info.table.rows[0]!.cells).forEach((cell, column) => {
-      if (cell.querySelector(".swt-filter-mark")) return;
-      const mark = this.host.doc.createElement("span");
-      mark.className = `${UI_CLASS} swt-filter-mark`;
-      mark.title = "Filtered: click to change the filter";
-      mark.dataset.swtAction = "filter";
-      mark.dataset.swtColumn = String(column);
-      mark.innerHTML = ICONS.filter;
-      cell.insertBefore(mark, cell.querySelector(".swt-sort"));
-    });
+  /** A filter mark in each header, shown while its column filters (also with the filter row hidden): a click changes the filter */
+  looks(info: WidgetInfo): TableLooks {
+    const mark = { svg: ICONS.filter, title: "Filtered: click to change the filter", className: "swt-filter-mark", order: 2, action: "filter" };
+    return { headers: Array.from({ length: info.columns }, (_, column) => ({ column, icons: [mark] })) };
   }
 
   viewApplied(_widget: HTMLElement, info: WidgetInfo): void {
@@ -203,10 +195,11 @@ export class Filters implements Feature {
     const { key } = info;
     const buttons: ToolbarButton[] = [];
     if (this.hidesRows(info)) {
-      const rows = this.host.bodyRows(info);
-      const shown = rows.filter((tr) => !tr.classList.contains("swt-hidden")).length;
+      const rows = info.rows - 1;
+      let shown = 0;
+      for (let row = 1; row <= rows; row++) if (!this.host.rowHidden(info, row)) shown++;
       buttons.push({
-        label: `${shown} of ${rows.length} rows`,
+        label: `${shown} of ${rows} rows`,
         title: "Clear the filters",
         place: "chip",
         icon: ICONS.filter,

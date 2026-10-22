@@ -9,14 +9,13 @@
 // every other row is tinted (SilverBullet's own), every other column, or none
 // (data-swt-stripes="none" / "columns"; rows: no mark).
 //
-// The marks go on a table as SilverBullet puts it into the page, before the
-// browser lays it out (tableAdded, from the <meta> of its metadata row as
-// rendered), so a table rendered anew after an edit does not show
-// SilverBullet's look for a moment; once enhanced, its markdown confirms them.
-import type { Feature, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { WIDGET_SELECTOR } from "../dom.ts";
+// A table's look as a whole (Feature.tableLook): the core asks for it as soon
+// as the table is rendered (its metadata as rendered, before the browser lays
+// it out), so a table rendered anew after an edit does not show SilverBullet's
+// look for a moment; once its markdown is read, again from it.
+import type { Feature, TableHost, TableLook, TablePreview, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
-import { parseTable, type Table } from "../markdown.ts";
+import { parseTable, type Table, type TableMeta } from "../markdown.ts";
 import type { MenuDetail, MenuEntry } from "../menu.ts";
 
 type MenuItem = Extract<MenuEntry, { readonly kind: "item" }>;
@@ -52,28 +51,16 @@ export class Themes implements Feature {
     void this.readSettings();
   }
 
-  stop(): void {
-    for (const widget of this.widgets()) {
-      delete widget.dataset.swtTheme;
-      delete widget.dataset.swtStripes;
-    }
+  /** The table's own theme and stripes (its metadata row), else the settings'; native and rows are SilverBullet's own look: no attribute */
+  tableLook(meta: TableMeta | undefined): TableLook {
+    const theme = themeName(meta?.theme) ?? this.theme;
+    const stripes = stripesName(meta?.stripes) ?? this.stripes;
+    return { theme: theme === NATIVE_THEME ? undefined : theme, stripes: stripes === "rows" ? undefined : stripes };
   }
 
-  // Before the browser lays the table out: its metadata row's choices as rendered (<meta theme='…' stripes='…'>), else the settings'
-  tableAdded(widget: HTMLElement, _table: HTMLTableElement, rows: readonly HTMLTableRowElement[]): void {
-    const meta = rows[rows.length - 1]?.querySelector("meta");
-    this.mark(widget, themeName(meta?.getAttribute("theme")) ?? this.theme, stripesName(meta?.getAttribute("stripes")) ?? this.stripes);
-  }
-
-  enhanced(widget: HTMLElement, info: WidgetInfo): void {
-    this.markFor(widget, info);
-    // A change of the settings applies to every table
+  // A change of the settings applies to every table
+  enhanced(): void {
     void this.readSettings();
-  }
-
-  private markFor(widget: HTMLElement, info: WidgetInfo): void {
-    const table = parseTable(info.source);
-    this.mark(widget, metaTheme(table) ?? this.theme, metaStripes(table) ?? this.stripes);
   }
 
   private async readSettings(): Promise<void> {
@@ -81,22 +68,7 @@ export class Themes implements Feature {
     if (theme === this.theme && stripes === this.stripes) return;
     this.theme = theme;
     this.stripes = stripes;
-    for (const widget of this.widgets()) {
-      const info = this.host.infoOf(widget);
-      if (info) this.markFor(widget, info);
-    }
-  }
-
-  /** The theme on the table (native: none, SilverBullet's own look), and its stripes unless they are the rows (SilverBullet's own) */
-  private mark(widget: HTMLElement, theme: string, stripes: Stripes): void {
-    if (theme === NATIVE_THEME) delete widget.dataset.swtTheme;
-    else if (widget.dataset.swtTheme !== theme) widget.dataset.swtTheme = theme;
-    if (stripes === "rows") delete widget.dataset.swtStripes;
-    else if (widget.dataset.swtStripes !== stripes) widget.dataset.swtStripes = stripes;
-  }
-
-  private widgets(): HTMLElement[] {
-    return Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.swt-table`));
+    this.host.tableLooksChanged();
   }
 
   /**
@@ -106,21 +78,21 @@ export class Themes implements Feature {
    * the table's metadata row, also the settings' one (kept whatever the
    * settings become). As names are, only where the table can have metadata.
    */
-  toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
     if (!info.metaRow && !this.host.metadataEnabled) return [];
     const table = parseTable(info.source);
     const own = metaTheme(table);
     const ownStripes = metaStripes(table);
-    const set = (choices: Readonly<Record<string, string | undefined>>) => () => void this.choose(widget, info, choices);
+    const set = (choices: Readonly<Record<string, string | undefined>>) => () => void this.choose(info, choices);
     const item = (label: string, checked: boolean, run: () => void, detail?: MenuDetail): MenuItem => ({ kind: "item", label, icon: "", checked, run, ...(detail ? { detail } : {}) });
     // Made as the list opens: finding the themes reads every style rule of the page
     const themes = (): MenuEntry[] => {
       // One preview for the list, beside the item hovered (or focused), in its theme and the table's stripes
       const preview = this.preview(ownStripes ?? this.stripes);
+      const stripes = ownStripes ?? this.stripes;
       const showing = (theme: string) => () => {
-        if (theme === NATIVE_THEME) delete preview.dataset.swtTheme;
-        else preview.dataset.swtTheme = theme;
-        return preview;
+        preview.setLook({ theme: theme === NATIVE_THEME ? undefined : theme, stripes: stripes === "rows" ? undefined : stripes });
+        return preview.element;
       };
       const detail = (theme: string): MenuDetail => ({ title: themeLabel(theme), content: showing(theme) });
       return [
@@ -161,32 +133,16 @@ export class Themes implements Feature {
   }
 
   /** A small table to preview themes on (in a menu's bubble: not one of the page's), with these stripes */
-  private preview(stripes: Stripes): HTMLElement {
-    const { doc } = this.host;
-    const widget = doc.createElement("div");
-    widget.className = "sb-table-widget swt-theme-preview";
-    widget.setAttribute("aria-hidden", "true");
-    if (stripes !== "rows") widget.dataset.swtStripes = stripes;
-    const table = doc.createElement("table");
-    const row = (section: HTMLTableSectionElement, cells: readonly string[]) => {
-      const tr = section.insertRow();
-      cells.forEach((text, i) => {
-        const td = tr.insertCell();
-        td.textContent = text;
-        if (i > 0) td.className = "swt-preview-number";
-      });
-    };
-    row(table.createTHead(), ["Name", "Qty", "Price"]);
-    const body = table.createTBody();
-    for (const cells of [["Pear", "3", "12.99"], ["Apple", "10", "4.50"], ["Fig", "2", "25.00"], ["Kiwi", "7", "6.10"]]) row(body, cells);
-    widget.append(table);
-    return widget;
+  private preview(stripes: Stripes): TablePreview {
+    const preview = this.host.previewTable(["Name", "Qty", "Price"], [["Pear", "3", "12.99"], ["Apple", "10", "4.50"], ["Fig", "2", "25.00"], ["Kiwi", "7", "6.10"]], { stripes: stripes === "rows" ? undefined : stripes });
+    preview.element.classList.add("swt-theme-preview");
+    return preview;
   }
 
   /** The table's own choices written into its metadata row, as one edit (undefined: the setting's again) */
-  private async choose(shownWidget: HTMLElement, shownInfo: WidgetInfo, choices: Readonly<Record<string, string | undefined>>): Promise<void> {
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    await this.host.write(widget, (table) => Object.entries(choices).reduce((t, [name, value]) => withMeta(t, name, value), table));
-    this.host.focusEditor(widget);
+  private async choose(shownInfo: WidgetInfo, choices: Readonly<Record<string, string | undefined>>): Promise<void> {
+    const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
+    await this.host.writeTable(info, (table) => Object.entries(choices).reduce((t, [name, value]) => withMeta(t, name, value), table));
+    this.host.focusPage();
   }
 }

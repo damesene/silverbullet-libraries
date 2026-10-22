@@ -42,8 +42,8 @@ export function positionHint(table: HTMLTableElement): number | undefined {
   return Number.isFinite(pos) ? pos : undefined;
 }
 
-// A header's hashtag that gives its column a type (features/columntypes.ts): hidden, not part of its name
-export const TYPE_TAG_CLASS = "swt-type-tag";
+// A header's hashtag a feature hides (HeaderLook.hidesTag: a column type's), not part of the column's name
+export const HIDDEN_TAG_CLASS = "swt-hidden-tag";
 
 /** A cell's text as shown, without anything Silverware Table added (or hid), wherever in the cell it is */
 export function cellText(cell: Element): string {
@@ -51,7 +51,7 @@ export function cellText(cell: Element): string {
   // Through the siblings, not a copy of the child list: read for every cell on every view
   const walk = (parent: Node) => {
     for (let node = parent.firstChild; node; node = node.nextSibling) {
-      if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(TYPE_TAG_CLASS))) continue;
+      if (node instanceof Element && (node.classList.contains(UI_CLASS) || node.classList.contains(HIDDEN_TAG_CLASS))) continue;
       if (node.nodeType === 3) text += node.textContent ?? "";
       else walk(node);
     }

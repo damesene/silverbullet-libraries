@@ -3288,7 +3288,7 @@ html[data-theme="dark"] .swt-excel-error {
 .swt-theme-preview thead tr {
   font-weight: bold;
 }
-.swt-theme-preview td.swt-preview-number {
+.swt-theme-preview td:not(:first-child) {
   text-align: right;
 }
 .swt-menu-detail.swt-left {
@@ -3490,9 +3490,9 @@ body.swt-autoscrolling * {
     var(--swt-lazy-mark, none) bottom right / 6px 6px no-repeat;
   pointer-events: none;
 }
-/* Column types: the type's hashtag is hidden, its icon shows after the
-   column's name; a value not of the type is red */
-.sb-table-widget .swt-type-tag {
+/* A header's hashtag a feature hides (a column type's: its icon shows after
+   the column's name instead); a value not of a column's type is red */
+.sb-table-widget .swt-hidden-tag {
   display: none;
 }
 .swt-type-icon {

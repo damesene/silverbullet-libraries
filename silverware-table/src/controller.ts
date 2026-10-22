@@ -2,7 +2,7 @@
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
 import { type Bridge, type FeatureName, moduleOnByDefault, SETTINGS, type SettingValue } from "./bridge.ts";
-import type { CellEditor, CellHit, CellRef, Feature, RowHold, TableHost, WidgetInfo, WriteOptions, WritePage, WriteResult, WriteStep, MetadataPart, NamingTarget } from "./core/feature.ts";
+import { type CellEditor, type CellHit, type CellRef, editorRect, type Feature, type Panel, type PanelAnchor, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
 import { type Dialog, type DialogOptions, Dialogs } from "./core/dialog.ts";
 import { ViewAnchor } from "./core/anchor.ts";
 import { placeAtEnd, TableRows } from "./core/rows.ts";
@@ -14,6 +14,10 @@ import { oncePerFrame } from "./core/frame.ts";
 import { watchPress } from "./core/press.ts";
 import { heldBounds, innerBox, isShown, overScrollbar, type Rect, scrollParentOf, scrollsInside, shownPart, shownRect, viewBounds } from "./core/geometry.ts";
 import { TouchKeyboard } from "./core/touch-keyboard.ts";
+import type { TableAdapter } from "./core/adapter.ts";
+import { mergeLooks } from "./core/looks.ts";
+import { Panels } from "./core/panel.ts";
+import { markTable, renderedMeta, SilverBulletAdapter } from "./core/silverbullet/adapter.ts";
 import { CONFIG_PAGE, withConfigSettings } from "./configpage.ts";
 import { SettingsDialog } from "./settings.ts";
 import { Metadata } from "./features/metadata.ts";
@@ -44,6 +48,7 @@ import {
   parseTable,
   serializeTable,
   type Table,
+  type TableMeta,
   type TableRange,
 } from "./markdown.ts";
 import type { MenuEntry, MenuNaming } from "./menu.ts";
@@ -155,6 +160,10 @@ export class Controller implements TableHost {
   private readonly metadata: Metadata;
   // Each table's rows as SilverBullet rendered them, in the document or not
   private readonly rows = new TableRows();
+  // What renders the tables (SilverBullet's): what the core asks of the rendering goes through it
+  private readonly adapter: TableAdapter;
+  // The features' panels (TableHost.panel)
+  private readonly panels: Panels;
   // Steps every write goes through after the edit, in this order
   private readonly writeSteps: readonly WriteStep[] = [metadataAfterEdit];
 
@@ -162,6 +171,13 @@ export class Controller implements TableHost {
     readonly doc: Document,
     public bridge: Bridge,
   ) {
+    this.adapter = new SilverBulletAdapter(doc, this.rows);
+    this.panels = new Panels({
+      doc,
+      floating: (className) => this.floating("div", className),
+      place: (element, left, top) => this.place(element, left, top),
+      anchorRect: (anchor) => this.anchorRect(anchor),
+    });
     this.dialogs = new Dialogs(doc);
     this.anchor = new ViewAnchor(doc, (key) => this.widgetForKey(key));
     this.metadata = new Metadata(this);
@@ -316,6 +332,8 @@ export class Controller implements TableHost {
     this.insert.remove();
     this.settingsDialog?.close();
     this.dialogs.close();
+    this.panels.removeAll();
+    this.adapter.stop();
   }
 
   private onBlur = (): void => this.cellEditor.setNavigating(false);
@@ -515,7 +533,7 @@ export class Controller implements TableHost {
    * told, so they may take rows out of the document before they cost a layout
    */
   private tablesAdded(records: readonly MutationRecord[]): void {
-    if (!this.features.some((f) => f.tableAdded)) return;
+    if (!this.features.some((f) => f.tableAdded || f.tableLook)) return;
     for (const record of records) {
       for (const node of Array.from(record.addedNodes)) {
         if (!(node instanceof HTMLElement)) continue;
@@ -525,6 +543,8 @@ export class Controller implements TableHost {
           const widget = table.closest<HTMLElement>(WIDGET_SELECTOR);
           if (!widget || this.rows.knows(table) || this.ownTable(widget)) continue;
           const rows = this.rows.renderedRows(table);
+          // How it looks as a whole, from its metadata as rendered, before the browser lays it out
+          markTable(widget, this.tableLook(renderedMeta(rows)));
           for (const feature of this.features) feature.tableAdded?.(widget, table, rows);
         }
       }
@@ -710,13 +730,15 @@ export class Controller implements TableHost {
       cell.append(button);
     });
     for (const feature of this.features) feature.decorate?.(widget, info);
+    this.adapter.applyTableLook(info, this.tableLook(parseTable(info.source).meta));
+    this.applyLooks(info);
     // Last: the header's name on one line with the icons the features added
     for (const cell of Array.from(rows[0]!.cells)) layOutHeaderCell(cell);
   }
 
   // ---- view: sort and filter --------------------------------------------
 
-  viewOf(info: WidgetInfo): ViewState {
+  viewOf(info: TableTarget): ViewState {
     return this.views.get(info.key) ?? DEFAULT_VIEW;
   }
 
@@ -825,6 +847,96 @@ export class Controller implements TableHost {
 
   infoOf(widget: HTMLElement): WidgetInfo | undefined {
     return this.infos.get(widget);
+  }
+
+  tableFor(key: string): WidgetInfo | undefined {
+    const widget = this.widgetForKey(key);
+    return widget && this.infos.get(widget);
+  }
+
+  shownTables(): WidgetInfo[] {
+    const shown: WidgetInfo[] = [];
+    for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.swt-table`))) {
+      const info = this.infos.get(widget);
+      if (info && renderedTable(widget) === info.table) shown.push(info);
+    }
+    return shown;
+  }
+
+  shownOrder(info: WidgetInfo): number[] {
+    return this.rows.shownRows(info).map((tr) => this.rows.rowOf(info, tr));
+  }
+
+  rowHidden(info: WidgetInfo, row: number): boolean {
+    return row > 0 && !!this.bodyRows(info)[row - 1]?.classList.contains("swt-hidden");
+  }
+
+  shownText(info: WidgetInfo, ref: CellRef): string | undefined {
+    return this.adapter.renderedText(info, ref);
+  }
+
+  shownValue(info: WidgetInfo, ref: CellRef): string | undefined {
+    const cell = this.cellAt(info, ref, true);
+    return cell && this.cellValue(cell);
+  }
+
+  looksChanged(info: WidgetInfo): void {
+    const widget = this.widgetForKey(info.key);
+    const now = widget && this.infos.get(widget);
+    if (!widget || !now) return;
+    this.applyLooks(now);
+    this.applyView(widget, now);
+  }
+
+  /** How a table looks as a whole: the features' (Feature.tableLook), a later one's attribute winning */
+  private tableLook(meta: TableMeta | undefined): TableLook {
+    return Object.assign({}, ...this.features.map((f) => f.tableLook?.(meta) ?? {})) as TableLook;
+  }
+
+  tableLooksChanged(): void {
+    for (const info of this.shownTables()) this.adapter.applyTableLook(info, this.tableLook(parseTable(info.source).meta));
+  }
+
+  previewTable(header: readonly string[], rows: readonly (readonly string[])[], look: TableLook): TablePreview {
+    return this.adapter.previewTable(header, rows, look);
+  }
+
+  /** The features' looks of the table's cells and headers (core/looks.ts), applied by the adapter */
+  private applyLooks(info: WidgetInfo): void {
+    const table = this.tableOf(info);
+    const active = this.cellEditor.active;
+    const editing = active && this.infos.get(active.widget)?.key === info.key ? { row: active.row, column: active.column } : undefined;
+    this.adapter.applyLooks(info, mergeLooks(this.features.map((f) => f.looks?.(info, table))), editing);
+  }
+
+  panel(className: string): Panel {
+    return this.panels.create(className);
+  }
+
+  hideHeaderTags(owner: string, tags: { readonly exact: readonly string[]; readonly prefixes: readonly string[] }): void {
+    this.adapter.hideHeaderTags(owner, tags);
+  }
+
+  /** Where a panel's anchor is in the window, while it is in view */
+  private anchorRect(anchor: PanelAnchor): Rect | undefined {
+    if (anchor.kind === "point") return { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y };
+    if (anchor.kind === "cell") {
+      const info = this.tableFor(anchor.key);
+      return info && this.adapter.cellRect(info, anchor);
+    }
+    const active = this.cellEditor.active;
+    const info = active && this.infos.get(active.widget);
+    if (!active || !info) return undefined;
+    const rect = editorRect(active);
+    // Not laid out (in tests): where it is; else only while the cell shows
+    if (rect.width === 0 && rect.height === 0) return rect;
+    return this.shownPart(active.widget, info, active.cell) ? rect : undefined;
+  }
+
+  focusPage(): void {
+    // Not after a touch (core/touch-keyboard.ts)
+    if (this.touchKeyboard.letGoOfFocus()) return;
+    this.doc.querySelector<HTMLElement>(EDITOR_SELECTOR)?.focus({ preventScroll: true });
   }
 
   get editing(): CellEditor | undefined {
@@ -1389,6 +1501,8 @@ export class Controller implements TableHost {
     if (this.stopped) return;
     // The cell's popup stays over its cell, before what is placed by it (a formula's help)
     this.cellEditor.placePopup();
+    // The features' panels follow what they are anchored to (a formula's help: the popup placed first)
+    this.panels.placeAll();
     for (const feature of this.features) feature.layoutChanged?.();
     this.insert.showQuiet();
     // After the header has moved: controls that point at it follow
@@ -1565,9 +1679,26 @@ export class Controller implements TableHost {
     change: (table: Table) => Table | undefined,
     options: WriteOptions = {},
   ): Promise<WriteResult> {
-    const { focus, columnMap } = options;
     const info = this.infos.get(widget);
     if (!info) return "failed";
+    return this.writeAt(info, widget, change, options);
+  }
+
+  writeTable(target: TableTarget, change: (table: Table) => Table | undefined, options: WriteOptions = {}): Promise<WriteResult> {
+    // Rendered: written as its widget's, so the view stays where it was
+    const widget = this.widgetForKey(target.key);
+    const info = widget && this.infos.get(widget);
+    return info && info.source === target.source ? this.writeAt(info, widget, change, options) : this.writeAt(target, undefined, change, options);
+  }
+
+  /** A table written where `info` says it is in the page; `widget` its table rendered, if it is */
+  private async writeAt(
+    info: TableTarget,
+    widget: HTMLElement | undefined,
+    change: (table: Table) => Table | undefined,
+    options: WriteOptions,
+  ): Promise<WriteResult> {
+    const { focus, columnMap } = options;
     try {
       // What the write needs read is read before the page's text (other pages,
       // which take a while), so the text the edit is computed from is not stale
@@ -1613,8 +1744,10 @@ export class Controller implements TableHost {
       }
       if (focus) this.cellEditor.editAfterWrite(info.key, focus);
       this.holdAfterWrite(info.key, options);
-      this.scrollLefts.set(info.key, widget.scrollLeft);
-      this.scrollTops.set(info.key, widget.scrollTop);
+      if (widget) {
+        this.scrollLefts.set(info.key, widget.scrollLeft);
+        this.scrollTops.set(info.key, widget.scrollTop);
+      }
       let written = text;
       for (const update of [...updates].sort((a, b) => b.range.from - a.range.from)) {
         written = written.slice(0, update.range.from) + update.markdown + written.slice(update.range.to);
@@ -1629,7 +1762,7 @@ export class Controller implements TableHost {
         const then = await feature.beforeWrite?.(text, spanFrom, spanTo, replace);
         if (then) after.push(then);
       }
-      this.anchor.set(widget, info.key);
+      if (widget) this.anchor.set(widget, info.key);
       await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
       this.pageText = written;
       for (const pending of held) pending.written();
@@ -1719,6 +1852,7 @@ export class Controller implements TableHost {
       this.cellEditor.owns(node) ||
       this.dialogs.contains(node) ||
       this.tableMenu.owns(node) ||
+      this.panels.owns(node) ||
       this.features.some((f) => f.owns?.(node))
     );
   }

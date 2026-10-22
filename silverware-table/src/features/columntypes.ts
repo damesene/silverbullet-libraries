@@ -2,18 +2,16 @@
 // (`| Price #currency |`) shows its cells as that type (columntypes/), hides that
 // hashtag, and marks the cells that are not values of the type. The markdown
 // keeps the values as written: sorting, filters and copying use them.
-import { type CellEditor, type CellRef, editorRect, type Feature, type TableHost, type WidgetInfo } from "../core/feature.ts";
-import { cellText, TYPE_TAG_CLASS, UI_CLASS } from "../dom.ts";
+import type { CellEditor, CellLook, CellRef, Feature, HeaderLook, Panel, TableHost, TableLooks, WidgetInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import type { MenuDetail, MenuEntry } from "../menu.ts";
 import { setCell } from "../ops.ts";
-import { escapeCell, parseTable, unescapeCell } from "../markdown.ts";
+import { escapeCell, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import { withoutTags } from "../tags.ts";
 import {
   type Choice,
   type ColumnType,
   columnTypeOf,
-  type Shown,
   type TypedColumn,
   typeOfTag,
   allTypes,
@@ -43,20 +41,6 @@ function typeDetail(type: ColumnType, tag?: string): MenuDetail {
 }
 
 /**
- * CSS that hides the type hashtags of headers from the start: SilverBullet
- * renders a table before Silverware Table decorates it, and the hashtag would show
- * for a moment. Names with a parameter match by prefix (#stars-…).
- */
-function hiddenTagsCss(): string {
-  const { exact, prefixes } = typeTagPatterns();
-  const selectors = [
-    ...exact.map((tag) => `.sb-table-widget thead [data-tag-name="${tag}" i]`),
-    ...prefixes.map((prefix) => `.sb-table-widget thead [data-tag-name^="${prefix}" i]`),
-  ];
-  return `${selectors.join(",\n")} {\n  display: none;\n}\n`;
-}
-
-/**
  * What a type's method gives for a column, or why it failed: a custom type is
  * the user's code, and one that throws (or gives what a type does not) marks
  * the cell instead of breaking the table
@@ -78,44 +62,32 @@ type Picking = {
 };
 
 export class ColumnTypes implements Feature {
-  private readonly style: HTMLStyleElement;
   // A list of the type's values under the cell editor (a datalist would offer
   // only the values that start with what the field holds: none to change to)
-  private readonly picker: HTMLElement;
+  private readonly picker: Panel;
   private picking: Picking | undefined;
 
   constructor(private readonly host: TableHost) {
-    this.style = host.doc.createElement("style");
-    this.style.dataset.silverwareTable = "types";
-    this.style.textContent = hiddenTagsCss();
-    host.doc.head.append(this.style);
-    this.picker = host.floating("div", "swt-choices");
-    this.picker.setAttribute("role", "listbox");
+    // The type hashtags of headers hidden from the start (a table shows before its looks apply)
+    host.hideHeaderTags("types", typeTagPatterns());
+    this.picker = host.panel("swt-choices");
+    this.picker.element.setAttribute("role", "listbox");
   }
 
   stop(): void {
-    this.style.remove();
     this.picker.remove();
   }
 
   /** Custom types were defined anew: their hashtags are hidden too (tables rendered from now on show them typed) */
   tablesChanged(): void {
-    this.style.textContent = hiddenTagsCss();
-  }
-
-  owns(node: Node): boolean {
-    return this.picker.contains(node);
-  }
-
-  layoutChanged(): void {
-    if (this.picking && this.picker.classList.contains("swt-visible")) this.placePicker(this.picking.editor);
+    this.host.hideHeaderTags("types", typeTagPatterns());
   }
 
   // ---- the column menu ----------------------------------------------------------
 
   /** "Type: …" in a column's menu (first in its section of sorting and filtering): picks the column's type, written as a hashtag in its header */
   columnMenuLeadEntries(
-    widget: HTMLElement,
+    _widget: HTMLElement,
     info: WidgetInfo,
     column: number,
     open: (title: string, entries: readonly MenuEntry[]) => void,
@@ -123,7 +95,7 @@ export class ColumnTypes implements Feature {
     const header = parseTable(info.source).rows[0]?.cells[column] ?? "";
     const current = columnTypeOf(unescapeCell(header));
     const setType = (tag: string | undefined) => () =>
-      void this.host.write(widget, (t) => setCell(t, 0, column, withColumnType(t.rows[0]?.cells[column] ?? "", tag)));
+      void this.host.writeTable(this.host.tableFor(info.key) ?? info, (t) => setCell(t, 0, column, withColumnType(t.rows[0]?.cells[column] ?? "", tag)));
     const choices: MenuEntry[] = [
       { kind: "item", label: "No type", icon: ICONS.clear, checked: !current, run: setType(undefined) },
       { kind: "separator" },
@@ -175,7 +147,7 @@ export class ColumnTypes implements Feature {
   /** The type of the edited cell's column, if any (header cells have none) */
   private typeOfEdited(editor: CellEditor): TypedColumn | undefined {
     if (editor.row === 0) return undefined;
-    const header = parseTable(this.host.infoOf(editor.widget)?.source ?? "").rows[0]?.cells[editor.column];
+    const header = parseTable(this.host.tableFor(editor.key)?.source ?? "").rows[0]?.cells[editor.column];
     return header === undefined ? undefined : columnTypeOf(unescapeCell(header));
   }
 
@@ -185,21 +157,22 @@ export class ColumnTypes implements Feature {
     const choices = typed && attempt(typed, () => typed.type.choices?.(typed.params));
     if (!choices || typeof choices === "string" || !choices.length) return;
     this.picking = { editor, choices, shown: [], active: -1 };
-    editor.field.addEventListener("input", () => {
-      if (this.picking?.editor === editor) this.showChoices();
-    });
     this.showChoices();
+  }
+
+  editorInput(editor: CellEditor): void {
+    if (this.picking?.editor === editor) this.showChoices();
   }
 
   editorClosed(): void {
     this.picking = undefined;
-    this.picker.classList.remove("swt-visible");
+    this.picker.hide();
   }
 
   /** Arrows move along the list, Enter takes the value they are on (and then saves as Enter does) */
   editorKeyDown(e: KeyboardEvent, editor: CellEditor): boolean {
     const picking = this.picking;
-    if (!picking || picking.editor !== editor || !this.picker.classList.contains("swt-visible")) return false;
+    if (!picking || picking.editor !== editor || !this.picker.shown) return false;
     if (e.ctrlKey || e.altKey || e.metaKey) return false;
     const count = picking.shown.length;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -207,7 +180,7 @@ export class ColumnTypes implements Feature {
       this.renderChoices();
       return true;
     }
-    if (e.key === "Enter" && !e.shiftKey && picking.active >= 0) editor.field.value = picking.shown[picking.active]!.value;
+    if (e.key === "Enter" && !e.shiftKey && picking.active >= 0) editor.setText(picking.shown[picking.active]!.value);
     return false;
   }
 
@@ -219,29 +192,31 @@ export class ColumnTypes implements Feature {
   private showChoices(): void {
     const picking = this.picking;
     if (!picking) return;
-    const field = picking.editor.field;
-    const typed = field.value.trim().toLowerCase();
+    const text = picking.editor.text;
+    const typed = text.trim().toLowerCase();
     const isChoice = picking.choices.some((c) => c.value.toLowerCase() === typed);
     picking.shown =
-      typed === "" || isChoice || field.value === picking.editor.initial
+      typed === "" || isChoice || text === picking.editor.initial
         ? picking.choices
         : picking.choices.filter((c) => c.value.toLowerCase().includes(typed) || c.label.toLowerCase().includes(typed));
     // The arrows start from the cell's value: ↓ is the next one
     picking.active = picking.shown.findIndex((c) => c.value.toLowerCase() === typed);
     // A formula is not one of the values: its own help shows there
     if (!picking.shown.length || typed.startsWith("=")) {
-      this.picker.classList.remove("swt-visible");
+      this.picker.hide();
       return;
     }
     this.renderChoices();
-    this.placePicker(picking.editor);
+    // Under the cell, or above it where the window has no room below
+    this.picker.show({ kind: "editor" }, { minWidth: "anchor" });
   }
 
   private renderChoices(): void {
     const picking = this.picking;
     if (!picking) return;
-    const typed = picking.editor.field.value.trim().toLowerCase();
-    this.picker.replaceChildren(
+    const typed = picking.editor.text.trim().toLowerCase();
+    const list = this.picker.element;
+    list.replaceChildren(
       ...picking.shown.map((choice, index) => {
         const option = this.host.doc.createElement("div");
         option.className = "swt-choice";
@@ -253,29 +228,19 @@ export class ColumnTypes implements Feature {
         // Picking saves the value as Enter would
         option.addEventListener("click", () => {
           if (this.picking !== picking) return;
-          picking.editor.field.value = choice.value;
-          this.picker.classList.remove("swt-visible");
-          picking.editor.field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+          this.picker.hide();
+          picking.editor.setText(choice.value);
+          picking.editor.commit();
         });
         return option;
       }),
     );
     // The value the arrows are on stays in the list's view (the list alone scrolls, not the page)
-    const active = this.picker.querySelector<HTMLElement>(".swt-active");
-    if (active && active.offsetTop < this.picker.scrollTop) this.picker.scrollTop = active.offsetTop;
-    else if (active && active.offsetTop + active.offsetHeight > this.picker.scrollTop + this.picker.clientHeight) {
-      this.picker.scrollTop = active.offsetTop + active.offsetHeight - this.picker.clientHeight;
+    const active = list.querySelector<HTMLElement>(".swt-active");
+    if (active && active.offsetTop < list.scrollTop) list.scrollTop = active.offsetTop;
+    else if (active && active.offsetTop + active.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = active.offsetTop + active.offsetHeight - list.clientHeight;
     }
-  }
-
-  /** Under the cell, or above it where the window has no room below */
-  private placePicker(editor: CellEditor): void {
-    const rect = editorRect(editor);
-    this.picker.style.minWidth = `${Math.round(editor.cell.getBoundingClientRect().width)}px`;
-    this.host.place(this.picker, rect.left, rect.bottom + 2);
-    const viewHeight = this.host.doc.defaultView!.innerHeight;
-    const height = this.picker.offsetHeight;
-    if (rect.bottom + 2 + height > viewHeight && rect.top - 2 - height >= 0) this.host.place(this.picker, rect.left, rect.top - 2 - height);
   }
 
   /**
@@ -302,66 +267,39 @@ export class ColumnTypes implements Feature {
     return kept && name.trim() !== "" ? withColumnType(name, kept.tag) : undefined;
   }
 
-  decorate(_widget: HTMLElement, info: WidgetInfo): void {
-    const model = parseTable(info.source);
-    const header = info.table.rows[0];
-    const rows = this.host.bodyRows(info);
-    model.rows[0]?.cells.forEach((name, column) => {
+  /**
+   * A typed column: its header without the type's hashtag, the type's icon
+   * after its name; its cells shown as the type formats them (their value for
+   * sorting the type's), those that are not values of the type marked with why
+   */
+  looks(info: WidgetInfo, table: Table): TableLooks | undefined {
+    const headers: ({ column: number } & HeaderLook)[] = [];
+    const cells: (CellRef & CellLook)[] = [];
+    table.rows[0]?.cells.forEach((name, column) => {
       const typed = columnTypeOf(unescapeCell(name));
       if (!typed) return;
-      // The type's hashtag is not part of the column's name as Silverware Table shows it;
-      // the type's icon goes after the name instead, before Silverware Table's own controls
-      const headerCell = header?.cells[column];
-      for (const tag of Array.from(headerCell?.querySelectorAll<HTMLElement>("[data-tag-name]") ?? [])) {
-        if (typeOfTag(tag.dataset.tagName ?? "")) tag.classList.add(TYPE_TAG_CLASS);
-      }
-      if (headerCell && !headerCell.querySelector(".swt-type-icon")) {
-        const icon = this.host.doc.createElement("span");
-        icon.className = `${UI_CLASS} swt-type-icon`;
-        icon.title = `${typeLabel(typed.type.name)} (#${typed.tag}): ${typed.type.description}`;
-        icon.innerHTML = iconOf(typed.type);
-        headerCell.insertBefore(icon, headerCell.querySelector(`:scope > .${UI_CLASS}`));
-      }
-      for (const tr of rows) {
-        const raw = model.rows[this.host.rowOf(info, tr)]?.cells[column];
-        const cell = tr.cells[column];
-        if (raw === undefined || !cell) continue;
+      headers.push({
+        column,
+        hidesTag: (tag) => !!typeOfTag(tag),
+        icons: [{ svg: iconOf(typed.type), title: `${typeLabel(typed.type.name)} (#${typed.tag}): ${typed.type.description}`, className: "swt-type-icon", order: 1 }],
+      });
+      table.rows.forEach((r, row) => {
+        const raw = r.cells[column];
+        if (row === 0 || raw === undefined) return;
         // The cell's text: a formula's result, without the hidden tags
         const text = unescapeCell(withoutTags(raw)).trim();
         // Only plain values: a cell with markup (a link, emphasis) is left as it is
-        if (text === "" || cellText(cell) !== text) continue;
+        if (text === "" || this.host.shownText(info, { row, column }) !== text) return;
         const { type, params } = typed;
         // What the cell shows, or why it is not a value of the type (or why the type failed on it)
         const shown = attempt(typed, () => {
           const error = type.check(text, params);
           return error === undefined ? { value: type.sortValue?.(text, params) ?? text, shown: type.format(text, params) } : error;
         });
-        if (typeof shown === "string") {
-          cell.dataset.swtValue = text;
-          cell.classList.add("swt-type-invalid");
-          cell.title = cell.title ? `${cell.title}\n${shown}` : shown;
-          continue;
-        }
-        cell.dataset.swtValue = shown.value;
-        this.show(cell, shown.shown);
-      }
+        if (typeof shown === "string") cells.push({ row, column, value: text, marks: ["type-invalid"], title: shown });
+        else cells.push({ row, column, value: shown.value, display: shown.shown });
+      });
     });
-  }
-
-  /** Puts what a typed cell shows in place of its text, Silverware Table's own elements kept */
-  private show(cell: HTMLTableCellElement, shown: Shown): void {
-    for (const node of Array.from(cell.childNodes)) {
-      if (!(node instanceof Element && node.classList.contains(UI_CLASS))) node.remove();
-    }
-    if (typeof shown === "string") {
-      cell.prepend(this.host.doc.createTextNode(shown));
-      return;
-    }
-    const link = this.host.doc.createElement("a");
-    link.href = shown.href;
-    link.target = "_blank";
-    link.rel = "noopener";
-    link.textContent = shown.text;
-    cell.prepend(link);
+    return headers.length ? { headers, cells } : undefined;
   }
 }

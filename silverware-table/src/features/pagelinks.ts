@@ -6,8 +6,7 @@
 // changed): then the formulas module checks the tables shown again.
 // Turned off, no page is read, and formulas referring to one keep their
 // results (formula/page.ts: pages not read are `unread`).
-import type { Feature, TableHost, WidgetInfo, WritePage } from "../core/feature.ts";
-import { WIDGET_SELECTOR } from "../dom.ts";
+import type { Feature, TableHost, TableTarget, WidgetInfo, WritePage } from "../core/feature.ts";
 import { referredPages } from "../formulas/index.ts";
 import { tablesWritten } from "../formulas/page.ts";
 import { type OtherPages, type PageTable, pageTablesOf, parseTable, type Table } from "../markdown.ts";
@@ -35,7 +34,7 @@ export class PageLinks implements Feature {
   }
 
   /** Before a write reads the page: the pages the tables it recalculates refer to, read again */
-  async prepareWrite(info: WidgetInfo): Promise<void> {
+  async prepareWrite(info: TableTarget): Promise<void> {
     await this.load(tablesWritten(pageTablesOf(this.host.pageText), info.source), true);
   }
 
@@ -62,10 +61,7 @@ export class PageLinks implements Feature {
 
   /** The tables shown, as last read */
   private tablesShown(): Table[] {
-    return Array.from(this.host.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.swt-table`)).flatMap((widget) => {
-      const info = this.host.infoOf(widget);
-      return info ? [parseTable(info.source)] : [];
-    });
+    return this.host.shownTables().map((info) => parseTable(info.source));
   }
 
   /**

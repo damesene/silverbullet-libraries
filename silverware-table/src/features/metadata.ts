@@ -5,7 +5,6 @@
 // For one table from its toolbar, for all tables of the page with the
 // "Silverware Table: Remove table metadata" command.
 import type { Feature, MetadataPart, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
-import { EDITOR_SELECTOR } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import { findTables, minimalEdit, parseTable, serializeTable, type Table } from "../markdown.ts";
 import { attributesOf, cellTags, withoutTags } from "../tags.ts";
@@ -43,7 +42,7 @@ function described(parts: readonly MetadataPart[], tables: readonly Table[], for
 export class Metadata implements Feature {
   constructor(private readonly host: TableHost) {}
 
-  toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
     if (!hasMetadata(parseTable(info.source))) return [];
     return [
       {
@@ -51,7 +50,7 @@ export class Metadata implements Feature {
         icon: ICONS.trash,
         danger: true,
         title: "Remove this table's <meta> tags: its stored settings (sorting, filters, pinning, name, theme, stripes) and what its cells keep (formulas, which keep their results, names)",
-        run: () => void this.removeFromTable(widget, info),
+        run: () => void this.removeFromTable(info),
       },
     ];
   }
@@ -61,7 +60,7 @@ export class Metadata implements Feature {
    * stored there goes with it: the rows show as written) and the formulas of
    * its cells, which keep their results as plain values
    */
-  private async removeFromTable(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
+  private async removeFromTable(shownInfo: WidgetInfo): Promise<void> {
     const shown = parseTable(shownInfo.source);
     const removed = [
       ...(shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name, theme, stripes)"] : []),
@@ -69,12 +68,11 @@ export class Metadata implements Feature {
     ];
     if (!(await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`))) return;
     // The table as rendered now: the dialog may have outlived the rendering it was asked from
-    const widget = this.host.widgetForKey(shownInfo.key) ?? shownWidget;
-    const info = this.host.infoOf(widget) ?? shownInfo;
+    const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
     if (parseTable(info.source).meta) this.host.forgetStoredView(info.key);
-    await this.host.write(widget, withoutMetadata);
+    await this.host.writeTable(info, withoutMetadata);
     // The dialog took the focus: back to the editor, so Ctrl+Z works right away
-    this.host.focusEditor(widget);
+    this.host.focusPage();
   }
 
   /** Removes the metadata of all tables on the current page, once confirmed */
@@ -111,7 +109,7 @@ export class Metadata implements Feature {
     const edit = minimalEdit(text.slice(from, to), span);
     await bridge.replaceRange(from + edit.from, from + edit.to, edit.insert);
     // The dialog took the focus: back to the editor, so Ctrl+Z works right away
-    this.host.doc.querySelector<HTMLElement>(EDITOR_SELECTOR)?.focus({ preventScroll: true });
+    this.host.focusPage();
     void bridge.flash(`Silverware Table: removed the metadata of ${tables.length} table(s)`, "info");
   }
 }

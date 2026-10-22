@@ -105,23 +105,23 @@ export class Excel implements Feature {
   constructor(private readonly host: TableHost) {}
 
   /** Export to Excel… in the toolbar's menu */
-  toolbarButtons(widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
+  toolbarButtons(_widget: HTMLElement, info: WidgetInfo): ToolbarButton[] {
     return [
       {
         label: "Export to Excel…",
         title: "Copy the table for Excel, or download it as an Excel file with its formulas",
         icon: ICONS.download,
-        run: () => void this.open(widget, info),
+        run: () => void this.open(info),
       },
     ];
   }
 
   /** The dialog: both ways, with what they keep, and the outcome of the one taken */
-  private async open(shownWidget: HTMLElement, shownInfo: WidgetInfo): Promise<void> {
+  private async open(shownInfo: WidgetInfo): Promise<void> {
     // Pressed again while the file is prepared: one dialog
     if (this.opening) return;
     this.opening = true;
-    const { info } = currentTable(this.host, shownWidget, shownInfo);
+    const info = currentTable(this.host, shownInfo);
     const shown = exportedTable(this.host, info, "shown");
     let workbook: Workbook;
     try {

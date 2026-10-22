@@ -8,7 +8,7 @@ import type { Rect } from "./geometry.ts";
 export type { Dialog, DialogOptions } from "./dialog.ts";
 export type { Rect } from "./geometry.ts";
 import type { IndexMap } from "../ops.ts";
-import type { OtherPages, PageTable, Table } from "../markdown.ts";
+import type { OtherPages, PageTable, Table, TableMeta } from "../markdown.ts";
 import type { MenuEntry, MenuNaming } from "../menu.ts";
 import type { Pins, ViewState } from "../view.ts";
 
@@ -28,8 +28,61 @@ export type WidgetInfo = {
   readonly pins: Pins;
 };
 
+/** A table of the page as a write finds it, rendered or not: its key, its markdown as last read and where it was (`hint`) */
+export type TableTarget = Pick<WidgetInfo, "key" | "source" | "hint">;
+
 // A cell by its row in the markdown (header 0) and its column
 export type CellRef = { readonly row: number; readonly column: number };
+
+/** What a cell shows in place of what its markdown renders to: a text, or a link (opened in a new tab) */
+export type CellDisplay = string | { readonly text: string; readonly href: string };
+
+/**
+ * How a feature wants a cell to look (Feature.looks), in model terms: the
+ * renderer applies it. `display` replaces what the cell shows (the last
+ * feature's wins), `value` is what sorting, filters and copying compare (the
+ * last's wins), `marks` are added (CSS keys on them: `swt-<mark>`), `title`s
+ * are joined.
+ */
+export type CellLook = {
+  readonly display?: CellDisplay;
+  readonly value?: string;
+  readonly marks?: readonly string[];
+  readonly title?: string;
+};
+
+/** An icon after a header's name (a column type's, the filter mark), before the sorting; `action`: a click on it is the feature's (Feature.action) */
+export type HeaderIcon = {
+  readonly svg: string;
+  readonly title: string;
+  readonly className: string;
+  // Where it goes among the icons (smaller first)
+  readonly order: number;
+  readonly action?: string;
+};
+
+/** How a feature wants a header to look: icons after its name, marks, a title; `hidesTag`: hashtags in it not shown, by name (a column type's) */
+export type HeaderLook = {
+  readonly icons?: readonly HeaderIcon[];
+  readonly marks?: readonly string[];
+  readonly title?: string;
+  readonly hidesTag?: (name: string) => boolean;
+};
+
+/**
+ * A whole table's look as attributes (the themes module: theme, stripes), put
+ * on the table by the adapter (`data-swt-<name>`); undefined: not set
+ */
+export type TableLook = Readonly<Record<string, string | undefined>>;
+
+/** A small table the adapter makes for a feature's own UI (a theme's preview in a menu), shown as the page's tables are */
+export type TablePreview = { readonly element: HTMLElement; setLook(look: TableLook): void };
+
+/** A feature's looks for a table's cells and headers (Feature.looks) */
+export type TableLooks = {
+  readonly cells?: readonly (CellRef & CellLook)[];
+  readonly headers?: readonly ({ readonly column: number } & HeaderLook)[];
+};
 
 /** A cell of a table shown, as an event found it: its table, the cell rendered and where it is in the markdown */
 export type CellHit = { readonly widget: HTMLElement; readonly info: WidgetInfo; readonly cell: HTMLTableCellElement; readonly ref: CellRef };
@@ -49,12 +102,32 @@ export type HeldEdit = { readonly row: number; readonly column: number; readonly
  */
 export type PendingEdits = { readonly apply: (table: Table) => Table; readonly written: () => void };
 
-/** The cell editor: an input in place of the cell's content */
+/**
+ * The cell editor: an input in place of the cell's content. In model terms
+ * (what modules use): the table's key, the cell, what it held and showed when
+ * it opened, what it holds now and where its caret is, and what can be done to
+ * it; `widget`, `cell` and `field` are the rendering's, going as the modules
+ * move off them (docs/silverware-table-isolation.md)
+ */
 export type CellEditor = {
-  readonly widget: HTMLElement;
-  readonly cell: HTMLTableCellElement;
+  readonly key: string;
   readonly row: number;
   readonly column: number;
+  // What the field holds now, and its selection (the caret: from = to)
+  readonly text: string;
+  readonly selection: readonly [number, number];
+  /** The field's text set (the caret at its end, or where given) */
+  setText(text: string, selection?: readonly [number, number]): void;
+  /** Part of the text replaced as typing would (so Ctrl+Z in the field undoes it), the caret after it */
+  insert(from: number, to: number, text: string): void;
+  /** Part of the text selected */
+  select(from: number, to: number): void;
+  /** The keyboard back in the field */
+  focus(): void;
+  /** Saved as Enter saves (and on as Enter goes on) */
+  commit(): void;
+  readonly widget: HTMLElement;
+  readonly cell: HTMLTableCellElement;
   // The cell's markdown when the editor opened
   readonly original: string;
   // What the field showed when it opened: the cell's text, or what a feature showed (a formula)
@@ -71,6 +144,34 @@ export type CellField = HTMLInputElement | HTMLTextAreaElement;
 /** Where the cell editor shows, for what goes under or above it (a formula's hint, a type's choices): its popup, else its cell */
 export function editorRect(editor: CellEditor): DOMRect {
   return (editor.popup ? (editor.field.closest(".swt-cell-popup") ?? editor.cell) : editor.cell).getBoundingClientRect();
+}
+
+/**
+ * What a panel (TableHost.panel) is anchored to: the cell editor (its popup
+ * while it is open there), a cell or a header of a table shown, a point of the
+ * window
+ */
+export type PanelAnchor =
+  | { readonly kind: "editor" }
+  | { readonly kind: "cell"; readonly key: string; readonly row: number; readonly column: number }
+  | { readonly kind: "point"; readonly x: number; readonly y: number };
+
+/** Where a panel goes: below its anchor (else above, where there is no room below), at least as wide as it (`minWidth: "anchor"`) */
+export type PanelOptions = { readonly place?: "below" | "above"; readonly minWidth?: "anchor"; readonly gap?: number };
+
+/**
+ * A floating container of a feature's own UI (a list of choices, a formula's
+ * help): the feature fills `element`; the core places it by its anchor, keeps
+ * it there as the page and the table scroll, hides it while the anchor is out
+ * of view
+ */
+export interface Panel {
+  readonly element: HTMLElement;
+  readonly shown: boolean;
+  /** Shown at its anchor (placed anew: its content may have changed its size) */
+  show(anchor: PanelAnchor, options?: PanelOptions): void;
+  hide(): void;
+  remove(): void;
 }
 
 /** A button a feature adds to a table's toolbar */
@@ -178,6 +279,38 @@ export interface TableHost {
   openDialog(options: DialogOptions): Dialog;
   /** Re-reads the table, applies `change` and writes it back as one edit */
   write(widget: HTMLElement, change: (table: Table) => Table | undefined, options?: WriteOptions): Promise<WriteResult>;
+  /**
+   * The same for a table of the page by where it is (a WidgetInfo is one),
+   * whether it is rendered or not: what modules write with
+   */
+  writeTable(target: TableTarget, change: (table: Table) => Table | undefined, options?: WriteOptions): Promise<WriteResult>;
+  /** A table shown, by its key, as it is now (rendered anew after a write: its new info) */
+  tableFor(key: string): WidgetInfo | undefined;
+  /** The tables shown on the page */
+  shownTables(): WidgetInfo[];
+  /** The rows shown, in display order: the header (0) first, then the body rows (their rows in the markdown) as sorted and filtered */
+  shownOrder(info: WidgetInfo): number[];
+  /** Whether a body row is hidden (filtered out) */
+  rowHidden(info: WidgetInfo, row: number): boolean;
+  /** A cell's text as its markdown renders (a link's text, a `${…}` result), before any feature's look; undefined: not rendered */
+  shownText(info: WidgetInfo, ref: CellRef): string | undefined;
+  /** A cell's value as sorting, filters and copying see it (a look's value, else its text shown; the edited cell's typed text) */
+  shownValue(info: WidgetInfo, ref: CellRef): string | undefined;
+  /** What features want the table's cells to look like changed (Feature.looks): applied anew */
+  looksChanged(info: WidgetInfo): void;
+  /** What features want the tables to look like as a whole changed (Feature.tableLook: a setting): applied anew to every table shown */
+  tableLooksChanged(): void;
+  /** A small table for a feature's own UI, with this header and rows, looking as the page's tables do with `look` */
+  previewTable(header: readonly string[], rows: readonly (readonly string[])[], look: TableLook): TablePreview;
+  /** Hands the keyboard back to the page's editor */
+  focusPage(): void;
+  /** A floating container for a feature's own UI, placed by what it is anchored to (Panel) */
+  panel(className: string): Panel;
+  /**
+   * Hashtags in headers not shown, by name (a column type's): hidden from the
+   * moment a table is rendered (before its looks apply); given again, they replace those of `owner`
+   */
+  hideHeaderTags(owner: string, tags: { readonly exact: readonly string[]; readonly prefixes: readonly string[] }): void;
   /** Closes the cell editor without saving, and drops a cell waiting to be edited */
   cancelEditing(): void;
   /** The open cell editor, if any */
@@ -421,6 +554,18 @@ export interface Feature {
   /** Marks on a table's cells, once its rows know their rows in the markdown (data-swt-row) */
   decorate?(widget: HTMLElement, info: WidgetInfo): void;
   /**
+   * How the table's cells and headers look (in model terms; the renderer
+   * applies it), asked when the table is rendered and when a feature says its
+   * looks changed (TableHost.looksChanged); `table` is its markdown as shown
+   */
+  looks?(info: WidgetInfo, table: Table): TableLooks | undefined;
+  /**
+   * How a table looks as a whole, from its metadata row (none: undefined);
+   * asked as soon as the table is rendered (before it is laid out: the
+   * metadata as rendered) and once its markdown is read
+   */
+  tableLook?(meta: TableMeta | undefined): TableLook | undefined;
+  /**
    * Entries for a column's menu, after its sorting; `open` shows other
    * entries in the menu's place (they close the menu when run)
    */
@@ -470,7 +615,7 @@ export interface Feature {
   /** Buttons for the table's toolbar, shown while the pointer is over the table */
   toolbarButtons?(widget: HTMLElement, info: WidgetInfo): ToolbarButton[];
   /** Before a write reads the page's text: what it needs read first (other pages the tables written refer to) */
-  prepareWrite?(info: WidgetInfo): Promise<void>;
+  prepareWrite?(info: TableTarget): Promise<void>;
   /**
    * A cell's edit the cell editor would write (not a header's name): true, the
    * feature keeps it (shows it, writes it later, through pendingEdits); the
@@ -478,7 +623,7 @@ export interface Feature {
    */
   holdCellEdit?(widget: HTMLElement, info: WidgetInfo, edit: HeldEdit): boolean;
   /** The edits the feature holds for a table, put into each of its writes (and into tableOf) */
-  pendingEdits?(info: WidgetInfo): PendingEdits | undefined;
+  pendingEdits?(info: TableTarget): PendingEdits | undefined;
   /** Another page was loaded into the editor (`name`): what was held for the page left can no longer be written into the editor */
   pageLoaded?(name: string): Promise<void> | void;
   /** After the edit, before the write steps: what they need read (other pages the edited table refers to) */
@@ -550,6 +695,8 @@ export interface Feature {
   /** What the cell editor shows for a cell's markdown (hidden tags and all); undefined: its text */
   editorText?(info: WidgetInfo, cell: CellRef, original: string): string | undefined;
   editorOpened?(editor: CellEditor): void;
+  /** What the cell editor holds changed (typed, pasted, set) */
+  editorInput?(editor: CellEditor): void;
   /** A key in the cell editor, before Silverware Table handles it; true: handled (its default is prevented) */
   editorKeyDown?(e: KeyboardEvent, editor: CellEditor): boolean;
   /** The markdown to save for what was typed; undefined: the text */

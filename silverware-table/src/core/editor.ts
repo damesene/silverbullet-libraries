@@ -169,7 +169,9 @@ export class CellEditing {
     }
     field.value = popup?.value ?? initial;
     cell.classList.add("swt-editing");
+    const doc = this.host.doc;
     const opened: ActiveEditor = {
+      key: info.key,
       widget,
       cell,
       ...ref,
@@ -181,6 +183,39 @@ export class CellEditing {
       popup: !!popup,
       ...(panel ? { panel } : {}),
       ...(beyond ? { growth: growTo(info, beyond) } : {}),
+      get text() {
+        return field.value;
+      },
+      get selection() {
+        const end = field.value.length;
+        return [field.selectionStart ?? end, field.selectionEnd ?? end] as const;
+      },
+      setText: (text, selection) => {
+        field.value = text;
+        field.setSelectionRange(selection?.[0] ?? text.length, selection?.[1] ?? text.length);
+        this.input(opened);
+      },
+      insert: (from, to, text) => {
+        const expected = field.value.slice(0, from) + text + field.value.slice(to);
+        field.setSelectionRange(from, to);
+        try {
+          // As typing: Ctrl+Z in the field undoes it, and the field's input event comes (features hear it)
+          if (typeof doc.execCommand === "function") doc.execCommand("insertText", false, text);
+        } catch {
+          // Not supported: set directly below
+        }
+        if (field.value !== expected) {
+          field.value = expected;
+          field.setSelectionRange(from + text.length, from + text.length);
+          this.input(opened);
+        }
+      },
+      select: (from, to) => field.setSelectionRange(from, to),
+      focus: () => field.focus({ preventScroll: true }),
+      commit: () => {
+        if (this.editor !== opened) return;
+        void (opened.growth ? this.finish(true) : this.enter(false));
+      },
     };
     this.editor = opened;
     if (replace) field.value = "";
@@ -193,6 +228,9 @@ export class CellEditing {
     this.context.endHover();
 
     this.context.isolate(field);
+    field.addEventListener("input", () => {
+      if (this.editor === opened) this.input(opened);
+    });
     field.addEventListener("blur", () => {
       // Focus went elsewhere on purpose: save, but leave the focus there
       if (this.editor?.field === field && !this.context.movingRows() && !this.context.dialogOpen()) void this.finish(true, undefined, false);
@@ -250,6 +288,11 @@ export class CellEditing {
     else if (select) field.select();
     else field.setSelectionRange(field.value.length, field.value.length);
     for (const feature of this.context.features) feature.editorOpened?.(opened);
+  }
+
+  /** What the field holds changed: the features hear it */
+  private input(editor: ActiveEditor): void {
+    for (const feature of this.context.features) feature.editorInput?.(editor);
   }
 
   /** Whether a node is the editor's (its popup) */

@@ -10,13 +10,12 @@
 // page left first), the edits are written into that page's file; the tab going
 // to the background, they are written at once; the tab closing, too, and the
 // browser asks whether to leave.
-import type { CellEditor, Feature, HeldEdit, PendingEdits, TableHost, ToolbarButton, WidgetInfo } from "../core/feature.ts";
+import type { CellEditor, Feature, HeldEdit, PendingEdits, TableHost, TableLooks, TableTarget, ToolbarButton, WidgetInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import { locateBySource, parseTable, serializeTable, type Table, unescapeCell } from "../markdown.ts";
 import { setCell } from "../ops.ts";
 import { withoutTags } from "../tags.ts";
 
-const PENDING_CLASS = "swt-lazy-pending";
 // After a navigation started, what is held waits this long at most for the page loaded
 const LEAVING_MS = 5000;
 
@@ -54,8 +53,6 @@ export class Lazy implements Feature {
   // Tables switched to lazy saving, by key (for this visit of the page)
   private readonly on = new Set<string>();
   private readonly held = new Map<string, Held>();
-  // The cells marked as held, by table: unmarked without going through every cell of a large table
-  private readonly marked = new Map<string, HTMLTableCellElement[]>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   // A table's flush on its way (the delay, the tab hidden or closing, a toggle may come together): the others wait for it
   private readonly flushing = new Map<string, Promise<boolean>>();
@@ -126,13 +123,13 @@ export class Lazy implements Feature {
     else held.edits.set(id, { ...edit, original });
     if (held.edits.size) this.held.set(info.key, held);
     else this.held.delete(info.key);
-    this.show(info);
+    this.host.looksChanged(info);
     this.host.toolbarChanged();
     void this.schedule();
     return true;
   }
 
-  pendingEdits(info: WidgetInfo): PendingEdits | undefined {
+  pendingEdits(info: TableTarget): PendingEdits | undefined {
     const held = this.held.get(info.key);
     if (!held?.edits.size) return undefined;
     const edits = [...held.edits.values()];
@@ -154,7 +151,6 @@ export class Lazy implements Feature {
       for (const edit of edits) if (held.edits.get(cellId(edit)) === edit) held.edits.delete(cellId(edit));
       if (!held.edits.size) {
         this.held.delete(key);
-        this.marked.delete(key);
       }
     }
     if (skipped) void this.host.bridge.flash(`Silverware Table: ${skipped} ${skipped === 1 ? "cell was" : "cells were"} changed elsewhere meanwhile, the edit there was not saved`, "error");
@@ -210,30 +206,11 @@ export class Lazy implements Feature {
     return true;
   }
 
-  viewApplied(_widget: HTMLElement, info: WidgetInfo): void {
-    if (this.held.has(info.key)) this.show(info);
-  }
-
-  /** The held cells show what was typed (as text: the markdown renders once written) */
-  private show(info: WidgetInfo): void {
-    for (const cell of this.marked.get(info.key) ?? []) cell.classList.remove(PENDING_CLASS);
-    const marked: HTMLTableCellElement[] = [];
-    for (const edit of this.held.get(info.key)?.edits.values() ?? []) {
-      const cell = this.host.cellAt(info, edit, true);
-      if (!cell || cell.classList.contains("swt-editing")) continue;
-      // An empty cell has no content box (the core lays out what a cell holds): one for what was typed
-      let content = cell.querySelector<HTMLElement>(":scope > .swt-cell-content");
-      if (!content) {
-        content = this.host.doc.createElement("div");
-        content.className = "swt-cell-content";
-        cell.prepend(content);
-      }
-      content.textContent = unescapeCell(withoutTags(edit.value));
-      cell.classList.add(PENDING_CLASS);
-      marked.push(cell);
-    }
-    if (marked.length) this.marked.set(info.key, marked);
-    else this.marked.delete(info.key);
+  /** The held cells show what was typed (as text: the markdown renders once written), marked */
+  looks(info: WidgetInfo): TableLooks | undefined {
+    const edits = this.held.get(info.key)?.edits;
+    if (!edits?.size) return undefined;
+    return { cells: [...edits.values()].map((edit) => ({ row: edit.row, column: edit.column, display: unescapeCell(withoutTags(edit.value)), marks: ["lazy-pending"] })) };
   }
 
   /** Writes what is held for every table; how many writes went into the editor */
@@ -267,11 +244,11 @@ export class Lazy implements Feature {
       await this.flushToPage(key, held);
       return false;
     }
-    const widget = this.host.widgetForKey(key);
-    // Not rendered (scrolled far out of view): written once it is (enhanced), or when the page is left;
-    // a cell opened meanwhile: written once it closes (a write now would render the table anew under it)
-    if (!widget || this.host.editing) return false;
-    return (await this.host.write(widget, (table) => table)) === "written";
+    // A cell opened meanwhile: written once it closes (a write now would render the table anew under it)
+    if (this.host.editing) return false;
+    // Where the table is now, else where it was when last rendered (scrolled far out of view)
+    const target = this.host.tableFor(key) ?? { key, hint: held.hint, source: held.source };
+    return (await this.host.writeTable(target, (table) => table)) === "written";
   }
 
   /** The page left: what was held for it is written into its file (SilverBullet saved it before loading the other) */

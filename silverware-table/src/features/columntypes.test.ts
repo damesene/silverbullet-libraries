@@ -31,7 +31,7 @@ describe("Column types", () => {
     await setup(PAGE);
     expect([cell(1, 1).textContent, cell(1, 2).textContent, cell(1, 3).textContent]).toEqual([usd(12.99), "★★★★☆", "✅"]);
     expect(cell(2, 3).textContent).toBe("❌");
-    expect(cell(0, 1).querySelector(".swt-type-tag")!.textContent).toBe("#currency-usd");
+    expect(cell(0, 1).querySelector(".swt-hidden-tag")!.textContent).toBe("#currency-usd");
     // The type's icon goes after the column's name, before the filter mark and the sort button, and is not part of the name
     const icon = cell(0, 1).querySelector(".swt-type-icon")!;
     expect(icon.nextElementSibling!.classList.contains("swt-filter-mark")).toBe(true);
@@ -167,7 +167,7 @@ describe("Column types", () => {
       );
       await setup("| Place | Temp #temp-f |\n|---|---|\n| Oven | 350 |\n| Sun | hot |\n| Moon | cold |\n");
       expect(cell(1, 1).textContent).toBe("350 °F");
-      expect(cell(0, 1).querySelector(".swt-type-tag")!.textContent).toBe("#temp-f");
+      expect(cell(0, 1).querySelector(".swt-hidden-tag")!.textContent).toBe("#temp-f");
       expect(cell(0, 1).querySelector(".swt-type-icon")).not.toBeNull();
       // Its method threw: marked, with why
       expect(cell(2, 1).classList.contains("swt-type-invalid")).toBe(true);
