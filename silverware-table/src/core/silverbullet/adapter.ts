@@ -180,6 +180,10 @@ export class SilverBulletAdapter implements TableAdapter {
     this.doc.body.classList.toggle(`swt-${mark}`, on);
   }
 
+  tableMark(info: WidgetInfo, mark: string, on: boolean): void {
+    info.table.closest<HTMLElement>(WIDGET_SELECTOR)?.classList.toggle(`swt-${mark}`, on);
+  }
+
   revealCell(info: WidgetInfo, ref: CellRef): void {
     const cell = this.rows.cellAt(info, ref);
     if (!cell) return;

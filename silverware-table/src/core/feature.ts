@@ -209,7 +209,7 @@ export interface OutlineLayer {
  * as a spreadsheet's app puts the handles of whole rows (columns); where no
  * cell of the line is in view there, in its cell
  */
-export type HandlePlace = { readonly className: string; readonly row: number; readonly column: number; readonly mid?: "row" | "column" };
+export type HandlePlace = { readonly className: string; readonly row: number; readonly column: number; readonly mid?: "row" | "column"; readonly title?: string };
 
 /** Handles in cells (the selection's, the fill handle): placed by the adapter, kept by table, pressed: TableHost.targetOf says which */
 export interface HandleLayer {
@@ -436,6 +436,8 @@ export interface TableHost {
   drag(start: MouseEvent | PointerEvent, options: DragOptions): () => void;
   /** A state of the page for CSS while it lasts (class swt-<mark> on the page: a drag going on, a mode) */
   pageMark(mark: string, on: boolean): void;
+  /** A state of a table for CSS while it lasts (class swt-<mark> on it: picking a cell in it), kept by its key: rendered anew, it has it again */
+  tableMark(key: string, mark: string, on: boolean): void;
   /** A cell scrolled into view, the page and its table's box as needed */
   revealCell(info: WidgetInfo, ref: CellRef): void;
   /** The rows shown from one row to another (of the markdown, in the order shown), both included; empty: either not shown */
@@ -665,6 +667,8 @@ export interface Feature {
   pointerBusy?(): "drag" | "menu" | undefined;
   /** The pointer is over a cell, or the page moved under it */
   cellHovered?(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void;
+  /** The same in model terms: the cell of the table the pointer is over */
+  hovered?(info: WidgetInfo, ref: CellRef): void;
   /**
    * The cell menu asked for on a cell (a right click, a long press, the Menu
    * key, a tap on cells selected): true when the feature opens its own menu

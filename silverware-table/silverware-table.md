@@ -3841,10 +3841,10 @@ body.swt-select-dragging .swt-select-handle {
     height: 14px;
   }
 }
-.swt-fill-handle.swt-fill-last-column {
+.swt-fill-handle.swt-at-right {
   right: 0;
 }
-.swt-fill-handle.swt-fill-last-row {
+.swt-fill-handle.swt-at-bottom {
   bottom: 0;
 }
 /* After a touch the corner is the selection's handle, to select more */

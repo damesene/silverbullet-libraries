@@ -46,6 +46,8 @@ export interface TableAdapter {
   scrollNear(info: WidgetInfo, x: number, y: number, sideways: boolean): void;
   /** A state of the page for CSS (swt-<mark>) */
   pageMark(mark: string, on: boolean): void;
+  /** A state of a table for CSS (swt-<mark>) */
+  tableMark(info: WidgetInfo, mark: string, on: boolean): void;
   /** A cell scrolled into view */
   revealCell(info: WidgetInfo, ref: CellRef): void;
   /** Whether a node is one of the adapter's own elements over the cells (a piece of an outline, a handle) */

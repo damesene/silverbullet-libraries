@@ -62,6 +62,7 @@ export class Overlays {
         made.set(place.className, handle);
       }
       placed.add(place.className);
+      if (place.title !== undefined) handle.title = place.title;
       handle.classList.remove("swt-at-mid", "swt-at-top", "swt-at-bottom", "swt-at-left", "swt-at-right");
       handle.style.left = handle.style.top = handle.style.right = handle.style.bottom = "";
       this.handleOf.set(handle, { layer: name, key: info.key, className: place.className, row: place.row, column: place.column });

@@ -175,6 +175,8 @@ export class Controller implements TableHost {
   >();
   private readonly handleLayers = new Map<string, { at?: { readonly key: string; readonly places: readonly HandlePlace[] } }>();
   private readonly dragContext: DragContext;
+  // The tables marked (TableHost.tableMark), by mark
+  private readonly tableMarks = new Map<string, Set<string>>();
   // Steps every write goes through after the edit, in this order
   private readonly writeSteps: readonly WriteStep[] = [metadataAfterEdit];
 
@@ -981,6 +983,7 @@ export class Controller implements TableHost {
       if (layer.at?.key === info.key) this.adapter.showOutline(name, info, layer.at.rows, layer.at.columns, layer.pieces);
     }
     for (const [name, layer] of this.handleLayers) if (layer.at?.key === info.key) this.adapter.placeHandles(name, info, layer.at.places);
+    for (const [mark, tables] of this.tableMarks) if (tables.has(info.key)) this.adapter.tableMark(info, mark, true);
   }
 
   outlineLayer(name: string, pieces: (sides: readonly Side[]) => readonly string[]): OutlineLayer {
@@ -1032,6 +1035,15 @@ export class Controller implements TableHost {
 
   pageMark(mark: string, on: boolean): void {
     this.adapter.pageMark(mark, on);
+  }
+
+  tableMark(key: string, mark: string, on: boolean): void {
+    let tables = this.tableMarks.get(mark);
+    if (!tables) this.tableMarks.set(mark, (tables = new Set()));
+    if (on) tables.add(key);
+    else tables.delete(key);
+    const info = this.tableFor(key);
+    if (info) this.adapter.tableMark(info, mark, on);
   }
 
   revealCell(info: WidgetInfo, ref: CellRef): void {
@@ -1961,7 +1973,11 @@ export class Controller implements TableHost {
 
   /** A cell is hovered or edited (or the page moved under it): the features follow it; the quiet + of a last row or column */
   private cellHovered(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void {
-    for (const feature of this.features) feature.cellHovered?.(widget, info, cell);
+    const ref = this.cellRef(info, cell);
+    for (const feature of this.features) {
+      feature.cellHovered?.(widget, info, cell);
+      if (ref) feature.hovered?.(info, ref);
+    }
     this.insert.showQuiet();
   }
 
