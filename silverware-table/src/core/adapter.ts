@@ -8,7 +8,7 @@
 //
 // Being moved here step by step from the controller (docs/silverware-table-isolation.md):
 // what is not here yet is still the controller's own DOM code.
-import type { CellRef, HandlePlace, HeaderRow, PointerTarget, Rect, Side, TableLook, TablePreview, WidgetInfo } from "./feature.ts";
+import type { CellRef, HandlePlace, HeaderRow, LineDrag, PointerTarget, Rect, Side, TableLook, TablePreview, WidgetInfo } from "./feature.ts";
 import type { MergedLooks } from "./looks.ts";
 
 export interface TableAdapter {
@@ -50,6 +50,10 @@ export interface TableAdapter {
   tableMark(info: WidgetInfo, mark: string, on: boolean): void;
   /** A cell scrolled into view */
   revealCell(info: WidgetInfo, ref: CellRef): void;
+  /** Where a part of a table is in the window (TableHost.rectOf) */
+  rectOf(info: WidgetInfo, part: { readonly row: number; readonly column: number } | { readonly row: number } | { readonly column: number } | "table"): Rect | undefined;
+  /** Rows (columns) dragged (TableHost.dragLines) */
+  dragLines(info: WidgetInfo, axis: "row" | "column", block: { readonly first: number; readonly last: number }, pressedAt: number, blockTo: (asked: number) => number): LineDrag | undefined;
   /** Whether a node is one of the adapter's own elements over the cells (a piece of an outline, a handle) */
   owns(node: Node): boolean;
   /** Silverware Table stops: what the adapter added to the page goes */

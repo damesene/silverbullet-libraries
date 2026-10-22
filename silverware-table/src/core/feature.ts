@@ -263,6 +263,9 @@ export type DragOptions = {
   onKey?(e: KeyboardEvent): void;
 };
 
+/** A drag of rows or columns (TableHost.dragLines) */
+export type LineDrag = { move(x: number, y: number): void; finish(commit: boolean): number | undefined };
+
 /** What a feature puts on the clipboard for a copy or a cut (Feature.clipboardData) */
 export type ClipboardData = { readonly text: string; readonly html?: string };
 
@@ -443,6 +446,20 @@ export interface TableHost {
   /** The rows shown from one row to another (of the markdown, in the order shown), both included; empty: either not shown */
   shownBetween(info: WidgetInfo, a: number, b: number): number[];
   /**
+   * Where a part of a table shown is in the window (for a feature's own UI by
+   * it: a grip, a menu): a cell, a row (across its cells), a column (its header
+   * cell), the table (as far as its box shows it); undefined: not rendered
+   */
+  rectOf(info: WidgetInfo, part: { readonly row: number; readonly column: number } | { readonly row: number } | { readonly column: number } | "table"): Rect | undefined;
+  /**
+   * A block of rows (columns) dragged from a press `pressedAt` (its y, x): a
+   * copy of them follows the pointer, the others make room where they would
+   * go (`to` from `blockTo`, given where the block was asked to start), near
+   * the edges it scrolls; the core's (the rendering's). `move` as the pointer
+   * moves, `finish` where they go (the block's first line), none: cancelled
+   */
+  dragLines(info: WidgetInfo, axis: "row" | "column", block: { readonly first: number; readonly last: number }, pressedAt: number, blockTo: (asked: number) => number): LineDrag | undefined;
+  /**
    * Hashtags in headers not shown, by name (a column type's): hidden from the
    * moment a table is rendered (before its looks apply); given again, they replace those of `owner`
    */
@@ -469,7 +486,7 @@ export interface TableHost {
   /** Whether a click selects first (a feature's select mode), so that a second one acts: a cell's editor, a grip's menu */
   clickSelects(): boolean;
   /** The naming for a menu's title (Feature.menuNaming): the first feature's */
-  menuNaming(widget: HTMLElement, info: WidgetInfo, target: NamingTarget): MenuNaming | undefined;
+  menuNaming(info: WidgetInfo, target: NamingTarget): MenuNaming | undefined;
   /** Opens the table's ⋯ menu (of its toolbar), with `naming` its title's name field open (a name to type) */
   openTableMenu(widget: HTMLElement, naming?: boolean): void;
   /** A header given a new name (escaped markdown) other than by its editor: with what features keep in it (Feature.headerRenamed) */
@@ -622,27 +639,17 @@ export interface TableHost {
    * The entries features add to a column's menu (see Feature.columnMenuEntries);
    * `open` shows other entries in the menu's place, e.g. a list to pick from
    */
-  columnMenuEntries(
-    widget: HTMLElement,
-    info: WidgetInfo,
-    column: number,
-    open: (title: string, entries: readonly MenuEntry[]) => void,
-  ): MenuEntry[];
+  columnMenuEntries(info: WidgetInfo, column: number, open: (title: string, entries: readonly MenuEntry[]) => void): MenuEntry[];
   /** The entries features put first in a column's menu's section of sorting and filtering (see Feature.columnMenuLeadEntries) */
-  columnMenuLeadEntries(
-    widget: HTMLElement,
-    info: WidgetInfo,
-    column: number,
-    open: (title: string, entries: readonly MenuEntry[]) => void,
-  ): MenuEntry[];
+  columnMenuLeadEntries(info: WidgetInfo, column: number, open: (title: string, entries: readonly MenuEntry[]) => void): MenuEntry[];
   /** The entries features add at the top of a column's menu (see Feature.columnMenuTopEntries) */
-  columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
+  columnMenuTopEntries(info: WidgetInfo, column: number): MenuEntry[];
   /** The entries features add with inserting and moving a column (see Feature.columnMenuInsertEntries) */
-  columnMenuInsertEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[];
+  columnMenuInsertEntries(info: WidgetInfo, column: number): MenuEntry[];
   /** The entries features add to a row's menu, for the cell in `column` (see Feature.rowMenuEntries) */
-  rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[];
+  rowMenuEntries(info: WidgetInfo, row: number, column: number): MenuEntry[];
   /** The entries features add first to the menu of rows (columns) `lines` (see Feature.lineMenuEntries) */
-  lineMenuEntries(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
+  lineMenuEntries(info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
   /** A setting's value, its default when unset or not valid */
   setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>>;
   /** The metadata setting as last read */
@@ -651,7 +658,7 @@ export interface TableHost {
   viewOf(info: WidgetInfo): ViewState;
   setView(widget: HTMLElement, info: WidgetInfo, view: ViewState): void;
   /** A view change that may change the sorting, which the metadata setting also stores */
-  setSort(widget: HTMLElement, info: WidgetInfo, view: ViewState): void;
+  setSort(info: WidgetInfo, view: ViewState): void;
 }
 
 /** A feature: every hook is optional */

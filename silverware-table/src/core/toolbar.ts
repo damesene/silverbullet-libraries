@@ -115,8 +115,8 @@ export class Toolbar {
         title: "Clear sorting: show the rows as written",
         place: "chip",
         run: () => {
-          const [w, i] = this.context.current(widget, info);
-          host.setSort(w, i, withoutSort(host.viewOf(i)));
+          const [, i] = this.context.current(widget, info);
+          host.setSort(i, withoutSort(host.viewOf(i)));
         },
         // Apply: the rows are sorted in the markdown, and the sorting view ends
         actions: [{ icon: ICONS.applySort, title: "Sort the rows in the markdown this way", run: () => this.context.applySort(widget, info) }],
@@ -267,7 +267,7 @@ export class Toolbar {
     const danger = items.filter((item) => item.danger).map(entry);
     // The table's name in the title, a pencil to change it (the names module's)
     const info = host.infoOf(widget);
-    const naming = info && host.menuNaming(widget, info, { kind: "table" });
+    const naming = info && host.menuNaming(info, { kind: "table" });
     const title = naming?.name ? `Table: ${naming.name}` : "Table";
     menu.show(widget, title, [...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], place, undefined, naming);
     if (startNamed) menu.startNaming();

@@ -2,7 +2,7 @@
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
 import { type Bridge, type FeatureName, moduleOnByDefault, SETTINGS, type SettingValue } from "./bridge.ts";
-import { type CellEditor, type CellHit, type CellRef, editorRect, type ClipboardData, type DragOptions, type Feature, type HandleLayer, type HandlePlace, type MarkLayer, type OutlineLayer, type Panel, type PanelAnchor, type PointerTarget, type Side, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
+import { type CellEditor, type CellHit, type CellRef, editorRect, type ClipboardData, type LineDrag, type DragOptions, type Feature, type HandleLayer, type HandlePlace, type MarkLayer, type OutlineLayer, type Panel, type PanelAnchor, type PointerTarget, type Side, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
 import { type Dialog, type DialogOptions, Dialogs } from "./core/dialog.ts";
 import { ViewAnchor } from "./core/anchor.ts";
 import { placeAtEnd, TableRows } from "./core/rows.ts";
@@ -187,6 +187,9 @@ export class Controller implements TableHost {
     this.adapter = new SilverBulletAdapter(doc, this.rows, {
       infoOf: (widget) => this.infos.get(widget),
       rowNeeded: (info, row) => this.rowNeeded(info, row),
+      holdInDocument: (info, row) => this.holdInDocument(info, row),
+      floating: (className) => this.floating("div", className),
+      place: (element, left, top) => this.place(element, left, top),
     });
     this.dragContext = {
       doc,
@@ -780,7 +783,8 @@ export class Controller implements TableHost {
     return this.features.some((f) => f.clickSelects?.());
   }
 
-  menuNaming(widget: HTMLElement, info: WidgetInfo, target: NamingTarget): MenuNaming | undefined {
+  menuNaming(info: WidgetInfo, target: NamingTarget): MenuNaming | undefined {
+    const widget = this.widgetOf(info);
     for (const feature of this.features) {
       const naming = feature.menuNaming?.(widget, info, target);
       if (naming) return naming;
@@ -840,8 +844,8 @@ export class Controller implements TableHost {
    * A view change that may change the sorting. With the metadata setting on,
    * the sorting is also stored in the table, so it is the table's view next time.
    */
-  setSort(widget: HTMLElement, info: WidgetInfo, view: ViewState): void {
-    this.setView(widget, info, view);
+  setSort(info: WidgetInfo, view: ViewState): void {
+    this.setView(this.widgetOf(info), info, view);
     this.scheduleSortStore(info.key);
   }
 
@@ -1125,38 +1129,47 @@ export class Controller implements TableHost {
     return this.doc.documentElement.dataset.swtPointer ?? "";
   }
 
-  columnMenuEntries(
-    widget: HTMLElement,
-    info: WidgetInfo,
-    column: number,
-    open: (title: string, entries: readonly MenuEntry[]) => void,
-  ): MenuEntry[] {
+  columnMenuEntries(info: WidgetInfo, column: number, open: (title: string, entries: readonly MenuEntry[]) => void): MenuEntry[] {
+    const widget = this.widgetOf(info);
     return this.features.flatMap((f) => f.columnMenuEntries?.(widget, info, column, open) ?? []);
   }
 
-  columnMenuLeadEntries(
-    widget: HTMLElement,
-    info: WidgetInfo,
-    column: number,
-    open: (title: string, entries: readonly MenuEntry[]) => void,
-  ): MenuEntry[] {
+  columnMenuLeadEntries(info: WidgetInfo, column: number, open: (title: string, entries: readonly MenuEntry[]) => void): MenuEntry[] {
+    const widget = this.widgetOf(info);
     return this.features.flatMap((f) => f.columnMenuLeadEntries?.(widget, info, column, open) ?? []);
   }
 
-  columnMenuTopEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
+  columnMenuTopEntries(info: WidgetInfo, column: number): MenuEntry[] {
+    const widget = this.widgetOf(info);
     return this.features.flatMap((f) => f.columnMenuTopEntries?.(widget, info, column) ?? []);
   }
 
-  columnMenuInsertEntries(widget: HTMLElement, info: WidgetInfo, column: number): MenuEntry[] {
+  columnMenuInsertEntries(info: WidgetInfo, column: number): MenuEntry[] {
+    const widget = this.widgetOf(info);
     return this.features.flatMap((f) => f.columnMenuInsertEntries?.(widget, info, column) ?? []);
   }
 
-  rowMenuEntries(widget: HTMLElement, info: WidgetInfo, row: number, column: number): MenuEntry[] {
+  rowMenuEntries(info: WidgetInfo, row: number, column: number): MenuEntry[] {
+    const widget = this.widgetOf(info);
     return this.features.flatMap((f) => f.rowMenuEntries?.(widget, info, row, column) ?? []);
   }
 
-  lineMenuEntries(widget: HTMLElement, info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+  lineMenuEntries(info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+    const widget = this.widgetOf(info);
     return this.features.flatMap((f) => f.lineMenuEntries?.(widget, info, axis, lines) ?? []);
+  }
+
+  /** The element a table's info was rendered in (the hooks that still take it: docs/silverware-table-isolation.md) */
+  private widgetOf(info: WidgetInfo): HTMLElement {
+    return info.table.closest<HTMLElement>(WIDGET_SELECTOR) ?? info.table;
+  }
+
+  rectOf(info: WidgetInfo, part: { readonly row: number; readonly column: number } | { readonly row: number } | { readonly column: number } | "table"): Rect | undefined {
+    return this.adapter.rectOf(info, part);
+  }
+
+  dragLines(info: WidgetInfo, axis: "row" | "column", block: { readonly first: number; readonly last: number }, pressedAt: number, blockTo: (asked: number) => number): LineDrag | undefined {
+    return this.adapter.dragLines(info, axis, block, pressedAt, blockTo);
   }
 
   get metadataEnabled(): boolean {
@@ -1611,7 +1624,7 @@ export class Controller implements TableHost {
     const action = target.closest<HTMLElement>("[data-swt-action]");
     if (action?.dataset.swtAction === "sort") {
       e.preventDefault();
-      this.setSort(widget, info, cycleSort(this.viewOf(info), Number(action.dataset.swtColumn)));
+      this.setSort(info, cycleSort(this.viewOf(info), Number(action.dataset.swtColumn)));
     } else if (action?.dataset.swtAction) {
       const name = action.dataset.swtAction;
       if (this.features.some((f) => f.action?.(name, action, widget, info))) e.preventDefault();
@@ -2114,7 +2127,7 @@ export class Controller implements TableHost {
     // One cell: its name (a header's: its column's) in the title, a pencil to change it
     const naming =
       cells.length === 1
-        ? this.menuNaming(widget, info, at.row === 0 ? { kind: "column", column: at.column } : { kind: "cell", row: at.row, column: at.column })
+        ? this.menuNaming(info, at.row === 0 ? { kind: "column", column: at.column } : { kind: "cell", row: at.row, column: at.column })
         : undefined;
     const title =
       cells.length > 1

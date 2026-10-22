@@ -2,11 +2,12 @@
 // core asks of the rendering, done on the DOM SilverBullet renders tables to.
 // Everything assumed about that DOM is in ../../dom.ts and in this folder.
 import { UI_CLASS, WIDGET_SELECTOR } from "../../dom.ts";
-import { scrollNearEdge, shownPart } from "../geometry.ts";
+import { scrollNearEdge, shownPart, shownRect } from "../geometry.ts";
+import { dragLines } from "./linedrag.ts";
 import { Overlays } from "./overlays.ts";
 import { parseMetaRow, type TableMeta } from "../../markdown.ts";
 import type { TableAdapter } from "../adapter.ts";
-import type { CellRef, HandlePlace, HeaderRow, PointerTarget, Rect, Side, TableLook, TablePreview, WidgetInfo } from "../feature.ts";
+import type { CellRef, HandlePlace, HeaderRow, LineDrag, PointerTarget, Rect, Side, TableLook, TablePreview, WidgetInfo } from "../feature.ts";
 import { type MergedLooks, refKey } from "../looks.ts";
 import type { TableRows } from "../rows.ts";
 import { applyCellLook, applyHeaderLook, renderedText } from "./looks.ts";
@@ -41,6 +42,9 @@ export function renderedMeta(rows: readonly HTMLTableRowElement[]): TableMeta | 
 export type AdapterContext = {
   infoOf(widget: HTMLElement): WidgetInfo | undefined;
   rowNeeded(info: WidgetInfo, row: HTMLTableRowElement): void;
+  holdInDocument(info: WidgetInfo, row: HTMLTableRowElement | undefined): void;
+  floating(className: string): HTMLElement;
+  place(element: HTMLElement, left: number, top: number): void;
 };
 
 export class SilverBulletAdapter implements TableAdapter {
@@ -193,6 +197,34 @@ export class SilverBulletAdapter implements TableAdapter {
 
   owns(node: Node): boolean {
     return this.overlays.owns(node);
+  }
+
+  rectOf(info: WidgetInfo, part: { readonly row: number; readonly column: number } | { readonly row: number } | { readonly column: number } | "table"): Rect | undefined {
+    if (part === "table") {
+      const widget = info.table.closest<HTMLElement>(WIDGET_SELECTOR);
+      return widget ? shownRect(widget, info) : undefined;
+    }
+    const element =
+      "row" in part && "column" in part
+        ? this.rows.cellAt(info, part, true)
+        : "row" in part
+          ? part.row === 0
+            ? info.table.rows[0]
+            : this.rows.bodyRows(info)[part.row - 1]
+          : info.table.rows[0]?.cells[part.column];
+    return element?.isConnected ? element.getBoundingClientRect() : undefined;
+  }
+
+  dragLines(info: WidgetInfo, axis: "row" | "column", block: { readonly first: number; readonly last: number }, pressedAt: number, blockTo: (asked: number) => number): LineDrag | undefined {
+    const { context } = this;
+    return dragLines(
+      { doc: this.doc, rows: this.rows, floating: context.floating, place: context.place, rowNeeded: context.rowNeeded, holdInDocument: context.holdInDocument },
+      info,
+      axis,
+      block,
+      pressedAt,
+      blockTo,
+    );
   }
 
   markCells(info: WidgetInfo, mark: string, cells: readonly CellRef[]): void {
