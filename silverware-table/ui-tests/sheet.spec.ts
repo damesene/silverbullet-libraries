@@ -408,6 +408,23 @@ test.describe("Sheet view", () => {
     await expect(sheetTable(page).locator(".swt-cell-editor")).toHaveValue("Total");
   });
 
+  test("a press on the sheet over the band of the page's table under it inserts nothing there", async ({ page }) => {
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(2);
+    // The page's table, under the board once it opens: its band of the + left of its rows
+    const under = (await table(page).locator("table").boundingBox())!;
+    const row = (await cell(page, 1, 0).boundingBox())!;
+    await openSheet(page);
+    const before = await markdown(page);
+    await page.mouse.move(under.x - 12, row.y + row.height);
+    await page.mouse.move(under.x - 10, row.y + row.height, { steps: 2 });
+    await page.mouse.click(under.x - 10, row.y + row.height);
+    await page.waitForTimeout(300);
+    expect(await markdown(page)).toBe(before);
+    await expect(page.locator(".swt-sheet-board")).toHaveCount(1);
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");

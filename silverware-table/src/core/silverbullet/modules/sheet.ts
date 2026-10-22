@@ -174,6 +174,11 @@ export class Sheet implements AdapterFeature {
     this.host.toolbarChanged();
   }
 
+  /** Part of what is over the window: the board */
+  holds(node: Node): boolean {
+    return !!this.board?.box.contains(node);
+  }
+
   /** Closes the board: its tables go, the page's show as they were */
   end(): void {
     const board = this.board;

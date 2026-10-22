@@ -11,7 +11,8 @@
 // swallowed: the table rendered anew puts something else under the pointer (a
 // link the click would follow).
 import { ICONS } from "../icons.ts";
-import { renderedTable } from "../dom.ts";
+import { renderedTable, WIDGET_SELECTOR } from "../dom.ts";
+import { coveredAt } from "./overwindow.ts";
 import { appendColumnAt, appendRowAt } from "../pins.ts";
 import type { RowHold, TableHost, WidgetInfo } from "./feature.ts";
 import { heldBounds, type Rect } from "./geometry.ts";
@@ -206,6 +207,9 @@ export class InsertControls {
     if (e.pointerType === "touch" || e.buttons !== 0 || !widget || !info || renderedTable(widget) !== info.table) return this.hide();
     if (e.target instanceof Node && this.mark.contains(e.target)) return true;
     if (e.target instanceof Node && host.isFloating(e.target)) return this.hide();
+    // Over another table (it is hovered next), or over what is laid over the window above this one (the sheet's board)
+    if (e.target instanceof Element && e.target.closest(WIDGET_SELECTOR) && e.target.closest(WIDGET_SELECTOR) !== widget) return this.hide();
+    if (e.target instanceof Node && coveredAt(widget, e.target)) return this.hide();
     const shown = host.shownRect(widget, info);
     const header = info.table.rows[0]!.getBoundingClientRect();
     const { clientX: x, clientY: y } = e;

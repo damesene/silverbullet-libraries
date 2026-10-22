@@ -49,18 +49,30 @@ export type OverWindowOptions = {
   readonly shows?: (widget: HTMLElement) => boolean;
 };
 
+/** Something shown over the window: it ends, and it says what is part of it */
+export type WindowOwner = { end(): void; holds(node: Node): boolean };
+
 // What is over the window in each document, whichever module shows it (a table, the sheet's board): one at a time
-const current = new WeakMap<Document, { end(): void }>();
+const current = new WeakMap<Document, WindowOwner>();
+
+/**
+ * Whether a table's widget is under what is over the window at a node (the
+ * pointer's target there): the page's table under a table or board shown so
+ */
+export function coveredAt(widget: HTMLElement, node: Node): boolean {
+  const owner = widget.ownerDocument && current.get(widget.ownerDocument);
+  return !!owner && owner.holds(node) && !owner.holds(widget);
+}
 
 /** Something is shown over the window (one at a time): what was before ends */
-export function claimWindow(doc: Document, owner: { end(): void }): void {
+export function claimWindow(doc: Document, owner: WindowOwner): void {
   const other = current.get(doc);
   if (other && other !== owner) other.end();
   current.set(doc, owner);
 }
 
 /** It no longer is */
-export function releaseWindow(doc: Document, owner: { end(): void }): void {
+export function releaseWindow(doc: Document, owner: WindowOwner): void {
   if (current.get(doc) === owner) current.delete(doc);
 }
 
@@ -92,6 +104,11 @@ export class OverWindow {
   }
 
   /** The key of the table shown over the window, if any */
+  /** Part of what is over the window: the table shown so */
+  holds(node: Node): boolean {
+    return !!this.shownWidget?.contains(node);
+  }
+
   get key(): string | undefined {
     return this.shownKey;
   }
