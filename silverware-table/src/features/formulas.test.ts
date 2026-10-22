@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buttonLabel, cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, menuButtons, nameInMenu, pointInsert, press, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { buttonLabel, cell, cellMenuItem, clickOn, controller, cursorMoves, editor, flashes, flush, key, menuButtons, nameInMenu, pointInsert, press, renderPage, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
 import { clearCustomFunctions, defineCustomFunctions, functionNamed } from "../formulas/registry.ts";
 import { toNumber, type Value } from "../formulas/values.ts";
@@ -394,6 +394,28 @@ describe("Formulas", () => {
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     // Still there, no longer highlighted
     expect(recalc()!.classList.contains("swt-attention")).toBe(false);
+  });
+
+  it("offers to recalculate a result of TODAY() once the day moved on, the table rendered again as it was", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(2025, 10, 6, 12));
+      const page = `| Day |\n|---|\n| 2025-11-06 <meta f='=TODAY()'> |\n`;
+      await setup(page);
+      const attention = () => {
+        cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+        return document.querySelector<HTMLElement>('.swt-bar button[aria-label="Recalculate"]')!.classList.contains("swt-attention");
+      };
+      expect(attention()).toBe(false);
+      // The next day the page shows the same markdown again (scrolled back into view, opened again)
+      vi.setSystemTime(new Date(2025, 10, 7, 12));
+      renderPage(text, editor, cursorMoves);
+      await controller.scan();
+      expect(text).toBe(page);
+      expect(attention()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   describe("custom functions", () => {

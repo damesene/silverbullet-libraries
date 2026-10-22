@@ -122,7 +122,7 @@ export class Formulas implements Feature {
   // Every function, to find one by what it does and insert it (fx, Shift+F3, Insert function…)
   private readonly functions: FunctionDialog;
   // Tables (by key, as of their markdown) whose formula cells show results from before a change made outside Silverware Table
-  private readonly stale = new Map<string, { readonly source: string; readonly stale: boolean }>();
+  private readonly stale = new WeakMap<TableInfo, boolean>();
   // The table whose cells can be pointed at (marked)
   private pointing: string | undefined;
   // The page's tables for formulas, as of the page's text and the other pages read
@@ -383,7 +383,8 @@ export class Formulas implements Feature {
     const model = parseTable(info.source);
     if (formulaCount(model) === 0) return undefined;
     const tables = this.tableSource();
-    if (this.stale.get(info.key)?.source !== info.source) this.stale.set(info.key, { source: info.source, stale: recalculate(model, tables) !== model });
+    // Checked for each rendering, not once per text: TODAY() and NOW() move on while the markdown stays
+    if (!this.stale.has(info)) this.stale.set(info, recalculate(model, tables) !== model);
     return { cells: this.formulaLooks(model, tables) };
   }
 
@@ -475,7 +476,7 @@ export class Formulas implements Feature {
       if (formulaCount(model) === 0) continue;
       const refersElsewhere = referredTableNames(model).size > 0 || referredPages(model).size > 0;
       if (!refersElsewhere && !(withCustom && callsCustomFunctions(model))) continue;
-      this.stale.set(info.key, { source: info.source, stale: recalculate(model, tables) !== model });
+      this.stale.set(info, recalculate(model, tables) !== model);
       // An error's reason may have changed (another page read)
       this.host.looksChanged(info);
     }
@@ -485,8 +486,7 @@ export class Formulas implements Feature {
   /** Recalculate, first in the toolbar of a table with formulas; highlighted when results are out of date */
   toolbarButtons(info: TableInfo): ToolbarButton[] {
     if (formulaCount(parseTable(info.source)) === 0) return [];
-    const known = this.stale.get(info.key);
-    const stale = known?.source === info.source && known.stale;
+    const stale = this.stale.get(info) ?? false;
     return [
       {
         label: "Recalculate",
