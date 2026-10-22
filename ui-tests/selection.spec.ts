@@ -1,4 +1,4 @@
-import { cell, drag, expect, markdown, test } from "./playground.ts";
+import { cell, drag, expect, markdown, markTable, settled, test } from "./playground.ts";
 
 test.describe("Selecting cells", () => {
   test("a drag selects the cells, with a band on each side of the edge to drag them by", async ({ page }) => {
@@ -28,9 +28,12 @@ test.describe("Selecting cells", () => {
     await expect(page.locator(".tp-move-edge")).toHaveCount(1);
     // Its address as formulas name it, by the pointer
     await expect(page.locator(".tp-move-tip.tp-visible")).toHaveText("D2");
+    await markTable(page);
     await page.keyboard.press("Escape");
     await page.mouse.up();
     await expect(page.locator(".tp-move-edge")).toHaveCount(0);
+    await settled(page);
+    await expect(page.locator("table[data-test-old]")).toHaveCount(1);
     expect(await markdown(page)).toBe(before);
   });
 });

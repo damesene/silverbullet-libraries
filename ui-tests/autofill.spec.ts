@@ -1,36 +1,31 @@
-import { cell, center, expect, markdown, test } from "./playground.ts";
+import { cell, columnCells, drag, expect, markdown, markTable, rendersAnew, settled, test } from "./playground.ts";
 
 test.describe("AutoFill", () => {
   test("the fill handle dragged down outlines what it fills, and fills it as it is let go", async ({ page }) => {
     // Qty of Pear (3) and apple (10): a series stepping by 7
     await cell(page, 1, 1).click();
     await page.keyboard.press("Shift+ArrowDown");
-    const handle = page.locator(".tp-fill-handle");
-    await expect(handle).toBeVisible();
-    const from = await center(handle);
-    const to = await center(cell(page, 4, 1));
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await drag(page, page.locator(".tp-fill-handle"), cell(page, 4, 1), { release: false });
     await expect(page.locator(".tp-fill-edge").first()).toBeVisible();
-    await page.mouse.up();
+    await rendersAnew(page, () => page.mouse.up());
     await expect(page.locator(".tp-fill-edge")).toHaveCount(0);
-    await expect(cell(page, 3, 1)).toHaveText("17");
-    await expect(cell(page, 4, 1)).toHaveText("24");
+    await expect(columnCells(page, 1)).toHaveText(["3", "10", "17", "24", "7", "1"]);
     expect(await markdown(page)).toMatch(/\| Fig +\| +17 \|/);
   });
 
   test("Esc while dragging the fill handle fills nothing", async ({ page }) => {
     const before = await markdown(page);
     await cell(page, 1, 1).click();
-    const from = await center(page.locator(".tp-fill-handle"));
-    const to = await center(cell(page, 3, 1));
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await drag(page, page.locator(".tp-fill-handle"), cell(page, 3, 1), { release: false });
+    // A fill going on: what it would fill outlined
+    await expect(page.locator(".tp-fill-edge").first()).toBeVisible();
+    await markTable(page);
     await page.keyboard.press("Escape");
     await page.mouse.up();
     await expect(page.locator(".tp-fill-edge")).toHaveCount(0);
+    // Nothing written: the table not rendered anew once a write would have been
+    await settled(page);
+    await expect(page.locator("table[data-test-old]")).toHaveCount(1);
     expect(await markdown(page)).toBe(before);
   });
 });

@@ -11,6 +11,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:ui": "playwright test",
+    "test:ui:open": "playwright test --ui",
     "playground": "node scripts/playground.mjs"
   },
   "devDependencies": {
