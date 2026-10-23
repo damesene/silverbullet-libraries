@@ -170,3 +170,7 @@ other pages on a sheet.
   a table's rows' order changes); in a sorted or filtered table on the sheet a
   range of rows is not pointed at, for any table (the hint says why and names
   the column to use; a header click gives it), a range within one row is.
+- 2026-10-23: pointing at another table of the sheet (the frame lists its
+  tables: `AddressFrame.tables`): its cell in the sheet's address, stored by its
+  name; its header as `name![column]`; its outlines shown (moved by pointing
+  again, not by their edges); a table without a name is said so.
