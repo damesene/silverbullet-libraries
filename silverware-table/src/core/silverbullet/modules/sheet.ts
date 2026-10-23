@@ -37,7 +37,7 @@ import { columnLetters, isFormulaInput } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 import { escapeCell, findTables, parseTable, type Table, type TableRange } from "../../../markdown.ts";
 import { sameTableName } from "../../../namerules.ts";
-import { AT_KEY, formatAt, freeName, freeSheetName, SHEET_KEY, WIDTH_PREFIX, sameSheet, type SheetCell, sheetNameProblem, sheetOfTable, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { AT_KEY, formatAt, freeName, freeSheetName, SHEET_KEY, WIDTH_PREFIX, sameSheet, type SheetCell, sheetDataTable, sheetNameProblem, sheetOfTable, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
 import { nameEmptyHeaders } from "../../../ops.ts";
 import { parseClipboardCells } from "../../../paste.ts";
 import { placeProblem, roomFor } from "../../../sheet/layout.ts";
@@ -341,7 +341,7 @@ export class Sheet implements AdapterFeature {
     if (board.sheet) {
       const mine = sheetsOf(sheetTables(this.host, text)).find((s) => sameSheet(s.name, board.sheet!))?.tables ?? [];
       for (const t of mine) wanted.set(keyOf(t.range), { range: t.range, at: t.at });
-      board.widths = sheetWidths(this.host, mine[0]?.table);
+      board.widths = sheetWidths(this.host, sheetDataTable(this.host, mine)?.table);
     } else {
       const range = findTables(text)[keys.indexOf(board.alone)];
       if (range) wanted.set(board.alone, { range, at: { row: 0, column: 0 } });
@@ -1401,7 +1401,7 @@ export class Sheet implements AdapterFeature {
       const text = await this.host.bridge.getText();
       const keys = this.host.tableKeys(this.host.currentPage, text);
       const range = board.sheet
-        ? sheetsOf(sheetTables(this.host, text)).find((s) => sameSheet(s.name, board.sheet!))?.tables[0]?.range
+        ? sheetDataTable(this.host, sheetsOf(sheetTables(this.host, text)).find((s) => sameSheet(s.name, board.sheet!))?.tables ?? [])?.range
         : findTables(text)[keys.indexOf(board.alone)];
       // Where the table cannot take it (the setting off, no width of that column stored): for the view only, as the widths module keeps them
       const key = `${WIDTH_PREFIX}${columnLetters(column)}`;

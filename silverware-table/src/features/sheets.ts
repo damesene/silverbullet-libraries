@@ -24,6 +24,7 @@ import {
   parseAt,
   placeBelow,
   SHEET_KEY,
+  sheetDataTable,
   type SheetMeta,
   sheetOfTable,
   sameSheet,
@@ -43,7 +44,14 @@ export class Sheets implements Feature {
     const sheet = sheetOfTable(this.host, parseTable(info.source));
     if (!sheet) return undefined;
     const others = sheetTables(this.host, this.host.pageText).filter((t) => sameSheet(t.sheet, sheet) && t.range.text !== info.source);
-    return others.length ? undefined : `the sheet ${sheet} goes with it, as it is its only table`;
+    if (!others.length) return `the sheet ${sheet} goes with it, as it is its only table`;
+    // The sheet's own data it holds goes to the next table, where that can take it (the metadata setting off: no)
+    const data = sheetData(this.host, parseTable(info.source));
+    const next = others[0]!;
+    if (data.length && !data.every(([key]) => this.host.canStoreMeta(next.table, key))) {
+      return `the sheet ${sheet}'s column widths, kept in it, go with it (the Store table metadata setting is off, so no other table takes them)`;
+    }
+    return undefined;
   }
 
   /**
@@ -191,9 +199,11 @@ function roomOnSheet(meta: SheetMeta, before: Table, after: Table, edit: WriteEd
 
 /**
  * Where the sheet's own data goes in a write of a table (its sheet before or
- * after it): from the sheet's first table before the write to its first
- * after it, where they differ (by where they are in the page); none to go
- * to: the sheet is gone with its data
+ * after it): from the table holding it before the write (sheetDataTable) to
+ * the sheet's first after it, where they differ (by where they are in the
+ * page); none to go to: the sheet is gone with its data. One the first
+ * cannot take (the metadata setting off) stays where it is, unless its table
+ * is gone.
  */
 function handovers(meta: SheetMeta, before: Table, after: Table | undefined, edit: WriteEdit): { data: [string, string][]; from: number; to: number | undefined }[] {
   const at = edit.page.from;
@@ -204,10 +214,12 @@ function handovers(meta: SheetMeta, before: Table, after: Table | undefined, edi
   const sheetsAfter = sheetsOf(sheetTablesOf(meta, withEdited(after)));
   const moves: { data: [string, string][]; from: number; to: number | undefined }[] = [];
   for (const sheet of sheetsBefore) {
-    const first = sheet.tables[0]!;
+    const first = sheetDataTable(meta, sheet.tables)!;
     const data = sheetData(meta, first.table);
     const next = sheetsAfter.find((s) => sameSheet(s.name, sheet.name))?.tables[0];
     if (!data.length || next?.range.from === first.range.from) continue;
+    const stays = !(after === undefined && first.range.from === at);
+    if (next && stays && !data.every(([key]) => meta.canStoreMeta(next.table, key))) continue;
     // Its only table gone to a sheet no table was on, which it heads (the sheet renamed): its data goes with it
     const there = !next && first.range.from === at ? sheetsAfter.find((s) => s.tables[0]?.range.from === at) : undefined;
     if (there && !sheetsBefore.some((s) => sameSheet(s.name, there.name))) continue;

@@ -11,7 +11,7 @@ import { columnLetters } from "../formulas/index.ts";
 import { findTables, type PageTable, pageTablesOf, parseTable, type Table, type TableRange } from "../markdown.ts";
 
 /** How the sheet modules read what tables keep for the sheet (their host) */
-export type SheetMeta = Pick<ModelHost, "getMeta" | "metaOf" | "tableName">;
+export type SheetMeta = Pick<ModelHost, "getMeta" | "metaOf" | "canStoreMeta" | "tableName">;
 
 /** A cell of a sheet, from 0: row 0 is the sheet's first row (1), column 0 its column A */
 export type SheetCell = { readonly row: number; readonly column: number };
@@ -99,6 +99,15 @@ export function sheetsOf(tables: readonly SheetTable[]): { readonly name: string
 /** The sheet's own data a table keeps in its metadata row (as the sheet's first table), by key: its columns' widths */
 export function sheetData(meta: SheetMeta, table: Table): [string, string][] {
   return [...meta.metaOf(table)].filter(([key]) => key.startsWith(WIDTH_PREFIX));
+}
+
+/**
+ * The table of a sheet that holds the sheet's own data: its first table, where
+ * the data is handed on as the first changes; else the first that has any (the
+ * metadata setting off, the data stays where it is: nothing new is stored)
+ */
+export function sheetDataTable(meta: SheetMeta, tables: readonly SheetTable[]): SheetTable | undefined {
+  return tables.find((t) => sheetData(meta, t.table).length > 0) ?? tables[0];
 }
 
 /**

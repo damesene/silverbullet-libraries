@@ -103,6 +103,15 @@ describe("Sheets: a table put on a sheet, moved and taken off it by its sheet's 
     expect(edits).toBe(1);
   });
 
+  it("with the metadata setting off, keeps the sheet's widths where they are: the table that becomes its first cannot take them", async () => {
+    await setup(PAGE);
+    // Costs taken off the sheet (a name it has may change), notes its first now: the widths stay in costs
+    toolbarName("container", 0);
+    expect(await nameInMenu("")).toBeUndefined();
+    expect(text).toContain("| <meta core.table core.name='costs' sheet.width.B='140'> |");
+    expect(text).toContain("| <meta core.table core.name='notes' sheet.name='Budget' sheet.at='D1'> |");
+  });
+
   it("hands the sheet's widths to a table put on it before its first, in the same edit", async () => {
     await setup(`| X |\n|---|\n| 1 |\n\n${PAGE}`, { "silverware.table.metadata": true });
     toolbarName("container", 0);
@@ -203,6 +212,18 @@ describe("Sheets: a table of a sheet deleted (Delete table)", () => {
     expect(questions[0]).toBe("Delete the table costs (2 rows) from the page? Ctrl+Z brings it back.");
     expect(text).not.toContain("costs");
     expect(text).toContain("| <meta core.table core.name='notes' sheet.name='Budget' sheet.at='D1' sheet.width.B='140'> |");
+  });
+
+  it("with the metadata setting off, says the sheet's widths go with the table holding them: no other can take them", async () => {
+    await setup(PAGE);
+    const questions = answer();
+    const before = edits;
+    tableMenuItem(/^Delete table$/, 0)!.click();
+    await vi.waitFor(() => expect(edits - before).toBe(1));
+    expect(questions[0]).toBe(
+      "Delete the table costs (2 rows) from the page? The sheet Budget's column widths, kept in it, go with it (the Store table metadata setting is off, so no other table takes them). Ctrl+Z brings it back.",
+    );
+    expect(text).not.toContain("sheet.width");
   });
 
   it("says the sheet goes with its only table", async () => {
