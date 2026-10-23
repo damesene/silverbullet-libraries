@@ -1598,6 +1598,11 @@ export class Controller implements TableHost {
     e.stopPropagation();
     if (element.closest("[data-swt-action]")) {
       e.preventDefault();
+      // A feature may take a press on a control in a cell first (pointing at a header while a formula waits for a
+      // reference); taken, its click does not reach the control (the sort it would do)
+      const cell = this.tableCellOf(info, element);
+      const ref = cell && this.cellRef(info, cell);
+      if (ref && this.features.some((feature) => feature.beforeActionPress?.(info, ref, e))) this.takePress();
       return;
     }
     if (element.closest(`.swt-cell-editor, tr.${UI_CLASS}`) || element.closest(INTERACTIVE_SELECTOR)) {

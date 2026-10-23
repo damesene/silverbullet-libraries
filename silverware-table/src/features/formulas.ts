@@ -447,6 +447,11 @@ export class Formulas implements Feature {
     return this.pointReference(info, cell, e);
   }
 
+  // A header's controls (sorting, the filter mark) while a formula waits for a reference: the header is pointed at
+  beforeActionPress(info: TableInfo, cell: CellRef, e: MouseEvent): boolean {
+    return cell.row === 0 && this.pointReference(info, cell, e);
+  }
+
   // The outlines follow the table when it scrolls or moves
   layoutChanged(): void {
     if (this.host.editing && !this.stopReferenceDrag) this.updateFormulaUi();

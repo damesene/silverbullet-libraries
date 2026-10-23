@@ -1,4 +1,4 @@
-import { cell, expect, markdown, rendersAnew, test } from "./playground.ts";
+import { cell, expect, header, markdown, rendersAnew, test } from "./playground.ts";
 
 test.describe("Formulas", () => {
   test("a formula with a comparison and texts shows its result and is written as typed", async ({ page }) => {
@@ -37,5 +37,20 @@ test.describe("Formulas", () => {
     await expect(choices.first()).toBeVisible();
     await rendersAnew(page, () => page.keyboard.press("Enter"));
     expect(await markdown(page)).toContain(`<meta f='=ro'>`);
+  });
+
+  test("pointing at a header's sort button gives its column and sorts nothing", async ({ page }) => {
+    const field = page.locator(".swt-cell-editor");
+    await cell(page, 1, 3).dblclick();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("=SUM(");
+    const before = await cell(page, 1, 0).textContent();
+    await header(page, 1).hover();
+    await header(page, 1).locator(".swt-sort").click();
+    await expect(field).toHaveValue("=SUM([qty]");
+    await expect(field).toBeFocused();
+    // Not sorted: the first row is the one before
+    await expect(cell(page, 1, 0)).toHaveText(before ?? "");
+    await expect(header(page, 1).locator(".swt-sort.swt-active")).toHaveCount(0);
   });
 });

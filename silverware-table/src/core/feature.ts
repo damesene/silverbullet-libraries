@@ -962,6 +962,12 @@ export interface Feature {
   selectionLeaves?(info: TableInfo, from: CellRef, step: readonly [number, number]): boolean;
   /** The addresses the table's cells have where the feature lays it out on a grid of its own (the sheet view) */
   addressFrame?(info: TableInfo): AddressFrame | undefined;
+  /**
+   * A press on a control in a cell (a header's sort button, its filter mark):
+   * true, the feature takes it instead of the control (pointing at the
+   * header while a formula waits for a reference)
+   */
+  beforeActionPress?(info: TableInfo, cell: CellRef, e: MouseEvent): boolean;
   editorClosed?(editor: CellEditor): void;
 }
 
