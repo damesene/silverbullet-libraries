@@ -2204,9 +2204,9 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* A meter (#progress, or a custom type's { text, meter }): a bar filled to its share in the accent color; its text
-   (the percentage) in a small box over the middle, in the page's own colors, so it reads whatever the theme, its type
-   smaller than the bar is high */
+/* A meter (#progress, or a custom type's { text, meter }): a bar filled to its share in the text's color (as a
+   rating's full stars are); its text (the percentage) in a small box over the middle, in the page's own colors, so it
+   reads whatever the theme, its type smaller than the bar is high */
 .swt-meter {
   position: relative;
   display: inline-flex;
@@ -2215,27 +2215,27 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   box-sizing: border-box;
   width: 8em;
   max-width: 100%;
-  height: 1.3em;
+  height: 1em;
   vertical-align: middle;
   overflow: hidden;
-  border-radius: 0.3em;
+  border-radius: 0.25em;
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 .swt-meter-fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--ui-accent-color);
+  background: currentColor;
 }
 .swt-meter-text {
   position: relative;
-  padding: 0 0.4em;
-  font-size: 0.7em;
-  line-height: 1.4;
+  padding: 0 0.35em;
+  font-size: 0.6em;
+  line-height: 1.35;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--root-color, #222);
   background: var(--root-background-color, #fff);
-  border-radius: 0.25em;
+  border-radius: 0.2em;
 }
 /* The expand button of a cell whose text does not fit: opens its popup */
 .swt-expand {
