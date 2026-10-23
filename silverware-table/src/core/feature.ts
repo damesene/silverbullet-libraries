@@ -48,6 +48,8 @@ export type CellArea = { readonly top: number; readonly left: number; readonly b
  * columns (row 0 written 1).
  */
 export type AddressFrame = {
+  /** The tables laid out in the frame, by their keys (the one the frame is for among them) */
+  readonly tables: readonly string[];
   /** A table's area (`table`: another table's name; undefined: the one the frame is for) in the frame: undefined if it is not there as one area */
   outward(table: string | undefined, area: CellArea): CellArea | undefined;
   /** The table holding an area of the frame whole, as one area (its name; undefined: the one the frame is for), and the area in it */

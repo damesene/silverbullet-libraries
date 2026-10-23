@@ -176,8 +176,8 @@ export class Formulas implements Feature {
   private readonly functions: FunctionDialog;
   // Tables (by key, as of their markdown) whose formula cells show results from before a change made outside Silverware Table
   private readonly stale = new WeakMap<TableInfo, boolean>();
-  // The table whose cells can be pointed at (marked)
-  private pointing: string | undefined;
+  // The tables whose cells can be pointed at (marked): the formula's own, and the others laid out with it in a frame
+  private pointing: readonly string[] = [];
   // The page's tables for formulas, as of the page's text and the other pages read
   private source: { readonly key: string; readonly source: TableSource } | undefined;
   // The cell edited whose formula shows in its table's addresses though a frame lays the table out (editKey):
@@ -469,24 +469,48 @@ export class Formulas implements Feature {
     return this.unframed === editKey(info.key, cell) ? undefined : this.host.addressFrame(info);
   }
 
-  /** A reference of the formula edited, as its table's: undefined for one in a frame's addresses of another table's cells */
-  private tableReference(info: TableInfo, active: CellEditor, ref: Reference): Reference | undefined {
+  /**
+   * A reference of the formula edited, as the table holding its cells has it,
+   * and that table: in a frame's addresses (the sheet view) the own table's
+   * or another table's laid out with it; undefined for cells of no table shown
+   */
+  private referenceTarget(info: TableInfo, active: CellEditor, ref: Reference): { info: TableInfo; ref: Reference } | undefined {
     const frame = this.frameFor(info, active);
-    if (!frame || ref.kind !== "area" || ref.table) return ref;
+    if (!frame || ref.kind !== "area" || ref.table) return ref.table ? undefined : { info, ref };
     const hit = frame.inward(ref.area);
-    return hit && hit.table === undefined ? { ...ref, area: hit.area } : undefined;
+    const target = hit && (hit.table === undefined ? info : this.frameTable(frame, hit.table));
+    return hit && target ? { info: target, ref: { ...ref, area: hit.area } } : undefined;
+  }
+
+  /** A table laid out in a frame, by its name */
+  private frameTable(frame: AddressFrame, name: string): TableInfo | undefined {
+    for (const key of frame.tables) {
+      const info = this.host.tableFor(key);
+      const own = info && metaName(parseTable(info.source));
+      if (info && own && own.toLowerCase() === name.toLowerCase()) return info;
+    }
+    return undefined;
   }
 
   /**
-   * An area of the table edited as the formula edited writes it: in a frame's
+   * An area of a table (`info`: the formula edited's own, or another one laid
+   * out with it in a frame) as the formula edited writes it: in the frame's
    * addresses where one lays the table out. Undefined where it is not one area
    * there (a range of rows in a sorted or filtered table): it is not pointed
    * at (noRanged says why).
    */
   private areaWritten(info: TableInfo, active: CellEditor, area: Area, fixed?: Fixed): string | undefined {
-    const frame = this.frameFor(info, active);
-    const out = frame?.outward(undefined, area);
+    const own = this.host.tableFor(active.key);
+    const frame = own && this.frameFor(own, active);
+    const other = info.key !== active.key;
+    const out = frame?.outward(other ? metaName(parseTable(info.source)) : undefined, area);
     return !frame || out ? areaText(out ?? area, fixed) : undefined;
+  }
+
+  /** The tables whose cells the formula edited can point at: its own, and those a frame lays out with it */
+  private pointable(info: TableInfo, active: CellEditor): readonly string[] {
+    const frame = this.frameFor(info, active);
+    return frame ? [info.key, ...frame.tables.filter((key) => key !== info.key)] : [info.key];
   }
 
   /** A range dragged over that has no address (areaWritten): the hint says why, and what to use instead */
@@ -643,18 +667,19 @@ export class Formulas implements Feature {
       return;
     }
     const refs = references(formula);
-    // Where a reference can go, the table shows that cells can be pointed at
-    this.markPointing(this.pointingSlot(active) !== undefined ? info.key : undefined);
+    // Where a reference can go, the tables show that cells can be pointed at
+    this.markPointing(this.pointingSlot(active) !== undefined ? this.pointable(info, active) : []);
     this.showFormulaHint(active, formula, refs);
     for (const mark of this.referenceMarks) mark.remove();
     this.referenceMarks = [];
     const table = parseTable(info.source);
     refs.forEach((ref, index) => {
-      const own = this.tableReference(info, active, ref);
-      const area = own && this.referenceArea(info, table, own, active.row - 1);
-      if (!area) return;
+      const target = this.referenceTarget(info, active, ref);
+      const ownTable = target?.info.key === info.key;
+      const area = target && this.referenceArea(target.info, ownTable ? table : parseTable(target.info.source), target.ref, active.row - 1);
+      if (!target || !area) return;
       const color = REFERENCE_COLORS[index % REFERENCE_COLORS.length]!;
-      const boxes = this.areaBoxes(info, area);
+      const boxes = this.areaBoxes(target.info, area);
       boxes.forEach((box, b) => {
         const mark = this.host.floating("div", "swt-ref-mark");
         mark.style.setProperty("--swt-ref-color", color);
@@ -664,6 +689,10 @@ export class Formulas implements Feature {
           width: `${box.right - box.left}px`,
           height: `${box.bottom - box.top}px`,
         });
+        mark.classList.add("swt-visible");
+        this.referenceMarks.push(mark);
+        // Another table's cells (a frame's): outlined, moved by pointing again rather than by their edges
+        if (!ownTable) return;
         for (const side of ["top", "right", "bottom", "left"]) {
           const edge = this.host.doc.createElement("div");
           edge.className = `swt-ref-edge swt-ref-${side}`;
@@ -679,32 +708,39 @@ export class Formulas implements Feature {
           corner.addEventListener("pointerdown", (e) => this.dragReference(e, index, "resize"));
           mark.append(corner);
         }
-        mark.classList.add("swt-visible");
-        this.referenceMarks.push(mark);
       });
     });
   }
 
-  /** The table whose cells can be pointed at now, marked (none: undefined) */
-  private markPointing(key: string | undefined): void {
-    if (this.pointing === key) return;
-    if (this.pointing !== undefined) this.host.tableMark(this.pointing, "pointing", false);
-    this.pointing = key;
-    if (key !== undefined) this.host.tableMark(key, "pointing", true);
+  /** The tables whose cells can be pointed at now, marked (none: empty) */
+  private markPointing(keys: readonly string[]): void {
+    if (this.pointing.length === keys.length && this.pointing.every((key, i) => key === keys[i])) return;
+    for (const key of this.pointing) if (!keys.includes(key)) this.host.tableMark(key, "pointing", false);
+    for (const key of keys) if (!this.pointing.includes(key)) this.host.tableMark(key, "pointing", true);
+    this.pointing = keys;
   }
 
   /**
    * Pointing, as in a spreadsheet: while a formula is edited and its caret is
    * where a reference can go, a click on a cell of the same table inserts the
    * cell (A1), a drag the range (A1:B3), a click on a header the column
-   * ([Qty]). Pointing again replaces the reference just inserted. Returns
-   * whether the click was taken.
+   * ([Qty]). In a frame's addresses (the sheet view) the other tables laid out
+   * with it too: their cells in the frame's addresses, a header as the
+   * table's column (prices![price]). Pointing again replaces the reference
+   * just inserted. Returns whether the click was taken.
    */
   private pointReference(info: TableInfo, cell: CellRef, e: MouseEvent): boolean {
     const active = this.host.editing;
-    if (!active || active.key !== info.key) return false;
+    const own = active && this.host.tableFor(active.key);
+    if (!active || !own || !this.pointable(own, active).includes(info.key)) return false;
     const slot = this.pointingSlot(active);
     if (!slot) return false;
+    // Another table is referred to by its name (a table on a sheet has one: Add to sheet… names it)
+    const other = info.key !== active.key ? metaName(parseTable(info.source)) : undefined;
+    if (info.key !== active.key && !other) {
+      void this.host.bridge.flash("Silverware Table: name that table first (the pencil in its ⋯ menu's title): a formula refers to another table by its name", "info");
+      return true;
+    }
     this.stopPointing?.();
     let span = slot;
     const put = (text: string, anchor?: CellRef) => {
@@ -718,7 +754,7 @@ export class Formulas implements Feature {
       const headers = parseTable(info.source).rows[0]?.cells ?? [];
       const text = columnRefText(columnIdOf(headers, cell.column), false);
       // A header whose name cannot be a reference: the click is taken, but inserts nothing
-      if (text) put(text);
+      if (text) put(other ? `${other}!${text}` : text);
       return true;
     }
     // Shift+click extends the range just pointed at, from the cell it started at
@@ -981,7 +1017,7 @@ export class Formulas implements Feature {
 
   private hideFormulaUi(): void {
     this.stopReferenceDrag?.();
-    this.markPointing(undefined);
+    this.markPointing([]);
     this.formulaHint.hide();
     for (const mark of this.referenceMarks) mark.remove();
     this.referenceMarks = [];
@@ -1057,7 +1093,8 @@ export class Formulas implements Feature {
     e.stopPropagation();
     const originalFormula = active.text;
     const written = references(originalFormula)[index];
-    const ref = written && this.tableReference(info, active, written);
+    const target = written && this.referenceTarget(info, active, written);
+    const ref = target?.info.key === info.key ? target.ref : undefined;
     const table = parseTable(info.source);
     const headers = table.rows[0]?.cells ?? [];
     const start = this.bodyCellAt(info, e.clientX, e.clientY);

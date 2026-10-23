@@ -502,6 +502,41 @@ test.describe("Sheet view", () => {
     await expect(field).toHaveValue("=SUM([qty]");
   });
 
+  test("pointing at another table of the sheet: its header gives its column, its cell the sheet's address, stored by its name", async ({ page }) => {
+    await page
+      .locator("#source")
+      .fill(
+        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 25 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n\n| Item | Total |\n|---|---|\n| Pear | 1 |\n| <meta name='totals' sheet='Plan' at='D1'> |\n",
+      );
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
+    await openSheet(page);
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    await expect(drawn).toHaveCount(2);
+    const prices = drawn.nth(0);
+    const totals = drawn.nth(1);
+    // Both tables can be pointed at while the formula waits for a reference
+    await totals.locator("tr[data-swt-row='1'] > td").nth(1).dblclick();
+    const field = totals.locator(".swt-cell-editor");
+    await field.fill("=");
+    await expect(prices).toHaveClass(/\bswt-pointing\b/);
+    await expect(totals).toHaveClass(/\bswt-pointing\b/);
+    // The other table's header: its column, by its name
+    await prices.locator("thead tr > *").nth(1).click();
+    await expect(field).toHaveValue("=prices![price]");
+    // Its cell, in place of the reference just pointed at: the sheet's address (Fig's price, row 3), outlined there
+    const fig = prices.locator("tr[data-swt-row='2'] > td").nth(1);
+    await fig.click();
+    await expect(field).toHaveValue("=B3");
+    const outline = (await page.locator(".swt-ref-mark.swt-visible").first().boundingBox())!;
+    const box = (await fig.boundingBox())!;
+    expect(Math.abs(outline.x - box.x)).toBeLessThan(3);
+    expect(Math.abs(outline.y - box.y)).toBeLessThan(3);
+    await page.keyboard.type("*2");
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
+    expect(await markdown(page)).toMatch(/\| Pear +\| 50 <meta f='=prices!B2\*2'> +\|/);
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");

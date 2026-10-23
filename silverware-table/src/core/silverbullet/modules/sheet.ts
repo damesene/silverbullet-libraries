@@ -493,6 +493,7 @@ export class Sheet implements AdapterFeature {
     const mine = board?.tables.get(info.key);
     if (!board || !mine || this.infoOfKey(info.key) !== info) return undefined;
     return {
+      tables: [...board.tables.keys()],
       outward: (table, area) => {
         const entry = this.shown().find(({ placed }) =>
           table === undefined ? placed === mine : sameTableName(metaName(parseTable(placed.range.text)) ?? "", table),
