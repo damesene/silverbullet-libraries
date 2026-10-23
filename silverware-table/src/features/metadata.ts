@@ -1,12 +1,15 @@
-// Removing what Silverware Table stores in tables: the metadata row (sorting,
-// filters, pins, name) and the hidden tags in cells (tags.ts: formulas, whose
-// cells keep their results, names), whatever module keeps them. The modules
-// say what they keep, for the question asked first (Feature.metadataPart).
+// Removing what Silverware Table stores in tables: the metadata row and the
+// hidden tags in cells (tags.ts: formulas, whose cells keep their results,
+// names), whatever module keeps them. The question asked first says whose it
+// is, from the attributes' names (`<owner>.…`, metanames.ts): nothing a module
+// says itself, a module turned off is named as well.
 // For one table from its toolbar, for all tables of the page with the
 // "Silverware Table: Remove table metadata" command.
-import type { Feature, MetadataPart, ModelHost, ToolbarButton, TableInfo } from "../core/feature.ts";
+import { FEATURE_NAMES, MODULE_LABELS } from "../bridge.ts";
+import type { Feature, ModelHost, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import { findTables, minimalEdit, parseTable, serializeTable, type Table } from "../markdown.ts";
+import { CORE } from "../metanames.ts";
 import { attributesOf, cellTags, withoutTags } from "../tags.ts";
 
 /** A table without its metadata row and without the hidden tags in its cells (formula cells keep their results) */
@@ -26,18 +29,47 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
-/**
- * What the modules say is kept in cells ("its 2 formulas: those cells …"),
- * and that more is where cells have tags none of them says it keeps (a
- * module turned off)
- */
-function described(parts: readonly MetadataPart[], tables: readonly Table[], form: (part: MetadataPart) => string): string[] {
-  const told = new Set(parts.flatMap((part) => part.tags));
-  const untold = tables.some((table) =>
-    table.rows.some((row) => row.cells.some((cell) => cellTags(cell).some((tag) => attributesOf(tag).some((name) => !told.has(name))))),
-  );
-  return [...parts.map(form), ...(untold ? [`${parts.length ? "other " : ""}hidden data in cells`] : [])];
+/** Whose an attribute is, by its name: the part before its first dot (none: someone else's) */
+const ownerOf = (name: string): string | undefined => (name.includes(".") ? name.slice(0, name.indexOf(".")) : undefined);
+
+/** An owner as the question names it: Silverware Table for the core, a module by its label */
+function ownerLabel(owner: string | undefined): string {
+  if (owner === CORE) return "Silverware Table";
+  const module = FEATURE_NAMES.find((name) => name.toLowerCase() === owner);
+  return module ? MODULE_LABELS[module] : "others";
 }
+
+/**
+ * Whose the tables' metadata is, as the question says it: each owner (the
+ * core first, then in the order found) with how many of its cells hold some
+ */
+export function metadataOwners(tables: readonly Table[]): string[] {
+  const owners = new Map<string | undefined, number>([[CORE, 0]]);
+  const seen = new Set<string | undefined>();
+  for (const table of tables) {
+    for (const name of Object.keys(table.meta ?? {})) {
+      seen.add(ownerOf(name));
+      if (!owners.has(ownerOf(name))) owners.set(ownerOf(name), 0);
+    }
+    for (const row of table.rows) {
+      for (const cell of row.cells) {
+        for (const owner of new Set(cellTags(cell).flatMap(attributesOf).map(ownerOf))) {
+          seen.add(owner);
+          owners.set(owner, (owners.get(owner) ?? 0) + 1);
+        }
+      }
+    }
+  }
+  return [...owners].filter(([owner]) => seen.has(owner)).map(([owner, cells]) => `${ownerLabel(owner)}${cells ? ` (${plural(cells, "cell")})` : ""}`);
+}
+
+/** Owners listed in a sentence: "a, b and c" */
+function listed(items: readonly string[]): string {
+  return items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}` : (items[0] ?? "");
+}
+
+// What the question says of what stays
+const KEPT = "Cells keep their text, a formula's cell its result.";
 
 export class Metadata implements Feature {
   constructor(private readonly host: ModelHost) {}
@@ -62,11 +94,8 @@ export class Metadata implements Feature {
    */
   private async removeFromTable(shownInfo: TableInfo): Promise<void> {
     const shown = parseTable(shownInfo.source);
-    const removed = [
-      ...(shownInfo.metaRow ? ["its stored settings (sorting, filters, pinning, name, theme, stripes)"] : []),
-      ...described(this.host.metadataParts([shown]), [shown], (p) => `its ${plural(p.count, p.what)}${p.note ? `: ${p.note}` : ""}`),
-    ];
-    if (!(await this.host.ask(`Remove this table's metadata, ${removed.join(", and ")}? Ctrl+Z brings it back.`))) return;
+    const owners = metadataOwners([shown]);
+    if (!(await this.host.ask(`Remove this table's metadata, what ${listed(owners)} keep${owners.length === 1 ? "s" : ""} in it? ${KEPT} Ctrl+Z brings it back.`))) return;
     // The table as rendered now: the dialog may have outlived the rendering it was asked from
     const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
     if (parseTable(info.source).meta) this.host.forgetStoredView(info.key);
@@ -90,11 +119,10 @@ export class Metadata implements Feature {
       return;
     }
     const models = tables.map((range) => parseTable(range.text));
-    const parts = described(this.host.metadataParts(models), models, (p) => `${plural(p.count, p.what)}${p.note ? ` (${p.note})` : ""}`);
+    const owners = metadataOwners(models);
     const question =
-      `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` +
-      (parts.length ? `, including ${parts.join(" and ")}` : "") +
-      "? Ctrl+Z brings it back.";
+      `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page, ` +
+      `what ${listed(owners)} keep${owners.length === 1 ? "s" : ""} in ${tables.length === 1 ? "it" : "them"}? ${KEPT} Ctrl+Z brings it back.`;
     if (!(await this.host.ask(question))) return;
     // One edit over the span of all those tables, so one Ctrl+Z undoes it
     const from = tables[tables.length - 1]!.from;

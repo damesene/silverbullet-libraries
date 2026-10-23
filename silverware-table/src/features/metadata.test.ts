@@ -214,7 +214,8 @@ describe("Table metadata", () => {
     };
     tableMenuItem(/^Remove metadata$/)!.click();
     await flush();
-    expect(questions[0]).toBe("Remove this table's metadata, its 1 name, and other hidden data in cells? Ctrl+Z brings it back.");
+    // Named by whose it is, the module turned off too
+    expect(questions[0]).toBe("Remove this table's metadata, what Silverware Table (1 cell) and Formulas (1 cell) keep in it? Cells keep their text, a formula's cell its result. Ctrl+Z brings it back.");
     expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n");
   });
 
@@ -228,7 +229,7 @@ describe("Table metadata", () => {
     };
     tableMenuItem(/^Remove metadata$/)!.click();
     await flush();
-    expect(questions[0]).toContain("its stored settings (sorting, filters, pinning, name, theme, stripes), and its 1 formula: those cells keep their current results");
+    expect(questions[0]).toContain("what Silverware Table and Formulas (1 cell) keep in it? Cells keep their text, a formula's cell its result");
     expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n");
 
     // A table with formulas only: the button shows, and the command counts it
@@ -241,7 +242,7 @@ describe("Table metadata", () => {
       return true;
     };
     await controller.removeAllMetadata();
-    expect(asked[0]).toContain("the 1 table on this page, including 1 formula (those cells keep their current results");
+    expect(asked[0]).toContain("the 1 table on this page, what Formulas (1 cell) keeps in it?");
     expect(text).toBe("| A |\n|---|\n| 1 |\n| 2 |\n");
   });
 

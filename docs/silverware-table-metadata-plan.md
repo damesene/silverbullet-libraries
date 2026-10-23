@@ -4,7 +4,7 @@ The decisions behind it are in CLAUDE.md, *Modules and their data*. Stored markd
 
 ## Status
 
-Steps 1 to 5 done (5: the metadata setting off in the core: `setMeta`/`setColumnsMeta` add nothing new, `canStoreMeta`/`canStoreCellTag`/`canName`/`canPin` for the modules\' menus, the write step `withoutNewTagValues`). The cell rule is the table\'s, not the column\'s: a value the table had anywhere stays, as cells moved across columns (selection, cut and paste) take their formulas along. Next: step 6.
+Steps 1 to 5 done (5: the metadata setting off in the core: `setMeta`/`setColumnsMeta` add nothing new, `canStoreMeta`/`canStoreCellTag`/`canName`/`canPin` for the modules\' menus, the write step `withoutNewTagValues`). The cell rule is the table\'s, not the column\'s: a value the table had anywhere stays, as cells moved across columns (selection, cut and paste) take their formulas along. Step 6 done (Remove metadata asks by owners, `metadataOwners`; `metadataPart` gone). Next: step 7.
 
 ## The format
 

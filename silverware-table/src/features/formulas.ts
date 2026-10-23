@@ -18,7 +18,6 @@ import type {
   CellMenuGroup,
   CellRef,
   Feature,
-  MetadataPart,
   Panel,
   Rect,
   ModelHost,
@@ -345,12 +344,6 @@ export class Formulas implements Feature {
       },
       { columnMap: (c) => (c >= insert.at ? c + 1 : c), pins: insert.pins },
     );
-  }
-
-  /** Remove metadata removes the formulas: their cells keep their results */
-  metadataPart(tables: readonly Table[]): MetadataPart | undefined {
-    const count = tables.reduce((n, table) => n + formulaCount(this.cells, table), 0);
-    return count ? { count, what: "formula", note: "those cells keep their current results as plain values", tags: ["f"] } : undefined;
   }
 
   stop(): void {

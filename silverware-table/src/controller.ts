@@ -2,7 +2,7 @@
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
 import { type Bridge, type FeatureName, moduleOnByDefault, SETTINGS, type SettingValue } from "./bridge.ts";
-import { type AdapterFeature, type AddressFrame, type AlsoChanged, type Feature, type CellEditor, type RenderedEditor, type TableInfo, type CellHit, type CellRef, editorRect, type ClipboardData, type LineDrag, type DragOptions, type HandleLayer, type HandlePlace, type MarkLayer, type OutlineLayer, type Panel, type PanelAnchor, type PointerTarget, type Side, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
+import { type AdapterFeature, type AddressFrame, type AlsoChanged, type Feature, type CellEditor, type RenderedEditor, type TableInfo, type CellHit, type CellRef, editorRect, type ClipboardData, type LineDrag, type DragOptions, type HandleLayer, type HandlePlace, type MarkLayer, type OutlineLayer, type Panel, type PanelAnchor, type PointerTarget, type Side, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type NamingTarget } from "./core/feature.ts";
 import { type Dialog, type DialogOptions, Dialogs } from "./core/dialog.ts";
 import { ViewAnchor } from "./core/anchor.ts";
 import { placeAtEnd, TableRows } from "./core/rows.ts";
@@ -741,18 +741,6 @@ export class Controller implements TableHost {
   /** Attributes of cells' hidden tags a copy of a row leaves out: the names of rows and cells, one row's, one cell's */
   uniqueTags(): ReadonlySet<string> {
     return new Set([LINE_NAME.toLowerCase(), CELL_NAME.toLowerCase()]);
-  }
-
-  /** What the core and the modules keep in these tables, their attributes in cells by their whole names */
-  metadataParts(tables: readonly Table[]): MetadataPart[] {
-    const names = tables.reduce((n, table) => n + table.rows[0]!.cells.filter((_, c) => this.columnName(table, c)).length + rowNamesIn(table).length + cellNamesIn(table).length, 0);
-    return [
-      ...this.features.flatMap((f) => {
-        const part = f.metadataPart?.(tables);
-        return part ? [{ ...part, tags: part.tags.map((key) => cellTagName(this.ownerOf(f), key)) }] : [];
-      }),
-      ...(names ? [{ count: names, what: "name", tags: [LINE_NAME, CELL_NAME] }] : []),
-    ];
   }
 
   /** Whose a feature's data is: its module's (by the module's name), else the core's */

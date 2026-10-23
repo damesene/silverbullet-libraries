@@ -464,8 +464,6 @@ export type CellMenuGroup = { readonly order: number; readonly entries: readonly
  * What a feature says it keeps in tables, for Remove metadata: "2 formulas:
  * those cells keep …"; `tags`: the attributes of its hidden tags in cells
  */
-/** What a module keeps in tables, for Remove metadata: how many, of what; `tags`: the keys of its attributes in cells */
-export type MetadataPart = { readonly count: number; readonly what: string; readonly note?: string; readonly tags: readonly string[] };
 
 /** What the controller offers features */
 /** What a menu is about, which can be named in its title */
@@ -752,8 +750,6 @@ export interface ModelHost {
   columnDeleteWarnings(info: TableInfo, column: number): string[];
   /** Attributes of hidden tags a copy of a row leaves out (names: one per page or table) */
   uniqueTags(): ReadonlySet<string>;
-  /** What the features say the metadata of these tables holds (Remove metadata) */
-  metadataParts(tables: readonly Table[]): MetadataPart[];
   /** What a feature's toolbar buttons show changed: the toolbar in view is shown again */
   toolbarChanged(): void;
   /** Whether a table is shown sorted or with rows hidden (filtered), so rows are not where the markdown has them */
@@ -1044,8 +1040,6 @@ export interface Feature {
   columnDeleteWarning?(info: TableInfo, column: number): string | undefined;
   /** What deleting the whole table (Delete table) also affects, asked first: "the formulas of 2 tables that refer to it show #REF!" */
   tableDeleteWarning?(info: TableInfo): string | undefined;
-  /** What the feature keeps in these tables, for Remove metadata (which removes it) */
-  metadataPart?(tables: readonly Table[]): MetadataPart | undefined;
   /**
    * Body rows the feature hides (filters), as indexes into `values` (one array
    * of cell values per body row, values[0] being row 1); pinned rows are not hidden
