@@ -1034,6 +1034,7 @@ export class Selection implements Feature {
    * Delete: empties the selected cells (the selection stays). Whole rows (all
    * columns) or whole columns (the header and every row shown) whose cells are
    * empty already are deleted: a first Delete empties them, a second deletes them.
+   * So is the whole table, its header and every row shown, its body empty.
    */
   private async emptyCells(): Promise<void> {
     const area = this.area();
@@ -1047,6 +1048,12 @@ export class Selection implements Feature {
     const body = rows.filter((row) => row > 0);
     const wholeRows = columns.length === info.columns && body.length > 0;
     const wholeColumns = rows.includes(0) && rows.length === this.host.shownOrder(info).length;
+    // Every row's cells, also the rows a filter hides: their data would go too
+    if (wholeColumns && columns.length === info.columns && table.rows.every((r, row) => row === 0 || r.cells.every((_, column) => empty(row, column)))) {
+      this.clear();
+      await this.host.deleteTable(info, { unasked: true });
+      return;
+    }
     if (wholeRows && body.every((row) => columns.every((column) => empty(row, column)))) {
       this.clear();
       await deleteRowsAt(this.host, info, body);

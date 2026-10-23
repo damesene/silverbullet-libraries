@@ -489,6 +489,12 @@ export interface ModelHost {
    * keeps for it meanwhile. No other table's key changes, wherever it goes.
    */
   insertTable(table: Table, after?: TableTarget, also?: { readonly target: TableTarget; readonly change: (table: Table) => Table }, key?: TableKey): Promise<WriteResult>;
+  /**
+   * Deletes a table from the page in one edit, as Delete table in its ⋯ menu
+   * does; `unasked`: no question, unless something goes with it (formulas
+   * referring to it, its sheet), as a Delete on an empty table selected whole
+   */
+  deleteTable(info: TableInfo, options?: { readonly unasked?: boolean }): Promise<WriteResult>;
   /** A key for a table not written yet (insertTable's `key`, given back if it is not written), on the current page */
   newTableKey(): TableKey;
   /** A table shown, by its key, as it is now (rendered anew after a write: its new info) */

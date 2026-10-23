@@ -508,8 +508,9 @@ export class Controller implements TableHost {
    * the blank line after it, the other tables the features change for it
    * (otherTablesWritten with no table after: formulas referring to it, a
    * sheet's data handed on) in the same edit. Edits held for it go with it.
+   * `unasked`: asked only when something goes with it.
    */
-  async deleteTable(shown: WidgetInfo): Promise<WriteResult> {
+  async deleteTable(shown: TableInfo, options: { readonly unasked?: boolean } = {}): Promise<WriteResult> {
     await this.saveEditing();
     const info = this.tableFor(shown.key) ?? shown;
     const table = parseTable(info.source);
@@ -518,7 +519,7 @@ export class Controller implements TableHost {
     const lost = this.features.flatMap((f) => f.tableDeleteWarning?.(info) ?? []);
     const what = `the table${name ? ` ${name}` : ""} (${rows} ${rows === 1 ? "row" : "rows"})`;
     const question = `Delete ${what} from the page?${lost.length ? ` ${lost.map((l) => l[0]!.toUpperCase() + l.slice(1)).join(". ")}.` : ""} Ctrl+Z brings it back.`;
-    if (!(await this.ask(question))) return "unchanged";
+    if ((!options.unasked || lost.length) && !(await this.ask(question))) return "unchanged";
     try {
       for (const feature of this.features) await feature.prepareWrite?.(info);
       const text = await this.bridge.getText();

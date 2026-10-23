@@ -125,3 +125,24 @@ test.describe("Moving a table on the sheet", () => {
     await expect.poll(() => markdown(page)).toContain("<meta name='a' sheet='Plan' at='F6'>");
   });
 });
+
+test.describe("Deleting a table on the sheet", () => {
+  test("the whole table selected: a Delete empties it, a second deletes it, unasked", async ({ page }) => {
+    await openPlan(page);
+    page.on("dialog", (dialog) => {
+      throw new Error(`asked: ${dialog.message()}`);
+    });
+    await drawn(page, "Brno").locator("tr[data-swt-row='1'] > td").first().hover();
+    await grab(page).click();
+    await expect(drawn(page, "Brno").locator(".swt-selected")).toHaveCount(2);
+    await drawn(page, "Brno").locator("table").evaluate((t) => t.setAttribute("data-test-old", ""));
+    await page.keyboard.press("Delete");
+    await expect.poll(() => markdown(page)).toMatch(/\| City +\|\n\|[- |]+\|\n\| +\|\n\| <meta name='b'/);
+    // Drawn anew, emptied, the selection shown on it again
+    await expect(page.locator("table[data-test-old]")).toHaveCount(0);
+    await expect(drawn(page, "City").locator(".swt-selected")).toHaveCount(2);
+    await page.keyboard.press("Delete");
+    await expect.poll(() => markdown(page)).not.toContain("City");
+    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(1);
+  });
+});

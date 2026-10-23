@@ -76,6 +76,22 @@ describe("Selecting cells", () => {
     expect(text).toBe(`| Name | Qty |\n|---|---|\n| <meta n='pear'> | |\n| | <meta f='=1+1'> |\n`);
   });
 
+  it("deletes the whole table selected with a second Delete, once its body is empty, unasked", async () => {
+    await setup(`Intro\n\n| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 |\n\nEnd\n`);
+    const asked = vi.spyOn(window, "confirm");
+    drag(cell(0, 0), cell(2, 1));
+    key(editor, "Delete");
+    await flush();
+    await controller.scan();
+    // A first Delete empties it, the header kept
+    expect(text).toBe("Intro\n\n| Name | Qty |\n|---|---|\n| | |\n| | |\n\nEnd\n");
+    key(editor, "Delete");
+    await flush();
+    await flush();
+    expect(text).toBe("Intro\n\nEnd\n");
+    expect(asked).not.toHaveBeenCalled();
+  });
+
   it("empties the selected cells with Delete, formulas included, keeping the header", async () => {
     await setup(`| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 <meta f='=1+1'> |\n| Plum | 5 |\n`);
     drag(cell(0, 1), cell(2, 1));
