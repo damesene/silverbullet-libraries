@@ -1,6 +1,20 @@
 import type { Page } from "@playwright/test";
 import { cell, center, columnCells, drag, expect, header, hoverCell, markdown, menu, menuTitle, rendersAnew, table, test } from "./playground.ts";
 
+test("one menu at a time: a column's menu open, the ⋯ menu closes it, and the reverse", async ({ page }) => {
+  // The column's menu: a right click on its header
+  await header(page, 1).click({ button: "right" });
+  await expect(menu(page)).toHaveCount(1);
+  await expect(menuTitle(page)).toContainText("Column");
+  await hoverCell(page, cell(page, 1, 0));
+  await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
+  await expect(menu(page)).toHaveCount(1);
+  await expect(menuTitle(page)).toContainText("Table");
+  await header(page, 1).click({ button: "right" });
+  await expect(menu(page)).toHaveCount(1);
+  await expect(menuTitle(page)).toContainText("Column");
+});
+
 test.describe("Toolbar and menus", () => {
   test("the toolbar shows over the table hovered; its ⋯ menu has the core's items and closes with Esc", async ({ page }) => {
     await hoverCell(page, cell(page, 2, 1));

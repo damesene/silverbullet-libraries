@@ -565,7 +565,7 @@ export class Grips implements Feature {
     const header = this.host.shownText(info, { row: 0, column: target.column }) || String(target.column + 1);
     const title = axis === "row" ? (naming?.name ? `Row: ${naming.name}` : `Row ${target.row}`) : `Column: ${naming?.name ?? header}`;
     const entries = axis === "row" ? this.rowMenu(info, target.row!, target.column) : this.columnMenu(info, target.column);
-    const element = this.host.floatingMenu(title, entries, { naming, close: () => this.closeMenu(true) });
+    const element = this.host.floatingMenu(title, entries, { naming, close: () => this.closeMenu(true), owner: this });
     const selected = this.selectionOf(info);
     if (at) {
       // By the point pressed, following its cell as the page scrolls
@@ -592,7 +592,7 @@ export class Grips implements Feature {
     const previous = menu.element;
     const closing = entries.map((entry): MenuEntry => (entry.kind === "item" ? { ...entry, run: this.runAndClose(entry.run) } : entry));
     const back = { icon: ICONS.arrowLeft, run: () => this.swapMenu(previous) };
-    this.swapMenu(this.host.floatingMenu(title, closing, { back, close: () => this.closeMenu(true) }));
+    this.swapMenu(this.host.floatingMenu(title, closing, { back, close: () => this.closeMenu(true), owner: this }));
   }
 
   /** Puts `element` in the open menu's place */

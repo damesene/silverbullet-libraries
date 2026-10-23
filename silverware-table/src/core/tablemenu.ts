@@ -17,7 +17,7 @@ export class TableMenu {
     // Hands the keyboard back to SilverBullet's editor (a menu closed from the keyboard)
     private readonly focusEditor: (widget: HTMLElement) => void,
     // A floating menu, made by the core (TableHost.floatingMenu)
-    private readonly floatingMenu: (title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void }) => HTMLElement,
+    private readonly floatingMenu: (title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object }) => HTMLElement,
   ) {}
 
   /** Which menu is open, if any */
@@ -37,6 +37,7 @@ export class TableMenu {
       run();
     });
     const element = this.floatingMenu(title, closing, {
+      owner: this,
       back,
       naming: namingThatCloses(naming, () => this.close(false)),
       close: () => this.close(true),

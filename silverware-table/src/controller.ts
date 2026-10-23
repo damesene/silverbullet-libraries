@@ -156,6 +156,8 @@ export class Controller implements TableHost {
   private readonly features: AdapterFeature[] = [];
   // The floating elements the core made (floating, panels, menus): what isFloating tells
   private readonly made = new WeakSet<Element>();
+  // The menus made (floatingMenu) that may be open, how each is closed and whose it is: one menu at a time
+  private readonly openMenus = new Map<HTMLElement, { readonly close: () => void; readonly owner: object | undefined }>();
   private featuresStarted: Promise<void> | undefined;
   // The modules turned on
   private readonly modulesOn = new Set<FeatureName>();
@@ -2154,9 +2156,19 @@ export class Controller implements TableHost {
     return this.dialogs.open(options);
   }
 
-  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void }): HTMLElement {
+  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object }): HTMLElement {
+    // One menu at a time: another's open (a grip's while the ⋯ menu opens) is closed as its × would close it; an
+    // owner's menu replacing its own (a submenu) is its own to close
+    for (const [open, made] of this.openMenus) {
+      if (!open.isConnected) this.openMenus.delete(open);
+      else if (!options.owner || made.owner !== options.owner) {
+        this.openMenus.delete(open);
+        made.close();
+      }
+    }
     const menu = floatingMenu(this.doc, title, entries, options);
     this.made.add(menu);
+    this.openMenus.set(menu, { close: options.close, owner: options.owner });
     this.doc.body.append(menu);
     return menu;
   }

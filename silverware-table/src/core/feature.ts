@@ -557,7 +557,7 @@ export interface ModelHost {
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
   openCellMenu(info: TableInfo, at: CellRef, point: { x: number; y: number }): boolean;
   /** A menu floating over the page (core/menu.ts) made of the entries, one of the core's floating elements, in the page: to place and focus (focusMenu) */
-  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void }): HTMLElement;
+  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object }): HTMLElement;
   /** A file given to the browser to download (made in the page: nothing is sent anywhere) */
   download(file: string, data: Uint8Array, type: string): void;
   /** The keyboard into a menu made by floatingMenu, once it is placed (its entry checked, if it is a list) */
