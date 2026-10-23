@@ -335,3 +335,17 @@ other pages on a sheet.
   the frame: no hook); all through `AddressFrame` (`origin`, `cellAt`,
   `placeProblem`, `previewPlace`, `moveTo`), the rule `placeProblem` in
   `sheet/layout.ts` (never over another table, never past A1).
+  Reviewed; fixed: the history marker of Delete table put into the next table
+  (the table's own span given; at the page's start a line break kept for the
+  cursor), Esc during any drag Esc cancels going to the features (a board
+  closed, a selection cleared: the core keeps it for the drag), Esc in Move
+  table… from a cell's menu clearing the selection instead (a feature picking
+  gets the keys first: `pointerBusy` "pick"), a table in column A or row 1
+  jumping as its whole selection is dragged by its edge (`cellAt` keeps the
+  point on the grid), the handle not draggable by a finger (`touch-action`),
+  the overlap check by rows as shown (a filter's hidden rows: by the markdown's
+  now), a table alone's edges offering a move (`movable`), the handle shown
+  with its corner scrolled out of the board, CRLF at the page's end, Delete
+  table finding its table by its key. Left: deleting the first of two tables of
+  the same name moves references to the second (formulas take a name's first
+  table).
