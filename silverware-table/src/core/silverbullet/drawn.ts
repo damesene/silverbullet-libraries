@@ -7,6 +7,7 @@
 // (cells.ts); the table is handed over whole, once every cell is rendered, so
 // nothing is filled in later under what the core and the modules put into it.
 import { alignClass, DRAWN_CLASS, WIDGET_CLASS } from "../../dom.ts";
+import { TABLE_MARKER } from "../../metanames.ts";
 import { parseTable } from "../../markdown.ts";
 import type { CellRenderer } from "./cells.ts";
 
@@ -59,6 +60,7 @@ export async function drawTable(doc: Document, source: string, hint: number, ren
     // Its line after the header's, the delimiter's and the body rows'
     tr.dataset.pos = String(lineStarts[model.rows.length + 1]);
     const meta = doc.createElement("meta");
+    meta.setAttribute(TABLE_MARKER, "");
     for (const [name, value] of Object.entries(model.meta)) meta.setAttribute(name, value);
     const td = doc.createElement("td");
     td.append(meta);

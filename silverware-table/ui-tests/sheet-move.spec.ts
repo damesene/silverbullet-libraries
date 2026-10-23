@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 import { center, cell, drag, expect, hoverCell, markdown, table, tableIcon, test } from "./playground.ts";
 
 // a at A1 (its header and one row, two columns), b at D1
-const PAGE = "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| City |\n|---|\n| Brno |\n| <meta name='b' sheet='Plan' at='D1'> |\n";
+const PAGE = "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='a' sheet.name='Plan' sheet.at='A1'> |\n\n| City |\n|---|\n| Brno |\n| <meta core.table core.name='b' sheet.name='Plan' sheet.at='D1'> |\n";
 
 const drawn = (page: Page, text: string) => page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)", { hasText: text });
 const grab = (page: Page) => page.locator(".swt-sheet-grab.swt-visible");
@@ -37,7 +37,7 @@ test.describe("Moving a table on the sheet", () => {
     await expect(preview(page)).toBeVisible();
     await expect(preview(page).locator(".swt-sheet-move-tip")).toHaveText("A4");
     await page.mouse.up();
-    await expect.poll(() => markdown(page)).toContain("<meta name='a' sheet='Plan' at='A4'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='a' sheet.name='Plan' sheet.at='A4'>");
     await expect(preview(page)).toHaveCount(0);
   });
 
@@ -53,7 +53,7 @@ test.describe("Moving a table on the sheet", () => {
     await expect(preview(page).locator(".swt-sheet-move-tip")).toHaveText(/^[CD]1: b is there$/);
     await page.mouse.up();
     await expect(page.locator("#flash > div", { hasText: /cannot go to [CD]1: b is there/ })).toBeVisible();
-    expect(await markdown(page)).toContain("<meta name='a' sheet='Plan' at='A1'>");
+    expect(await markdown(page)).toContain("<meta core.table core.name='a' sheet.name='Plan' sheet.at='A1'>");
   });
 
   test("a click on the handle selects the whole table; dragged by the selection's edge, the table moves", async ({ page }) => {
@@ -73,7 +73,7 @@ test.describe("Moving a table on the sheet", () => {
     await page.mouse.move(e.x, e.y + 2 * rowHeight, { steps: 8 });
     await expect(preview(page).locator(".swt-sheet-move-tip")).toHaveText("A3");
     await page.mouse.up();
-    await expect.poll(() => markdown(page)).toContain("<meta name='a' sheet='Plan' at='A3'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='a' sheet.name='Plan' sheet.at='A3'>");
   });
 
   test("Esc while the handle is dragged cancels the drag only: the sheet stays, the table where it was", async ({ page }) => {
@@ -86,7 +86,7 @@ test.describe("Moving a table on the sheet", () => {
     await expect(preview(page)).toHaveCount(0);
     await page.mouse.up();
     await expect(page.locator(".swt-sheet-board")).toHaveCount(1);
-    expect(await markdown(page)).toContain("<meta name='a' sheet='Plan' at='A1'>");
+    expect(await markdown(page)).toContain("<meta core.table core.name='a' sheet.name='Plan' sheet.at='A1'>");
   });
 
   test("Move table… from a cell's menu: one Esc ends it, the cell staying selected", async ({ page }) => {
@@ -102,7 +102,7 @@ test.describe("Moving a table on the sheet", () => {
     await expect(drawn(page, "Pear").locator(".swt-selected")).toHaveCount(1);
     // Ended: a click on the sheet moves nothing
     await page.mouse.click(f6.x, f6.y);
-    expect(await markdown(page)).toContain("<meta name='a' sheet='Plan' at='A1'>");
+    expect(await markdown(page)).toContain("<meta core.table core.name='a' sheet.name='Plan' sheet.at='A1'>");
   });
 
   test("Move table… in the ⋯ menu: the next click on the sheet places its top left corner; Esc cancels", async ({ page }) => {
@@ -122,7 +122,7 @@ test.describe("Moving a table on the sheet", () => {
     await pick();
     await page.mouse.move(f6.x, f6.y);
     await page.mouse.click(f6.x, f6.y);
-    await expect.poll(() => markdown(page)).toContain("<meta name='a' sheet='Plan' at='F6'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='a' sheet.name='Plan' sheet.at='F6'>");
   });
 });
 
@@ -137,7 +137,7 @@ test.describe("Deleting a table on the sheet", () => {
     await expect(drawn(page, "Brno").locator(".swt-selected")).toHaveCount(2);
     await drawn(page, "Brno").locator("table").evaluate((t) => t.setAttribute("data-test-old", ""));
     await page.keyboard.press("Delete");
-    await expect.poll(() => markdown(page)).toMatch(/\| City +\|\n\|[- |]+\|\n\| +\|\n\| <meta name='b'/);
+    await expect.poll(() => markdown(page)).toMatch(/\| City +\|\n\|[- |]+\|\n\| +\|\n\| <meta core.table core.name='b'/);
     // Drawn anew, emptied, the selection shown on it again
     await expect(page.locator("table[data-test-old]")).toHaveCount(0);
     await expect(drawn(page, "City").locator(".swt-selected")).toHaveCount(2);
@@ -170,7 +170,7 @@ test.describe("Adding a table of the page to the sheet", () => {
     await expect(preview(page)).toBeVisible();
     await expect(preview(page).locator(".swt-sheet-move-tip")).toHaveText("F4");
     await item.click();
-    await expect.poll(() => markdown(page)).toMatch(/\| X1 +\| a +\|\n\| <meta name='\w+' sheet='Plan' at='F4'> \|/);
+    await expect.poll(() => markdown(page)).toMatch(/\| X1 +\| a +\|\n\| <meta core.table core.name='\w+' sheet.name='Plan' sheet.at='F4'> \|/);
     await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(3);
     await expect(page.locator(".swt-menu")).toHaveCount(0);
   });
@@ -187,8 +187,8 @@ test.describe("Adding a table of the page to the sheet", () => {
     await page.mouse.click(point.x, point.y, { button: "right" });
     await page.locator(".swt-menu").getByRole("menuitem", { name: "Add table here" }).click();
     await page.locator(".swt-menu").getByRole("menuitem", { name: "Code, Kind" }).click();
-    await expect.poll(() => markdown(page)).toMatch(/\| Pear +\| 3 +\|\n\| <meta name='table1' sheet='Sheet1' at='A1'> \|/);
-    expect(await markdown(page)).toMatch(/\| X1 +\| a +\|\n\| <meta name='table2' sheet='Sheet1' at='D2'> \|/);
+    await expect.poll(() => markdown(page)).toMatch(/\| Pear +\| 3 +\|\n\| <meta core.table core.name='table1' sheet.name='Sheet1' sheet.at='A1'> \|/);
+    expect(await markdown(page)).toMatch(/\| X1 +\| a +\|\n\| <meta core.table core.name='table2' sheet.name='Sheet1' sheet.at='D2'> \|/);
     await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(2);
   });
 

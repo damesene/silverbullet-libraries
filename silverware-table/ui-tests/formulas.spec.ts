@@ -13,7 +13,7 @@ test.describe("Formulas", () => {
     });
     await expect(cell(page, 1, 3)).toHaveText("few");
     // Its quotes as typed (the value in apostrophes), its > as &gt; (SilverBullet ends a tag at its first >)
-    expect(await markdown(page)).toContain(`few <meta f='=IF([@qty]&gt;5, "many", "few")'>`);
+    expect(await markdown(page)).toContain(`few <meta formulas.f='=IF([@qty]&gt;5, "many", "few")'>`);
     // Rendered again from the page as stored: the tag hides whole, no part of the formula shows
     await page.reload();
     await expect(cell(page, 1, 3)).toHaveText("few");
@@ -36,7 +36,7 @@ test.describe("Formulas", () => {
     await page.keyboard.type("=ro");
     await expect(choices.first()).toBeVisible();
     await rendersAnew(page, () => page.keyboard.press("Enter"));
-    expect(await markdown(page)).toContain(`<meta f='=ro'>`);
+    expect(await markdown(page)).toContain(`<meta formulas.f='=ro'>`);
   });
 
   test("pointing at a header's sort button gives its column and sorts nothing", async ({ page }) => {

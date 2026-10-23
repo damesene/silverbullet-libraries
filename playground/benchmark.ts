@@ -120,7 +120,7 @@ export function benchmarkPage(options: BenchmarkOptions): string {
   }
   const summary = formulas.has("summary");
   const line = (cells: readonly string[]) => `| ${cells.join(" | ")} |`;
-  const markdown = [line(header), line(header.map(() => "---")), ...body.map(line), ...(summary ? ['| <meta name="bench"> |'] : [])].join("\n");
+  const markdown = [line(header), line(header.map(() => "---")), ...body.map(line), ...(summary ? ['| <meta core.table core.name="bench"> |'] : [])].join("\n");
   let text = `# Benchmark\n\n${rows} rows, ${header.length} columns. *Restore page* in the Benchmark panel brings the page before it back (or Ctrl+Z).\n\n${markdown}\n`;
   if (summary) {
     const of = numeric[0] ? key(numeric[0].name) : "calculated";

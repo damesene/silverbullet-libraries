@@ -162,7 +162,7 @@ describe("Row and column grips", () => {
   });
 
   it("extends the selection with Shift+click on a grip, and deletes the rows selected", async () => {
-    const PINNED = "| A | B |\n|---|---|\n| 1 | a |\n| 2 | b |\n| 3 | c |\n| 4 | d |\n| <meta pin-bottom='1'> |\n";
+    const PINNED = "| A | B |\n|---|---|\n| 1 | a |\n| 2 | b |\n| 3 | c |\n| 4 | d |\n| <meta core.table core.pin-bottom='1'> |\n";
     await setup(PINNED);
     openMenu(1, "row");
     // With the first row's menu open, the grip follows the pointer: Shift+click on the third row's, rows 1 to 3
@@ -189,7 +189,7 @@ describe("Row and column grips", () => {
     item(openMenu(2, "row"), "Delete 3 rows").click();
     await flush();
     // The row pinned to the bottom stays pinned
-    expect(text).toBe("| A | B |\n|---|---|\n| 4 | d |\n| <meta pin-bottom='1'> |\n");
+    expect(text).toBe("| A | B |\n|---|---|\n| 4 | d |\n| <meta core.table core.pin-bottom='1'> |\n");
   });
 
   it("has no item to select rows (columns): Shift+click on a grip selects columns between too", async () => {
@@ -235,7 +235,7 @@ describe("Row and column grips", () => {
   });
 
   it("asks once before deleting columns that hold names", async () => {
-    const NAMED = `| Name | Price | Note |\n|---|---|---|\n| <meta n='pear'> | | a |\n| | <meta cn='fig_price'> | b |\n`;
+    const NAMED = `| Name | Price | Note |\n|---|---|---|\n| <meta core.n='pear'> | | a |\n| | <meta core.cn='fig_price'> | b |\n`;
     await setup(NAMED);
     const questions: string[] = [];
     (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
@@ -267,7 +267,7 @@ describe("Row and column grips", () => {
     // a table with metadata: nothing new can be pinned, but unpinning works
     controller.stop();
     document.body.replaceChildren();
-    await setup(`| A |\n|---|\n| 1 |\n| 2 |\n| <meta pin-top='1'> |\n`);
+    await setup(`| A |\n|---|\n| 1 |\n| 2 |\n| <meta core.table core.pin-top='1'> |\n`);
     await flush();
     expect(item(openMenu(2, "row"), "Pin to bottom").getAttribute("aria-disabled")).toBe("true");
     const unpin = item(openMenu(1, "row"), "Unpin from the top");
@@ -283,7 +283,7 @@ describe("Row and column grips", () => {
     item(openMenu(1, "row"), "Pin to bottom").click(); // Pear
     await flush();
     await controller.scan();
-    expect(text).toBe(`Intro\n\n| Name | Qty |\n|---|---|\n| apple | 10 |\n| Fig | 2 |\n| Pear | 3 |\n| <meta pin-bottom='1'> |\n`);
+    expect(text).toBe(`Intro\n\n| Name | Qty |\n|---|---|\n| apple | 10 |\n| Fig | 2 |\n| Pear | 3 |\n| <meta core.table core.pin-bottom='1'> |\n`);
     expect(editor.querySelector("tfoot")?.textContent).toContain("Pear");
 
     // a row added at the end goes above it
@@ -291,7 +291,7 @@ describe("Row and column grips", () => {
     key(editor.querySelector(".swt-cell-editor")!, "Enter", { ctrlKey: true });
     await flush();
     await controller.scan();
-    expect(text.split("\n").slice(4, 9)).toEqual(["| apple | 10 |", "| Fig | 2 |", "| | |", "| Pear | 3 |", `| <meta pin-bottom='1'> |`]);
+    expect(text.split("\n").slice(4, 9)).toEqual(["| apple | 10 |", "| Fig | 2 |", "| | |", "| Pear | 3 |", `| <meta core.table core.pin-bottom='1'> |`]);
 
     // sorting leaves it at the bottom
     key(editor.querySelector(".swt-cell-editor")!, "Escape");
@@ -302,7 +302,7 @@ describe("Row and column grips", () => {
   });
 
   it("disables inserting outside the pinned edges", async () => {
-    await setup(`| A | B |\n|---|---|\n| top | 1 |\n| mid | 2 |\n| end | 3 |\n| <meta pin-top='1' pin-bottom='1' pin-left='1'> |\n`, {
+    await setup(`| A | B |\n|---|---|\n| top | 1 |\n| mid | 2 |\n| end | 3 |\n| <meta core.table core.pin-top='1' core.pin-bottom='1' core.pin-left='1'> |\n`, {
       "silverware.table.metadata": true,
     });
     await flush();
@@ -323,7 +323,7 @@ describe("Row and column grips", () => {
     item(openMenu(1, "column", 1), "Pin left").click(); // Qty
     await flush();
     await controller.scan();
-    expect(text).toBe(`Intro\n\n| Qty | Name |\n|---|---|\n| 3 | Pear |\n| 10 | apple |\n| 2 | Fig |\n| <meta pin-left='1'> |\n`);
+    expect(text).toBe(`Intro\n\n| Qty | Name |\n|---|---|\n| 3 | Pear |\n| 10 | apple |\n| 2 | Fig |\n| <meta core.table core.pin-left='1'> |\n`);
     expect(cell(1, 0).classList.contains("swt-pin-left")).toBe(true);
   });
 
@@ -386,7 +386,7 @@ describe("Row and column grips", () => {
     });
 
     it("moves columns too, and a block across pinned and unpinned rows moves the grip's row alone", async () => {
-      await setup(LETTERS + `| <meta pin-bottom='1'> |\n`, { "silverware.table.metadata": true });
+      await setup(LETTERS + `| <meta core.table core.pin-bottom='1'> |\n`, { "silverware.table.metadata": true });
       const columnGrip = () => document.querySelector<HTMLElement>(".swt-grip-column")!;
       const last = Number(controller.shownRows(info()).at(-1)!.dataset.swtRow);
       controller.selectCells(info(), { row: 0, column: 0 }, { row: last, column: 1 });

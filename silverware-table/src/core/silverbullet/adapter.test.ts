@@ -14,16 +14,15 @@ function rowsWithMeta(attributes: Record<string, string>): HTMLTableRowElement[]
 
 describe("renderedMeta", () => {
   it("reads the metadata row's attributes as rendered, a value with > or | among them", () => {
-    expect(renderedMeta(rowsWithMeta({ "filter.qty": ">10", "filter.status": "=open|blocked", theme: "dark", stripes: "columns" }))).toEqual({
-      "filter.qty": ">10",
-      "filter.status": "=open|blocked",
-      theme: "dark",
-      stripes: "columns",
-    });
+    const rendered = { "filters.-c-qty.condition": ">10", "filters.-c-status.condition": "=open|blocked", "themes.name": "dark", "themes.stripes": "columns" };
+    // The mark of a metadata row is not among its attributes
+    expect(renderedMeta(rowsWithMeta({ "core.table": "", ...rendered }))).toEqual(rendered);
+    // Without it, a cell's tag
+    expect(renderedMeta(rowsWithMeta(rendered))).toBeUndefined();
   });
 
   it("is no metadata row where the last row's tag is a formula's or a name's", () => {
-    expect(renderedMeta(rowsWithMeta({ f: "=SUM([qty])" }))).toBeUndefined();
-    expect(renderedMeta(rowsWithMeta({ cn: "total" }))).toBeUndefined();
+    expect(renderedMeta(rowsWithMeta({ "formulas.f": "=SUM([qty])" }))).toBeUndefined();
+    expect(renderedMeta(rowsWithMeta({ "core.cn": "total" }))).toBeUndefined();
   });
 });

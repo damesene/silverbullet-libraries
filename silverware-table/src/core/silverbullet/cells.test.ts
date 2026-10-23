@@ -26,7 +26,7 @@ describe("isPlainCell", () => {
     for (const plain of ["Pear", "12.99", "2025-11-06", "Pražská 12, Brno", "", "50 %", "a (b) / c - d + e = f", "'quoted' \"too\""]) {
       expect(isPlainCell(plain), plain).toBe(true);
     }
-    for (const marked of ["[[index]]", "#tag", "**bold**", "*em*", "_em_", "~~gone~~", "`code`", "${1+2}", "a \\| b", "&amp;", "<b>x</b>", "x <meta f='=1'>", "https://example.com", ":smile:", "![img](x.png)", "@mention", "a!"]) {
+    for (const marked of ["[[index]]", "#tag", "**bold**", "*em*", "_em_", "~~gone~~", "`code`", "${1+2}", "a \\| b", "&amp;", "<b>x</b>", "x <meta formulas.f='=1'>", "https://example.com", ":smile:", "![img](x.png)", "@mention", "a!"]) {
       expect(isPlainCell(marked), marked).toBe(false);
     }
   });

@@ -82,7 +82,7 @@ describe("series", () => {
 });
 
 describe("filling a table", () => {
-  const TABLE = parseTable("| N | Day | F |\n|---|---|---|\n| 1 | Mon | =A1 |\n| 2 | Tue | x |\n|  |  | <meta cn='keep'> |\n|  |  |  |\n");
+  const TABLE = parseTable("| N | Day | F |\n|---|---|---|\n| 1 | Mon | =A1 |\n| 2 | Tue | x |\n|  |  | <meta core.cn='keep'> |\n|  |  |  |\n");
   // A claim as the formulas module makes one: cells written "=…" copied with the rows they moved
   const cells = {
     claim: (cell: string, from: { row: number }, to: { row: number }) => (cell.startsWith("=") ? `=moved ${to.row - from.row}` : undefined),
@@ -96,11 +96,11 @@ describe("filling a table", () => {
 
   it("fills each column on its own, keeping the tags of the cells written over", () => {
     const result = filled(TABLE, [column(0), column(1)], cells);
-    expect(serializeTable(result).split("\n").slice(4, 6)).toEqual(["| 3 | Wed | <meta cn='keep'> |", "| 4 | Thu | |"]);
+    expect(serializeTable(result).split("\n").slice(4, 6)).toEqual(["| 3 | Wed | <meta core.cn='keep'> |", "| 4 | Thu | |"]);
   });
 
   it("copies the cells another part claims, the selected cells over again, others as their values", () => {
-    expect(fillLine(TABLE, column(2), cells)).toEqual([`=moved 2 <meta cn='keep'>`, "x"]);
+    expect(fillLine(TABLE, column(2), cells)).toEqual([`=moved 2 <meta core.cn='keep'>`, "x"]);
   });
 });
 

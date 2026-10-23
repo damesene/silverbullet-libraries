@@ -94,9 +94,9 @@ describe("column zones", () => {
 describe("pins in the metadata row", () => {
   it("are stored as counts, limited to the table", () => {
     const table = withMetaPins(parseTable("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"), { ...NO_PINS, top: 1, right: 1 });
-    expect(serializeTable(table)).toBe(`| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n| <meta pin-top='1' pin-right='1'> |`);
+    expect(serializeTable(table)).toBe(`| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n| <meta core.table core.pin-top='1' core.pin-right='1'> |`);
     expect(metaPins(parseTable(serializeTable(table)))).toEqual({ ...NO_PINS, top: 1, right: 1 });
-    const tooMany = parseTable(`| A |\n|---|\n| 1 |\n| <meta pin-top='5' pin-bottom='2' pin-left='x'> |`);
+    const tooMany = parseTable(`| A |\n|---|\n| 1 |\n| <meta core.table core.pin-top='5' core.pin-bottom='2' core.pin-left='x'> |`);
     expect(metaPins(tooMany)).toEqual({ ...NO_PINS, top: 1 });
   });
 });

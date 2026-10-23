@@ -5,7 +5,7 @@
 // spelling with the same key names the same column ([Unit price] is
 // [unit_price]). Of several columns with the same key, the occurrence tells
 // which one (the second qty is qty:2). A column with a fixed name in its
-// header (`<meta n='price'>`, names.ts) is named by it instead, so renaming
+// header (`<meta core.n='price'>`, names.ts) is named by it instead, so renaming
 // the header changes nothing.
 import { unescapeCell } from "./markdown.ts";
 import { nameOf } from "./names.ts";

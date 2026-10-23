@@ -8,7 +8,7 @@ const PAGE = [
   "|---|---|",
   "| Pear | 3 |",
   "| Fig | 2 |",
-  "| <meta name='costs' sheet='Budget' at='A1' sheet.width.B='140'> |",
+  "| <meta core.table core.name='costs' sheet.name='Budget' sheet.at='A1' sheet.width.B='140'> |",
   "",
   "| Month | Income |",
   "|---|---|",
@@ -17,7 +17,7 @@ const PAGE = [
   "| Note |",
   "|---|",
   "| ok |",
-  "| <meta name='notes' sheet='Budget' at='D1'> |",
+  "| <meta core.table core.name='notes' sheet.name='Budget' sheet.at='D1'> |",
   "",
 ].join("\n");
 
@@ -48,7 +48,7 @@ describe("Sheets: a table put on a sheet, moved and taken off it by its sheet's 
     expect(clear.textContent).toBe("Remove from sheet");
     clear.click();
     await flush();
-    expect(text).toContain("| <meta name='costs'> |");
+    expect(text).toContain("| <meta core.table core.name='costs'> |");
     expect(edits).toBe(1);
   });
 
@@ -57,34 +57,34 @@ describe("Sheets: a table put on a sheet, moved and taken off it by its sheet's 
     toolbarName("container", 1);
     expect(await nameInMenu("budget")).toBeUndefined();
     // costs: A1 to A3 (rows 0 to 2), notes: D1 to D2: one empty row, then A5; the sheet's name as the page has it
-    expect(text).toContain("| <meta name='table1' sheet='Budget' at='A5'> |");
+    expect(text).toContain("| <meta core.table core.name='table1' sheet.name='Budget' sheet.at='A5'> |");
     expect(flashes.some((f) => f.includes("named table1"))).toBe(true);
     expect(edits).toBe(1);
   });
 
   it("the only table of its sheet moved to a sheet no table is on (the sheet renamed): the sheet's widths go with it", async () => {
-    await setup("| Item |\n|---|\n| Pear |\n| <meta name='costs' sheet='Budget' at='A1' sheet.width.B='140'> |\n", { "silverware.table.metadata": true });
+    await setup("| Item |\n|---|\n| Pear |\n| <meta core.table core.name='costs' sheet.name='Budget' sheet.at='A1' sheet.width.B='140'> |\n", { "silverware.table.metadata": true });
     toolbarName("container", 0);
     expect(await nameInMenu("Plan")).toBeUndefined();
-    expect(text).toContain("| <meta name='costs' sheet='Plan' at='A1' sheet.width.B='140'> |");
+    expect(text).toContain("| <meta core.table core.name='costs' sheet.name='Plan' sheet.at='A1' sheet.width.B='140'> |");
   });
 
   it("moves a table to a new sheet by a new name: its place kept, the sheet's widths handed on to the next table, one edit", async () => {
     await setup(PAGE, { "silverware.table.metadata": true });
     toolbarName("container", 0);
     expect(await nameInMenu("Other")).toBeUndefined();
-    expect(text).toContain("| <meta name='costs' sheet='Other' at='A1'> |");
-    expect(text).toContain("| <meta name='notes' sheet='Budget' at='D1' sheet.width.B='140'> |");
+    expect(text).toContain("| <meta core.table core.name='costs' sheet.name='Other' sheet.at='A1'> |");
+    expect(text).toContain("| <meta core.table core.name='notes' sheet.name='Budget' sheet.at='D1' sheet.width.B='140'> |");
     expect(edits).toBe(1);
   });
 
   it("moved where its place is taken on that sheet: under that sheet's lowest table", async () => {
-    const page = `${PAGE}\n| City |\n|---|\n| Brno |\n| <meta name='cities' sheet='Other' at='A1'> |\n`;
+    const page = `${PAGE}\n| City |\n|---|\n| Brno |\n| <meta core.table core.name='cities' sheet.name='Other' sheet.at='A1'> |\n`;
     await setup(page, { "silverware.table.metadata": true });
     toolbarName("container", 0);
     expect(await nameInMenu("Other")).toBeUndefined();
     // cities: A1 to A2: one empty row, then A4
-    expect(text).toContain("| <meta name='costs' sheet='Other' at='A4'> |");
+    expect(text).toContain("| <meta core.table core.name='costs' sheet.name='Other' sheet.at='A4'> |");
   });
 
   it("refuses a name that cannot be a sheet's", async () => {
@@ -98,8 +98,8 @@ describe("Sheets: a table put on a sheet, moved and taken off it by its sheet's 
     await setup(PAGE, { "silverware.table.metadata": true });
     toolbarName("container", 0);
     expect(await nameInMenu("")).toBeUndefined();
-    expect(text).toContain("| <meta name='costs'> |");
-    expect(text).toContain("| <meta name='notes' sheet='Budget' at='D1' sheet.width.B='140'> |");
+    expect(text).toContain("| <meta core.table core.name='costs'> |");
+    expect(text).toContain("| <meta core.table core.name='notes' sheet.name='Budget' sheet.at='D1' sheet.width.B='140'> |");
     expect(edits).toBe(1);
   });
 
@@ -107,8 +107,8 @@ describe("Sheets: a table put on a sheet, moved and taken off it by its sheet's 
     await setup(`| X |\n|---|\n| 1 |\n\n${PAGE}`, { "silverware.table.metadata": true });
     toolbarName("container", 0);
     expect(await nameInMenu("Budget")).toBeUndefined();
-    expect(text).toContain("| <meta name='table1' sheet='Budget' at='A5' sheet.width.B='140'> |");
-    expect(text).toContain("| <meta name='costs' sheet='Budget' at='A1'> |");
+    expect(text).toContain("| <meta core.table core.name='table1' sheet.name='Budget' sheet.at='A5' sheet.width.B='140'> |");
+    expect(text).toContain("| <meta core.table core.name='costs' sheet.name='Budget' sheet.at='A1'> |");
     expect(edits).toBe(1);
   });
 });
@@ -122,7 +122,7 @@ describe("Sheets: a table that grows makes room on its sheet", () => {
     "|---|---|",
     "| Pear | 3 |",
     "| Fig | 2 |",
-    "| <meta name='costs' sheet='Budget' at='A1'> |",
+    "| <meta core.table core.name='costs' sheet.name='Budget' sheet.at='A1'> |",
     "",
     "| Side |",
     "|---|",
@@ -130,17 +130,17 @@ describe("Sheets: a table that grows makes room on its sheet", () => {
     "| 2 |",
     "| 3 |",
     "| 4 |",
-    "| <meta name='side' sheet='Budget' at='D1'> |",
+    "| <meta core.table core.name='side' sheet.name='Budget' sheet.at='D1'> |",
     "",
     "| Total |",
     "|---|",
     "| 5 |",
-    "| <meta name='totals' sheet='Budget' at='A6'> |",
+    "| <meta core.table core.name='totals' sheet.name='Budget' sheet.at='A6'> |",
     "",
     "| Note |",
     "|---|",
     "| ok |",
-    "| <meta name='notes' sheet='Budget' at='D6'> |",
+    "| <meta core.table core.name='notes' sheet.name='Budget' sheet.at='D6'> |",
     "",
   ].join("\n");
 
@@ -152,9 +152,9 @@ describe("Sheets: a table that grows makes room on its sheet", () => {
     await setup(SHEET, { "silverware.table.metadata": true });
     await grow(2, false);
     await flush();
-    expect(text).toContain("| <meta name='totals' sheet='Budget' at='A8'> |");
-    expect(text).toContain("| <meta name='notes' sheet='Budget' at='D8'> |");
-    expect(text).toContain("| <meta name='side' sheet='Budget' at='D1'> |");
+    expect(text).toContain("| <meta core.table core.name='totals' sheet.name='Budget' sheet.at='A8'> |");
+    expect(text).toContain("| <meta core.table core.name='notes' sheet.name='Budget' sheet.at='D8'> |");
+    expect(text).toContain("| <meta core.table core.name='side' sheet.name='Budget' sheet.at='D1'> |");
     expect(edits).toBe(1);
   });
 
@@ -168,9 +168,9 @@ describe("Sheets: a table that grows makes room on its sheet", () => {
     // A1:B7 reaches totals by 2 rows: it and notes move down 2
     await grow(2, true);
     await flush();
-    expect(text).toContain("| <meta name='totals' sheet='Budget' at='A8'> |");
-    expect(text).toContain("| <meta name='notes' sheet='Budget' at='D8'> |");
-    expect(text).toContain("| <meta name='side' sheet='Budget' at='D1'> |");
+    expect(text).toContain("| <meta core.table core.name='totals' sheet.name='Budget' sheet.at='A8'> |");
+    expect(text).toContain("| <meta core.table core.name='notes' sheet.name='Budget' sheet.at='D8'> |");
+    expect(text).toContain("| <meta core.table core.name='side' sheet.name='Budget' sheet.at='D1'> |");
   });
 
   it("refuses to grow into a table it overlaps already, and writes nothing", async () => {
@@ -202,11 +202,11 @@ describe("Sheets: a table of a sheet deleted (Delete table)", () => {
     await vi.waitFor(() => expect(edits - before).toBe(1));
     expect(questions[0]).toBe("Delete the table costs (2 rows) from the page? Ctrl+Z brings it back.");
     expect(text).not.toContain("costs");
-    expect(text).toContain("| <meta name='notes' sheet='Budget' at='D1' sheet.width.B='140'> |");
+    expect(text).toContain("| <meta core.table core.name='notes' sheet.name='Budget' sheet.at='D1' sheet.width.B='140'> |");
   });
 
   it("says the sheet goes with its only table", async () => {
-    await setup("| Note |\n|---|\n| ok |\n| <meta name='notes' sheet='Plan' at='A1'> |\n", { "silverware.table.metadata": true });
+    await setup("| Note |\n|---|\n| ok |\n| <meta core.table core.name='notes' sheet.name='Plan' sheet.at='A1'> |\n", { "silverware.table.metadata": true });
     const questions = answer();
     tableMenuItem(/^Delete table$/)!.click();
     await vi.waitFor(() => expect(questions).toHaveLength(1));

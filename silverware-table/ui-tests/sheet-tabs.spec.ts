@@ -3,8 +3,8 @@ import type { Page } from "@playwright/test";
 import { cell, expect, hoverCell, markdown, table, tableIcon, test } from "./playground.ts";
 
 const PAGE =
-  "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1' sheet.width.A='120'> |\n\n" +
-  "| City |\n|---|\n| Brno |\n| <meta name='b' sheet='Plan' at='D1'> |\n\n| Code |\n|---|\n| X1 |\n| <meta name='c' sheet='Q3' at='B2'> |\n";
+  "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='a' sheet.name='Plan' sheet.at='A1' sheet.width.A='120'> |\n\n" +
+  "| City |\n|---|\n| Brno |\n| <meta core.table core.name='b' sheet.name='Plan' sheet.at='D1'> |\n\n| Code |\n|---|\n| X1 |\n| <meta core.table core.name='c' sheet.name='Q3' sheet.at='B2'> |\n";
 
 const drawn = (page: Page) => page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)");
 const tab = (page: Page, name: string) => page.locator(".swt-sheet-tabs .swt-sheet-tab", { hasText: new RegExp(`^${name}$`) });
@@ -49,7 +49,7 @@ test.describe("The sheets' tabs", () => {
     await page.mouse.click(letter.x + letter.width / 2, number.y + number.height / 2);
     await page.keyboard.type("Plum");
     await page.keyboard.press("Enter");
-    await expect.poll(() => markdown(page)).toMatch(/\| Plum +\|\n\| <meta name='\w+' sheet='Sheet1' at='B2'> \|/);
+    await expect.poll(() => markdown(page)).toMatch(/\| Plum +\|\n\| <meta core.table core.name='\w+' sheet.name='Sheet1' sheet.at='B2'> \|/);
     await expect(drawn(page)).toHaveCount(1);
     await tab(page, "Plan").click();
     await expect(page.locator(".swt-sheet-tabs .swt-sheet-tab")).toHaveText(["Plan", "Q3", "Sheet1"]);
@@ -61,8 +61,8 @@ test.describe("The sheets' tabs", () => {
     await page.locator(".swt-menu .swt-menu-rename").click();
     await page.locator(".swt-menu .swt-menu-name").fill("Budget");
     await page.keyboard.press("Enter");
-    await expect.poll(() => markdown(page)).toContain("<meta name='a' sheet='Budget' at='A1' sheet.width.A='120'>");
-    expect(await markdown(page)).toContain("<meta name='b' sheet='Budget' at='D1'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='a' sheet.name='Budget' sheet.at='A1' sheet.width.A='120'>");
+    expect(await markdown(page)).toContain("<meta core.table core.name='b' sheet.name='Budget' sheet.at='D1'>");
     await expect(page.locator(".swt-sheet-tabs .swt-sheet-tab")).toHaveText(["Budget", "Q3"]);
     await expect(tab(page, "Budget")).toHaveAttribute("aria-selected", "true");
     await expect(drawn(page)).toHaveCount(2);
@@ -70,8 +70,8 @@ test.describe("The sheets' tabs", () => {
     await expect(page.locator(".swt-menu")).toHaveCount(0);
     await tab(page, "Budget").click();
     await page.locator(".swt-menu .swt-menu-item", { hasText: "Remove sheet" }).click();
-    await expect.poll(() => markdown(page)).toContain("| <meta name='a'> |");
-    expect(await markdown(page)).toContain("| <meta name='b'> |");
+    await expect.poll(() => markdown(page)).toContain("| <meta core.table core.name='a'> |");
+    expect(await markdown(page)).toContain("| <meta core.table core.name='b'> |");
     // On to the page's other sheet; the table the view was opened with, now on no sheet, has its tab again
     await expect(page.locator(".swt-sheet-tabs .swt-sheet-tab")).toHaveText(["Table", "Q3"]);
     await expect(tab(page, "Q3")).toHaveAttribute("aria-selected", "true");
@@ -79,7 +79,7 @@ test.describe("The sheets' tabs", () => {
   });
 
   test("a table alone's board: its table's tab first, there to go back to from the page's sheets", async ({ page }) => {
-    await page.locator("#source").fill("# Test\n\n| Item |\n|---|\n| Pear |\n\n| Code |\n|---|\n| X1 |\n| <meta name='c' sheet='Q3' at='B2'> |\n");
+    await page.locator("#source").fill("# Test\n\n| Item |\n|---|\n| Pear |\n\n| Code |\n|---|\n| X1 |\n| <meta core.table core.name='c' sheet.name='Q3' sheet.at='B2'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
     await hoverCell(page, cell(page, 1, 0));
@@ -98,7 +98,7 @@ test.describe("The sheets' tabs", () => {
     await page.locator(".swt-menu .swt-menu-rename").click();
     await page.locator(".swt-menu .swt-menu-name").fill("PLAN");
     await page.keyboard.press("Enter");
-    await expect.poll(() => markdown(page)).toContain("<meta name='b' sheet='PLAN' at='D1'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='b' sheet.name='PLAN' sheet.at='D1'>");
   });
 
   test("a name another sheet has is refused under the field", async ({ page }) => {

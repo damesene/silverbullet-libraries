@@ -2,8 +2,9 @@
 // the SilverBullet adapter's: core/silverbullet/modules/sheet.ts): the sheet's
 // name in the toolbar's row of names, a click on it its field: typed there,
 // the table goes to that sheet (a new one, or one of the page's), left empty,
-// off it. A table on a sheet says so in its metadata row (`<meta name='costs'
-// sheet='Budget' at='B3'>`, sheet/page.ts) and has a name: the sheet's other
+// off it. A table on a sheet says so in its metadata row
+// (`<meta core.table core.name='costs' sheet.name='Budget' sheet.at='B3'>`,
+// sheet/page.ts) and has a name: the sheet's other
 // tables refer to its cells by it (`costs!B2`). Moved, it keeps its place where
 // nothing of the sheet is in its way, else goes in column A, one empty row
 // under the sheet's lowest table; off a sheet, its name stays (formulas may

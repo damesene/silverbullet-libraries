@@ -6,10 +6,10 @@ describe("Table metadata", () => {
   useTablePage();
 
   const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  const META_PAGE = `| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort.qty='desc'> |\n`;
+  const META_PAGE = `| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta core.table core.-c-qty.sort='desc'> |\n`;
 
   it("names a table from its toolbar, refusing a name that is taken or not valid", async () => {
-    const TWO = `| A |\n|---|\n| 1 |\n\n| B |\n|---|\n| 2 |\n| <meta name='prices'> |\n`;
+    const TWO = `| A |\n|---|\n| 1 |\n\n| B |\n|---|\n| 2 |\n| <meta core.table core.name='prices'> |\n`;
     await setup(TWO, { "silverware.table.metadata": true });
     const title = () => document.querySelector(".swt-menu-title")!.textContent;
     // No name: the ⋯ menu's title is Table, its pencil the name's field
@@ -23,7 +23,7 @@ describe("Table metadata", () => {
     expect(await nameInMenu("A1")).toContain('"A1" would read as a cell');
     expect(text).toBe(TWO);
     expect(await nameInMenu("fruit")).toBeUndefined();
-    expect(text).toBe(TWO.replace("| 1 |\n", `| 1 |\n| <meta name='fruit'> |\n`));
+    expect(text).toBe(TWO.replace("| 1 |\n", `| 1 |\n| <meta core.table core.name='fruit'> |\n`));
     // Saved, the menu closes; opened again, its title is the name
     expect(document.querySelector(".swt-menu")).toBeNull();
     await controller.scan();
@@ -37,7 +37,7 @@ describe("Table metadata", () => {
   });
 
   it("keeps a name's field to itself: arrows skip the pencil, a copy there copies no cells, Enter on the name as it was hands the keyboard back", async () => {
-    await setup(`| A |\n|---|\n| 1 |\n| <meta name='fruit'> |\n`, { "silverware.table.metadata": true });
+    await setup(`| A |\n|---|\n| 1 |\n| <meta core.table core.name='fruit'> |\n`, { "silverware.table.metadata": true });
     tableMenuItem(/^Edit markdown$/);
     const menu = document.querySelector<HTMLElement>(".swt-menu")!;
     menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
@@ -55,7 +55,7 @@ describe("Table metadata", () => {
     expect(flashes).toEqual([]);
     key(field, "Enter");
     await flush();
-    expect(text).toBe(`| A |\n|---|\n| 1 |\n| <meta name='fruit'> |\n`);
+    expect(text).toBe(`| A |\n|---|\n| 1 |\n| <meta core.table core.name='fruit'> |\n`);
     expect(document.querySelector(".swt-menu")).toBeNull();
     expect(document.activeElement).toBe(editor);
   });
@@ -68,7 +68,7 @@ describe("Table metadata", () => {
     // A table with a metadata row gets one with the setting off too
     controller.stop();
     document.body.replaceChildren();
-    await setup(`| A |\n|---|\n| 1 |\n| 2 |\n| <meta pin-top='1'> |\n`);
+    await setup(`| A |\n|---|\n| 1 |\n| 2 |\n| <meta core.table core.pin-top='1'> |\n`);
     // (Allowed: the name's field opens at once)
     toolbarName("table");
     expect(document.querySelector(".swt-menu .swt-menu-name")).not.toBeNull();
@@ -87,7 +87,7 @@ describe("Table metadata", () => {
     clickOn(cell(0, 1).querySelector(".swt-sort")!); // Qty descending
     await wait(700);
     await controller.scan();
-    expect(text).toBe(PAGE.replace("| Fig | 2 |\n", `| Fig | 2 |\n| <meta sort.qty='desc'> |\n`));
+    expect(text).toBe(PAGE.replace("| Fig | 2 |\n", `| Fig | 2 |\n| <meta core.table core.-c-qty.sort='desc'> |\n`));
     expect(bodyTexts()).toEqual(["apple", "Pear", "Fig"]);
     clickOn(cell(0, 1).querySelector(".swt-sort")!); // back to the order as written
     await wait(700);
@@ -168,7 +168,7 @@ describe("Table metadata", () => {
   });
 
   it("says it removes what a module turned off keeps in cells too", async () => {
-    const page = `| Name | Qty |\n|---|---|\n| Pear <meta n='pear'> | 3 |\n| Total | 3 <meta f='=SUM([Qty])'> |\n`;
+    const page = `| Name | Qty |\n|---|---|\n| Pear <meta core.n='pear'> | 3 |\n| Total | 3 <meta formulas.f='=SUM([Qty])'> |\n`;
     await setup(page, { "silverware.table.modules.formulas.enabled": false });
     const questions: string[] = [];
     (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
@@ -182,7 +182,7 @@ describe("Table metadata", () => {
   });
 
   it("removes formulas with the metadata, keeping their results, and says so", async () => {
-    const page = `| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta f='=SUM([Qty])'> |\n| <meta sort.qty='desc'> |\n`;
+    const page = `| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta formulas.f='=SUM([Qty])'> |\n| <meta core.table core.-c-qty.sort='desc'> |\n`;
     await setup(page);
     const questions: string[] = [];
     (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
@@ -197,7 +197,7 @@ describe("Table metadata", () => {
     // A table with formulas only: the button shows, and the command counts it
     controller.stop();
     document.body.replaceChildren();
-    await setup(`| A |\n|---|\n| 1 |\n| 2 <meta f='=A1*2'> |\n`);
+    await setup(`| A |\n|---|\n| 1 |\n| 2 <meta formulas.f='=A1*2'> |\n`);
     const asked: string[] = [];
     (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
       asked.push(message);
@@ -216,13 +216,13 @@ describe("Table metadata", () => {
     key(editor.querySelector(".swt-cell-editor")!, "Enter");
     await flush();
     await controller.scan();
-    expect(text).toBe(`| Name | Count |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta sort.count='desc'> |\n`);
+    expect(text).toBe(`| Name | Count |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta core.table core.-c-count.sort='desc'> |\n`);
     // a row added at the end goes above the metadata row
     clickOn(editor.querySelector('tr[data-swt-row="1"]')!.querySelector("td")!); // Pear (shown last)
     key(editor.querySelector(".swt-cell-editor")!, "Tab");
     key(editor.querySelector(".swt-cell-editor")!, "Tab");
     await flush();
     await controller.scan();
-    expect(text.split("\n").slice(-3)).toEqual(["| | |", `| <meta sort.count='desc'> |`, ""]);
+    expect(text.split("\n").slice(-3)).toEqual(["| | |", `| <meta core.table core.-c-count.sort='desc'> |`, ""]);
   });
 });

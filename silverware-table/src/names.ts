@@ -1,13 +1,14 @@
-// Names Silverware Table keeps in cells, in one hidden tag after the cell's text:
-// `n` names the line the cell heads, `cn` the cell itself. In a header cell,
-// `n` is the column's fixed name (`| Unit price <meta n='price'> |`), by which
-// formulas and the stored sorting name the column whatever its header says;
-// in a body cell, the row's name (`| Pear <meta n='pear'> |`: `pear[price]` is
-// the row's Price cell). `cn` names a body cell for formulas
-// (`| 0.21 <meta cn='vat'> |`); a cell holding both has one tag,
-// `<meta n='pear' cn='first'>`. SilverBullet does not show the tag, and leaves
-// it out of the column's key in its index (verified), so queries see the
-// header as before.
+// Names the core keeps in cells, in one hidden tag after the cell's text:
+// `core.n` names the line the cell heads, `core.cn` the cell itself. In a
+// header cell, `core.n` is the column's fixed name
+// (`| Unit price <meta core.n='price'> |`), by which formulas and the stored
+// sorting name the column whatever its header says; in a body cell, the row's
+// name (`| Pear <meta core.n='pear'> |`: `pear[price]` is the row's Price
+// cell). `core.cn` names a body cell for formulas
+// (`| 0.21 <meta core.cn='vat'> |`); a cell holding both has one tag,
+// `<meta core.n='pear' core.cn='first'>`. SilverBullet does not show the tag,
+// and leaves it out of the column's key in its index (verified), so queries
+// see the header as before. Modules read and write names through the host.
 import { metaAttribute, type Table, unescapeMetaValue } from "./markdown.ts";
 import { cellTagName } from "./metanames.ts";
 import { setCell } from "./ops.ts";

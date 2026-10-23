@@ -1,6 +1,6 @@
 // The sheets of a page, as its markdown has them: a table on a sheet says so
 // in its metadata row, the sheet's name and where its header's first cell is
-// on it (`<meta name='costs' sheet='Budget' at='B3'>`). A page has as many
+// on it (`<meta core.table core.name='costs' sheet.name='Budget' sheet.at='B3'>`). A page has as many
 // sheets as names its tables give (compared ignoring case, the first spelling
 // kept); a sheet's own data (its columns' widths, `sheet.width.E='120'`) is in
 // its first table's metadata row, the first in the page's order. What the

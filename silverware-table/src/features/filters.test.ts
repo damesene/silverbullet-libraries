@@ -141,7 +141,7 @@ describe("Filters", () => {
   });
 
   describe("stored in the table", () => {
-    const STORED = `| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| Fig | 2 |\n| <meta filter.qty='&gt;2'> |\n`;
+    const STORED = `| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| Fig | 2 |\n| <meta core.table filters.-c-qty.condition='&gt;2'> |\n`;
 
     it("stores the filters once the field is left, with the metadata setting", async () => {
       await setup(PAGE, { "silverware.table.metadata": true });
@@ -153,7 +153,7 @@ describe("Filters", () => {
       key(popoverField()!, "Escape");
       await flush();
       await flush();
-      expect(text).toBe(PAGE.replace("| Fig | 2 |\n", `| Fig | 2 |\n| <meta filter.qty='&gt;2'> |\n`));
+      expect(text).toBe(PAGE.replace("| Fig | 2 |\n", `| Fig | 2 |\n| <meta core.table filters.-c-qty.condition='&gt;2'> |\n`));
       // Cleared with the chip: the attribute goes, and the row with nothing left in it
       await controller.scan();
       chip()!.querySelector<HTMLElement>(".swt-chip-clear")!.click();
@@ -172,7 +172,7 @@ describe("Filters", () => {
       field.value = "Count";
       key(field, "Enter");
       await flush();
-      expect(text).toContain(`| <meta filter.count='&gt;2'> |`);
+      expect(text).toContain(`| <meta core.table filters.-c-count.condition='&gt;2'> |`);
     });
 
     it("leaves the stored filters alone with the filters module off", async () => {
@@ -187,7 +187,7 @@ describe("Filters", () => {
       field.value = "Count";
       key(field, "Enter");
       await flush();
-      expect(text).toContain(`| <meta filter.count='&gt;2'> |`);
+      expect(text).toContain(`| <meta core.table filters.-c-count.condition='&gt;2'> |`);
     });
 
     it("shows the stored filters again when the metadata comes back (Ctrl+Z)", async () => {
@@ -222,7 +222,7 @@ describe("Filters", () => {
       await flush();
       await flush();
       expect(text).toContain("| Pearl | 3 |");
-      expect(text).toContain(`| <meta filter.qty='&gt;2'> |`);
+      expect(text).toContain(`| <meta core.table filters.-c-qty.condition='&gt;2'> |`);
     });
 
     it("stores each table's filters when typing goes from one table's field to another's", async () => {
@@ -252,7 +252,7 @@ describe("Filters", () => {
         await flush();
         await controller.scan();
       }
-      expect(text).toBe(`| A |\n|---|\n| x |\n| y |\n| <meta filter.a='x'> |\n\n| B |\n|---|\n| x |\n| z |\n| <meta filter.b='z'> |\n`);
+      expect(text).toBe(`| A |\n|---|\n| x |\n| y |\n| <meta core.table filters.-c-a.condition='x'> |\n\n| B |\n|---|\n| x |\n| z |\n| <meta core.table filters.-c-b.condition='z'> |\n`);
     });
 
     it("are removed with the metadata", async () => {
@@ -261,7 +261,7 @@ describe("Filters", () => {
       tableMenuItem(/^Remove metadata$/)!.click();
       await flush();
       await controller.scan();
-      expect(text).toBe(STORED.replace(`| <meta filter.qty='&gt;2'> |\n`, ""));
+      expect(text).toBe(STORED.replace(`| <meta core.table filters.-c-qty.condition='&gt;2'> |\n`, ""));
       expect(bodyTexts()).toEqual(["Pear", "apple", "Fig"]);
     });
   });

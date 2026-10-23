@@ -1,5 +1,6 @@
 // Markdown table model: parse a GFM table from page text and write it back.
 // Rows that were not changed are written back byte for byte.
+import { TABLE_MARKER } from "./metanames.ts";
 import { metaTagPattern, TAG_BODY } from "./tags.ts";
 
 export type Align = "" | "left" | "center" | "right";
@@ -12,7 +13,8 @@ export type Row = {
 };
 
 // Table metadata: the attributes of a `<meta …>` tag that is the only content
-// of the table's last row (browsers do not show <meta>, other renderers drop it)
+// of the table's last row and carries the mark of one, `core.table` (browsers
+// do not show <meta>, other renderers drop it); the mark is not among them
 export type TableMeta = Readonly<Record<string, string>>;
 
 export type Table = {
@@ -228,20 +230,24 @@ function parseTableText(text: string): Table {
 }
 
 const META_TAG_RE = new RegExp(String.raw`^<meta\b(${TAG_BODY}?)\/?>$`, "i");
-// An attribute's name may name a column: sort.qty, filter.qty:2 (meta.ts)
+// An attribute's name may name a column: core.-c-qty.sort, filters.-c-qty:2.condition (meta.ts)
 const META_ATTRIBUTE_RE = /([\w.:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+// The mark, an attribute without a value
+const MARKER_RE = new RegExp(String.raw`(?:^|\s)${TABLE_MARKER.replace(".", "\\.")}(?=\s|\/|$)`, "i");
 
-/** The attributes of a metadata row (one cell holding only `<meta …>`), or undefined */
+/**
+ * The attributes of a metadata row (one cell holding only `<meta …>` with
+ * the mark), or undefined: a last row whose one cell holds only another tag
+ * (a formula with an empty result, an empty named cell) is a row of the table
+ */
 export function parseMetaRow(line: string): TableMeta | undefined {
   const [first, ...rest] = splitRow(line);
   const tag = META_TAG_RE.exec(first ?? "");
-  if (!tag || rest.some((cell) => cell !== "")) return undefined;
+  if (!tag || rest.some((cell) => cell !== "") || !MARKER_RE.test(tag[1]!)) return undefined;
   const meta: Record<string, string> = {};
   for (const match of tag[1]!.matchAll(META_ATTRIBUTE_RE)) {
     meta[match[1]!] = unescapeMetaValue(match[2] ?? match[3] ?? "");
   }
-  // A formula cell with an empty result (formula/), or an empty named cell, not the table's metadata
-  if ("f" in meta || "n" in meta || "cn" in meta) return undefined;
   return meta;
 }
 
@@ -299,12 +305,12 @@ export function pageTablesOf(text: string): PageTable[] {
   return findTables(text).map((range) => ({ range, table: parseTable(range.text) }));
 }
 
-/** The metadata row for `meta`: one cell, so it never widens a column */
+/** The metadata row for `meta`: one cell, so it never widens a column; the mark first */
 export function metaRow(indent: string, meta: TableMeta): string {
   const attributes = Object.entries(meta)
     .map(([name, value]) => ` ${metaAttribute(name, value)}`)
     .join("");
-  return `${indent}| <meta${attributes}> |`;
+  return `${indent}| <meta ${TABLE_MARKER}${attributes}> |`;
 }
 
 function charLength(s: string): number {

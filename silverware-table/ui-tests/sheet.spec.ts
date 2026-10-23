@@ -99,7 +99,7 @@ test.describe("Ctrl+arrows in the sheet's empty cells", () => {
 test.describe("A table far down the sheet", () => {
   test("edited, drawn anew: the board stays scrolled where it is (the table placed at once, the next cell focused there)", async ({ page }) => {
     await page.locator("#source").fill(
-      "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| City | N |\n|---|---|\n| Brno | 1 |\n| Praha | 2 |\n| <meta name='b' sheet='Plan' at='B25'> |\n",
+      "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='a' sheet.name='Plan' sheet.at='A1'> |\n\n| City | N |\n|---|---|\n| Brno | 1 |\n| Praha | 2 |\n| <meta core.table core.name='b' sheet.name='Plan' sheet.at='B25'> |\n",
     );
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(2);
@@ -159,7 +159,7 @@ test.describe("Long text on the sheet", () => {
   test("a narrow column: its header and its cells stay within it, cut with an ellipsis", async ({ page }) => {
     await page.evaluate(() => localStorage.setItem("silverwarePlayground.settings", JSON.stringify({ "silverware.table.metadata": true, "silverware.table.modules.longText.overflow": "ellipsis" })));
     await page.reload();
-    await page.locator("#source").fill("# Test\n\n| Item with a long header name | Note |\n|---|---|\n| A very long value that does not fit | short |\n| <meta name='t' sheet='S' at='A1' sheet.width.A='90'> |\n");
+    await page.locator("#source").fill("# Test\n\n| Item with a long header name | Note |\n|---|---|\n| A very long value that does not fit | short |\n| <meta core.table core.name='t' sheet.name='S' sheet.at='A1' sheet.width.A='90'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
     await openSheet(page);
@@ -257,8 +257,8 @@ test.describe("Sheet view", () => {
     await expect(page.locator("#flash > div", { hasText: "on the sheet Sheet1 now" })).toBeVisible();
     const text = await markdown(page);
     // The table on the sheet Sheet1 at A1, named; the new one at A8 (the table takes rows 1 to 7), in the same edit
-    expect(text).toMatch(/\| Šípek .*\|\n\| <meta name='table1' sheet='Sheet1' at='A1'> \|/);
-    expect(text).toMatch(/\| Column 1 +\|\n\| -+ \|\n\| Plum +\|\n\| <meta name='table2' sheet='Sheet1' at='A8'> \|/);
+    expect(text).toMatch(/\| Šípek .*\|\n\| <meta core.table core.name='table1' sheet.name='Sheet1' sheet.at='A1'> \|/);
+    expect(text).toMatch(/\| Column 1 +\|\n\| -+ \|\n\| Plum +\|\n\| <meta core.table core.name='table2' sheet.name='Sheet1' sheet.at='A8'> \|/);
     await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(2);
   });
 
@@ -352,7 +352,7 @@ test.describe("Sheet view", () => {
     });
     await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(2);
     const text = await markdown(page);
-    expect(text).toMatch(/\| Fruit +\| Qty +\|\n\|[- |]+\|\n\| Pear +\| 3 +\|\n\| Fig +\| +\|\n\| <meta name='table2' sheet='Sheet1' at='\w+2'> \|/);
+    expect(text).toMatch(/\| Fruit +\| Qty +\|\n\|[- |]+\|\n\| Pear +\| 3 +\|\n\| Fig +\| +\|\n\| <meta core.table core.name='table2' sheet.name='Sheet1' sheet.at='\w+2'> \|/);
     await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
     await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
   });
@@ -371,11 +371,11 @@ test.describe("Sheet view", () => {
       data.setData("text/plain", "a\tb");
       input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     });
-    await expect.poll(() => markdown(page)).toMatch(/\| Column 1 +\| Column 2 +\|\n\|[- |]+\|\n\| a +\| b +\|\n\| <meta name='table2' sheet='Sheet1' at='A(\d+)'> \|/);
+    await expect.poll(() => markdown(page)).toMatch(/\| Column 1 +\| Column 2 +\|\n\|[- |]+\|\n\| a +\| b +\|\n\| <meta core.table core.name='table2' sheet.name='Sheet1' sheet.at='A(\d+)'> \|/);
     // The first table takes the sheet's rows 1 to N (its header and body), the cell pasted into is row N + 4 (three
     // empty rows under it): the new table starts on the row above, so its value is in that cell
     const first = await sheetTable(page).first().locator("tr[data-swt-row], thead tr").count();
-    const at = Number(/name='table2' sheet='Sheet1' at='A(\d+)'/.exec(await markdown(page))![1]);
+    const at = Number(/core\.name='table2' sheet\.name='Sheet1' sheet\.at='A(\d+)'/.exec(await markdown(page))![1]);
     expect(at).toBe(first + 4 - 1);
     expect(await page.evaluate(() => document.activeElement?.classList.contains("swt-sheet-board"))).toBe(true);
   });
@@ -464,7 +464,7 @@ test.describe("Sheet view", () => {
   test("stays over the window when a write renders the tables before it anew (a formula there refers to it)", async ({ page }) => {
     await page
       .locator("#source")
-      .fill("# Test\n\n| A | B |\n|---|---|\n| 1 | 2 <meta f='=prices!B1'> |\n\nText\n\n| Item | Price |\n|---|---|\n| Pear | 2 |\n| <meta name='prices'> |\n");
+      .fill("# Test\n\n| A | B |\n|---|---|\n| 1 | 2 <meta formulas.f='=prices!B1'> |\n\nText\n\n| Item | Price |\n|---|---|\n| Pear | 2 |\n| <meta core.table core.name='prices'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("table tr")).toHaveCount(3);
     await hoverCell(page, cell(page, 1, 0, 1));
@@ -475,7 +475,7 @@ test.describe("Sheet view", () => {
     await page.keyboard.type("5");
     await rendersAnew(page, () => cell(page, 1, 0, 1).click(), 1);
     // The first table recalculated in the same edit, so the second's start moved
-    expect(await markdown(page)).toMatch(/\| 1 +\| 5 <meta f='=prices!B1'> +\|/);
+    expect(await markdown(page)).toMatch(/\| 1 +\| 5 <meta formulas.f='=prices!B1'> +\|/);
     await page.waitForTimeout(2500);
     await expect(table(page, 1)).toHaveClass(/swt-fullscreen/);
   });
@@ -557,7 +557,7 @@ test.describe("Sheet view", () => {
     await page
       .locator("#source")
       .fill(
-        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta sheet='Plan' at='A1'> |\n\nText between.\n\n| City | Zip |\n|---|---|\n| Brno | 602 |\n| <meta sheet='Plan' at='B4'> |\n",
+        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table sheet.name='Plan' sheet.at='A1'> |\n\nText between.\n\n| City | Zip |\n|---|---|\n| Brno | 602 |\n| <meta core.table sheet.name='Plan' sheet.at='B4'> |\n",
       );
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -578,7 +578,7 @@ test.describe("Sheet view", () => {
     await page.keyboard.type("Fig");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
     expect(await markdown(page)).toMatch(/\| Pear +\| 3 +\|\n\| Fig +\| +\|/);
-    expect(await markdown(page)).toContain("<meta sheet='Plan' at='B4'>");
+    expect(await markdown(page)).toContain("<meta core.table sheet.name='Plan' sheet.at='B4'>");
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
     // A4, right under it again: the first table grown to row 4 reaches into the second (B4:C5) by a row: it moves down one,
@@ -588,7 +588,7 @@ test.describe("Sheet view", () => {
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
     const text = await markdown(page);
     expect(text).toMatch(/\| Fig +\| +\|\n\| Kiwi +\| +\|/);
-    expect(text).toContain("<meta sheet='Plan' at='B5'>");
+    expect(text).toContain("<meta core.table sheet.name='Plan' sheet.at='B5'>");
     await expect.poll(async () => Math.round(((await drawn.nth(1).boundingBox())!.y - first.y) / rowHeight)).toBe(4);
   });
 
@@ -596,7 +596,7 @@ test.describe("Sheet view", () => {
     await page
       .locator("#source")
       .fill(
-        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| Side |\n|---|\n| 1 |\n| 2 |\n| 3 |\n| <meta name='side' sheet='Plan' at='D1'> |\n\n| City |\n|---|\n| Brno |\n| <meta name='under' sheet='Plan' at='A4'> |\n",
+        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='a' sheet.name='Plan' sheet.at='A1'> |\n\n| Side |\n|---|\n| 1 |\n| 2 |\n| 3 |\n| <meta core.table core.name='side' sheet.name='Plan' sheet.at='D1'> |\n\n| City |\n|---|\n| Brno |\n| <meta core.table core.name='under' sheet.name='Plan' sheet.at='A4'> |\n",
       );
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 2).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -606,15 +606,15 @@ test.describe("Sheet view", () => {
     await sheetCell(page, 1, 1).dblclick();
     await sheetRendersAnew(page, () => page.keyboard.press("Tab"));
     const text = await markdown(page);
-    expect(text).toContain("<meta name='under' sheet='Plan' at='A5'>");
-    expect(text).toContain("<meta name='side' sheet='Plan' at='D1'>");
+    expect(text).toContain("<meta core.table core.name='under' sheet.name='Plan' sheet.at='A5'>");
+    expect(text).toContain("<meta core.table core.name='side' sheet.name='Plan' sheet.at='D1'>");
   });
 
   test("a formula reads in the sheet's addresses there and is stored in its table's", async ({ page }) => {
     await page
       .locator("#source")
       .fill(
-        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 25 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n\n| Item | Total |\n|---|---|\n| Pear | 24 <meta f='=prices!B1*2'> |\n| <meta name='totals' sheet='Plan' at='D1'> |\n",
+        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 25 |\n| <meta core.table core.name='prices' sheet.name='Plan' sheet.at='A1'> |\n\n| Item | Total |\n|---|---|\n| Pear | 24 <meta formulas.f='=prices!B1*2'> |\n| <meta core.table core.name='totals' sheet.name='Plan' sheet.at='D1'> |\n",
       );
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -629,7 +629,7 @@ test.describe("Sheet view", () => {
     // B3: Fig's price; D2: the formula's own table's Pear
     await field.fill("=B3*2&D2");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
-    expect(await markdown(page)).toContain("<meta f='=prices!B2*2&amp;A1'>");
+    expect(await markdown(page)).toContain("<meta formulas.f='=prices!B2*2&amp;A1'>");
     // Pointing at a cell of the table inserts its sheet's address, its outline on it
     await totals.locator("tr[data-swt-row='1'] > td").nth(1).dblclick();
     await totals.locator(".swt-cell-editor").fill("=");
@@ -644,11 +644,11 @@ test.describe("Sheet view", () => {
     await totals.locator(".swt-cell-editor").fill("=H9");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
     await expect(page.locator("#flash > div", { hasText: "H9 is no table's cells here" })).toBeVisible();
-    await expect.poll(() => markdown(page)).toContain("<meta f='=#REF!'>");
+    await expect.poll(() => markdown(page)).toContain("<meta formulas.f='=#REF!'>");
   });
 
   test("a row typed under a table with a row pinned to the bottom goes above it, Enter goes on under the value", async ({ page }) => {
-    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n| <meta pin-bottom='1'> |\n");
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n| <meta core.table core.pin-bottom='1'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(2);
     await openSheet(page);
@@ -683,7 +683,7 @@ test.describe("Sheet view", () => {
     await page
       .locator("#source")
       .fill(
-        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 25 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n\n| Item | Total |\n|---|---|\n| Pear | 24 |\n| <meta name='totals' sheet='Plan' at='D1'> |\n",
+        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 25 |\n| <meta core.table core.name='prices' sheet.name='Plan' sheet.at='A1'> |\n\n| Item | Total |\n|---|---|\n| Pear | 24 |\n| <meta core.table core.name='totals' sheet.name='Plan' sheet.at='D1'> |\n",
       );
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -698,13 +698,13 @@ test.describe("Sheet view", () => {
     await page.mouse.click(d.x + d.width / 2, second.y + second.height + rowHeight / 2);
     await page.keyboard.type("Kiwi");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
-    expect(await markdown(page)).toMatch(/\| Pear +\| 24 +\|\n\| Kiwi +\| +\|\n\| <meta name='totals'/);
+    expect(await markdown(page)).toMatch(/\| Pear +\| 24 +\|\n\| Kiwi +\| +\|\n\| <meta core.table core.name='totals'/);
     // Enter went on to the cell under Kiwi: Esc leaves it selected, a second Esc unselects it
     await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toBeFocused();
   });
 
   test("sorted on the sheet: a formula's title follows the rows' new places at once", async ({ page }) => {
-    await page.locator("#source").fill("# Test\n\n| Item | Qty | Double |\n|---|--:|--:|\n| Pear | 5 | 10 <meta f='=B1*2'> |\n| Fig | 3 | 6 <meta f='=B2*2'> |\n");
+    await page.locator("#source").fill("# Test\n\n| Item | Qty | Double |\n|---|--:|--:|\n| Pear | 5 | 10 <meta formulas.f='=B1*2'> |\n| Fig | 3 | 6 <meta formulas.f='=B2*2'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(2);
     await openSheet(page);
@@ -750,7 +750,7 @@ test.describe("Sheet view", () => {
     await page
       .locator("#source")
       .fill(
-        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 25 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n\n| Item | Total |\n|---|---|\n| Pear | 1 |\n| <meta name='totals' sheet='Plan' at='D1'> |\n",
+        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 25 |\n| <meta core.table core.name='prices' sheet.name='Plan' sheet.at='A1'> |\n\n| Item | Total |\n|---|---|\n| Pear | 1 |\n| <meta core.table core.name='totals' sheet.name='Plan' sheet.at='D1'> |\n",
       );
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -778,14 +778,14 @@ test.describe("Sheet view", () => {
     expect(Math.abs(outline.y - box.y)).toBeLessThan(3);
     await page.keyboard.type("*2");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
-    expect(await markdown(page)).toMatch(/\| Pear +\| 50 <meta f='=prices!B2\*2'> +\|/);
+    expect(await markdown(page)).toMatch(/\| Pear +\| 50 <meta formulas.f='=prices!B2\*2'> +\|/);
   });
 
   test("a value typed far from the tables makes a table of its own there, a formula as text", async ({ page }) => {
     await page
       .locator("#source")
       .fill(
-        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta name='prices' sheet='Plan' at='A3'> |\n\nText after.\n",
+        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta core.table core.name='prices' sheet.name='Plan' sheet.at='A3'> |\n\nText after.\n",
       );
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -802,7 +802,7 @@ test.describe("Sheet view", () => {
     await expect(drawn).toHaveCount(2);
     let text = await markdown(page);
     // After the sheet's last table, its header above the cell typed into: D7
-    expect(text).toMatch(/\| <meta name='prices' sheet='Plan' at='A3'> \|\n\n\| Column 1 +\|\n\| -+ \|\n\| Brno +\|\n\| <meta name='table1' sheet='Plan' at='D7'> \|\n\nText after\./);
+    expect(text).toMatch(/\| <meta core.table core.name='prices' sheet.name='Plan' sheet.at='A3'> \|\n\n\| Column 1 +\|\n\| -+ \|\n\| Brno +\|\n\| <meta core.table core.name='table1' sheet.name='Plan' sheet.at='D7'> \|\n\nText after\./);
     // Enter went on under the value: the cell there grows the new table
     await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toBeFocused();
     await page.keyboard.press("Escape");
@@ -815,7 +815,7 @@ test.describe("Sheet view", () => {
     await expect(page.locator("#flash > div", { hasText: "saved as text" })).toBeVisible();
     await expect(drawn).toHaveCount(3);
     text = await markdown(page);
-    expect(text).toMatch(/\| Column 1 +\|\n\| -+ \|\n\| =B4\*2 +\|\n\| <meta name='table2' sheet='Plan' at='A1'> \|/);
+    expect(text).toMatch(/\| Column 1 +\|\n\| -+ \|\n\| =B4\*2 +\|\n\| <meta core.table core.name='table2' sheet.name='Plan' sheet.at='A1'> \|/);
     // Edited in its table now: shown as text ('=), the ' removed it is a formula, B4 read in the sheet's addresses (Pear's price)
     const made = drawn.filter({ hasText: '=B4*2' });
     await made.locator("tr[data-swt-row='1'] > td").first().dblclick();
@@ -823,13 +823,13 @@ test.describe("Sheet view", () => {
     await expect(field).toHaveValue("'=B4*2");
     await field.fill("=B4*2");
     await page.keyboard.press("Enter");
-    await expect.poll(() => markdown(page)).toMatch(/\| 24 <meta f='=prices!B1\*2'> +\|\n\| <meta name='table2'/);
+    await expect.poll(() => markdown(page)).toMatch(/\| 24 <meta formulas.f='=prices!B1\*2'> +\|\n\| <meta core.table core.name='table2'/);
   });
 
   test("far from the tables: '= is text as elsewhere, and a cell pressed meanwhile is pressed once the table is made", async ({ page }) => {
     await page
       .locator("#source")
-      .fill("# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta name='prices' sheet='Plan' at='A3'> |\n\n| Other |\n|---|\n| x |\n");
+      .fill("# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta core.table core.name='prices' sheet.name='Plan' sheet.at='A3'> |\n\n| Other |\n|---|\n| x |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
     await openSheet(page);
@@ -845,7 +845,7 @@ test.describe("Sheet view", () => {
     await expect(drawn).toHaveCount(2);
     const text = await markdown(page);
     // Its text =total, without the '; written after the page's last table (Other), no flash about a formula
-    expect(text).toMatch(/\| Other \|\n\|---\|\n\| x \|\n\n\| Column 1 +\|\n\| -+ \|\n\| =total +\|\n\| <meta name='table1' sheet='Plan' at='D7'> \|/);
+    expect(text).toMatch(/\| Other \|\n\|---\|\n\| x \|\n\n\| Column 1 +\|\n\| -+ \|\n\| =total +\|\n\| <meta core.table core.name='table1' sheet.name='Plan' sheet.at='D7'> \|/);
     await expect(page.locator("#flash > div", { hasText: "saved as text" })).toHaveCount(0);
     await expect(drawn.nth(0).locator("tr[data-swt-row='1'] > td").nth(1)).toHaveClass(/swt-selected/);
   });
@@ -921,7 +921,7 @@ test.describe("Sheet view", () => {
     await page
       .locator("#source")
       .fill(
-        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n\n| City | Zip |\n|---|---|\n| Brno | 602 |\n| <meta name='cities' sheet='Plan' at='A5'> |\n",
+        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta core.table core.name='prices' sheet.name='Plan' sheet.at='A1'> |\n\n| City | Zip |\n|---|---|\n| Brno | 602 |\n| <meta core.table core.name='cities' sheet.name='Plan' sheet.at='A5'> |\n",
       );
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -939,7 +939,7 @@ test.describe("Sheet view", () => {
     await page.mouse.move(h.x + h.width / 2 + 60, h.y + h.height / 2, { steps: 5 });
     await page.mouse.up();
     // Stored as the sheet's column A, in its first table; the table's own width is not written
-    await expect.poll(() => markdown(page)).toMatch(/<meta name='prices' sheet='Plan' at='A1' sheet\.width\.A='\d+'>/);
+    await expect.poll(() => markdown(page)).toMatch(/<meta core.table core.name='prices' sheet.name='Plan' sheet.at='A1' sheet\.width\.A='\d+'>/);
     expect(await markdown(page)).not.toContain("width.item");
     const width = Number((await markdown(page)).match(/sheet\.width\.A='(\d+)'/)![1]);
     expect(Math.abs(width - (startWidth + 60))).toBeLessThan(3);
@@ -973,7 +973,7 @@ test.describe("Sheet view", () => {
     await page
       .locator("#source")
       .fill(
-        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 5 |\n| Kiwi | 4 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| City | Zip |\n|---|---|\n| Brno | 602 |\n| Zlín | 760 |\n| <meta name='b' sheet='Plan' at='D1'> |\n",
+        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 5 |\n| Kiwi | 4 |\n| <meta core.table core.name='a' sheet.name='Plan' sheet.at='A1'> |\n\n| City | Zip |\n|---|---|\n| Brno | 602 |\n| Zlín | 760 |\n| <meta core.table core.name='b' sheet.name='Plan' sheet.at='D1'> |\n",
       );
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(2);
@@ -1009,7 +1009,7 @@ test.describe("Sheet view", () => {
   });
 
   test("a row pinned to the bottom stays last on the sheet, sorted or not", async ({ page }) => {
-    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|--:|\n| Pear | 3 |\n| Fig | 5 |\n| Total | 8 |\n| <meta pin-bottom='1'> |\n");
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|--:|\n| Pear | 3 |\n| Fig | 5 |\n| Total | 8 |\n| <meta core.table core.pin-bottom='1'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(3);
     await openSheet(page);
@@ -1056,7 +1056,7 @@ test("a write on the sheet lays out the sheet's table only: the page's under the
 });
 
 test("a formula's result on the sheet is marked as in the page: its underline is not cut off", async ({ page }) => {
-  await page.locator("#source").fill("# Test\n\n| Item | Qty | Double |\n|---|---|---|\n| Pear | 3 | 6 <meta f='=B1*2'> |\n");
+  await page.locator("#source").fill("# Test\n\n| Item | Qty | Double |\n|---|---|---|\n| Pear | 3 | 6 <meta formulas.f='=B1*2'> |\n");
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
   await hoverCell(page, cell(page, 1, 0));
@@ -1144,7 +1144,7 @@ test("editing a table placed lower on the sheet scrolls nothing, its column as w
   await page
     .locator("#source")
     .fill(
-      "# Test\n\n| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 |\n| <meta sheet='Plan' at='A1' name='fruit'> |\n\n| Column 1 | Column 2 |\n|---|---|\n| a | sdf |\n| fdsddda | |\n| <meta sheet='Plan' at='G4' name='table1'> |\n",
+      "# Test\n\n| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 |\n| <meta core.table sheet.name='Plan' sheet.at='A1' core.name='fruit'> |\n\n| Column 1 | Column 2 |\n|---|---|\n| a | sdf |\n| fdsddda | |\n| <meta core.table sheet.name='Plan' sheet.at='G4' core.name='table1'> |\n",
     );
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(2);
@@ -1183,7 +1183,7 @@ test("a table shown as a sheet but on none says so in its toolbar, red, its name
   await expect(field).toBeFocused();
   await field.fill("Plan");
   await page.keyboard.press("Enter");
-  await expect.poll(() => markdown(page)).toMatch(/sheet='Plan' at='A1'/);
+  await expect.poll(() => markdown(page)).toMatch(/sheet\.name='Plan' sheet\.at='A1'/);
   // On a sheet now: no longer asking (the names back to the setting: hidden until Shift)
   await drawn.locator("tr[data-swt-row='1'] > td").first().hover();
   await expect(page.locator(".swt-bar.swt-visible .swt-bar-names")).toHaveCount(0);
@@ -1203,7 +1203,7 @@ test("Enter in the last row's cell editor on the sheet adds a row under it", asy
 });
 
 test("the + pressed again and again on a sheet's table adds a row each time, with the new row's editor open meanwhile", async ({ page }) => {
-  await page.locator("#source").fill("# Test\n\n| A | B |\n|---|---|\n| 1 |  |\n| 2 |  |\n| <meta sheet='Sheet1' at='A1' name='t'> |\n");
+  await page.locator("#source").fill("# Test\n\n| A | B |\n|---|---|\n| 1 |  |\n| 2 |  |\n| <meta core.table sheet.name='Sheet1' sheet.at='A1' core.name='t'> |\n");
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(2);
   await hoverCell(page, cell(page, 1, 0));
@@ -1226,7 +1226,7 @@ test("the + pressed again and again on a sheet's table adds a row each time, wit
 test.describe("Pins on the sheet", () => {
   // A table on a sheet, at B2, its first row pinned to the top, its last (Total) to the bottom, its first column left
   const rows = Array.from({ length: 30 }, (_, i) => `| item ${i} | ${i} | ${i * 2} |`).join("\n");
-  const PINNED = `# Test\n\n| Name | A | B |\n|---|---|---|\n${rows}\n| Total | 435 | 870 |\n| <meta name='t' sheet='Plan' at='B2' pin-top='1' pin-bottom='1' pin-left='1'> |\n`;
+  const PINNED = `# Test\n\n| Name | A | B |\n|---|---|---|\n${rows}\n| Total | 435 | 870 |\n| <meta core.table core.name='t' sheet.name='Plan' sheet.at='B2' core.pin-top='1' core.pin-bottom='1' core.pin-left='1'> |\n`;
 
   const open = async (page: Page, source: string, rows: number) => {
     await page.locator("#source").fill(source);
@@ -1282,7 +1282,7 @@ test.describe("Pins on the sheet", () => {
   });
 
   test("a value right of the column pinned to the right goes in a column left of it, which stays last", async ({ page }) => {
-    const drawn = await open(page, "# Test\n\n| Name | A | Sum |\n|---|---|---|\n| x | 1 | 1 |\n| y | 2 | 2 |\n| <meta name='t' sheet='Plan' at='A1' pin-right='1'> |\n", 2);
+    const drawn = await open(page, "# Test\n\n| Name | A | Sum |\n|---|---|---|\n| x | 1 | 1 |\n| y | 2 | 2 |\n| <meta core.table core.name='t' sheet.name='Plan' sheet.at='A1' core.pin-right='1'> |\n", 2);
     const sum = drawn.locator("tr[data-swt-row='1'] > td").nth(2);
     const box = (await sum.boundingBox())!;
     await page.mouse.click(box.x + box.width * 1.5, box.y + box.height / 2);

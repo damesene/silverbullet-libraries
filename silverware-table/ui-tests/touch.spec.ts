@@ -46,7 +46,7 @@ test.describe("Touch: moving a table on the sheet", () => {
     await pane.click();
     await page
       .locator("#source")
-      .fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| City |\n|---|\n| Brno |\n| <meta name='b' sheet='Plan' at='D1'> |\n");
+      .fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='a' sheet.name='Plan' sheet.at='A1'> |\n\n| City |\n|---|\n| Brno |\n| <meta core.table core.name='b' sheet.name='Plan' sheet.at='D1'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await pane.click();
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -63,13 +63,13 @@ test.describe("Touch: moving a table on the sheet", () => {
     // Four rows under a's last row, in its second column: B6
     const box = (await first.boundingBox())!;
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height * 4.5);
-    await expect.poll(() => markdown(page)).toContain("<meta name='a' sheet='Plan' at='B6'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='a' sheet.name='Plan' sheet.at='B6'>");
   });
 
   test("a long press on an empty cell of the sheet opens its menu: Add table here", async ({ page }) => {
     const pane = page.getByRole("button", { name: "M↓" });
     await pane.click();
-    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| Code |\n|---|\n| X1 |\n");
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='a' sheet.name='Plan' sheet.at='A1'> |\n\n| Code |\n|---|\n| X1 |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await pane.click();
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -86,7 +86,7 @@ test.describe("Touch: moving a table on the sheet", () => {
     await expect(menuTitle(page)).toHaveText("Cell A5");
     await tap(page, page.locator(".swt-menu .swt-menu-item", { hasText: "Add table here" }));
     await tap(page, page.locator(".swt-menu .swt-menu-item", { hasText: "Code" }));
-    await expect.poll(() => markdown(page)).toMatch(/<meta name='\w+' sheet='Plan' at='A5'>/);
+    await expect.poll(() => markdown(page)).toMatch(/<meta core.table core.name='\w+' sheet.name='Plan' sheet.at='A5'>/);
     await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
   });
 });

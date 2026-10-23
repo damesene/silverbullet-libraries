@@ -14,9 +14,9 @@ const SHOP = parseTable(
   [
     "| Fruit | Qty | Price | Unit |",
     "|---|---|---|---|",
-    `| Pear <meta n='pear'> | 3 | 12,50 | d |`,
-    `| Apple | 10 | 4,50 <meta cn='vat'> | w |`,
-    `| Total | 13 <meta f='=SUM([qty])'> | | |`,
+    `| Pear <meta core.n='pear'> | 3 | 12,50 | d |`,
+    `| Apple | 10 | 4,50 <meta core.cn='vat'> | w |`,
+    `| Total | 13 <meta formulas.f='=SUM([qty])'> | | |`,
   ].join("\n"),
 );
 // The formula as Excel writes it in the body cell (row, column), or why not
@@ -72,7 +72,7 @@ describe("Excel's formulas", () => {
     expect(write("=[[Prices]]vat")).toEqual({ reason: "it refers to vat on another page" });
     expect(write("=prices!vat")).toEqual({ reason: "it refers to the table prices" });
     // The table's own name before its own cell: that cell
-    expect(excelFormula("=shop!vat*2", { ...SHOP, meta: { name: "shop" } }, 0, 3)).toEqual({ text: "C3*2", array: false });
+    expect(excelFormula("=shop!vat*2", { ...SHOP, meta: { "core.name": "shop" } }, 0, 3)).toEqual({ text: "C3*2", array: false });
     expect(write('=TEXT(A1, "dd.mm.yyyy")')).toEqual({ reason: "Excel reads TEXT's format codes in its own language" });
     expect(write("=DATEADD(A1, 1, [@unit])")).toEqual({ reason: "its unit is not written in the formula (it comes from a cell)" });
     expect(write("=VAT(C1)")).toEqual({ reason: "VAT has no Excel form" });
@@ -93,7 +93,7 @@ describe("Excel's formulas", () => {
     }
     expect(write("=ABS(B1)")).toBe("ABS(B2)");
     // Total rows between a column's rows
-    const split = parseTable(["| Qty |", "|---|", "| 1 |", `| 1 <meta f='=SUM([qty])'> |`, "| 2 |"].join("\n"));
+    const split = parseTable(["| Qty |", "|---|", "| 1 |", `| 1 <meta formulas.f='=SUM([qty])'> |`, "| 2 |"].join("\n"));
     expect(excelFormula("=SUM([qty])", split, 2, 0)).toEqual({ reason: "[qty] has total rows between its rows" });
   });
 

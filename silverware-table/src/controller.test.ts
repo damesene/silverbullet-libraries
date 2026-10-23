@@ -66,7 +66,7 @@ describe("Controller", () => {
   });
 
   it("recalculates nothing with the formulas module off: results stay as written", async () => {
-    const SUMMED = `| Item | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta f='=SUM([qty])'> |\n\n| Order |\n|---|\n| 6 <meta f='=Totals!A1*2'> |\n`;
+    const SUMMED = `| Item | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta formulas.f='=SUM([qty])'> |\n\n| Order |\n|---|\n| 6 <meta formulas.f='=Totals!A1*2'> |\n`;
     await setup(SUMMED, { "silverware.table.editor.enterKey": "save", "silverware.table.modules.formulas.enabled": false });
     clickOn(cell(1, 1));
     editor.querySelector<HTMLInputElement>(".swt-cell-editor")!.value = "5";
@@ -76,7 +76,7 @@ describe("Controller", () => {
   });
 
   it("leaves out naming with the names module off, the names still working in formulas", async () => {
-    const NAMED = `| Price <meta n='price'> | Total |\n|---|---|\n| 2 | 0.5 <meta cn='vat'> |\n| 3 | 4.5 <meta f='=[@price]*(1+vat)'> |\n| <meta name='prices'> |\n`;
+    const NAMED = `| Price <meta core.n='price'> | Total |\n|---|---|\n| 2 | 0.5 <meta core.cn='vat'> |\n| 3 | 4.5 <meta formulas.f='=[@price]*(1+vat)'> |\n| <meta core.table core.name='prices'> |\n`;
     await setup(NAMED, { "silverware.table.metadata": true, "silverware.table.editor.enterKey": "save", "silverware.table.modules.names.enabled": false });
     expect(document.querySelector(".swt-named")).toBeNull();
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
@@ -87,7 +87,7 @@ describe("Controller", () => {
     editor.querySelector<HTMLInputElement>(".swt-cell-editor")!.value = "1";
     key(editor.querySelector(".swt-cell-editor")!, "Enter");
     await flush();
-    expect(text).toContain(`| 2 | 1 <meta cn='vat'> |\n| 3 | 6 <meta f='=[@price]*(1+vat)'> |`);
+    expect(text).toContain(`| 2 | 1 <meta core.cn='vat'> |\n| 3 | 6 <meta formulas.f='=[@price]*(1+vat)'> |`);
     // On: the fixed name's mark in the header, and the named cell's
     controller.stop();
     document.body.replaceChildren();
@@ -98,7 +98,7 @@ describe("Controller", () => {
   });
 
   it("sizes every icon it adds before the library's CSS loads (an SVG without a size shows 300x150)", async () => {
-    await setup(`| Name | Done #check |\n|---|---|\n| Pear | yes |\n| <meta filter.name='P'> |\n`, { "silverware.table.metadata": true });
+    await setup(`| Name | Done #check |\n|---|---|\n| Pear | yes |\n| <meta core.table filters.-c-name.condition='P'> |\n`, { "silverware.table.metadata": true });
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     const icons = Array.from(document.querySelectorAll("svg"));
     expect(icons.length).toBeGreaterThan(3);
@@ -106,7 +106,7 @@ describe("Controller", () => {
   });
 
   it("keeps the toolbar to icons, the rest in its ⋯ menu, destructive last", async () => {
-    await setup(`| A |\n|---|\n| 1 |\n| <meta name='prices'> |\n`, { "silverware.table.metadata": true });
+    await setup(`| A |\n|---|\n| 1 |\n| <meta core.table core.name='prices'> |\n`, { "silverware.table.metadata": true });
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     const bar = document.querySelector(".swt-bar")!;
     expect(Array.from(bar.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Filter", "Edit mode", "Lazy saving", "More"]);
@@ -143,7 +143,7 @@ describe("Controller", () => {
   });
 
   it("with the toolbarNames setting, shows the table's names in its toolbar too, their icons there", async () => {
-    await setup(`| A |\n|---|\n| 1 |\n| <meta name='prices'> |\n`, { "silverware.table.metadata": true, "silverware.table.toolbarNames": "always" });
+    await setup(`| A |\n|---|\n| 1 |\n| <meta core.table core.name='prices'> |\n`, { "silverware.table.metadata": true, "silverware.table.toolbarNames": "always" });
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     const bar = document.querySelector(".swt-bar")!;
     expect(Array.from(bar.querySelectorAll(".swt-bar-names button"), (b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Sheet view", "No sheet", "Full screen", "prices"]);
@@ -152,7 +152,7 @@ describe("Controller", () => {
   });
 
   it("by default shows the table's names in its toolbar while Shift alone is held", async () => {
-    await setup(`| A |\n|---|\n| 1 |\n| <meta name='prices'> |\n`, { "silverware.table.metadata": true });
+    await setup(`| A |\n|---|\n| 1 |\n| <meta core.table core.name='prices'> |\n`, { "silverware.table.metadata": true });
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     const names = () => document.querySelector(".swt-bar .swt-bar-names");
     expect(names()).toBeNull();
@@ -314,7 +314,7 @@ describe("Controller", () => {
   });
 
   it("shows the + on the borders of the header and of the rows pinned to the top", async () => {
-    await setup("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| Fig | 2 |\n| <meta pin-top='2'> |\n", { "silverware.table.metadata": true });
+    await setup("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| Fig | 2 |\n| <meta core.table core.pin-top='2'> |\n", { "silverware.table.metadata": true });
     layOutTable();
     expect(cell(2, 0).closest("thead")).not.toBeNull();
     cell(3, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
@@ -485,11 +485,11 @@ describe("Controller", () => {
   });
 
   it("unpins all rows and columns from the toolbar's menu, leaving them where they are", async () => {
-    const PINNED = `| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |\n| <meta sort.b='desc' pin-top='1' pin-bottom='1' pin-left='1'> |\n`;
+    const PINNED = `| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |\n| <meta core.table core.-c-b.sort='desc' core.pin-top='1' core.pin-bottom='1' core.pin-left='1'> |\n`;
     await setup(PINNED);
     tableMenuItem(/^Unpin all$/)!.click();
     await flush();
-    expect(text).toBe(`| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |\n| <meta sort.b='desc'> |\n`);
+    expect(text).toBe(`| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |\n| <meta core.table core.-c-b.sort='desc'> |\n`);
     // Nothing pinned: no such item
     await controller.scan();
     expect(tableMenuItem(/^Unpin all$/)).toBeUndefined();
@@ -686,7 +686,7 @@ describe("Controller", () => {
     await pinRowAt(controller, info, 1, "top");
     // The table not rendered anew yet: the row inserted from what was rendered
     await insertRowWith(controller, info, 3, 0);
-    expect(text).toContain("| apple | 10 |\n| | |\n| Fig | 2 |\n| <meta pin-top='1'> |");
+    expect(text).toContain("| apple | 10 |\n| | |\n| Fig | 2 |\n| <meta core.table core.pin-top='1'> |");
     expect(flashes).toEqual([]);
     // The last rendering waited for (the header, four rows, the metadata row), so none comes into the next test's page
     await vi.waitFor(() => expect(editor.querySelector("table")!.rows.length).toBe(6));
@@ -1096,7 +1096,7 @@ describe("Delete table", () => {
 
 describe("A table name two tables of the page have", () => {
   useTablePage();
-  const TWICE = "| A |\n|---|\n| 1 |\n| <meta name='prices'> |\n\n| B |\n|---|\n| 2 |\n| <meta name='Prices'> |\n\n| C |\n|---|\n| 3 |\n| <meta name='other'> |\n";
+  const TWICE = "| A |\n|---|\n| 1 |\n| <meta core.table core.name='prices'> |\n\n| B |\n|---|\n| 2 |\n| <meta core.table core.name='Prices'> |\n\n| C |\n|---|\n| 3 |\n| <meta core.table core.name='other'> |\n";
   const barName = (table: number) => {
     editor.querySelectorAll("table")[table]!.rows[1]!.cells[0]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     return document.querySelector<HTMLElement>(".swt-bar .swt-bar-name-table .swt-bar-name");

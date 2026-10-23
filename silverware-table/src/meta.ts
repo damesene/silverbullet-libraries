@@ -1,20 +1,14 @@
 // What tables keep, by whose it is: the core's (its name, pins, sorting, the
 // names of columns, rows and cells) and each module's. The core makes every
-// attribute's name from its owner and key (and, for a column's, the column),
-// so a module gives only its key and value through its host, never a whole
-// name, and cannot write another's. In the metadata row (`<meta …>`, the
-// table's last row):
-// - an attribute of the table, the owner's key
-// - an attribute of a column, the column named as columns.ts names columns
-//   (its key or fixed name), with the occurrence after a colon when several
-//   columns share it (`qty:2`), so it survives moves and renames, which every
-//   edit follows here whatever the attribute is for
-// and in hidden tags in cells (tags.ts), an attribute of the owner's key.
-//
-// The names as tables have them so far: what each owner's key is written as.
+// attribute's name from its owner and key (metanames.ts; for a column's, the
+// column too), so a module gives only its key and value through its host,
+// never a whole name, and cannot write another's. An attribute of a column
+// names it as columns.ts names columns (its key or fixed name, with its
+// occurrence where several share it), so it survives moves and renames, which
+// every edit follows here whatever the attribute is for.
 import { type ColumnId, columnIdOf, findColumn } from "./columns.ts";
 import type { Row, Table } from "./markdown.ts";
-import { columnWhat, CORE, type Owner, tableAttributeName, TABLE_NAMES } from "./metanames.ts";
+import { COLUMN_MARK, columnWhat, CORE, type Owner, tableAttributeName } from "./metanames.ts";
 import { tableNameProblem } from "./namerules.ts";
 import { NO_PINS, type Pins, type SortDirection } from "./view.ts";
 
@@ -46,29 +40,29 @@ export function withMetaValue(table: Table, owner: Owner, key: string, value: st
 /** An owner's attributes of the table (not of its columns), by key */
 export function metaValuesOf(table: Table, owner: Owner): Map<string, string> {
   const values = new Map<string, string>();
-  const known = new Map(Object.entries(TABLE_NAMES).map(([full, written]) => [written, full]));
   for (const [name, value] of Object.entries(table.meta ?? {})) {
-    const full = known.get(name) ?? name;
-    if (full.startsWith(`${owner}.`) && !parseColumnAttribute(name)) values.set(full.slice(owner.length + 1), value);
+    if (name.startsWith(`${owner}.`) && !parseColumnAttribute(name)) values.set(name.slice(owner.length + 1), value);
   }
   return values;
 }
 
 // ---- attributes of columns ------------------------------------------------------
 
-// `<what>.<column>` and `<what>.<column>:<occurrence>`: a column's key or fixed
-// name has no "." or ":"; it is empty for a header with only hashtags (`#stars`)
-const COLUMN_ATTRIBUTE_RE = /^([\w-]+)\.([^.:]*)(?::(\d+))?$/;
+// `<owner>.-c-<column>.<key>` and `<owner>.-c-<column>:<occurrence>.<key>`: a
+// column's key or fixed name has no "." or ":"; it is empty for a header with
+// only hashtags (`#stars`). `what` is its owner and key, `<owner>.<key>`
+const COLUMN_ATTRIBUTE_RE = new RegExp(String.raw`^([^.]+)\.${COLUMN_MARK}([^.:]*)(?::(\d+))?\.(.+)$`);
 
 function parseColumnAttribute(name: string): { readonly what: string; readonly id: ColumnId } | undefined {
   const match = COLUMN_ATTRIBUTE_RE.exec(name);
-  return match ? { what: match[1]!, id: { name: match[2]!, nth: Number(match[3] ?? 1) } } : undefined;
+  return match ? { what: `${match[1]!}.${match[4]!}`, id: { name: match[2]!, nth: Number(match[3] ?? 1) } } : undefined;
 }
 
-/** The name of the attribute `what` of a column, as the headers name the column */
+/** The name of the attribute `what` (its owner and key) of a column, as the headers name the column */
 function columnAttributeName(headers: readonly string[], what: string, column: number): string | undefined {
   const id = columnIdOf(headers, column);
-  return id && `${what}.${id.name}${id.shared ? `:${id.nth}` : ""}`;
+  const dot = what.indexOf(".");
+  return id && `${what.slice(0, dot)}.${COLUMN_MARK}${id.name}${id.shared ? `:${id.nth}` : ""}.${what.slice(dot + 1)}`;
 }
 
 /** An owner's attribute of each column that has it, by the column, in the order they are written */

@@ -41,7 +41,7 @@ test.describe("Names in the ⋯ menu", () => {
     await expect(field).toBeFocused();
     await field.fill("fruit");
     await page.keyboard.press("Enter");
-    await expect.poll(() => markdown(page)).toContain("<meta name='fruit'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='fruit'>");
   });
 });
 
@@ -64,7 +64,7 @@ test("by default the toolbar shows the names while Shift alone is held; the sett
 });
 
 test("Shift pressed over a table with a long name: the names beside the icons, the toolbar where it is without them", async ({ page }) => {
-  await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='averyveryverylongtablenameindeed'> |\n");
+  await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='averyveryverylongtablenameindeed'> |\n");
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
   await hoverCell(page, cell(page, 1, 0));
@@ -82,7 +82,7 @@ test("Shift pressed over a table with a long name: the names beside the icons, t
 });
 
 test("long names in the ⋯ menu are cut, whole in their tooltips, the table's in the title", async ({ page }) => {
-  await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='asdasdasdasdasdasdasdasdasda' sheet='Sheet1withaverylongnameindeed' at='A1'> |\n");
+  await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='asdasdasdasdasdasdasdasdasda' sheet.name='Sheet1withaverylongnameindeed' sheet.at='A1'> |\n");
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
   await hoverCell(page, cell(page, 1, 0));
@@ -116,7 +116,7 @@ test.describe("Names in the toolbar", () => {
     await expect(field).toBeFocused();
     await field.fill("fruit");
     await page.keyboard.press("Enter");
-    await expect.poll(() => markdown(page)).toContain("<meta name='fruit'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='fruit'>");
     await hoverCell(page, cell(page, 1, 0));
     await expect(name(page, "table")).toHaveText("fruit");
     await expect(name(page, "table")).not.toHaveClass(/swt-muted/);
@@ -125,19 +125,19 @@ test.describe("Names in the toolbar", () => {
     await expect(field).toBeFocused();
     await field.fill("Plan");
     await page.keyboard.press("Enter");
-    await expect.poll(() => markdown(page)).toContain("<meta name='fruit' sheet='Plan' at='A1'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='fruit' sheet.name='Plan' sheet.at='A1'>");
     await hoverCell(page, cell(page, 1, 0));
     await expect(name(page, "container")).toHaveText("Plan");
     // Empty: off the sheet, its name kept
     await name(page, "container").click();
     await field.fill("");
     await page.keyboard.press("Enter");
-    await expect.poll(() => markdown(page)).toContain("<meta name='fruit'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='fruit'>");
     expect(await markdown(page)).not.toContain("sheet=");
   });
 
   test("over a table narrower than the toolbar on the sheet: no name wraps, nothing is cut off, the names above", async ({ page }) => {
-    await page.locator("#source").fill("# Test\n\n| Name | Qty |\n|---|--:|\n| Apple | 10 |\n| Plum | 6 |\n| Pear | 3 |\n| Total | 19 |\n| <meta pin-bottom='1'> |\n");
+    await page.locator("#source").fill("# Test\n\n| Name | Qty |\n|---|--:|\n| Apple | 10 |\n| Plum | 6 |\n| Pear | 3 |\n| Total | 19 |\n| <meta core.table core.pin-bottom='1'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(4);
     await hoverCell(page, cell(page, 1, 0));
@@ -177,7 +177,7 @@ test.describe("Names in the toolbar", () => {
     await page
       .locator("#source")
       .fill(
-        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| City |\n|---|\n| Brno |\n| <meta name='b' sheet='Plan' at='D1'> |\n",
+        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='a' sheet.name='Plan' sheet.at='A1'> |\n\n| City |\n|---|\n| Brno |\n| <meta core.table core.name='b' sheet.name='Plan' sheet.at='D1'> |\n",
       );
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -190,7 +190,7 @@ test.describe("Names in the toolbar", () => {
     await name(page, "container").click();
     await page.locator(".swt-menu .swt-menu-name").fill("Other");
     await page.keyboard.press("Enter");
-    await expect.poll(() => markdown(page)).toContain("<meta name='b' sheet='Other' at='D1'>");
+    await expect.poll(() => markdown(page)).toContain("<meta core.table core.name='b' sheet.name='Other' sheet.at='D1'>");
     await expect(drawn).toHaveCount(1);
     await expect(drawn.first()).toContainText("Brno");
   });
@@ -198,7 +198,7 @@ test.describe("Names in the toolbar", () => {
 
 test.describe("A table name two tables of the page have", () => {
   test("shows in red in the toolbar of each, the setting aside; said at the top until closed", async ({ page }) => {
-    const prices = "| Item | Price |\n|---|---|\n| Pear | 3 |\n| <meta name='prices'> |\n";
+    const prices = "| Item | Price |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='prices'> |\n";
     await page.locator("#source").fill(`# Test\n\n${prices}\n${prices}`);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     const note = page.locator("#flash > div", { hasText: "2 tables on this page are named prices" });
@@ -219,14 +219,14 @@ test.describe("A table name two tables of the page have", () => {
 
 test.describe("Removing a name", () => {
   test("Remove from sheet under the sheet's name field; none under the table's (an empty name removes it)", async ({ page }) => {
-    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n");
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='prices' sheet.name='Plan' sheet.at='A1'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
     await hoverCell(page, cell(page, 1, 0));
     await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
     await page.locator(".swt-menu .swt-menu-row-container .swt-segment").first().click();
     await page.locator(".swt-menu .swt-menu-name-clear", { hasText: "Remove from sheet" }).click();
-    await expect.poll(() => markdown(page)).toContain("| <meta name='prices'> |");
+    await expect.poll(() => markdown(page)).toContain("| <meta core.table core.name='prices'> |");
     await hoverCell(page, cell(page, 1, 0));
     await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
     await page.locator(".swt-menu .swt-menu-rename").click();
@@ -237,7 +237,7 @@ test.describe("Removing a name", () => {
 
 test.describe("The sheet's × in the ⋯ menu", () => {
   test("the × in the sheet's row takes the table off it; disabled on none", async ({ page }) => {
-    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n");
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='prices' sheet.name='Plan' sheet.at='A1'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
     await hoverCell(page, cell(page, 1, 0));
@@ -246,7 +246,7 @@ test.describe("The sheet's × in the ⋯ menu", () => {
     const x = page.locator(".swt-menu .swt-menu-row-container .swt-segment").nth(1);
     await expect(x).toHaveAttribute("aria-label", "Remove from sheet");
     await x.click();
-    await expect.poll(() => markdown(page)).toContain("| <meta name='prices'> |");
+    await expect.poll(() => markdown(page)).toContain("| <meta core.table core.name='prices'> |");
     await expect(page.locator(".swt-menu")).toHaveCount(0);
     await hoverCell(page, cell(page, 1, 0));
     await page.locator(".swt-bar.swt-visible .swt-bar-more").click();

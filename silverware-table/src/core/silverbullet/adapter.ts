@@ -6,6 +6,7 @@ import { EVERYWHERE, heldBounds, innerBox, intersect, isEmpty, scrollNearEdge, s
 import { dragLines } from "./linedrag.ts";
 import { Overlays } from "./overlays.ts";
 import type { TableMeta } from "../../markdown.ts";
+import { TABLE_MARKER } from "../../metanames.ts";
 import type { TableAdapter } from "../adapter.ts";
 import type { CellRef, HandlePlace, HeaderRow, LineDrag, PointerTarget, Rect, Side, TableLook, TablePreview, WidgetInfo } from "../feature.ts";
 import { type MergedLooks, refKey } from "../looks.ts";
@@ -36,11 +37,10 @@ const dataName = (name: string) => `swt${name[0]!.toUpperCase()}${name.slice(1)}
  */
 export function renderedMeta(rows: readonly HTMLTableRowElement[]): TableMeta | undefined {
   const meta = rows[rows.length - 1]?.querySelector("meta");
-  if (!meta) return undefined;
+  // Only with the mark of one: another tag is a cell's (as parseMetaRow)
+  if (!meta?.hasAttribute(TABLE_MARKER)) return undefined;
   const read: Record<string, string> = {};
-  for (const attribute of Array.from(meta.attributes)) read[attribute.name] = attribute.value;
-  // A formula cell with an empty result, or an empty named cell, not the table's metadata (as parseMetaRow)
-  if ("f" in read || "n" in read || "cn" in read) return undefined;
+  for (const attribute of Array.from(meta.attributes)) if (attribute.name !== TABLE_MARKER) read[attribute.name] = attribute.value;
   return read;
 }
 

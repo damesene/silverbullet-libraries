@@ -6,7 +6,7 @@ test.describe("Rows pinned to the bottom", () => {
     await page.addStyleTag({ content: ".cm-scroller { padding-bottom: 360px !important; }" });
     // Low in the view: within its bottom 360px, which the padding takes from sticky positioning
     const filler = Array.from({ length: 6 }, (_, i) => `Line ${i + 1} of text above the table.`).join("\n\n");
-    await page.locator("#source").fill(`# T\n\n${filler}\n\n| Customer | Bags |\n|---|--:|\n| A | 6 |\n| B | 2 |\n| Total | 8 |\n| <meta pin-bottom='1'> |\n\nMore text.\n`);
+    await page.locator("#source").fill(`# T\n\n${filler}\n\n| Customer | Bags |\n|---|--:|\n| A | 6 |\n| B | 2 |\n| Total | 8 |\n| <meta core.table core.pin-bottom='1'> |\n\nMore text.\n`);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(3);
     const at = await table(page).evaluate((w) => {
@@ -24,7 +24,7 @@ test.describe("The held header and the rows pinned to the bottom", () => {
   test("the table's end going up past the view's top: the header gives way to the bottom rows, never under them", async ({ page }) => {
     const rows = Array.from({ length: 6 }, (_, i) => `| Row ${i + 1} | ${i} |`).join("\n");
     const filler = Array.from({ length: 30 }, (_, i) => `Line ${i + 1}.`).join("\n\n");
-    await page.locator("#source").fill(`# T\n\n${filler}\n\n| Name | Qty |\n|---|---|\n${rows}\n| Total | 15 |\n| <meta pin-bottom='1'> |\n\n${filler}\n`);
+    await page.locator("#source").fill(`# T\n\n${filler}\n\n| Name | Qty |\n|---|---|\n${rows}\n| Total | 15 |\n| <meta core.table core.pin-bottom='1'> |\n\n${filler}\n`);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(7);
     // The table's top at the view's top, then up by steps until it is gone

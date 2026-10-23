@@ -70,7 +70,7 @@ describe("Cell editor", () => {
     });
 
     it("keeps rows pinned to the bottom last: the new rows go above them", async () => {
-      await setup("| A |\n|---|\n| 1 |\n| total |\n| <meta pin-bottom='1'> |\n", { "silverware.table.metadata": true });
+      await setup("| A |\n|---|\n| 1 |\n| total |\n| <meta core.table core.pin-bottom='1'> |\n", { "silverware.table.metadata": true });
       const field = beyond(0, 0);
       field.value = "2";
       key(field, "Tab");

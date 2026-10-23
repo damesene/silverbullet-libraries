@@ -4,8 +4,8 @@ import { cell, expect, hoverCell, table, tableIcon, test } from "./playground.ts
 
 const filler = Array.from({ length: 20 }, (_, i) => `Line ${i + 1}.`).join("\n\n");
 const PAGE =
-  `# Test\n\n${filler}\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='fruit' sheet='Plan' at='A1'> |\n\n` +
-  `| City |\n|---|\n| Brno |\n\n| Code |\n|---|\n| X1 |\n| <meta name='codes' sheet='Plan' at='A4'> |\n\n${filler}\n`;
+  `# Test\n\n${filler}\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta core.table core.name='fruit' sheet.name='Plan' sheet.at='A1'> |\n\n` +
+  `| City |\n|---|\n| Brno |\n\n| Code |\n|---|\n| X1 |\n| <meta core.table core.name='codes' sheet.name='Plan' sheet.at='A4'> |\n\n${filler}\n`;
 
 const label = (page: Page, name: string): Locator => page.locator(".swt-table-label.swt-visible", { hasText: new RegExp(`^${name}$`) });
 const labels = (page: Page): Locator => page.locator(".swt-table-label.swt-visible");
@@ -29,7 +29,7 @@ async function open(page: Page): Promise<void> {
 test.describe("Table labels", () => {
   test("a long table scrolled: the tab goes along with its header held at the view's top, above it", async ({ page }) => {
     const rows = Array.from({ length: 30 }, (_, i) => `| R${i} | ${i} |`).join("\n");
-    await page.locator("#source").fill(`# T\n\nText.\n\n| Name | Qty |\n|---|---|\n${rows}\n| <meta name='long'> |\n\nMore.\n`);
+    await page.locator("#source").fill(`# T\n\nText.\n\n| Name | Qty |\n|---|---|\n${rows}\n| <meta core.table core.name='long'> |\n\nMore.\n`);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(30);
     await page.mouse.move(2, 2);

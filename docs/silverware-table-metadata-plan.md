@@ -4,7 +4,7 @@ The decisions behind it are in CLAUDE.md, *Modules and their data*. Stored markd
 
 ## Status
 
-Steps 1 to 3 done; step 4 in two commits: 4a done (every module through its host's functions, the attributes' names made by the core still as tables have them, `metanames.ts`), 4b next (the format below, the fixtures rewritten). Step 4 cannot go module by module without reading both formats, which is left out: 4b changes the format for all at once.
+Steps 1 to 4 done: every module through its host, the format below (4b, verified in a local SilverBullet: attributes with dots and `-c-` kept in the rendered `<meta>`, a theme read from it, a write recalculating another table). Next: step 5.
 
 ## The format
 
