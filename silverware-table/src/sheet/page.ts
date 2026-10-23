@@ -120,8 +120,8 @@ export function freeName(text: string, taken: readonly string[] = []): string {
 }
 
 /** A name no sheet of the page has: Sheet1, Sheet2, … (a table alone's sheet view made a sheet) */
-export function freeSheetName(text: string): string {
-  const names = sheetsOf(sheetTables(text)).map((sheet) => sheet.name);
+export function freeSheetName(text: string, taken: readonly string[] = []): string {
+  const names = [...sheetsOf(sheetTables(text)).map((sheet) => sheet.name), ...taken];
   let n = 1;
   while (names.some((name) => sameSheet(name, `Sheet${n}`))) n++;
   return `Sheet${n}`;

@@ -729,6 +729,7 @@ The sheet icon (a grid, before the sheet's name in the first row of a table's â‹
 * **Paste into an empty cell**: Ctrl+V on the cell right under or next to the table pastes cells copied from a spreadsheet there, and the table grows to hold all of them; a single value goes into the cell's editor. Farther from the table, what is pasted goes into the cell's editor as text.
 * **Nothing is added for a cell left empty**: Enter on an empty cell, or Esc, writes nothing.
 * **Rows pinned to the bottom stay last**: a new row goes above them, as Tab on the last cell does; a column, left of the columns pinned to the right.
+* **Sheets' tabs**: at the bottom, one tab per sheet of the page, in the page's order; click one (or press Ctrl+PageDown / Ctrl+PageUp) to show that sheet. **+** shows a new empty sheet (*Sheet2*); a value typed, cells pasted or a table added there make its first table, and the sheet exists from then on; left empty, it goes. Click the tab shown (or right-click any) for its menu: the pencil in its title renames the sheet in all its tables at once, *Remove sheet* takes its tables off it (they stay in the page with their names). These need *Store table metadata*.
 * **Close it** with the same icon (*Exit sheet view*) or Esc. *Full screen* stays as it was: the table over the window without empty cells.
 
 ### Sheets of several tables
@@ -1915,6 +1916,8 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   box-sizing: border-box;
   border-left: 28px solid var(--root-background-color, #fff);
   border-top: 66px solid var(--root-background-color, #fff);
+  /* The room for the sheets' tabs (TABS_ROOM) */
+  border-bottom: 30px solid var(--root-background-color, #fff);
   overflow: auto;
   background: var(--root-background-color, #fff);
   color: var(--root-color, #333);
@@ -2081,6 +2084,69 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 }
 .swt-floating.swt-sheet-numbers {
   background: var(--root-background-color, #fff);
+}
+/* The page's sheets, one tab each, at the board's bottom (as a spreadsheet's): the one shown marked, + a new one */
+.swt-floating.swt-sheet-tabs {
+  z-index: 46;
+  display: flex !important;
+  align-items: stretch;
+  gap: 2px;
+  box-sizing: border-box;
+  padding: 0 8px 4px 28px;
+  overflow-x: auto;
+  background: var(--root-background-color, #fff);
+  border-top: 1px solid var(--swt-border, color-mix(in srgb, currentColor 14%, transparent));
+  font: 12px var(--ui-font, system-ui, sans-serif);
+  color: var(--root-color, #333);
+}
+.swt-floating.swt-sheet-tabs:not(.swt-visible) {
+  display: none !important;
+}
+.swt-sheet-tabs > button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0 12px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0 0 6px 6px;
+  opacity: 0.7;
+  cursor: pointer;
+}
+.swt-sheet-tabs > button.swt-sheet-tab {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.swt-sheet-tabs > button:hover,
+.swt-sheet-tabs > button:focus-visible,
+.swt-sheet-tabs > button.swt-active {
+  opacity: 1;
+  background: color-mix(in srgb, var(--ui-accent-color) 12%, transparent);
+  outline: none;
+}
+.swt-sheet-tabs > .swt-sheet-tab[aria-selected="true"] {
+  font-weight: 600;
+  color: var(--ui-accent-color);
+  opacity: 1;
+  box-shadow: inset 0 2px 0 var(--ui-accent-color);
+}
+.swt-sheet-tabs > .swt-sheet-tab.swt-muted {
+  font-style: italic;
+}
+.swt-sheet-tabs > .swt-sheet-tab-add {
+  padding: 0 8px;
+}
+.swt-sheet-tabs > .swt-sheet-tab-add svg {
+  width: 14px;
+  height: 14px;
+}
+.swt-sheet-tabs > .swt-sheet-tab-add[aria-disabled="true"] {
+  opacity: 0.3;
+  cursor: default;
 }
 
 /* CodeMirror's scroller is a stacking context (z-index 0) under SilverBullet's

@@ -406,8 +406,9 @@ export type WriteOptions = {
   // The rows and columns the edit adds take the empty cells past the table (a value typed or pasted there), rather
   // than being inserted: what lies past them need only make room where they reach it (a sheet's other tables)
   readonly claims?: boolean;
-  // Another table changed in the same edit (a table alone put on the sheet another table joins)
-  readonly also?: AlsoChanged;
+  // Other tables changed in the same edit (a table alone put on the sheet another table joins; a sheet's tables
+  // renamed with it)
+  readonly also?: readonly AlsoChanged[];
 };
 
 /**

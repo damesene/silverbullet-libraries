@@ -28,7 +28,7 @@
 // SilverBullet's navigation. Formulas of the board's tables read in the
 // sheet's addresses (addressFrame): a reference is to a record, so sorting a
 // table changes the address shown, not the value.
-import { CELL_MENU_ORDER, type AdapterFeature, type AddressFrame, type AlsoChanged, type CellArea, type CellEditor, type CellMenuGroup, type CellRef, type RenderedEditor, type TableHost, type TableInfo, type ToolbarButton, type WidgetInfo, type WriteResult } from "../../feature.ts";
+import { CELL_MENU_ORDER, type AdapterFeature, type AddressFrame, type AlsoChanged, type CellArea, type CellEditor, type CellMenuGroup, type CellRef, type RenderedEditor, type TableHost, type TableInfo, type TableTarget, type ToolbarButton, type WidgetInfo, type WriteResult } from "../../feature.ts";
 import { oncePerFrame } from "../../frame.ts";
 import { claimWindow, releaseWindow } from "../../overwindow.ts";
 import { DRAWN_CLASS, STAND_IN_CLASS, UI_CLASS } from "../../../dom.ts";
@@ -37,13 +37,13 @@ import { columnLetters, isFormulaInput } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 import { escapeCell, findTables, parseTable, type Table, type TableRange } from "../../../markdown.ts";
 import { metaName, sameTableName, withMeta, withMetaName } from "../../../meta.ts";
-import { AT_ATTRIBUTE, formatAt, freeName, freeSheetName, parseAt, SHEET_ATTRIBUTE, SHEET_WIDTH_PREFIX, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { AT_ATTRIBUTE, formatAt, freeName, freeSheetName, parseAt, SHEET_ATTRIBUTE, SHEET_WIDTH_PREFIX, sameSheet, type SheetCell, sheetNameProblem, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
 import { nameEmptyHeaders } from "../../../ops.ts";
 import { parseClipboardCells } from "../../../paste.ts";
 import { placeProblem, roomFor } from "../../../sheet/layout.ts";
 import { watchPress } from "../../press.ts";
 import { growTo } from "../../structure.ts";
-import type { MenuEntry } from "../../../menu.ts";
+import { type MenuEntry, namingThatCloses } from "../../../menu.ts";
 import { withoutTags } from "../../../tags.ts";
 import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
 import { drawTable } from "../drawn.ts";
@@ -52,6 +52,8 @@ import type { TableKey } from "../../tables.ts";
 // An empty column's width, a row's height when no table gives one
 const COLUMN_WIDTH = 100;
 const ROW_HEIGHT = 36;
+// The room for the sheets' tabs, at the board's bottom (its border: CSS)
+const TABS_ROOM = 30;
 // A column's narrowest width dragged by its letter's edge (as the widths module's)
 const MIN_COLUMN_WIDTH = 40;
 // How long a copy stands in at most for a table drawn anew that is not enhanced
@@ -85,6 +87,8 @@ type Placed = {
 type Board = {
   // (A table alone's board becomes its sheet's once a table is made beside it)
   sheet: string | undefined;
+  // A new sheet (+ in its tabs) no table is on yet: kept only while it is shown, it exists once a table is made there
+  fresh: boolean;
   readonly alone: TableKey;
   readonly box: HTMLElement;
   readonly content: HTMLElement;
@@ -103,6 +107,8 @@ export class Sheet implements AdapterFeature {
   private board: Board | undefined;
   // The columns' letters (above) and the rows' numbers (beside), over the box's rooms
   private readonly letters: HTMLElement;
+  // The page's sheets, one tab each, at the board's bottom: the one shown, the others to go to, + a new one
+  private readonly tabs: HTMLElement;
   private readonly numbers: HTMLElement;
   private readonly columnLines: HTMLElement;
   private readonly queuePlace: () => void;
@@ -168,6 +174,8 @@ export class Sheet implements AdapterFeature {
       void this.setColumnWidth(this.board, column, undefined);
     });
     this.numbers = host.floating("div", "swt-over-window-rows swt-sheet-numbers");
+    this.tabs = host.floating("div", "swt-sheet-tabs");
+    this.tabs.setAttribute("role", "tablist");
     this.numbers.setAttribute("aria-hidden", "true");
     this.columnLines = doc.createElement("div");
     this.columnLines.className = `${UI_CLASS} swt-sheet-column-lines`;
@@ -187,6 +195,7 @@ export class Sheet implements AdapterFeature {
   stop(): void {
     this.end();
     this.letters.remove();
+    this.tabs.remove();
     this.numbers.remove();
     this.grab.remove();
   }
@@ -244,7 +253,7 @@ export class Sheet implements AdapterFeature {
     content.className = "swt-sheet-content";
     content.append(this.columnLines);
     box.append(content);
-    const board: Board = { sheet: sheetOf(info.source), alone: info.key, box, content, tables: new Map(), widths: new Map(), preview: new Map(), reach: { width: 0, height: 0 } };
+    const board: Board = { sheet: sheetOf(info.source), fresh: false, alone: info.key, box, content, tables: new Map(), widths: new Map(), preview: new Map(), reach: { width: 0, height: 0 } };
     this.board = board;
     claimWindow(this.host, this);
     box.addEventListener("scroll", () => {
@@ -260,6 +269,7 @@ export class Sheet implements AdapterFeature {
     this.watching.observe(doc.body, { childList: true, subtree: true, characterData: true });
     this.letters.classList.add("swt-visible");
     this.numbers.classList.add("swt-visible");
+    this.tabs.classList.add("swt-visible");
     await this.refresh();
     this.host.toolbarChanged();
   }
@@ -294,6 +304,8 @@ export class Sheet implements AdapterFeature {
     board.box.remove();
     this.letters.classList.remove("swt-visible");
     this.numbers.classList.remove("swt-visible");
+    this.tabs.classList.remove("swt-visible");
+    this.closeTabMenu();
     this.grid = undefined;
     this.host.toolbarChanged();
   }
@@ -334,10 +346,12 @@ export class Sheet implements AdapterFeature {
     }
     // A width dragged and stored: shown as stored from now on
     for (const [column, width] of board.preview) if (board.widths.get(column) === width) board.preview.delete(column);
-    if (wanted.size === 0) {
+    if (wanted.size === 0 && !board.fresh) {
       this.end();
       return;
     }
+    if (wanted.size > 0) board.fresh = false;
+    this.showTabs(text);
     for (const [key, placed] of board.tables) {
       if (wanted.has(key)) continue;
       placed.widget.remove();
@@ -393,6 +407,206 @@ export class Sheet implements AdapterFeature {
     this.shownIndex = undefined;
     // Its looks are made by its rows as in the markdown (then sorted or filtered: viewApplied asks for them again)
     if (!before) this.looksOrder.set(key, Array.from(parseTable(range.text).rows, (_, i) => i).join(","));
+  }
+
+  // ---- the sheets' tabs ------------------------------------------------------------------------
+
+  // The menu of a tab (its name with a pencil, Remove sheet), by the tab
+  private tabMenu: { readonly element: HTMLElement; readonly tab: HTMLElement } | undefined;
+
+  /**
+   * The sheets the tabs show, in the page's order (of their first tables): a
+   * table alone's board its table first (undefined: on no sheet), a new sheet
+   * shown last
+   */
+  private sheetNames(text: string): (string | undefined)[] {
+    const board = this.board;
+    if (!board) return [];
+    const names: (string | undefined)[] = sheetsOf(sheetTables(text)).map((s) => s.name);
+    if (!board.sheet) names.unshift(undefined);
+    else if (board.fresh && !names.some((n) => n !== undefined && sameSheet(n, board.sheet!))) names.push(board.sheet);
+    return names;
+  }
+
+  /** The tabs as the page's text has the sheets: the one shown selected; a click on it its menu, on another goes there */
+  private showTabs(text: string): void {
+    const board = this.board;
+    if (!board) return;
+    const doc = this.host.doc;
+    const metadata = this.host.metadataEnabled;
+    const tabs = this.sheetNames(text).map((name) => {
+      const current = name === undefined ? !board.sheet : !!board.sheet && sameSheet(name, board.sheet);
+      const tab = el(doc, "button", {
+        class: `swt-sheet-tab${name === undefined ? " swt-muted" : ""}`,
+        text: name ?? "Table",
+        title: name === undefined ? "This table, on no sheet" : current ? `The sheet ${name}: click for its menu (rename, remove)` : `Show the sheet ${name}`,
+        attrs: { role: "tab", "aria-selected": current ? "true" : "false" },
+        run: () => (current ? name !== undefined && this.openTabMenu(name, tab) : void this.switchTo(name, false)),
+      });
+      tab.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (name !== undefined) this.openTabMenu(name, tab);
+      });
+      return tab;
+    });
+    const add = el(doc, "button", {
+      class: "swt-sheet-tab-add",
+      html: ICONS.plus,
+      title: metadata ? "A new sheet: type into it, paste or add a table there to keep it" : "A sheet is kept in its tables' metadata: turn on Store table metadata in the settings",
+      attrs: { "aria-label": "New sheet", ...(metadata ? {} : { "aria-disabled": "true" }) },
+      run: () => metadata && void this.newSheet(),
+    });
+    this.tabs.replaceChildren(...tabs, add);
+  }
+
+  /** At the board's bottom, over its room for them */
+  private placeTabs(box: HTMLElement): void {
+    const view = box.getBoundingClientRect();
+    Object.assign(this.tabs.style, { left: `${view.left}px`, width: `${view.width}px`, top: `${view.bottom - TABS_ROOM}px`, height: `${TABS_ROOM}px` });
+  }
+
+  /**
+   * The board shows another sheet (undefined: the table alone it was opened
+   * with), from its start: the cell being edited saved first, what was
+   * selected, picked or open on this one ended
+   */
+  private async switchTo(sheet: string | undefined, fresh: boolean): Promise<void> {
+    const board = this.board;
+    if (!board) return;
+    if (this.host.editing) await this.host.saveEditing();
+    if (this.board !== board) return;
+    this.closeTabMenu();
+    this.closeCellMenu(false);
+    this.endPicking();
+    this.hideGrab();
+    this.unselect();
+    this.dropCell();
+    for (const placed of board.tables.values()) placed.widget.remove();
+    board.tables.clear();
+    for (const key of [...this.standIns.keys()]) this.showDrawn(key);
+    this.drawing.clear();
+    this.shownIndex = undefined;
+    this.looksOrder.clear();
+    board.preview.clear();
+    board.reach = { width: 0, height: 0 };
+    board.sheet = sheet;
+    board.fresh = fresh;
+    board.box.scrollTo?.({ left: 0, top: 0 });
+    board.box.focus({ preventScroll: true });
+    await this.refresh();
+    this.host.toolbarChanged();
+  }
+
+  /** A new sheet, shown: Sheet2…, kept once a table is made there */
+  private async newSheet(): Promise<void> {
+    const board = this.board;
+    if (!board) return;
+    const text = await this.host.bridge.getText();
+    await this.switchTo(freeSheetName(text, board.fresh && board.sheet ? [board.sheet] : []), true);
+  }
+
+  /** A tab's menu, above it: its name in the title (the pencil renames the sheet), Remove sheet */
+  private openTabMenu(sheet: string, tab: HTMLElement): void {
+    this.closeTabMenu();
+    const board = this.board;
+    if (!board) return;
+    const needs = "A sheet is kept in its tables' metadata: turn on Store table metadata in the settings";
+    const disabled = this.host.metadataEnabled ? undefined : needs;
+    const naming = namingThatCloses(
+      { name: sheet, label: "Rename this sheet", ...(disabled ? { disabled } : {}), save: (name) => this.renameSheet(sheet, name) },
+      () => this.closeTabMenu(),
+    );
+    const entries: MenuEntry[] = [
+      {
+        kind: "item",
+        label: "Remove sheet",
+        icon: ICONS.clear,
+        hint: board.fresh ? "The new sheet goes (no table is on it)" : "Take its tables off the sheet: they stay in the page, where they are, with their names",
+        ...(disabled && !board.fresh ? { disabled } : {}),
+        run: () => {
+          this.closeTabMenu();
+          void this.removeSheet(sheet);
+        },
+      },
+    ];
+    const element = this.host.floatingMenu(sheet, entries, { naming, close: () => this.closeTabMenu(), owner: this });
+    this.tabMenu = { element, tab };
+    tab.classList.add("swt-active");
+    const t = tab.getBoundingClientRect();
+    const m = element.getBoundingClientRect();
+    const win = this.host.doc.defaultView!;
+    element.style.left = `${Math.round(Math.max(4, Math.min(t.left, win.innerWidth - m.width - 4)))}px`;
+    element.style.top = `${Math.round(Math.max(4, t.top - m.height - 4))}px`;
+    this.host.focusMenu(element);
+  }
+
+  private closeTabMenu(): void {
+    const open = this.tabMenu;
+    if (!open) return;
+    this.tabMenu = undefined;
+    open.tab.classList.remove("swt-active");
+    open.element.remove();
+  }
+
+  /** The tables of a sheet of the page, in the page's order */
+  private tablesOfSheet(text: string, sheet: string): { target: TableTarget; table: Table }[] {
+    const keys = this.host.tableKeys(this.host.currentPage, text);
+    const tables = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, sheet))?.tables ?? [];
+    return tables.map((t) => ({ target: { key: keys[t.range.ordinal]!, source: t.range.text, hint: t.range.from }, table: t.table }));
+  }
+
+  /**
+   * The sheet renamed: `sheet` in each of its tables, in one edit (one
+   * Ctrl+Z). Written by its last table, the others with it: its first keeps
+   * the sheet's own data (its widths). A new sheet: only its tab's.
+   */
+  private async renameSheet(sheet: string, typed: string): Promise<string | undefined> {
+    const board = this.board;
+    const name = typed.trim();
+    if (!board || sameSheet(name, sheet)) return undefined;
+    const problem = sheetNameProblem(name);
+    if (problem) return problem;
+    const text = await this.host.bridge.getText();
+    if (sheetsOf(sheetTables(text)).some((s) => sameSheet(s.name, name))) return `another sheet of this page is named ${name}`;
+    const shown = !!board.sheet && sameSheet(board.sheet, sheet);
+    if (board.fresh && shown) {
+      board.sheet = name;
+      this.showTabs(text);
+      return undefined;
+    }
+    const tables = this.tablesOfSheet(text, sheet);
+    const last = tables[tables.length - 1];
+    if (!last) return undefined;
+    const renamed = (t: Table) => withMeta(t, SHEET_ATTRIBUTE, name);
+    const result = await this.host.writeTable(last.target, renamed, { also: tables.slice(0, -1).map((t) => ({ target: t.target, change: renamed })) });
+    if (result === "written" && shown && this.board === board) board.sheet = name;
+    return undefined;
+  }
+
+  /**
+   * The sheet's tables taken off it, in one edit: their `sheet` and `at` go
+   * (the sheet's own data, its widths, too), their names stay. The board goes
+   * to the page's next sheet, else ends. A new sheet: its tab goes.
+   */
+  private async removeSheet(sheet: string): Promise<void> {
+    const board = this.board;
+    if (!board) return;
+    const text = await this.host.bridge.getText();
+    const shown = !!board.sheet && sameSheet(board.sheet, sheet);
+    if (!(board.fresh && shown)) {
+      const tables = this.tablesOfSheet(text, sheet);
+      const last = tables[tables.length - 1];
+      if (!last) return;
+      const off = (t: Table) => withMeta(withMeta(t, SHEET_ATTRIBUTE, undefined), AT_ATTRIBUTE, undefined);
+      const bare = (t: Table) => Object.keys(t.meta ?? {}).filter((k) => k.startsWith(SHEET_WIDTH_PREFIX)).reduce((out, k) => withMeta(out, k, undefined), off(t));
+      const result = await this.host.writeTable(last.target, off, { also: tables.slice(0, -1).map((t) => ({ target: t.target, change: bare })) });
+      if (result !== "written" || this.board !== board) return;
+    }
+    if (!shown) return;
+    const rest = sheetsOf(sheetTables(await this.host.bridge.getText())).map((s) => s.name);
+    if (rest[0] !== undefined) await this.switchTo(rest[0], false);
+    else this.end();
   }
 
   /** A table drawn anew shown, its stand-in gone */
@@ -494,6 +708,24 @@ export class Sheet implements AdapterFeature {
    */
   keyDown(e: KeyboardEvent): boolean {
     if (!this.board) return false;
+    const board = this.board;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "PageUp" || e.key === "PageDown") && !this.host.editing) {
+      e.preventDefault();
+      e.stopPropagation();
+      const sheets = this.sheetNames(this.host.pageText);
+      const i = sheets.findIndex((s) => (s === undefined ? !board.sheet : !!board.sheet && sameSheet(s, board.sheet)));
+      const j = i + (e.key === "PageUp" ? -1 : 1);
+      // (A new sheet left this way: it goes, as on a click on another tab)
+      if (i >= 0 && j >= 0 && j < sheets.length) void this.switchTo(sheets[j], false);
+      return true;
+    }
+    if (this.tabMenu && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.closeTabMenu();
+      board.box.focus({ preventScroll: true });
+      return true;
+    }
     // The empty cell's menu: Esc closes it, the cell stays selected
     if (this.cellMenuOpen && e.key === "Escape") {
       e.preventDefault();
@@ -935,7 +1167,7 @@ export class Sheet implements AdapterFeature {
     const result = await this.host.writeTable(
       { key, source: range.text, hint: range.from },
       (t) => withMeta(withMeta(withMetaName(t, name), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, formatAt(at)),
-      also ? { also } : {},
+      also ? { also: [also] } : {},
     );
     if (result !== "written" || this.board !== board) return;
     this.unselect();
@@ -1342,9 +1574,10 @@ export class Sheet implements AdapterFeature {
     }
     const top = Math.max(0, at.row - 1);
     const last = [...board.tables.values()].sort((a, b) => b.range.from - a.range.from)[0];
-    const host = last && this.infoOfKey(last.key);
+    // (A new sheet no table is on: a table of the page shown, the board's covered one among them)
+    const host = last ? this.infoOfKey(last.key) : this.host.shownTables().find((info) => this.host.widgetOf(info).isConnected);
     const pageTables = findTables(this.host.pageText);
-    if (!last || !host || !pageTables.length) return;
+    if (!host || !pageTables.length) return;
     const inWay = [...board.tables.values()].some((p) => {
       const e = this.extent(p);
       return at.column >= e.left && at.column <= e.right && top + 1 >= e.top && top <= e.bottom;
@@ -1640,6 +1873,7 @@ export class Sheet implements AdapterFeature {
 
   /** Every column's letter in view, in the room above the grid */
   private placeLetters(box: HTMLElement, content: HTMLElement, lefts: readonly number[]): void {
+    this.placeTabs(box);
     const view = box.getBoundingClientRect();
     const origin = content.getBoundingClientRect();
     const layer = this.letters;

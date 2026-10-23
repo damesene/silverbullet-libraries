@@ -2327,14 +2327,14 @@ export class Controller implements TableHost {
           pageNow = { ...pageNow, tables: pageNow.tables.map((t) => (t.range.from === other.range.from ? { range: t.range, table: other.table } : t)) };
         }
       }
-      // Another table the caller changes with it
-      if (options.also) {
-        const also = locateBySource(text, options.also.target.hint, options.also.target.source);
+      // Other tables the caller changes with it
+      for (const changed of options.also ?? []) {
+        const also = locateBySource(text, changed.target.hint, changed.target.source);
         if (!also || also.from === range.from) {
           void this.bridge.flash(NOT_SAVED, "error");
           return "failed";
         }
-        others.set(also.from, { range: also, table: options.also.change(others.get(also.from)?.table ?? parseTable(also.text)) });
+        others.set(also.from, { range: also, table: changed.change(others.get(also.from)?.table ?? parseTable(also.text)) });
       }
       const updates: { readonly range: TableRange; readonly markdown: string }[] = [{ range, markdown }];
       for (const other of others.values()) updates.push({ range: other.range, markdown: serialize(other.table) });
