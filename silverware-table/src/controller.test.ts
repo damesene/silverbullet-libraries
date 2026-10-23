@@ -660,6 +660,19 @@ describe("Controller", () => {
     await new Promise((resolve) => setTimeout(resolve, 60));
   });
 
+  it("writes a table again at once though it is not rendered anew after a write (far out of view)", async () => {
+    await setup(PAGE, {}, { replaceRange: (from, to, insert) => setText(text.slice(0, from) + insert + text.slice(to)) });
+    const rows = () => text.split("\n").filter((line) => line.startsWith("|")).length;
+    const before = rows();
+    const info = controller.shownTables()[0]!;
+    const started = Date.now();
+    await insertRowWith(controller, info, 2, 0);
+    await insertRowWith(controller, info, 2, 0);
+    expect(rows()).toBe(before + 2);
+    expect(flashes).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+
   it("keeps a pin written before a write that waited for it, set from the table as it was", async () => {
     await setup(PAGE, { "silverware.table.metadata": true }, {
       replaceRange: (from, to, insert) => {
@@ -671,9 +684,10 @@ describe("Controller", () => {
     await pinRowAt(controller, info, 1, "top");
     // The table not rendered anew yet: the row inserted from what was rendered
     await insertRowWith(controller, info, 3, 0);
-    expect(text).toContain("pin-top='1'");
+    expect(text).toContain("| apple | 10 |\n| | |\n| Fig | 2 |\n| <meta pin-top='1'> |");
     expect(flashes).toEqual([]);
-    await vi.waitFor(() => expect(editor.querySelector("table")!.rows.length).toBe(5));
+    // The last rendering waited for (the header, four rows, the metadata row), so none comes into the next test's page
+    await vi.waitFor(() => expect(editor.querySelector("table")!.rows.length).toBe(6));
     await new Promise((resolve) => setTimeout(resolve, 60));
   });
 

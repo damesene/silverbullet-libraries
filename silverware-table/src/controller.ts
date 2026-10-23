@@ -97,9 +97,6 @@ const STORE_SORT_DELAY_MS = 400;
 
 const NOT_SAVED = "Silverware Table: the table changed in the meantime, nothing was saved";
 
-// How long a write waits at most for the table written before to be rendered anew (SilverBullet renders after the edit)
-const RENDERED_MS = 1000;
-
 // The element under the pointer while Ctrl is held in a cell editor (the move cursor, CSS)
 const NAVIGATING_CLASS = "swt-navigating-here";
 
@@ -823,7 +820,8 @@ export class Controller implements TableHost {
       if (standsFor) this.cellEditor.takePending(widget, info);
       if (standsFor) this.anchor.again(widget, info.key);
       for (const feature of this.features) feature.enhanced?.(info);
-      this.writeRendered(widget, info);
+      // Rendered as written: writes find it where it is now
+      if (this.writtenAs.get(info.key)?.source === info.source) this.writtenAs.delete(info.key);
       // The cell showing the move cursor was rendered anew (Ctrl+arrows saved a cell)
       if (this.navigating) this.markNavigating();
       this.insert.tableEnhanced(widget, info);
@@ -832,26 +830,6 @@ export class Controller implements TableHost {
     } catch (e) {
       console.error("Silverware Table: could not show a table", e);
     }
-  }
-
-  /** A table written as `source`: until the table that stands for its key is rendered so (or a second has gone), its next write waits */
-  private awaitRendering(key: TableKey, source: string): void {
-    this.rendering.get(key)?.finish();
-    let resolve!: () => void;
-    const done = new Promise<void>((r) => (resolve = r));
-    const timer = setTimeout(() => finish(), RENDERED_MS);
-    const finish = () => {
-      clearTimeout(timer);
-      if (this.rendering.get(key)?.done === done) this.rendering.delete(key);
-      resolve();
-    };
-    this.rendering.set(key, { source, done, finish });
-  }
-
-  /** A table rendered: a write waiting for it goes on, once the one standing for its key has what was written */
-  private writeRendered(widget: HTMLElement, info: WidgetInfo): void {
-    const waiting = this.rendering.get(info.key);
-    if (waiting && waiting.source === info.source && this.widgetForKey(info.key) === widget) waiting.finish();
   }
 
   /** The table Silverware Table drew for a key (the sheet's), enhanced and in the page */
@@ -2036,10 +2014,11 @@ export class Controller implements TableHost {
   private readonly covered = new Set<HTMLElement>();
   private readonly queueUncover: () => void;
 
-  // A write of each table going on (written, until its table is rendered anew): the next of the table waits for it
+  // A write of each table going on: the next of the table waits for it
   private readonly writing = new Map<TableKey, Promise<void>>();
-  // Tables written and not rendered anew yet with what was written, by key: a write of one waits for it
-  private readonly rendering = new Map<TableKey, { readonly source: string; readonly done: Promise<void>; readonly finish: () => void }>();
+  // What the last writes of a table wrote (its text, where, its pins) and the texts they replaced, until it is
+  // rendered so: a write from the table as it was (rendered before those) writes it as they left it
+  private readonly writtenAs = new Map<TableKey, { readonly source: string; readonly hint: number; readonly pins: WidgetInfo["pins"]; readonly replaced: ReadonlySet<string> }>();
 
   // Drags going on that Esc cancels (host.drag with `escape`)
   private escapableDrags = 0;
@@ -2234,10 +2213,11 @@ export class Controller implements TableHost {
 
   /**
    * A table written where `given` says it is in the page; `shown` its table
-   * rendered, if it is. A table's writes one after the other: each waits for the one before to be
-   * written and its table rendered anew (SilverBullet renders after the edit),
-   * then writes the table as it is then; else it would look for the table as
-   * it was before that write and find it changed. A cell editor open in the
+   * rendered, if it is. A table's writes one after the other: each waits for
+   * the one before and writes the table as that one wrote it (in the markdown:
+   * SilverBullet renders the table anew later, or not at all where it is far
+   * out of view); else it would look for the table as it was before that write
+   * and find it changed. A cell editor open in the
    * table written with a cell to edit after it (a + pressed, Insert row) is
    * saved first, as a press elsewhere would: kept open, a table drawn for its
    * key (the sheet's) would not be drawn anew under it
@@ -2249,50 +2229,57 @@ export class Controller implements TableHost {
     let release!: () => void;
     const mine = new Promise<void>((resolve) => (release = resolve));
     this.writing.set(key, mine);
-    let info = given;
-    let widget = shown;
-    if (before) {
-      await before;
-      const now = this.tableFor(key);
-      if (now) {
-        // Pins the caller set from the table as it was (a row inserted into a zone): what the write before changed in
-        // them is kept, as they are set whole
-        const was = "pins" in given ? (given as WidgetInfo).pins : undefined;
-        if (options.pins && was) {
-          const set = options.pins;
-          const moved = (side: keyof typeof set) => Math.max(0, set[side] + now.pins[side] - was[side]);
-          options = { ...options, pins: { top: moved("top"), bottom: moved("bottom"), left: moved("left"), right: moved("right") } };
-        }
-        info = now;
-        widget = this.widgetForKey(key) ?? widget;
-      }
-    }
+    if (before) await before;
     try {
-      return await this.writeNow(info, widget, change, options);
+      return await this.writeNow(given, this.widgetForKey(key) ?? shown, change, options);
     } finally {
-      // The next goes on once this one's table is rendered anew (if it wrote it)
-      void (this.rendering.get(key)?.done ?? Promise.resolve()).then(() => {
-        if (this.writing.get(key) === mine) this.writing.delete(key);
-        release();
-      });
+      if (this.writing.get(key) === mine) this.writing.delete(key);
+      release();
     }
   }
 
-  private async writeNow(info: TableTarget, widget: HTMLElement | undefined, change: (table: Table) => Table | undefined, options: WriteOptions): Promise<WriteResult> {
-    const { focus, columnMap } = options;
+  /**
+   * The table a write is for, in the page's text: where the caller saw it,
+   * else (the caller's from before the table's last writes, not rendered anew
+   * yet) as those writes left it, the pins the caller set moved by what they
+   * changed in them, as pins are set whole
+   */
+  private writeTarget(text: string, given: TableTarget, options: WriteOptions): { info: TableTarget; range: TableRange; options: WriteOptions } | undefined {
+    const range = locateBySource(text, given.hint, given.source);
+    if (range) return { info: given, range, options };
+    const now = this.writtenAs.get(given.key);
+    if (!now?.replaced.has(given.source)) return undefined;
+    const found = locateBySource(text, now.hint, now.source);
+    if (!found) return undefined;
+    const was = "pins" in given ? (given as WidgetInfo).pins : undefined;
+    const set = options.pins;
+    if (set && was) {
+      const moved = (side: keyof typeof set) => Math.max(0, set[side] + now.pins[side] - was[side]);
+      options = { ...options, pins: { top: moved("top"), bottom: moved("bottom"), left: moved("left"), right: moved("right") } };
+    }
+    return { info: { key: given.key, source: now.source, hint: now.hint }, range: found, options };
+  }
+
+  private async writeNow(given: TableTarget, widget: HTMLElement | undefined, change: (table: Table) => Table | undefined, asked: WriteOptions): Promise<WriteResult> {
     try {
       // What the write needs read is read before the page's text (other pages,
       // which take a while), so the text the edit is computed from is not stale
       // by the time it is written
-      for (const feature of this.features) await feature.prepareWrite?.(info);
+      for (const feature of this.features) await feature.prepareWrite?.(given);
       const text = await this.bridge.getText();
       this.pageText = text;
-      const range = locateBySource(text, info.hint, info.source);
+      const target = this.writeTarget(text, given, asked);
+      if (!target) {
+        void this.bridge.flash(NOT_SAVED, "error");
+        return "failed";
+      }
+      const { info, range, options } = target;
+      const { focus, columnMap } = options;
       // The edits features hold for the table go into it first: the change applies to the table as shown
-      const held = range ? this.features.flatMap((f) => f.pendingEdits?.(info) ?? []) : [];
-      const before = range && held.reduce((table, pending) => pending.apply(table), parseTable(range.text));
-      const edited = before && change(before);
-      if (!range || !before || !edited) {
+      const held = this.features.flatMap((f) => f.pendingEdits?.(info) ?? []);
+      const before = held.reduce((table, pending) => pending.apply(table), parseTable(range.text));
+      const edited = change(before);
+      if (!edited) {
         void this.bridge.flash(NOT_SAVED, "error");
         return "failed";
       }
@@ -2358,7 +2345,11 @@ export class Controller implements TableHost {
       }
       // (A table Silverware Table draws is its feature's to place, in a box whose scroll the write does not move)
       if (widget && !widget.classList.contains(DRAWN_CLASS)) this.anchor.set(widget, info.key);
-      this.awaitRendering(info.key, markdown);
+      // Where the table is in the text written: moved by the tables before it written in the same edit
+      const at = range.from + updates.filter((u) => u.range.from < range.from).reduce((sum, u) => sum + u.markdown.length - (u.range.to - u.range.from), 0);
+      const last = this.writtenAs.get(info.key);
+      const replaced = new Set(last?.source === range.text ? last.replaced : []).add(range.text);
+      this.writtenAs.set(info.key, { source: markdown, hint: at, pins: metaPins(parseTable(markdown)), replaced });
       await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
       this.pageText = written;
       for (const pending of held) pending.written();
