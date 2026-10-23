@@ -322,7 +322,7 @@ test.describe("Sheet view", () => {
     expect(Math.abs((await box.evaluate((w) => w.scrollLeft)) - scrolled)).toBeLessThan(2);
   });
 
-  test("a sheet of two tables shows both at their places; a growth into the other is refused, one clear of it written", async ({ page }) => {
+  test("a sheet of two tables shows both at their places; a growth into the other moves it as far as it reaches", async ({ page }) => {
     await page
       .locator("#source")
       .fill(
@@ -342,18 +342,40 @@ test.describe("Sheet view", () => {
     expect(Math.abs(second.y - (first.y + 3 * rowHeight))).toBeLessThan(1);
     const a = (await letter("A").boundingBox())!;
     const x = a.x + a.width / 2;
-    // A5: the first table grown to row 5 would reach into the second (B4:C5): refused, nothing written
-    const before = await markdown(page);
-    await page.mouse.click(x, first.y + 4 * rowHeight + rowHeight / 2);
-    await page.mouse.click(x, first.y + 4 * rowHeight + rowHeight / 2);
-    await expect(page.locator("#flash > div", { hasText: "would grow into" })).toBeVisible();
-    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
-    expect(await markdown(page)).toBe(before);
-    // A3, right below the first table: it grows by a row
+    // A3, right below the first table: it takes the empty row, nothing moves
     await page.mouse.click(x, first.y + 2 * rowHeight + rowHeight / 2);
     await page.keyboard.type("Fig");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
     expect(await markdown(page)).toMatch(/\| Pear +\| 3 +\|\n\| Fig +\| +\|/);
+    expect(await markdown(page)).toContain("<meta sheet='Plan' at='B4'>");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    // A5: the first table grown to row 5 reaches into the second (B4:C5) by 2 rows: it moves down 2, in the same edit
+    await page.mouse.click(x, first.y + 4 * rowHeight + rowHeight / 2);
+    await page.keyboard.type("Kiwi");
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
+    const text = await markdown(page);
+    expect(text).toMatch(/\| Fig +\| +\|\n\| +\| +\|\n\| Kiwi +\| +\|/);
+    expect(text).toContain("<meta sheet='Plan' at='B6'>");
+    await expect.poll(async () => Math.round(((await drawn.nth(1).boundingBox())!.y - first.y) / rowHeight)).toBe(5);
+  });
+
+  test("a row added to a table with Tab moves the tables under it down by one, those beside it stay", async ({ page }) => {
+    await page
+      .locator("#source")
+      .fill(
+        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| Side |\n|---|\n| 1 |\n| 2 |\n| 3 |\n| <meta name='side' sheet='Plan' at='D1'> |\n\n| City |\n|---|\n| Brno |\n| <meta name='under' sheet='Plan' at='A4'> |\n",
+      );
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 2).locator("tr[data-swt-row]")).toHaveCount(1);
+    await openSheet(page);
+    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table")).toHaveCount(3);
+    // Tab on the last cell of the last row: a new row (inserted), then Esc leaves its editor
+    await sheetCell(page, 1, 1).dblclick();
+    await sheetRendersAnew(page, () => page.keyboard.press("Tab"));
+    const text = await markdown(page);
+    expect(text).toContain("<meta name='under' sheet='Plan' at='A5'>");
+    expect(text).toContain("<meta name='side' sheet='Plan' at='D1'>");
   });
 
   test("a formula reads in the sheet's addresses there and is stored in its table's", async ({ page }) => {

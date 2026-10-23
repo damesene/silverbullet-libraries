@@ -7,8 +7,9 @@
 // and more as it scrolls on, the columns' letters above, the rows' numbers
 // beside. A value typed into an empty cell right of a table (in its rows) or
 // below it (in its columns), up to the next table, grows that table to hold it
-// in one edit (TableHost.editBeyond); a growth that would reach into another
-// table is refused (moving tables is to come); elsewhere nothing is written yet.
+// in one edit (TableHost.editBeyond), the tables beyond moved as far as it
+// reaches into them (sheet/layout.ts, in the sheets module's write); elsewhere
+// nothing is written yet.
 // The same icon or Esc closes it.
 //
 // The tables are drawn by the module itself from the markdown (drawn.ts, their
@@ -32,6 +33,7 @@ import { ICONS } from "../../../icons.ts";
 import { findTables, parseTable, type TableRange } from "../../../markdown.ts";
 import { metaName, sameTableName } from "../../../meta.ts";
 import { AT_ATTRIBUTE, parseAt, SHEET_ATTRIBUTE, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { roomFor } from "../../../sheet/layout.ts";
 import { growTo } from "../../structure.ts";
 import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
 import { drawTable } from "../drawn.ts";
@@ -600,33 +602,28 @@ export class Sheet implements AdapterFeature {
     return owners.sort((a, b) => a.gap - b.gap);
   }
 
-  /** The table an empty cell grows (ownersOf), the nearest whose growth reaches into no other table */
+  /** The table an empty cell grows (ownersOf), the nearest whose growth the sheet has room for */
   private ownerOf(at: SheetCell): { key: string; info: WidgetInfo; cell: CellRef } | undefined {
     return this.ownersOf(at).find((owner) => !this.wouldOverlap(owner.key, owner.cell));
   }
 
-  /** The table a table grown to hold a cell would reach into, if any */
+  /**
+   * The table a table grown to hold a cell (TableHost.editBeyond: growTo in
+   * structure.ts) cannot make room for, if any: the sheet's rule (sheet/layout.ts),
+   * as the write applies it, the tables beyond moved
+   */
   private wouldOverlap(key: string, cell: CellRef): string | undefined {
     const board = this.board;
     const placed = board?.tables.get(key);
     const info = this.infoOfKey(key);
     if (!board || !placed || !info) return undefined;
-    const box = this.extent(placed);
-    // As many rows and columns as reach the cell are added (TableHost.editBeyond: growTo in structure.ts)
-    const next = {
-      top: box.top,
-      left: box.left,
-      bottom: box.bottom + Math.max(0, cell.row - info.rows + 1),
-      right: box.right + Math.max(0, cell.column - info.columns + 1),
-    };
-    for (const other of board.tables.values()) {
-      if (other.key === key) continue;
-      const o = this.extent(other);
-      if (next.left <= o.right && o.left <= next.right && next.top <= o.bottom && o.top <= next.bottom) {
-        return metaName(parseTable(other.range.text)) ?? `the table at ${columnLetters(o.left)}${o.top + 1}`;
-      }
-    }
-    return undefined;
+    const laidOut = [...board.tables.values()].map((p) => {
+      const model = parseTable(p.range.text);
+      const name = metaName(model);
+      return { id: p.range.from, at: p.at, rows: model.rows.length, columns: model.align.length, ...(name ? { name } : {}) };
+    });
+    const room = roomFor(laidOut, { id: placed.range.from, rows: Math.max(info.rows, cell.row + 1), columns: Math.max(info.columns, cell.column + 1), claims: true });
+    return "refused" in room ? room.refused : undefined;
   }
 
   /** Selects or edits a sheet's cell: a table's, or an empty one */
@@ -693,7 +690,7 @@ export class Sheet implements AdapterFeature {
       const into = owners[0] && this.wouldOverlap(owners[0].key, owners[0].cell);
       void this.host.bridge.flash(
         into
-          ? `Silverware Table: the table would grow into ${into} (moving tables is to come)`
+          ? `Silverware Table: the table cannot grow into ${into}, which overlaps it on the sheet already: check their places (at)`
           : "Silverware Table: a cell right of a table or below it grows that table; a new table elsewhere is to come",
         "info",
       );

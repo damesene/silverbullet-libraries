@@ -362,6 +362,9 @@ export type WriteOptions = {
   // The focused row (a new one) is held where it is shown beside these rows
   // (of the markdown after the edit) until the editor leaves it; none: at the end
   readonly hold?: RowHold;
+  // The rows and columns the edit adds take the empty cells past the table (a value typed or pasted there), rather
+  // than being inserted: what lies past them need only make room where they reach it (a sheet's other tables)
+  readonly claims?: boolean;
 };
 
 /**
@@ -849,6 +852,11 @@ export interface Feature {
   prepareEdit?(edited: Table, page: WritePage): Promise<void>;
   /** A write step: the table edited, as the feature changes it in the same write (formulas recalculated, references following) */
   writeStep?(before: Table, after: Table, edit: WriteEdit): Table;
+  /**
+   * Why the write must not be made (said so, nothing written): a sheet's table
+   * that would grow into another; undefined: it may
+   */
+  refusesWrite?(before: Table, after: Table, edit: WriteEdit): string | undefined;
   /**
    * Other tables of the page the write changes too, in the same edit (formulas
    * referring to the edited table); `edit.page.tables` has those features

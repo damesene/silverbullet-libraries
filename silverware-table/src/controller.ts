@@ -1976,6 +1976,13 @@ export class Controller implements TableHost {
         for (const pending of held) pending.written();
         return "unchanged";
       }
+      for (const feature of this.features) {
+        const why = feature.refusesWrite?.(before, changed, edit);
+        if (why) {
+          void this.bridge.flash(`Silverware Table: ${why}`, "info");
+          return "failed";
+        }
+      }
       // Other tables the features change with it (those whose formulas refer
       // to it), in the same edit: one Ctrl+Z undoes it all
       // A table two features change: the later one sees the earlier one's change (the page's tables as changed so far)

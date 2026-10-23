@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { edits, flush, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { insertRow } from "../ops.ts";
+import { controller, edits, flush, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 
 const PAGE = [
   "| Item | Qty |",
@@ -82,3 +83,72 @@ describe("Sheets: a table added to a sheet and removed from it", () => {
     expect(edits).toBe(1);
   });
 });
+
+describe("Sheets: a table that grows makes room on its sheet", () => {
+  useTablePage();
+
+  // costs at A1 (A1:B3), under it totals at A6 and, side by side with it, notes at D6; beside costs, side at D1 (D1:D5)
+  const SHEET = [
+    "| Item | Qty |",
+    "|---|---|",
+    "| Pear | 3 |",
+    "| Fig | 2 |",
+    "| <meta name='costs' sheet='Budget' at='A1'> |",
+    "",
+    "| Side |",
+    "|---|",
+    "| 1 |",
+    "| 2 |",
+    "| 3 |",
+    "| 4 |",
+    "| <meta name='side' sheet='Budget' at='D1'> |",
+    "",
+    "| Total |",
+    "|---|",
+    "| 5 |",
+    "| <meta name='totals' sheet='Budget' at='A6'> |",
+    "",
+    "| Note |",
+    "|---|",
+    "| ok |",
+    "| <meta name='notes' sheet='Budget' at='D6'> |",
+    "",
+  ].join("\n");
+
+  const costs = () => controller.shownTables()[0]!;
+  const grow = (rows: number, claims: boolean) =>
+    controller.writeTable(costs(), (t) => Array.from({ length: rows }).reduce<typeof t>((out) => insertRow(out, out.rows.length), t), claims ? { claims } : {});
+
+  it("rows inserted: everything starting below moves down as far, side by side tables in line, the table beside stays, one edit", async () => {
+    await setup(SHEET, { "silverware.table.metadata": true });
+    await grow(2, false);
+    await flush();
+    expect(text).toContain("| <meta name='totals' sheet='Budget' at='A8'> |");
+    expect(text).toContain("| <meta name='notes' sheet='Budget' at='D8'> |");
+    expect(text).toContain("| <meta name='side' sheet='Budget' at='D1'> |");
+    expect(edits).toBe(1);
+  });
+
+  it("rows claimed (a value typed under it): nothing moves until they reach a table, then all below as far as they reach", async () => {
+    await setup(SHEET, { "silverware.table.metadata": true });
+    // A1:B5 reaches nothing (totals starts at row 6)
+    await grow(2, true);
+    await flush();
+    await flush();
+    expect(text).toContain("at='A6'> |");
+    // A1:B7 reaches totals by 2 rows: it and notes move down 2
+    await grow(2, true);
+    await flush();
+    expect(text).toContain("| <meta name='totals' sheet='Budget' at='A8'> |");
+    expect(text).toContain("| <meta name='notes' sheet='Budget' at='D8'> |");
+    expect(text).toContain("| <meta name='side' sheet='Budget' at='D1'> |");
+  });
+
+  it("refuses to grow into a table it overlaps already, and writes nothing", async () => {
+    const overlapping = SHEET.replace("at='D1'", "at='B3'");
+    await setup(overlapping, { "silverware.table.metadata": true });
+    expect(await grow(1, false)).toBe("failed");
+    expect(text).toBe(overlapping);
+  });
+});
+

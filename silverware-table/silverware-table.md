@@ -730,7 +730,17 @@ The sheet icon (a grid) in a table's toolbar shows the table like a spreadsheet,
 
 A page's tables can share a sheet, as a spreadsheet's sheet holds several tables. *Add to sheet…* in a table's ⋯ menu puts it on one of the page's sheets or on a new one, and names it (the sheet's other tables refer to its cells by its name: `costs!B2`); it goes in column A, one empty row under the sheet's lowest table. The table keeps its place in the page, which shows it as before; its metadata row says which sheet it is on and where (`<meta name='costs' sheet='Budget' at='B3'>`). *Remove from sheet* takes it off again, its name kept. Both need the *Store table metadata* setting (or a metadata row the table has already).
 
-The sheet view of a table on a sheet shows all the sheet's tables, each at its place (its `at` cell), however far apart they are in the page. The sheet's rows have one height, and each column is as wide as the widest of the tables' columns in it. An empty cell right of a table (in its rows) or below it (in its columns) grows that table, as for a table alone; a growth that would reach into another table is refused, and a cell that is neither right of nor below a table takes nothing yet. In the sheet view a table's header and pinned rows and columns scroll with the sheet, as a spreadsheet's cells do.
+The sheet view of a table on a sheet shows all the sheet's tables, each at its place (its `at` cell), however far apart they are in the page. The sheet's rows have one height, and each column is as wide as the widest of the tables' columns in it. An empty cell right of a table (in its rows) or below it (in its columns) grows that table, as for a table alone (the nearer one, where a cell is both); a cell that is neither right of nor below a table takes nothing yet.
+
+**A table that grows makes room on its sheet**, so the layout you made stays as it is:
+
+* Rows added to a table (Tab on its last row, the +, *Insert row*, *Paste as new rows*) move every table that starts below it down by as many rows, whatever its columns, so tables side by side stay in line. Columns added move every table that starts right of it to the right.
+* A value typed or pasted into empty cells past a table takes those cells: nothing moves while they are empty, and where the table would reach into another one, every table below it (or right of it) moves as far as needed.
+* A table beside it (starting next to it, above its bottom) stays where it is.
+* A table that gets smaller moves nothing back.
+* It is one edit: one Ctrl+Z puts everything back.
+
+In the sheet view a table's header and pinned rows and columns scroll with the sheet, as a spreadsheet's cells do.
 
 In the sheet view formulas read in the sheet's addresses, as the letters and numbers show them: in a table at `D1`, whose own `A1` is the sheet's `D2`, `=prices!B1*2` reads `=B2*2` where `prices` is at `A1`, and a formula typed or pointed at there is stored in its tables' addresses again (`=B3*2` as `prices!B2*2`). A reference stays on its row: sorting a table changes the address shown, not the value. In a sorted or filtered table a range of several rows cannot be pointed at there, as its rows are not in the markdown's order (the hint under the cell says so); a click on a header gives the whole column (`[qty]`). While a formula waits for a reference, the sheet's other tables can be pointed at too: a cell gives its sheet's address (stored by the table's name, `prices!B2`), a header the table's column (`prices![price]`). A range is always within one table. A reference to a table on no sheet, or on another page, reads as stored; one to the sheet's empty cells is written as `#REF!`. Out of the sheet view a formula reads as stored.
 

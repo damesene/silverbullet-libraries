@@ -419,6 +419,8 @@ export class CellEditing {
         {
           rowMap: growth.rowMap,
           columnMap: growth.columnMap,
+          // The value typed past the table takes the empty cells up to it
+          claims: true,
           ...(row !== undefined && column !== undefined ? { focus: { row, column, ...(next?.select ? { select: true } : {}) } } : {}),
         },
       );

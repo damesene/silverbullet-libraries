@@ -522,6 +522,8 @@ export class Paste implements Feature {
         columnMap: newColumns.count || growth ? (c) => after(growth ? growth.columnMap(c) : c, newColumns) : undefined,
         pins: plan.pins,
         rowMap: newRows.count || growth ? (r) => after(growth ? growth.rowMap(r) : r, newRows) : undefined,
+        // Pasted over the table's edge, the cells take the empty ones there; pasted as new rows, they are inserted
+        claims: !insert,
       },
     );
     if (result !== "written") {

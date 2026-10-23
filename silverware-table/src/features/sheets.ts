@@ -9,13 +9,18 @@
 // sheet's own data (its columns' widths) is its first table's in the page:
 // any write that makes another table the first (adding one before it,
 // removing it) hands it over in the same edit (writeStep, otherTablesWritten).
+// A table on a sheet that grows makes room on it in the same edit: the other
+// tables' places (`at`) as sheet/layout.ts has them (refusesWrite where it
+// cannot).
 import type { Feature, ModelHost, TableInfo, ToolbarButton, WriteEdit } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import { findTables, locateBySource, type PageTable, parseTable, type Table } from "../markdown.ts";
 import { metaName, sameTableName, tableNameProblem, withMeta, withMetaName } from "../meta.ts";
+import { type Room, roomFor } from "../sheet/layout.ts";
 import {
   AT_ATTRIBUTE,
   formatAt,
+  parseAt,
   placeBelow,
   SHEET_ATTRIBUTE,
   sameSheet,
@@ -160,22 +165,50 @@ export class Sheets implements Feature {
     return out;
   }
 
-  /** The page's other tables that give or take the sheet's own data in the write */
-  otherTablesWritten(before: Table, after: Table, edit: WriteEdit): readonly PageTable[] {
-    const written: PageTable[] = [];
-    for (const move of handovers(before, after, edit)) {
-      for (const [from, take] of [
-        [move.from, false],
-        [move.to, true],
-      ] as const) {
-        const other = from !== edit.page.from && edit.page.tables.find((t) => t.range.from === from);
-        if (!other) continue;
-        const table = move.data.reduce((t, [name, value]) => withMeta(t, name, take ? value : undefined), other.table);
-        written.push({ range: other.range, table });
-      }
-    }
-    return written;
+  /** A table of a sheet that would grow into another it overlaps already (sheet/layout.ts): not written */
+  refusesWrite(before: Table, after: Table, edit: WriteEdit): string | undefined {
+    const room = roomOnSheet(before, after, edit);
+    return room && "refused" in room ? `the table cannot grow into ${room.refused}, which overlaps it on the sheet already: check their places (at)` : undefined;
   }
+
+  /** The page's other tables the write changes: those giving or taking the sheet's own data, those moved to make room */
+  otherTablesWritten(before: Table, after: Table, edit: WriteEdit): readonly PageTable[] {
+    const page = new Map(edit.page.tables.map((t) => [t.range.from, t]));
+    const written = new Map<number, PageTable>();
+    const change = (from: number | undefined, f: (table: Table) => Table) => {
+      const other = from === undefined || from === edit.page.from ? undefined : (written.get(from) ?? page.get(from));
+      if (other) written.set(from!, { range: other.range, table: f(other.table) });
+    };
+    for (const move of handovers(before, after, edit)) {
+      change(move.from, (t) => move.data.reduce((out, [name]) => withMeta(out, name, undefined), t));
+      change(move.to, (t) => move.data.reduce((out, [name, value]) => withMeta(out, name, value), t));
+    }
+    const room = roomOnSheet(before, after, edit);
+    if (room && "moved" in room) for (const [from, at] of room.moved) change(from, (t) => withMeta(t, AT_ATTRIBUTE, formatAt(at)));
+    return [...written.values()];
+  }
+}
+
+/**
+ * The room a table of a sheet that grows in the write makes on it (it stays
+ * on its sheet, at its place); undefined: it is on none, or does not grow there
+ */
+function roomOnSheet(before: Table, after: Table, edit: WriteEdit): Room | undefined {
+  const at = edit.page.from;
+  const tables = sheetTablesOf(edit.page.tables.map((t) => (t.range.from === at ? { range: t.range, table: before } : t)));
+  const mine = tables.find((t) => t.range.from === at);
+  // After the write still on its sheet, at its place
+  const sheetAfter = after.meta?.[SHEET_ATTRIBUTE]?.trim();
+  const atAfter = parseAt(after.meta?.[AT_ATTRIBUTE]);
+  if (!mine || !sheetAfter || !sameSheet(sheetAfter, mine.sheet) || atAfter?.row !== mine.at.row || atAfter.column !== mine.at.column) return undefined;
+  const rows = after.rows.length;
+  const columns = after.align.length;
+  if (rows <= mine.rows && columns <= mine.columns) return undefined;
+  const sheet = tables.filter((t) => sameSheet(t.sheet, mine.sheet));
+  return roomFor(
+    sheet.map((t) => ({ id: t.range.from, at: t.at, rows: t.rows, columns: t.columns, ...(t.name ? { name: t.name } : {}) })),
+    { id: at, rows, columns, claims: !!edit.claims },
+  );
 }
 
 /**
