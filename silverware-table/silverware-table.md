@@ -304,6 +304,7 @@ With the *Store table metadata* setting on (see [[#Settings]]), type a formula i
 | `[qty]` | The whole column named Qty (written by its key, see below), without the table's total rows: rows with a cell whose formula refers to its own whole column (a total or an average under it) |
 | `[qty:2]` | The second column named Qty, when several share the name |
 | `[@qty]` | The Qty cell in the formula's own row, e.g. `=[@price]*[@qty]` |
+| `[@[jan]:[mar]]` | The formula's own row from the column Jan to Mar, e.g. `=SUM([@[jan]:[mar]])`, as Excel's tables write it; the formula's own column outside it, else `#CYCLE!` |
 
 * Edits made with Silverware Table keep references on their cells, as in a spreadsheet: inserting, deleting, moving and sorting rows (*Sort the rows in the markdown*), and inserting, deleting and moving columns. A row inserted inside a range widens it, a deleted one narrows it, and a reference to deleted cells becomes `#REF!`. Renaming a column renames its `[Name]` references.
 * Edits made in the markdown do not change references. `[qty]` and `[@qty]` are not affected by added or moved rows at all, so they are the safest choice for totals.

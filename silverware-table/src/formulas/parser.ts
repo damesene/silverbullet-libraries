@@ -6,7 +6,8 @@ import { FormulaError, type Scalar } from "./values.ts";
 export type Node =
   | { readonly kind: "literal"; readonly value: Scalar }
   | { readonly kind: "area"; readonly area: Area; readonly range: boolean; readonly table?: TableRef; readonly fixed?: Fixed }
-  | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly table?: TableRef }
+  // `last`: the formula's row from column `name` to `last` ([@[a]:[b]])
+  | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly last?: string; readonly table?: TableRef }
   | { readonly kind: "call"; readonly name: string; readonly args: readonly Node[] }
   // A named cell (names.ts): vat in the formula's own table, prices!vat in another, [[Page]]prices!vat on another page;
   // [[Page]]vat as written before names were the table's (an error saying how to write it)
@@ -77,7 +78,7 @@ class Parser {
       case "string":
         return { kind: "literal", value: token.value };
       case "column":
-        return { kind: "column", name: token.name, thisRow: token.thisRow };
+        return { kind: "column", name: token.name, thisRow: token.thisRow, ...(token.last !== undefined ? { last: token.last } : {}) };
       case "ref-error":
         return { kind: "literal", value: new FormulaError("#REF!", "a reference to deleted cells") };
       case "named":

@@ -908,6 +908,30 @@ describe("named cells", () => {
   });
 });
 
+describe("the formula's row from one column to another, [@[a]:[b]]", () => {
+  const table = parseTable(`| Name | Jan | Feb | Mar | Total |\n|---|---|---|---|---|\n| Pear | 4 | 5 | 6 | |\n| Fig | 1 | 2 | 3 | |`);
+  const at = (t: typeof table, formula: string) => setCell(t, 1, 4, formulaCell("", formula));
+  const value = (t: typeof table) => formulaOf(recalculate(t).rows[1]!.cells[4]!)!.value;
+
+  it("is a range of the row's cells, either way round, a column alone too", () => {
+    expect(value(at(table, "=SUM([@[jan]:[mar]])"))).toBe("15");
+    expect(value(at(table, "=SUM([@[mar]:[feb]])"))).toBe("11");
+    expect(value(at(table, "=[@[jan]]*2"))).toBe("8");
+    expect(formulaErrors(at(table, "=SUM([@[jan]:[plum]])")).get("1,4")).toContain('there is no column named "plum"');
+    expect(references("=SUM([@[jan]:[mar]])")[0]).toMatchObject({ kind: "column", name: "jan", last: "mar", thisRow: true });
+  });
+
+  it("is written by the columns' keys, and follows its columns renamed, moved and deleted", () => {
+    const named = setCell(table, 0, 1, "Jan 2026");
+    expect(withColumnKeys("=SUM([@[Jan 2026]:[Mar]])", named.rows[0]!.cells)).toBe("=SUM([@[jan_2026]:[mar]])");
+    const written = at(table, "=SUM([@[jan]:[mar]])");
+    expect(formulaOf(shiftReferences(written, setCell(written, 0, 3, "March")).rows[1]!.cells[4]!)!.formula).toBe("=SUM([@[jan]:[march]])");
+    expect(formulaOf(shiftReferences(written, deleteColumn(written, 3), undefined, (c) => (c === 3 ? undefined : c > 3 ? c - 1 : c)).rows[1]!.cells[3]!)!.formula).toBe(
+      "=SUM(#REF!)",
+    );
+  });
+});
+
 describe("named rows", () => {
   const PRICES = parseTable(`| Name | Price |\n|---|---|\n| Pear <meta core.n='pear'> | 12 |\n| Fig <meta core.n='fig'> | 3 |\n| <meta core.table core.name='prices'> |`);
   const source: TableSource = (name, page) => (name.toLowerCase() === "prices" && (page === undefined || page === "Shop") ? PRICES : undefined);

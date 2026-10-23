@@ -31,6 +31,7 @@ import {
   areaText,
   autofixFormula,
   callsCustomFunctions,
+  columnRangeText,
   columnRefText,
   cycleFixed,
   filledFormula,
@@ -1098,9 +1099,11 @@ export class Formulas implements Feature {
         const named = rowsByName(this.cells, table).get(ref.row.toLowerCase());
         return named === undefined ? undefined : { top: named - 1, left: column, bottom: named - 1, right: column };
       }
-      return ref.thisRow
-        ? { top: row, left: column, bottom: row, right: column }
-        : { top: 0, left: column, bottom: lastRow, right: column };
+      if (!ref.thisRow) return { top: 0, left: column, bottom: lastRow, right: column };
+      // [@[a]:[b]]: the formula's row from one column to the other
+      const last = ref.last === undefined ? column : referencedColumn(table.rows[0]?.cells ?? [], ref.last);
+      if (last === undefined) return undefined;
+      return { top: row, left: Math.min(column, last), bottom: row, right: Math.max(column, last) };
     }
     const { top, left, bottom, right } = ref.area;
     if (top > lastRow || left > lastColumn) return undefined;
@@ -1171,7 +1174,11 @@ export class Formulas implements Feature {
       const dColumn = cell.column - start.column;
       if (ref.kind === "column") {
         const column = clamp(startArea.left + dColumn, lastColumn);
-        return columnRefText(columnIdOf(headers, column), ref.thisRow);
+        if (ref.last === undefined) return columnRefText(columnIdOf(headers, column), ref.thisRow);
+        // A row's range moved as one: as wide as it was, within the table
+        const width = startArea.right - startArea.left;
+        const left = Math.min(column, lastColumn - width);
+        return columnRangeText(columnIdOf(headers, left), columnIdOf(headers, left + width));
       }
       // Its $ kept, moved or resized (on the edges as written)
       if (mode === "resize") {

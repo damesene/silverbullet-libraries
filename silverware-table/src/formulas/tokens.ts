@@ -6,7 +6,8 @@ export type Token =
   | { readonly kind: "number"; readonly value: number; readonly from: number; readonly to: number }
   | { readonly kind: "string"; readonly value: string; readonly from: number; readonly to: number }
   | { readonly kind: "name"; readonly text: string; readonly from: number; readonly to: number }
-  | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly from: number; readonly to: number }
+  // `last`: [@[a]:[b]], the formula's row from column a to b
+  | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly last?: string; readonly from: number; readonly to: number }
   | { readonly kind: "op"; readonly text: string; readonly from: number; readonly to: number }
   // "prices!" or "[[Page]]prices!": the table the next reference is to
   | { readonly kind: "table"; readonly name: string; readonly page?: string; readonly from: number; readonly to: number }
@@ -18,6 +19,9 @@ export type Token =
 export const REF_ERROR = "#REF!";
 
 const OPERATORS = ["<=", ">=", "<>", "+", "-", "*", "/", "^", "&", "=", "<", ">", "(", ")", ",", ";", ":", "%"];
+
+// [@[a]:[b]] and [@[a]]: columns written in brackets of their own, after @
+const THIS_ROW_RANGE_RE = /^\[\s*@\s*\[([^\]]*)\](?:\s*:\s*\[([^\]]*)\])?\s*\]/;
 
 /**
  * The formula's tokens (positions are offsets in `formula`). Stops at the first
@@ -91,6 +95,14 @@ export function tokenize(formula: string): { tokens: Token[]; error?: FormulaErr
     if (formula.startsWith(REF_ERROR, i)) {
       tokens.push({ kind: "ref-error", from: i, to: i + REF_ERROR.length });
       i += REF_ERROR.length;
+      continue;
+    }
+    // The formula's row in columns a to b (or one written so: [@[a]]), as Excel's tables write it
+    const range = ch === "[" ? THIS_ROW_RANGE_RE.exec(formula.slice(i)) : null;
+    if (range) {
+      const last = range[2]?.trim();
+      tokens.push({ kind: "column", name: range[1]!.trim(), thisRow: true, ...(last !== undefined ? { last } : {}), from: i, to: i + range[0].length });
+      i += range[0].length;
       continue;
     }
     if (ch === "[") {

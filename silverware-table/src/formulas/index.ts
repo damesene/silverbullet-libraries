@@ -22,7 +22,7 @@ export { type CellNameAt, cellsByName, type FormulaCells, formulaCount, forFormu
 
 /** What the formulas module offers other modules (ModelHost.offered("formulas")): its cells as the formulas read them */
 export type FormulasOffer = { readonly cells: import("./cell.ts").FormulaCells };
-export { type Area, areaText, callsCustomFunctions, type Fixed, cellName, cellNamesOf, columnLetters, columnRefText, type NamedReference, namedReferences, type Reference, referencedColumn, referencedColumnId, references, referredPages, referredTableNames, type TableRef, withColumnKeys } from "./references.ts";
+export { type Area, areaText, callsCustomFunctions, type Fixed, cellName, cellNamesOf, columnLetters, columnRangeText, columnRefText, type NamedReference, namedReferences, type Reference, referencedColumn, referencedColumnId, references, referredPages, referredTableNames, type TableRef, withColumnKeys } from "./references.ts";
 export { autofixFormula, type FormulaFix, qualifyCellNames } from "./autofix.ts";
 export { type Calculation, formulaErrors, type NamedCell, recalculate, type TableSource, totalRows } from "./evaluate.ts";
 export { type Node as FormulaNode, parse as parseFormula } from "./parser.ts";

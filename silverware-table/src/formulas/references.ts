@@ -68,9 +68,21 @@ export function areaText(area: Area, fixed?: Fixed): string {
  * writes it (columns.ts). Undefined for a column without a name.
  */
 export function columnRefText(id: ColumnId | undefined, thisRow: boolean): string | undefined {
-  const name = id && columnKey(id.name);
-  if (!id || !name) return undefined;
-  return `[${thisRow ? "@" : ""}${name}${id.nth > 1 ? `:${id.nth}` : ""}]`;
+  const name = id && columnIdText(id);
+  return name && `[${thisRow ? "@" : ""}${name}]`;
+}
+
+/** The formula's row from one column to another, as written: [@[a]:[b]] */
+export function columnRangeText(first: ColumnId | undefined, last: ColumnId | undefined): string | undefined {
+  const a = first && columnIdText(first);
+  const b = last && columnIdText(last);
+  return a && b ? `[@[${a}]:[${b}]]` : undefined;
+}
+
+/** A column as a reference names it: its key, its occurrence where several share it */
+function columnIdText(id: ColumnId): string | undefined {
+  const name = columnKey(id.name);
+  return name ? `${name}${id.nth > 1 ? `:${id.nth}` : ""}` : undefined;
 }
 
 /**
@@ -84,7 +96,15 @@ export function withColumnKeys(formula: string, headers: readonly string[]): str
     // Another table's columns are not among these headers
     if (ref.kind !== "column" || ref.table) continue;
     const column = referencedColumn(headers, ref.name);
-    const text = column === undefined ? undefined : columnRefText(columnIdOf(headers, column), ref.thisRow);
+    const last = ref.last === undefined ? undefined : referencedColumn(headers, ref.last);
+    const text =
+      column === undefined
+        ? undefined
+        : ref.last === undefined
+          ? columnRefText(columnIdOf(headers, column), ref.thisRow)
+          : last === undefined
+            ? undefined
+            : columnRangeText(columnIdOf(headers, column), columnIdOf(headers, last));
     if (text) result = result.slice(0, ref.from) + text + result.slice(ref.to);
   }
   return result;
@@ -123,7 +143,7 @@ export type Reference = {
 } & (
   | { readonly kind: "area"; readonly area: Area; readonly fixed?: Fixed }
   // With `row`, the named row's cell in that column: pear[price]
-  | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly row?: string }
+  | { readonly kind: "column"; readonly name: string; readonly thisRow: boolean; readonly row?: string; readonly last?: string }
 );
 
 /** The cell, range and column references written in a formula, in order */
@@ -138,7 +158,8 @@ export function references(formula: string): Reference[] {
       // pear[price]: the row named pear (of prices! before it, if written)
       const row = previous?.kind === "name" && isRowName(tokens, i - 1) ? previous.text : undefined;
       const rowTable = row && tokens[i - 2]?.kind === "table" ? { table: tableRefOf(tokens[i - 2] as { name: string; page?: string }) } : {};
-      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, from: token.from, to: token.to, ...(row ? { row, ...rowTable } : table) });
+      const last = token.last !== undefined ? { last: token.last } : {};
+      result.push({ kind: "column", name: token.name, thisRow: token.thisRow, ...last, from: token.from, to: token.to, ...(row ? { row, ...rowTable } : table) });
       continue;
     }
     if (token.kind !== "name") continue;

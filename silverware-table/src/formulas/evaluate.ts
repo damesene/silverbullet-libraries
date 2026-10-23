@@ -345,7 +345,14 @@ class Sheet {
         if (isError(sheet)) return sheet;
         if (node.thisRow) {
           const index = referencedColumn(this.headers, node.name);
-          return index === undefined ? new FormulaError("#REF!", `there is no column named "${node.name}"`) : this.value(row, index);
+          if (index === undefined) return new FormulaError("#REF!", `there is no column named "${node.name}"`);
+          if (node.last === undefined) return this.value(row, index);
+          // [@[a]:[b]]: the row's cells from a to b, either way round
+          const last = referencedColumn(this.headers, node.last);
+          if (last === undefined) return new FormulaError("#REF!", `there is no column named "${node.last}"`);
+          const values: Scalar[] = [];
+          for (let c = Math.min(index, last); c <= Math.max(index, last); c++) values.push(this.value(row, c));
+          return values;
         }
         return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
       }

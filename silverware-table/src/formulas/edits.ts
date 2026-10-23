@@ -7,7 +7,7 @@ import { type IndexMap, setCell } from "../ops.ts";
 import { type FormulaCells, hasFormulas } from "./cell.ts";
 import { recalculate, type TableSource } from "./evaluate.ts";
 import { parse, wholeColumnNames } from "./parser.ts";
-import { cellName, columnRefText, type Reference, referencedColumnId, references } from "./references.ts";
+import { cellName, columnRangeText, columnRefText, type Reference, referencedColumnId, references } from "./references.ts";
 import { REF_ERROR, tokenize } from "./tokens.ts";
 import { isError } from "./values.ts";
 
@@ -162,8 +162,21 @@ function followedReference(formula: string, ref: Reference, edit: TableEdit): st
     return text === written.toUpperCase() ? undefined : text;
   }
   const headersBefore = edit.before.rows[0]?.cells ?? [];
-  const id = referencedColumnId(headersBefore, ref.name);
-  const followed = followColumn(headersBefore, edit.after.rows[0]?.cells ?? [], id, columnMap ?? ((c) => c));
+  const follow = (written: string) => {
+    const id = referencedColumnId(headersBefore, written);
+    return { id, followed: followColumn(headersBefore, edit.after.rows[0]?.cells ?? [], id, columnMap ?? ((c) => c)) };
+  };
+  const first = follow(ref.name);
+  if (ref.last !== undefined) {
+    // [@[a]:[b]]: both ends follow their columns; one deleted, #REF!
+    const last = follow(ref.last);
+    if (first.followed === null || last.followed === null) return REF_ERROR;
+    if (first.followed === undefined && last.followed === undefined) return undefined;
+    const a = first.followed ?? first.id;
+    const b = last.followed ?? last.id;
+    return sameColumnId(a, first.id) && sameColumnId(b, last.id) ? undefined : columnRangeText(a, b);
+  }
+  const { id, followed } = first;
   if (followed === undefined) return undefined;
   if (followed === null) return REF_ERROR;
   return sameColumnId(followed, id) ? undefined : columnRefText(followed, ref.thisRow);

@@ -79,6 +79,12 @@ export function excelFormula(formula: string, { table, name, cells }: ExcelTable
         if (node.table) throw new NotInExcel(`it refers to the table ${node.table.name}`);
         const c = columnOf(node.name);
         if (c === undefined) return { text: "#REF!", range: false };
+        if (node.thisRow && node.last !== undefined) {
+          // [@[a]:[b]]: the formula's row from one column to the other
+          const last = columnOf(node.last);
+          if (last === undefined) return { text: "#REF!", range: false };
+          return { text: `${excelCell(row, Math.min(c, last))}:${excelCell(row, Math.max(c, last))}`, range: true };
+        }
         if (node.thisRow) return { text: excelCell(row, c), range: false };
         // The column's rows without the total rows, as [qty] takes them: one run in Excel
         totals ??= totalRows(cells, table);
