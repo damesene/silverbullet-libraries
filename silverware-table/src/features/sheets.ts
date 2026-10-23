@@ -29,6 +29,7 @@ import {
   sheetsOf,
   sheetTables,
   sheetTablesOf,
+  freeName,
 } from "../sheet/page.ts";
 
 // The choice of a new sheet in the dialog's list
@@ -243,10 +244,3 @@ function nameTaken(text: string, info: TableInfo, name: string): string | undefi
   return taken ? `another table on this page is named ${name}` : undefined;
 }
 
-/** A name no table of the page has: table1, table2, … */
-function freeName(text: string): string {
-  const names = findTables(text).map((range) => metaName(parseTable(range.text))?.toLowerCase());
-  let n = 1;
-  while (names.includes(`table${n}`)) n++;
-  return `table${n}`;
-}

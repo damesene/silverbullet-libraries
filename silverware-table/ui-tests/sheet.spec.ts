@@ -447,7 +447,7 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-sheet-board")).toHaveCount(1);
   });
 
-  test("under one table and right of another: the nearer one grows; keys on a cell nothing can grow reach no page", async ({ page }) => {
+  test("under one table and right of another: the nearer one grows", async ({ page }) => {
     await page
       .locator("#source")
       .fill(
@@ -469,16 +469,6 @@ test.describe("Sheet view", () => {
     expect(await markdown(page)).toMatch(/\| Pear +\| 24 +\|\n\| Kiwi +\| +\|\n\| <meta name='totals'/);
     // Enter went on to the cell under Kiwi: Esc leaves it selected, a second Esc unselects it
     await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toBeFocused();
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Escape");
-    // F9: no table grows there; what is typed goes nowhere
-    const before = await markdown(page);
-    const f = (await letter("F").boundingBox())!;
-    await page.mouse.click(f.x + f.width / 2, second.y + 8 * rowHeight + rowHeight / 2);
-    await page.keyboard.type("lost");
-    await page.waitForTimeout(200);
-    expect(await markdown(page)).toBe(before);
-    await expect(page.locator(".swt-sheet-board")).toBeFocused();
   });
 
   test("sorted on the sheet: a formula's title follows the rows' new places at once", async ({ page }) => {
@@ -557,6 +547,65 @@ test.describe("Sheet view", () => {
     await page.keyboard.type("*2");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
     expect(await markdown(page)).toMatch(/\| Pear +\| 50 <meta f='=prices!B2\*2'> +\|/);
+  });
+
+  test("a value typed far from the tables makes a table of its own there, a formula as text", async ({ page }) => {
+    await page
+      .locator("#source")
+      .fill(
+        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta name='prices' sheet='Plan' at='A3'> |\n\nText after.\n",
+      );
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
+    await openSheet(page);
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const letter = (text: string) => page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: new RegExp(`^${text}$`) });
+    const prices = (await drawn.nth(0).boundingBox())!;
+    const rowHeight = (await drawn.nth(0).locator("tr[data-swt-row='1'] > td").first().boundingBox())!.height;
+    const d = (await letter("D").boundingBox())!;
+    // D8: right of no table's rows, under no table's columns
+    await page.mouse.click(d.x + d.width / 2, prices.y + 5 * rowHeight + rowHeight / 2);
+    await page.keyboard.type("Brno");
+    await page.keyboard.press("Enter");
+    await expect(drawn).toHaveCount(2);
+    let text = await markdown(page);
+    // After the sheet's last table, its header above the cell typed into: D7
+    expect(text).toMatch(/\| <meta name='prices' sheet='Plan' at='A3'> \|\n\n\| Column 1 +\|\n\| -+ \|\n\| Brno +\|\n\| <meta name='table1' sheet='Plan' at='D7'> \|\n\nText after\./);
+    // Enter went on under the value: the cell there grows the new table
+    await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    // A1: on the sheet's first row the table starts there, the value under it; a formula is text
+    const a = (await letter("A").boundingBox())!;
+    await page.mouse.click(a.x + a.width / 2, prices.y - 2 * rowHeight + rowHeight / 2);
+    await page.keyboard.type("=B4*2");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#flash > div", { hasText: "saved as text" })).toBeVisible();
+    await expect(drawn).toHaveCount(3);
+    text = await markdown(page);
+    expect(text).toMatch(/\| Column 1 +\|\n\| -+ \|\n\| =B4\*2 +\|\n\| <meta name='table2' sheet='Plan' at='A1'> \|/);
+    // Edited in its table now: shown as text ('=), the ' removed it is a formula, B4 read in the sheet's addresses (Pear's price)
+    const made = drawn.filter({ hasText: '=B4*2' });
+    await made.locator("tr[data-swt-row='1'] > td").first().dblclick();
+    const field = page.locator(".swt-cell-editor");
+    await expect(field).toHaveValue("'=B4*2");
+    await field.fill("=B4*2");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => markdown(page)).toMatch(/\| 24 <meta f='=prices!B1\*2'> +\|\n\| <meta name='table2'/);
+  });
+
+  test("a value typed far from a table on no sheet makes nothing, says why, and reaches no page", async ({ page }) => {
+    await openSheet(page);
+    const before = await markdown(page);
+    const box = (await sheetTable(page).locator("table").boundingBox())!;
+    // Far below and right of the table alone
+    await page.mouse.click(box.x + box.width + 250, box.y + box.height + 200);
+    await page.keyboard.type("lost");
+    await expect(page.locator("#flash > div", { hasText: "put the table on a sheet first" })).toBeVisible();
+    // What is typed goes nowhere: not into the page under the board, which keeps the focus
+    await page.waitForTimeout(200);
+    expect(await markdown(page)).toBe(before);
+    await expect(page.locator(".swt-sheet-board")).toBeFocused();
   });
 
   test("Esc closes it", async ({ page }) => {

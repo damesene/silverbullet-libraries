@@ -8,8 +8,10 @@
 // beside. A value typed into an empty cell right of a table (in its rows) or
 // below it (in its columns), up to the next table, grows that table to hold it
 // in one edit (TableHost.editBeyond), the tables beyond moved as far as it
-// reaches into them (sheet/layout.ts, in the sheets module's write); elsewhere
-// nothing is written yet.
+// reaches into them (sheet/layout.ts, in the sheets module's write); a value
+// typed elsewhere makes a table of its own there (header *Column 1* above it,
+// named, on the sheet: TableHost.insertTable, after the sheet's last table in
+// the page), a formula as text until its table exists.
 // The same icon or Esc closes it.
 //
 // The tables are drawn by the module itself from the markdown (drawn.ts, their
@@ -30,9 +32,9 @@ import { claimWindow, releaseWindow } from "../../overwindow.ts";
 import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
 import { columnLetters } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
-import { findTables, parseTable, type TableRange } from "../../../markdown.ts";
-import { metaName, sameTableName } from "../../../meta.ts";
-import { AT_ATTRIBUTE, parseAt, SHEET_ATTRIBUTE, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { escapeCell, findTables, parseTable, type TableRange } from "../../../markdown.ts";
+import { metaName, sameTableName, withMeta, withMetaName } from "../../../meta.ts";
+import { AT_ATTRIBUTE, formatAt, freeName, parseAt, SHEET_ATTRIBUTE, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
 import { roomFor } from "../../../sheet/layout.ts";
 import { growTo } from "../../structure.ts";
 import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
@@ -104,6 +106,8 @@ export class Sheet implements AdapterFeature {
   private shownIndex: { placed: Placed; info: WidgetInfo; order: number[] }[] | undefined;
   // The rows' order each table's cells last looked by (their formulas' addresses on the sheet follow it)
   private readonly looksOrder = new Map<string, string>();
+  // The empty cell edited that makes a table of its own (no table grows to it), and that table's key once written
+  private making: { readonly at: SheetCell; readonly key: string } | undefined;
   // Drawings asked for, by table: only the last of each is put in
   private readonly drawing = new Map<string, number>();
   // A drawing put off while a cell of a table drawn is edited (swapping it would take the editor's cell away)
@@ -383,8 +387,10 @@ export class Sheet implements AdapterFeature {
       }
       if (typing || paste || e.key === "Enter" || e.key === "F2") {
         this.edit(at);
-        // The key goes into the editor opened (typed, pasted); no editor: nowhere (not into the page under the board)
+        // The key goes into the editor opened (typed, pasted); no editor: nowhere (not into the page under the board),
+        // and the cell is unselected, so the keys after it do not say why again
         if (!this.host.editing || (!typing && !paste)) e.preventDefault();
+        if (!this.host.editing) this.unselect();
         return true;
       }
     }
@@ -404,9 +410,12 @@ export class Sheet implements AdapterFeature {
   editorKeyDown(e: KeyboardEvent, editor: RenderedEditor): boolean {
     if (!this.cell || editor.cell !== this.cell.element || e.ctrlKey || e.metaKey || e.altKey) return false;
     if (e.key !== "Enter" && e.key !== "Tab" && e.key !== "Escape") return false;
-    // Something typed is written, the table grown to hold it: on once it is drawn anew, from where the value went
-    const owner = e.key !== "Escape" && editor.field.value.trim() !== "" ? this.ownerOf(this.cell.at) : undefined;
-    const grown = owner && { key: owner.key, cell: growTo(owner.info, owner.cell).cell };
+    // Something typed is written, the table grown to hold it (or made: its first body cell): on once it is drawn
+    // anew, from where the value went
+    const typed = e.key !== "Escape" && editor.field.value.trim() !== "";
+    const owner = typed ? this.ownerOf(this.cell.at) : undefined;
+    const made = typed && this.making && same(this.making.at, this.cell.at) ? { key: this.making.key, cell: { row: 1, column: 0 } } : undefined;
+    const grown = owner ? { key: owner.key, cell: growTo(owner.info, owner.cell).cell } : made;
     this.after = { at: this.cell.at, key: e.key, back: e.shiftKey, grown, ready: false };
     return false;
   }
@@ -471,6 +480,7 @@ export class Sheet implements AdapterFeature {
     }
     if (!this.cell || editor.cell !== this.cell.element) return;
     this.chosen = undefined;
+    this.making = undefined;
     this.dropCell();
     // Esc: the cell stays selected now, so a second Esc unselects it (not the board's Esc, which closes it)
     if (this.after?.key === "Escape") {
@@ -686,14 +696,13 @@ export class Sheet implements AdapterFeature {
   private edit(at: SheetCell): void {
     const owners = this.ownersOf(at);
     const owner = owners.find((o) => !this.wouldOverlap(o.key, o.cell));
+    if (!owner && owners.length === 0) {
+      this.editNew(at);
+      return;
+    }
     if (!owner) {
-      const into = owners[0] && this.wouldOverlap(owners[0].key, owners[0].cell);
-      void this.host.bridge.flash(
-        into
-          ? `Silverware Table: the table cannot grow into ${into}, which overlaps it on the sheet already: check their places (at)`
-          : "Silverware Table: a cell right of a table or below it grows that table; a new table elsewhere is to come",
-        "info",
-      );
+      const into = this.wouldOverlap(owners[0]!.key, owners[0]!.cell);
+      void this.host.bridge.flash(`Silverware Table: the table cannot grow into ${into}, which overlaps it on the sheet already: check their places (at)`, "info");
       return;
     }
     const cell = this.showCell(at);
@@ -704,6 +713,73 @@ export class Sheet implements AdapterFeature {
       this.chosen = undefined;
       this.dropCell();
     }
+  }
+
+  /**
+   * The editor in an empty cell no table grows to: what is typed there makes a
+   * table of its own (writeNew), its header above the cell (the cell on the
+   * sheet's first row: the table starts there, the value under it). Only on a
+   * sheet (a table alone has none to put it on), with the metadata setting (a
+   * sheet is metadata), where nothing is in its way.
+   */
+  private editNew(at: SheetCell): void {
+    const board = this.board;
+    if (!board) return;
+    if (!board.sheet) {
+      void this.host.bridge.flash("Silverware Table: put the table on a sheet first (Add to sheet… in its ⋯ menu) to make other tables beside it", "info");
+      return;
+    }
+    if (!this.host.metadataEnabled) {
+      void this.host.bridge.flash("Silverware Table: a table on a sheet is kept in its metadata: turn on Store table metadata in the settings first", "info");
+      return;
+    }
+    const top = Math.max(0, at.row - 1);
+    const last = [...board.tables.values()].sort((a, b) => b.range.from - a.range.from)[0];
+    const host = last && this.infoOfKey(last.key);
+    if (!last || !host) return;
+    const inWay = [...board.tables.values()].some((p) => {
+      const e = this.extent(p);
+      return at.column >= e.left && at.column <= e.right && top + 1 >= e.top && top <= e.bottom;
+    });
+    if (inWay) {
+      void this.host.bridge.flash("Silverware Table: there is no room for a new table here (its header goes above the cell)", "info");
+      return;
+    }
+    const cell = this.showCell(at);
+    if (!cell) return;
+    // The new table's key: the next after the sheet's last table, where it is written
+    this.making = { at, key: `${this.host.currentPage}#${last.range.ordinal + 1}` };
+    // The editor belongs to a table of the sheet (what the features ask of it), past its rows: nothing of it is written
+    this.host.editBeyond(this.host.widgetOf(host), host, { row: host.rows, column: 0 }, cell, (typed) => this.writeNew(at, typed));
+    if ((this.host.editing as RenderedEditor | undefined)?.cell !== cell) {
+      this.chosen = undefined;
+      this.making = undefined;
+      this.dropCell();
+    }
+  }
+
+  /**
+   * A table made of a value typed into an empty cell: `| Column 1 |`, the value
+   * under it, its name, sheet and place; written after the sheet's last table
+   * in the page. A formula is written as text (its references are the sheet's,
+   * and its table does not exist yet): said so.
+   */
+  private async writeNew(at: SheetCell, typed: string): Promise<"written" | "unchanged" | "failed"> {
+    const board = this.board;
+    if (!board?.sheet) return "failed";
+    const text = await this.host.bridge.getText();
+    const tables = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables ?? [];
+    const last = tables[tables.length - 1];
+    if (!last) return "failed";
+    if (typed.trimStart().startsWith("=")) {
+      void this.host.bridge.flash(
+        "Silverware Table: saved as text, as a formula needs its table first: edit the cell in the sheet view and remove the ' to make it a formula",
+        "info",
+      );
+    }
+    let table = parseTable(`| Column 1 |\n|---|\n| ${escapeCell(typed.trim())} |`);
+    table = withMeta(withMeta(withMetaName(table, freeName(text)), SHEET_ATTRIBUTE, board.sheet), AT_ATTRIBUTE, formatAt({ row: Math.max(0, at.row - 1), column: at.column }));
+    return this.host.insertTable(table, { key: `${this.host.currentPage}#${last.range.ordinal}`, source: last.range.text, hint: last.range.from });
   }
 
   /** The module's td over an empty cell (the one selected or edited), where that cell is now */
@@ -902,4 +978,9 @@ function sheetOf(source: string): string | undefined {
   const meta = parseTable(source).meta;
   const sheet = meta?.[SHEET_ATTRIBUTE]?.trim();
   return sheet && parseAt(meta?.[AT_ATTRIBUTE]) ? sheet : undefined;
+}
+
+/** Whether two sheet's cells are the same */
+function same(a: SheetCell, b: SheetCell): boolean {
+  return a.row === b.row && a.column === b.column;
 }

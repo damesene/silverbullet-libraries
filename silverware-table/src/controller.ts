@@ -442,9 +442,9 @@ export class Controller implements TableHost {
     if (widget && current && cell) this.cellEditor.open(widget, current, cell, how === "select" ? true : undefined, how === "replace", popup ? {} : undefined);
   }
 
-  editBeyond(widget: HTMLElement, info: WidgetInfo, at: CellRef, cell: HTMLTableCellElement): void {
+  editBeyond(widget: HTMLElement, info: WidgetInfo, at: CellRef, cell: HTMLTableCellElement, place?: (typed: string) => Promise<WriteResult>): void {
     if (at.row < info.rows && at.column < info.columns) return;
-    this.cellEditor.open(widget, info, cell, false, false, undefined, at);
+    this.cellEditor.open(widget, info, cell, false, false, undefined, at, place);
   }
 
   editInPopup(): void {
@@ -1935,6 +1935,32 @@ export class Controller implements TableHost {
     const widget = this.widgetForKey(target.key);
     const info = widget && this.infos.get(widget);
     return info && info.source === target.source ? this.writeAt(info, widget, change, options) : this.writeAt(target, undefined, change, options);
+  }
+
+  async insertTable(table: Table, after?: TableTarget): Promise<WriteResult> {
+    try {
+      const text = await this.bridge.getText();
+      const range = after && locateBySource(text, after.hint, after.source);
+      const at = range ? range.to : text.length;
+      const format = await this.setting("autoFormat");
+      const markdown = serializeTable(format ? { ...table, padded: true } : table);
+      // An empty line before it, and after it where text follows
+      const insert = `${at > 0 ? "\n\n" : ""}${markdown}${text.slice(at).startsWith("\n") || at === text.length ? "" : "\n\n"}`;
+      const replace = { from: at, to: at, insert };
+      const thens: ((editFrom: number, lengthChange: number) => void)[] = [];
+      for (const feature of this.features) {
+        const then = await feature.beforeWrite?.(text, at, at, replace);
+        if (then) thens.push(then);
+      }
+      await this.bridge.replaceRange(at, at, insert);
+      this.pageText = text.slice(0, at) + insert + text.slice(at);
+      for (const then of thens) then(at, insert.length);
+      return "written";
+    } catch (e) {
+      console.error("Silverware Table: could not write the table", e);
+      void this.bridge.flash(`Silverware Table: could not write the table (${String(e)})`, "error");
+      return "failed";
+    }
   }
 
   /** A table written where `info` says it is in the page; `widget` its table rendered, if it is */

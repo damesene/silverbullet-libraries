@@ -437,6 +437,11 @@ export interface ModelHost {
    * whether it is rendered or not: what modules write with
    */
   writeTable(target: TableTarget, change: (table: Table) => Table | undefined, options?: WriteOptions): Promise<WriteResult>;
+  /**
+   * A new table written into the page, in one edit: after the table `after`
+   * (an empty line between), else at the page's end
+   */
+  insertTable(table: Table, after?: TableTarget): Promise<WriteResult>;
   /** A table shown, by its key, as it is now (rendered anew after a write: its new info) */
   tableFor(key: string): TableInfo | undefined;
   /** The tables shown on the page */
@@ -675,9 +680,11 @@ export interface TableHost extends ModelHost {
    * Enter or Tab saves it, the table grown to hold it in the same edit (rows
    * above those pinned to the bottom, named columns left of those pinned to
    * the right), nothing written while it is empty; Esc drops it. Not while
-   * another cell is edited.
+   * another cell is edited. With `place`, the caller writes what was typed
+   * (as typed: no feature makes anything of it) instead of the table grown:
+   * a value that makes a table of its own (the sheet's far cells).
    */
-  editBeyond(widget: HTMLElement, info: WidgetInfo, at: CellRef, cell: HTMLTableCellElement): void;
+  editBeyond(widget: HTMLElement, info: WidgetInfo, at: CellRef, cell: HTMLTableCellElement, place?: (typed: string) => Promise<WriteResult>): void;
   /** A table changed its size (a column's width): what follows its layout (pinned columns' offsets, the held header, the controls, cut cells) follows */
   tableResized(info: WidgetInfo): void;
   /** Hands the keyboard back to SilverBullet's editor */

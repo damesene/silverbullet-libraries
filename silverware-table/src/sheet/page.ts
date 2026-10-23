@@ -5,7 +5,7 @@
 // kept); a sheet's own data (its columns' widths, `sheet.width.E='120'`) is in
 // its first table's metadata row, the first in the page's order.
 import { columnLetters } from "../formulas/index.ts";
-import { type PageTable, pageTablesOf, type Table, type TableRange } from "../markdown.ts";
+import { findTables, type PageTable, pageTablesOf, parseTable, type Table, type TableRange } from "../markdown.ts";
 import { metaName } from "../meta.ts";
 
 /** A cell of a sheet, from 0: row 0 is the sheet's first row (1), column 0 its column A */
@@ -105,4 +105,12 @@ export function sheetWidths(tables: readonly SheetTable[]): ReadonlyMap<number, 
 export function placeBelow(tables: readonly SheetTable[]): SheetCell {
   const bottom = Math.max(-1, ...tables.map((t) => t.at.row + t.rows - 1));
   return { row: bottom < 0 ? 0 : bottom + 2, column: 0 };
+}
+
+/** A name no table of the page has: table1, table2, … (what a table put on a sheet is offered, a new one gets) */
+export function freeName(text: string): string {
+  const names = findTables(text).map((range) => metaName(parseTable(range.text))?.toLowerCase());
+  let n = 1;
+  while (names.includes(`table${n}`)) n++;
+  return `table${n}`;
 }

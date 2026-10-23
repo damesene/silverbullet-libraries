@@ -37,6 +37,8 @@ type ActiveEditor = RenderedEditor & {
   readonly panel?: HTMLElement;
   // A cell past the table's last row or column (editBeyond): saved, the table grows to hold it
   readonly growth?: Growth;
+  // Or the caller writes what was typed (editBeyond's `place`)
+  readonly place?: (typed: string) => Promise<WriteResult>;
 };
 
 // Opened in the cell's popup: with what was typed so far (from the cell's editor) and its selection
@@ -110,6 +112,8 @@ export class CellEditing {
     popup?: PopupOptions,
     // A cell past the table's last row or column, shown by a feature's element (`cell`)
     beyond?: CellRef,
+    // What is typed there is the caller's to write (TableHost.editBeyond)
+    place?: (typed: string) => Promise<WriteResult>,
   ): void {
     const ref = beyond ?? this.host.cellRef(info, cell);
     if (!ref || this.editor) return;
@@ -180,7 +184,7 @@ export class CellEditing {
       cellStyle,
       popup: !!popup,
       ...(panel ? { panel } : {}),
-      ...(beyond ? { growth: growTo(info, beyond) } : {}),
+      ...(beyond && place ? { place } : beyond ? { growth: growTo(info, beyond) } : {}),
       get text() {
         return field.value;
       },
@@ -358,8 +362,9 @@ export class CellEditing {
     if (!active) return undefined;
     this.editor = undefined;
     for (const feature of this.context.features) feature.editorClosed?.(active);
-    // Reopening: nothing is saved, so nothing is made of what is typed (a formula fixed, announced)
-    let value = reopening ? active.field.value : this.cellValue(active);
+    // Reopening: nothing is saved, so nothing is made of what is typed (a formula fixed, announced); the caller's
+    // to write: as typed
+    let value = reopening || active.place ? active.field.value : this.cellValue(active);
     if (!reopening && active.row === 0 && withoutTags(value) === "" && active.original !== "") {
       // SilverBullet would not show a column without a name
       value = active.original;
@@ -402,6 +407,8 @@ export class CellEditing {
     // Leaving the row: sorting and filters place it (Tab within the row keeps it held)
     if (!(sameTable && next?.row === closed.row)) this.context.releaseRow();
     let result: WriteResult = "unchanged";
+    // The caller's to write (nothing typed: nothing written)
+    if (closed.place && save && closed.value.trim() !== "") result = await closed.place(closed.value);
     const growth = closed.growth;
     if (growth && changed && withoutTags(closed.value) !== "") {
       // Past the table: written with the rows and columns that reach it (nothing typed: nothing written). A cell
@@ -429,8 +436,8 @@ export class CellEditing {
     // A feature may keep a cell's edit to write it later (the lazy module); a header's name is written at once
     const info = changed && closed.row > 0 ? this.host.infoOf(closed.widget) : undefined;
     const edit = { row: closed.row, column: closed.column, original: closed.original, value: closed.value };
-    const held = !growth && !!info && this.context.features.some((f) => f.holdCellEdit?.(info, edit));
-    if (changed && !held && !growth) {
+    const held = !growth && !closed.place && !!info && this.context.features.some((f) => f.holdCellEdit?.(info, edit));
+    if (changed && !held && !growth && !closed.place) {
       result = await this.host.write(closed.widget, (t) => this.withCellEdit(t, closed), { focus: sameTable ? next : undefined });
     }
     if (next && (result === "unchanged" || !sameTable)) {

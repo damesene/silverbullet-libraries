@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { insertRow } from "../ops.ts";
 import { controller, edits, flush, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
 
@@ -133,8 +133,8 @@ describe("Sheets: a table that grows makes room on its sheet", () => {
     await setup(SHEET, { "silverware.table.metadata": true });
     // A1:B5 reaches nothing (totals starts at row 6)
     await grow(2, true);
-    await flush();
-    await flush();
+    // The table rendered anew is enhanced before the next write
+    await vi.waitFor(() => expect(controller.shownTables().length).toBeGreaterThan(0));
     expect(text).toContain("at='A6'> |");
     // A1:B7 reaches totals by 2 rows: it and notes move down 2
     await grow(2, true);
