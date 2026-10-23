@@ -2560,13 +2560,22 @@ export class Controller implements TableHost {
     return !!widget && !!now && this.openCellMenuAt(widget, now, at, point);
   }
 
-  /** A feature's own menu at a point in no table's cell; the others' menus end, as for the cell menu */
-  private openPointMenu(target: Element, point: { x: number; y: number }): boolean {
-    const taker = this.features.find((f) => f.pointMenu?.(target, point));
-    if (!taker) return false;
+  /** A feature's own menu at a point in no table's cell, and that feature; none where no feature has one */
+  private pointMenuAt(target: Element, point: { x: number; y: number }): { readonly feature: AdapterFeature; readonly open: () => void } | undefined {
+    for (const feature of this.features) {
+      const open = feature.pointMenu?.(target, point);
+      if (open) return { feature, open };
+    }
+    return undefined;
+  }
+
+  /** Opens a feature's own menu (pointMenuAt); the others' menus end, as for the cell menu */
+  private openPointMenu(menu: { readonly feature: AdapterFeature; readonly open: () => void } | undefined): boolean {
+    if (!menu) return false;
     this.tableMenu.close(false);
-    for (const feature of this.features) if (feature !== taker) feature.cellMenuOpened?.();
+    for (const feature of this.features) if (feature !== menu.feature) feature.cellMenuOpened?.();
     if (this.pressedWith === "touch") this.takePress();
+    menu.open();
     return true;
   }
 
@@ -2646,7 +2655,7 @@ export class Controller implements TableHost {
       e.stopPropagation();
       return;
     }
-    if (!hit && e.target instanceof Element && this.openPointMenu(e.target, point)) {
+    if (!hit && e.target instanceof Element && this.openPointMenu(this.pointMenuAt(e.target, point))) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -2674,14 +2683,14 @@ export class Controller implements TableHost {
     // A feature's own element in a cell (the fill handle) is no long press on the cell
     if (e.pointerType !== "touch" || (e.target instanceof Node && this.isFloating(e.target))) return;
     const hit = this.cellOfEvent(e.target);
-    // In no table's cell: a feature's own menu there, if any feature has one
-    const target = !hit && e.target instanceof Element && this.features.some((f) => f.pointMenu) ? e.target : undefined;
-    if (!hit && !target) return;
     const point = { x: e.clientX, y: e.clientY };
+    // In no table's cell: a feature's own menu there, where one has one
+    const menu = !hit && e.target instanceof Element ? this.pointMenuAt(e.target, point) : undefined;
+    if (!hit && !menu) return;
     this.stopLongPress = watchPress(this.doc.defaultView!, e, {
       longPress: () => {
         if (hit && this.tableMenu.kind !== "cell") this.openCellMenuAt(hit[0], hit[1], hit[2], point);
-        else if (target) this.openPointMenu(target, point);
+        else this.openPointMenu(menu);
       },
     });
   };

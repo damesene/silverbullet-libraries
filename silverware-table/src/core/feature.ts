@@ -1080,11 +1080,11 @@ export interface Feature {
 /** A module of the adapter (src/core/silverbullet/modules/): a module, and the hooks of the rendering */
 export interface AdapterFeature extends Feature {
   /**
-   * A menu asked for at a point in no table's cell (a right click, a long
-   * press): true when the feature opens one of its own there (the sheet's
-   * empty cells)
+   * A menu of the feature's own at a point in no table's cell (the sheet's
+   * empty cells), opened by a right click or a long press: what opens it,
+   * none where the feature has none (asked as a touch starts too)
    */
-  pointMenu?(target: Element, point: { x: number; y: number }): boolean;
+  pointMenu?(target: Element, point: { x: number; y: number }): (() => void) | undefined;
   /** The box the feature scrolls what is at `target` in, both ways (the sheet's board, its tables and empty cells) */
   scrollBox?(target: EventTarget | null): HTMLElement | undefined;
   /** The pointer is over a cell, or the page moved under it */

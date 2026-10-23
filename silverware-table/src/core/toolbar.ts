@@ -373,7 +373,15 @@ export class Toolbar {
           options: [
             { icon: ICONS.rename, title: n.naming?.label ?? n.title ?? n.label, run: () => this.showNaming(widget, anchor, n), ...(n.naming?.disabled ? { disabled: n.naming.disabled } : {}) },
             ...(clear && n.naming
-              ? [{ icon: ICONS.clear, title: clear.label, run: () => void n.naming!.save(""), ...(n.naming.name && !n.naming.disabled ? {} : { disabled: n.naming.disabled ?? n.label }) }]
+              ? [
+                  {
+                    icon: ICONS.clear,
+                    title: clear.label,
+                    // (The menu closed: a refusal said as a notification, as its field would show it)
+                    run: () => void n.naming!.save("").then((why) => why && host.bridge.flash(`Silverware Table: ${why}`, "info")),
+                    ...(n.naming.name && !n.naming.disabled ? {} : { disabled: n.naming.disabled ?? n.label }),
+                  },
+                ]
               : []),
           ],
         };

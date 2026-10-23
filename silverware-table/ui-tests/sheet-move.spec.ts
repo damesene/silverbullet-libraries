@@ -186,6 +186,17 @@ test.describe("Adding a table of the page to the sheet", () => {
     await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(2);
   });
 
+  test("Esc closes the empty cell's menu, the cell still selected and the sheet open", async ({ page }) => {
+    const rowHeight = await openPlan(page, CODES);
+    const point = await sheetPoint(page, "F", 4, rowHeight);
+    await page.mouse.click(point.x, point.y, { button: "right" });
+    await expect(page.locator(".swt-menu")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".swt-menu")).toHaveCount(0);
+    await expect(page.locator(".swt-sheet-cell")).toBeVisible();
+    await expect(page.locator(".swt-sheet-board")).toBeVisible();
+  });
+
   test("a table that would cover another there is offered disabled, its outline marked", async ({ page }) => {
     const rowHeight = await openPlan(page, CODES);
     // C1: two columns reach b at D1

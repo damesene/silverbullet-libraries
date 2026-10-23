@@ -484,6 +484,13 @@ export class Sheet implements AdapterFeature {
    */
   keyDown(e: KeyboardEvent): boolean {
     if (!this.board) return false;
+    // The empty cell's menu: Esc closes it, the cell stays selected
+    if (this.cellMenuOpen && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.closeCellMenu(true);
+      return true;
+    }
     if (this.picking && e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
@@ -584,13 +591,6 @@ export class Sheet implements AdapterFeature {
     e.preventDefault();
     const active = this.host.doc.activeElement;
     if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) this.board?.box.focus({ preventScroll: true });
-    // A right press: the empty cell selected, not edited (its menu opens on the contextmenu event, pointMenu)
-    if (e.button === 2) {
-      const at = this.cellAtPoint(e.clientX, e.clientY);
-      if (this.host.editing) void this.host.saveEditing();
-      if (at && !this.tableAt(at)) this.select(at);
-      return;
-    }
     if (this.host.editing) {
       this.pendingPress = { x: e.clientX, y: e.clientY };
       void this.host.saveEditing().then(() => this.queuePlace());
@@ -759,15 +759,24 @@ export class Sheet implements AdapterFeature {
 
   // ---- adding a table of the page ------------------------------------------------------------
 
-  /** A right click or a long press on an empty cell: it is selected, and its menu opens by the point */
-  pointMenu(target: Element, point: { x: number; y: number }): boolean {
-    if (!this.board || !this.inGrid(target)) return false;
+  /**
+   * A right click or a long press on an empty cell: it is selected, and its
+   * menu opens by the point; a cell being edited saved first (its editor is in
+   * the module's td, which the cell selected takes)
+   */
+  pointMenu(target: Element, point: { x: number; y: number }): (() => void) | undefined {
+    if (!this.board || !this.inGrid(target)) return undefined;
     const at = this.cellAtPoint(point.x, point.y);
-    if (!at || this.tableAt(at)) return false;
-    if (this.host.editing) void this.host.saveEditing();
-    this.select(at);
-    this.openCellMenu(at, point);
-    return true;
+    if (!at || this.tableAt(at)) return undefined;
+    return () => {
+      const open = () => {
+        if (!this.board || this.tableAt(at)) return;
+        this.select(at);
+        this.openCellMenu(at, point);
+      };
+      if (this.host.editing) void this.host.saveEditing().then(open);
+      else open();
+    };
   }
 
   /** The empty cell's menu, titled by its address: Add table here, a list of the page's tables in its place */
