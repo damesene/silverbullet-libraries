@@ -32,6 +32,18 @@ test.describe("Selecting cells", () => {
     await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
   });
 
+  test("Ctrl+Enter on a cell selected adds a row under it, edited in the same column, as in a cell editor", async ({ page }) => {
+    const rows = page.locator(".sb-table-widget table").first().locator("tbody tr[data-swt-row]");
+    const count = await rows.count();
+    await cell(page, 2, 1).click();
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
+    await page.keyboard.press("Control+Enter");
+    await expect(rows).toHaveCount(count + 1);
+    const field = page.locator(".swt-cell-editor");
+    await expect(field).toBeFocused();
+    expect(await field.evaluate((f) => [(f.closest("tr") as HTMLTableRowElement).dataset.swtRow, (f.closest("td") as HTMLTableCellElement).cellIndex])).toEqual(["3", 1]);
+  });
+
   test("Enter in the last row's cell editor adds a row under it, edited in the same column", async ({ page }) => {
     const rows = page.locator(".sb-table-widget table").first().locator("tbody tr[data-swt-row]");
     const count = await rows.count();

@@ -80,7 +80,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Delete** empties the selected cells, formulas included, as one edit (Ctrl+Z brings them back). Header cells keep their names: a column needs one. Names of rows and cells stay with their cells.
 * **Delete whole rows or columns**: select them (click a row's or column's grip; for more, Shift+click another grip, see [[#Rows and columns]]), then Delete: the first press empties them, a second deletes the rows (columns) once they are empty. A column is deleted only when it is empty in every row, also the rows a filter hides. *Delete N rows* and *Delete N columns* in the cell menu or the grip menu delete them right away.
 * **Ctrl+Alt+arrows** move the rows of the selection up / down (PageUp / PageDown: 10 places) or its columns left / right (Home / End: to the start / end), together, as one edit; the selection goes with them. Rows do not move while the table is sorted or filtered, nor with the header selected; pinned and unpinned rows (columns) do not move together.
-* Typing, Enter or F2 edits the first cell selected (see [[#Editing cells]]).
+* Typing, Enter or F2 edits the first cell selected (see [[#Editing cells]]). **Ctrl+Enter** adds a row under the cell selected and edits it in the same column, as in a cell editor (with the *Ctrl+Enter adds a row* setting; off, it edits the cell, as Enter does).
 * Esc or a click elsewhere ends the selection.
 * **Copy as CSV** in the ⋯ menu of the table's toolbar (the `export` module) copies the whole table as CSV (commas between cells, quotes where a cell needs them): its header and its rows as shown, sorted and filtered, cells as Ctrl+C copies them.
 * **Export to Excel…** in the same menu: see [[#Excel]].

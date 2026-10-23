@@ -303,6 +303,14 @@ export class Selection implements Feature {
       this.clear();
       return true;
     }
+    // Ctrl+Enter: a row added under the cell selected and edited in its column, as in a cell editor (the
+    // ctrlEnterAddsRow setting; off, as Enter: the cell edited)
+    if (e.key === "Enter" && e.ctrlKey && !inField && !e.altKey && !e.shiftKey && !e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.ctrlEnter();
+      return true;
+    }
     // Tab / Shift+Tab: the next / previous cell, along the row and on to the next (as in a cell editor)
     if (e.key === "Tab" && !inField && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
@@ -415,6 +423,20 @@ export class Selection implements Feature {
     else if (e.key === "PageDown" && !ctrl) r = r + PAGE_ROWS;
     else return undefined;
     return { row: order[Math.max(0, Math.min(order.length - 1, r))]!, column: Math.max(0, Math.min(info.columns - 1, column)) };
+  }
+
+  /** Ctrl+Enter on a selection: a row under its last cell's, that cell's column edited there (the setting off: the cell edited) */
+  private async ctrlEnter(): Promise<void> {
+    const selection = this.selection;
+    const info = selection && this.host.tableFor(selection.key);
+    if (!selection || !info) return;
+    const at = selection.focus;
+    this.clear();
+    if (!(await this.host.setting("ctrlEnterAddsRow"))) {
+      this.host.editCell(info, at);
+      return;
+    }
+    await insertRowWith(this.host, info, at.row + 1, at.column, (t) => t, { after: at.row });
   }
 
   /**
