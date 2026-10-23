@@ -103,9 +103,11 @@ describe("the types", () => {
     expect([show("check", "☑"), show("check", "☐"), show("check", "✅"), show("check", "❌")]).toEqual(["☑", "☐", "☑", "☐"]);
     expect(check("check", "maybe")).toBe('"maybe" is not yes, no or a number');
     expect(type("check").sortValue!("yes", paramsOf("check"))).toBe("1");
-    expect([show("trend", "+"), show("trend", "-"), show("trend", "=")]).toEqual(["🔼", "🔽", "➡️"]);
+    expect([show("trend", "+"), show("trend", "-"), show("trend", "=")]).toEqual(["↑", "↓", "="]);
     // A number by its sign; the list offers only +, - and =
-    expect([show("trend", "3"), show("trend", "+2,5 %"), show("trend", "-0.1"), show("trend", "0")]).toEqual(["🔼", "🔼", "🔽", "➡️"]);
+    expect([show("trend", "3"), show("trend", "+2,5 %"), show("trend", "-0.1"), show("trend", "0")]).toEqual(["↑", "↑", "↓", "="]);
+    // The arrows shown read as what they show
+    expect([show("trend", "↑"), show("trend", "↓")]).toEqual(["↑", "↓"]);
     expect(check("trend", "up")).toBe('"up" is not +, -, = or a number');
     expect(type("trend").choices!(paramsOf("trend")).map((c) => c.value)).toEqual(["+", "-", "="]);
     // #check: a number above 0 is yes, 0 or below no; not in its list either
