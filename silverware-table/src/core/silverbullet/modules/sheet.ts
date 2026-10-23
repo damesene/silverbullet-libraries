@@ -85,6 +85,9 @@ type Board = {
   widths: ReadonlyMap<number, number>;
   // A column's width while it is dragged (AddressFrame.previewColumnWidth), by column
   readonly preview: Map<number, number>;
+  // How far the grid reaches (its content's size), which only grows while the board is shown: a column widened by
+  // an edit would otherwise need fewer empty ones after it, and the scrollbars would jump with each write
+  reach: { width: number; height: number };
 };
 
 export class Sheet implements AdapterFeature {
@@ -220,7 +223,7 @@ export class Sheet implements AdapterFeature {
     content.className = "swt-sheet-content";
     content.append(this.columnLines);
     box.append(content);
-    const board: Board = { sheet: sheetOf(info.source), alone: info.key, box, content, tables: new Map(), widths: new Map(), preview: new Map() };
+    const board: Board = { sheet: sheetOf(info.source), alone: info.key, box, content, tables: new Map(), widths: new Map(), preview: new Map(), reach: { width: 0, height: 0 } };
     this.board = board;
     claimWindow(this.host, this);
     box.addEventListener("scroll", () => this.queuePlace());
@@ -1232,13 +1235,20 @@ export class Sheet implements AdapterFeature {
     const viewWidth = box.clientWidth;
     const viewHeight = box.clientHeight;
     // Columns' left edges, as far as the tables go and the view (and more) needs
+    // As far as the view needs, and as far as it reached before: the grid never shrinks while it is shown, nor grows
+    // for a column widened (only for the view's need), so the scrollbars stay as they are through writes
+    const needed = box.scrollLeft + viewWidth + COLUMNS_BEYOND * COLUMN_WIDTH;
     const lefts = [0];
-    for (let c = 0; c <= lastColumn || lefts[c]! < box.scrollLeft + viewWidth + COLUMNS_BEYOND * COLUMN_WIDTH; c++) lefts.push(lefts[c]! + this.columnWidth(c));
+    for (let c = 0; c <= lastColumn || lefts[c]! < needed; c++) lefts.push(lefts[c]! + this.columnWidth(c));
+    while (lefts[lefts.length - 1]! < board.reach.width) lefts.push(lefts[lefts.length - 1]! + this.columnWidth(lefts.length - 1));
     const rows = Math.max(lastRow + 1 + ROWS_BEYOND, Math.ceil((box.scrollTop + viewHeight) / rowHeight) + ROWS_BEYOND);
+    const tablesWidth = lefts[lastColumn + 1]!;
     this.grid = { lefts, rowHeight };
+    // (Not to a column's edge: a column widened would move it; past the tables, the view's need as it is)
+    board.reach = { width: Math.max(board.reach.width, tablesWidth, Math.ceil(needed)), height: Math.max(board.reach.height, rows * rowHeight) };
 
-    content.style.width = `${lefts[lefts.length - 1]}px`;
-    content.style.height = `${rows * rowHeight}px`;
+    content.style.width = `${board.reach.width}px`;
+    content.style.height = `${board.reach.height}px`;
     box.style.setProperty("--swt-sheet-row", `${rowHeight}px`);
     // The tables: their columns the sheet's widths, at their places
     for (const placed of tables) {

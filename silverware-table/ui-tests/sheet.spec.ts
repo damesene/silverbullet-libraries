@@ -874,6 +874,31 @@ test("the controls of the table clicked do not stay over the sheet or the full s
   }
 });
 
+test("the sheet's scrollbars stay as they are through writes that widen a column", async ({ page }) => {
+  const rows = Array.from({ length: 60 }, (_, i) => `| item ${i} | ${i} | note ${i} |`).join("\n");
+  await page.locator("#source").fill(`# Test\n\n| Name | A | Note |\n|---|---|---|\n${rows}\n`);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(60);
+  await hoverCell(page, cell(page, 1, 0));
+  await (await tableIcon(page, "Sheet view")).click();
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  await expect(drawn).toBeVisible();
+  const board = page.locator(".swt-sheet-board");
+  await board.evaluate((b) => {
+    b.scrollTop = 400;
+    b.scrollLeft = 30;
+  });
+  const size = () => board.evaluate((b) => [b.scrollTop, b.scrollLeft, b.scrollWidth, b.scrollHeight]);
+  await expect.poll(size).toEqual([400, 30, expect.any(Number), expect.any(Number)]);
+  const before = await size();
+  await drawn.locator("tr[data-swt-row='15'] > td").nth(1).dblclick();
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.type(`a much longer value than before ${i}`);
+    await sheetRendersAnew(page, () => page.keyboard.press("Tab"));
+    expect(await size()).toEqual(before);
+  }
+});
+
 test.describe("Pins on the sheet", () => {
   // A table on a sheet, at B2, its first row pinned to the top, its last (Total) to the bottom, its first column left
   const rows = Array.from({ length: 30 }, (_, i) => `| item ${i} | ${i} | ${i * 2} |`).join("\n");
