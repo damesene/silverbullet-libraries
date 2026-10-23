@@ -24,6 +24,7 @@ import { CONFIG_PAGE, withConfigSettings } from "./configpage.ts";
 import { SettingsDialog } from "./settings.ts";
 import { Metadata } from "./features/metadata.ts";
 import { featureEntries } from "./modules.ts";
+import { moduleHost } from "./core/modulehost.ts";
 import {
   caretTextOffset,
   cellText,
@@ -335,14 +336,17 @@ export class Controller implements TableHost {
    * page is loaded again.
    */
   private async startFeatures(): Promise<void> {
-    const all = featureEntries(this, this.metadata);
+    const all = featureEntries(this.metadata);
     const enabled = await Promise.all(all.map(({ name }) => (name ? this.featureEnabled(name) : true)));
     if (this.stopped) return;
     all.forEach(({ name }, i) => {
       if (name && enabled[i]) this.modulesOn.add(name);
     });
     // A module with parts for tables as one feature: its hooks about a table go to that table's part
-    const features = all.filter((_, i) => enabled[i]).map(({ create }) => this.parts.routed(create()));
+    // Each module with a host of its own (one per name: the sheet's two parts share theirs)
+    const hosts = new Map<FeatureName, TableHost>();
+    const hostOf = (name: FeatureName) => hosts.get(name) ?? hosts.set(name, moduleHost<TableHost>(this)).get(name)!;
+    const features = all.filter((_, i) => enabled[i]).map(({ name, create }) => this.parts.routed(create(name ? hostOf(name) : this)));
     this.features.push(...features);
     for (const feature of features) feature.start?.();
   }

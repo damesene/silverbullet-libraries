@@ -4,7 +4,7 @@ The decisions behind it are in CLAUDE.md, *Modules and their data*. Stored markd
 
 ## Status
 
-Not started.
+Step 1 done (a host per module).
 
 ## The format
 

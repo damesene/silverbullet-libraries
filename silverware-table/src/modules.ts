@@ -29,49 +29,52 @@ import { TableLabels } from "./core/silverbullet/modules/labels.ts";
 import { Themes } from "./features/themes.ts";
 import { Widths } from "./features/widths.ts";
 
-/** A feature to create: a module (by its name), or one always there (no name) */
-export type FeatureEntry = { readonly name: FeatureName | undefined; readonly create: () => AdapterFeature };
+/**
+ * A feature to create: a module (by its name), or one always there (no name);
+ * made with its host: a module's its own (core/modulehost.ts), the core's for the others
+ */
+export type FeatureEntry = { readonly name: FeatureName | undefined; readonly create: (host: TableHost) => AdapterFeature };
 
 /** The features in the order they get events; `metadata` is the controller's own (Remove metadata, also a page command) */
-export function featureEntries(host: TableHost, metadata: Feature): readonly FeatureEntry[] {
-  const optional = (name: FeatureName, create: () => AdapterFeature): FeatureEntry => ({ name, create });
-  const always = (create: () => AdapterFeature): FeatureEntry => ({ name: undefined, create });
+export function featureEntries(metadata: Feature): readonly FeatureEntry[] {
+  const optional = (name: FeatureName, create: (host: TableHost) => AdapterFeature): FeatureEntry => ({ name, create });
+  const always = (create: (host: TableHost) => AdapterFeature): FeatureEntry => ({ name: undefined, create });
   return [
     // First: the header moves before what follows it
-    optional("sticky", () => new Sticky(host)),
+    optional("sticky", (host) => new Sticky(host)),
     // Before what takes presses: a press while picking where AutoFill to… fills to ends picking (or fills) first;
     // before the selection too: Esc while dragging the fill handle cancels the fill, the selection stays
-    optional("autofill", () => new AutoFill(host)),
-    optional("autoscroll", () => new Autoscroll(host)),
-    optional("handles", () => new Grips(host)),
-    optional("widths", () => new Widths(host)),
-    optional("longText", () => new LongText(host)),
+    optional("autofill", (host) => new AutoFill(host)),
+    optional("autoscroll", (host) => new Autoscroll(host)),
+    optional("handles", (host) => new Grips(host)),
+    optional("widths", (host) => new Widths(host)),
+    optional("longText", (host) => new LongText(host)),
     // Before what places rows into the table: it takes them out of the document first
-    optional("largeTables", () => new LargeTables(host)),
+    optional("largeTables", (host) => new LargeTables(host)),
     // Recalculate first in the toolbar
-    optional("formulas", () => new Formulas(host)),
-    optional("pageLinks", () => new PageLinks(host)),
+    optional("formulas", (host) => new Formulas(host)),
+    optional("pageLinks", (host) => new PageLinks(host)),
     // Before types: Filter right after the sorting in the column menu
-    optional("filters", () => new Filters(host)),
+    optional("filters", (host) => new Filters(host)),
     // After formulas: a formula's result is shown in its column's type
-    optional("columnTypes", () => new ColumnTypes(host)),
-    optional("names", () => new Names(host)),
+    optional("columnTypes", (host) => new ColumnTypes(host)),
+    optional("names", (host) => new Names(host)),
     always(() => metadata),
-    optional("paste", () => new Paste(host)),
-    optional("selection", () => new Selection(host)),
-    optional("lazy", () => new Lazy(host)),
-    optional("themes", () => new Themes(host)),
-    optional("export", () => new Export(host)),
-    optional("excel", () => new Excel(host)),
-    optional("sheet", () => new Sheet(host)),
+    optional("paste", (host) => new Paste(host)),
+    optional("selection", (host) => new Selection(host)),
+    optional("lazy", (host) => new Lazy(host)),
+    optional("themes", (host) => new Themes(host)),
+    optional("export", (host) => new Export(host)),
+    optional("excel", (host) => new Excel(host)),
+    optional("sheet", (host) => new Sheet(host)),
     // Its part in a table's menu: Add to sheet…, Remove from sheet
-    optional("sheet", () => new Sheets(host)),
+    optional("sheet", (host) => new Sheets(host)),
     // Its icon last in the toolbar, before the menu
-    optional("fullScreen", () => new FullScreen(host)),
+    optional("fullScreen", (host) => new FullScreen(host)),
     // After what moves tables (the held header, the sheet): placed by where they are then
-    optional("tableLabels", () => new TableLabels(host)),
-    always(() => new Expressions(host)),
-    always(() => new History(host)),
-    always(() => new CellPopup(host)),
+    optional("tableLabels", (host) => new TableLabels(host)),
+    always((host) => new Expressions(host)),
+    always((host) => new History(host)),
+    always((host) => new CellPopup(host)),
   ];
 }
