@@ -1565,7 +1565,9 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 .sb-table-widget.swt-sticky-native tfoot,
 .sb-table-widget.swt-sticky-native tfoot.swt-stuck {
   position: sticky;
-  bottom: 0;
+  /* The view's bottom: less the scrolling box's bottom padding, which sticky positioning leaves out (the script:
+     --swt-sticky-bottom; SilverBullet's scroller has 360px) */
+  bottom: var(--swt-sticky-bottom, 0px);
   z-index: 3;
 }
 /* A table laid over the window (full screen, swt-sticky-box): it scrolls in

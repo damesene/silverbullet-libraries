@@ -1,6 +1,25 @@
 // The header held at the top of the page's view as a long table scrolls past
 import { expect, table, test } from "./playground.ts";
 
+test.describe("Rows pinned to the bottom", () => {
+  test("a scroller with a bottom padding (as SilverBullet's, to scroll past the end): the row at the table's bottom while it is in view", async ({ page }) => {
+    await page.addStyleTag({ content: ".cm-scroller { padding-bottom: 360px !important; }" });
+    // Low in the view: within its bottom 360px, which the padding takes from sticky positioning
+    const filler = Array.from({ length: 6 }, (_, i) => `Line ${i + 1} of text above the table.`).join("\n\n");
+    await page.locator("#source").fill(`# T\n\n${filler}\n\n| Customer | Bags |\n|---|--:|\n| A | 6 |\n| B | 2 |\n| Total | 8 |\n| <meta pin-bottom='1'> |\n\nMore text.\n`);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(3);
+    const at = await table(page).evaluate((w) => {
+      const t = w.querySelector("table")!;
+      return { table: t.getBoundingClientRect().bottom, foot: t.tFoot!.getBoundingClientRect().bottom, view: document.querySelector(".cm-scroller")!.getBoundingClientRect().bottom };
+    });
+    // (The table wholly in view, its bottom within the view's bottom 360px)
+    expect(at.table).toBeLessThan(at.view);
+    expect(at.table).toBeGreaterThan(at.view - 360);
+    expect(Math.round(at.foot)).toBe(Math.round(at.table));
+  });
+});
+
 test.describe("The held header", () => {
   test("a table near the page's top: its header where the table starts, the page not scrolled, its first row not covered", async ({ page }) => {
     await page.locator("#source").fill("Intro\n| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 |\n\nText under.\n");

@@ -44,6 +44,11 @@ export class Sticky implements AdapterFeature {
       if (native) {
         const top = `${gap}px`;
         if (widget.style.getPropertyValue("--swt-sticky-top") !== top) widget.style.setProperty("--swt-sticky-top", top);
+        // The rows pinned to the bottom held at the view's bottom: a sticky element keeps within its scrolling box
+        // less the box's padding, and SilverBullet's scroller has one at its bottom (to scroll past the page's end):
+        // `bottom: 0` was that far above the view's bottom, and a table wholly in view had them pushed to its top
+        const bottom = `${-this.paddingBottom(widget)}px`;
+        if (widget.style.getPropertyValue("--swt-sticky-bottom") !== bottom) widget.style.setProperty("--swt-sticky-bottom", bottom);
       }
       if (native || overWindow) {
         const table = info.table.getBoundingClientRect();
@@ -79,6 +84,16 @@ export class Sticky implements AdapterFeature {
       head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
       head.classList.toggle("swt-stuck", offset > 0);
     }
+  }
+
+  /** The bottom padding of the box the table's sticky rows keep within: its nearest scrolling ancestor */
+  private paddingBottom(widget: HTMLElement): number {
+    const win = this.host.doc.defaultView!;
+    for (let e = widget.parentElement; e; e = e.parentElement) {
+      const style = win.getComputedStyle(e);
+      if (/(auto|scroll|overlay)/.test(style.overflowY)) return parseFloat(style.paddingBottom) || 0;
+    }
+    return 0;
   }
 
   /**
