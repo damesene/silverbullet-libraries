@@ -401,3 +401,8 @@ other pages on a sheet.
   Tab / Shift+Tab move the cell selected (select mode) as in a cell editor;
   Enter on the last row adds a row with *Save, edit the cell below* (agreed
   with the user: only with that setting).
+  Pins on the sheet are held per table (agreed with the user): the header with
+  the rows pinned to the top at the board's top, the rows pinned to the bottom
+  at its bottom, pinned columns at its sides, while the table is in view and
+  never past it (the table's box clipped, `overflow: clip`, so the browser's
+  sticky positioning goes against the board).
