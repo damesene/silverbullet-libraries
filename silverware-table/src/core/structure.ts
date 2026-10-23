@@ -144,16 +144,25 @@ export function deleteRowAt(host: ModelHost, info: TableInfo, row: number): Prom
 }
 
 /** Deletes rows (of the markdown; the header is not one of them), as one edit */
-export function deleteRowsAt(host: ModelHost, info: TableInfo, rows: readonly number[]): Promise<WriteResult> {
+export async function deleteRowsAt(host: ModelHost, info: TableInfo, rows: readonly number[]): Promise<WriteResult> {
   const doomed = [...new Set(rows.filter((r) => r > 0))].sort((a, b) => b - a);
-  if (doomed.length === 0) return Promise.resolve("unchanged");
+  if (doomed.length === 0) return "unchanged";
   // From the last up: the rows above keep their places, the pins count down zone by zone
   let pins = info.pins;
   doomed.forEach((row, i) => (pins = deleteRowPins(pins, info.rows - i, row)));
-  return host.writeTable(info, (t) => doomed.reduce((table, row) => deleteRow(table, row), t), {
+  const written = await host.writeTable(info, (t) => doomed.reduce((table, row) => deleteRow(table, row), t), {
     pins,
     rowMap: (r) => (doomed.includes(r) ? undefined : r - doomed.filter((d) => d < r).length),
   });
+  // Where they were, the row that came up selected whole (else the last; none left: the header), as a spreadsheet's
+  // selection stays: the keyboard goes on from there
+  if (written === "written" && host.selectsCells()) {
+    // (Rows of the markdown, the header among them)
+    const left = info.rows - doomed.length;
+    const row = left <= 1 ? 0 : Math.min(doomed[doomed.length - 1]!, left - 1);
+    host.selectCells(info, { row, column: 0 }, { row, column: info.columns - 1 });
+  }
+  return written;
 }
 
 /** Moves a row, within its zone when pinned, outside the zones when not */
@@ -272,10 +281,16 @@ export async function deleteColumnsAt(host: ModelHost, info: TableInfo, columns:
   }
   let pins = info.pins;
   doomed.forEach((column, i) => (pins = deleteColumnPins(pins, info.columns - i, column)));
-  return host.writeTable(info, (t) => doomed.reduce((table, column) => deleteColumn(table, column), t), {
+  const written = await host.writeTable(info, (t) => doomed.reduce((table, column) => deleteColumn(table, column), t), {
     columnMap: (c) => (doomed.includes(c) ? undefined : c - doomed.filter((d) => d < c).length),
     pins,
   });
+  // Where they were, the column that came left selected whole (else the last), as for rows
+  if (written === "written" && host.selectsCells()) {
+    const column = Math.min(doomed[doomed.length - 1]!, info.columns - doomed.length - 1);
+    host.selectCells(info, { row: 0, column }, { row: info.rows - 1, column });
+  }
+  return written;
 }
 
 export function moveColumnTo(host: ModelHost, info: TableInfo, from: number, asked: number): Promise<WriteResult> {

@@ -144,6 +144,12 @@ test.describe("Deleting a table on the sheet", () => {
     await page.keyboard.press("Delete");
     await expect.poll(() => markdown(page)).not.toContain("City");
     await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(1);
+    // Its cell (D1) selected where it was, the keyboard going on from there
+    const empty = page.locator(".swt-sheet-cell");
+    await expect(empty).toBeVisible();
+    const d1 = (await empty.boundingBox())!;
+    await page.keyboard.press("ArrowDown");
+    await expect.poll(async () => Math.round((await empty.boundingBox())!.y)).toBeGreaterThan(Math.round(d1.y));
   });
 });
 

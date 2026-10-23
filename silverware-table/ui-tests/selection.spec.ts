@@ -1,4 +1,4 @@
-import { cell, drag, expect, markdown, markTable, settled, test } from "./playground.ts";
+import { cell, drag, expect, header, markdown, markTable, settled, test } from "./playground.ts";
 
 test.describe("Selecting cells", () => {
   test("a drag selects the cells, with a band on each side of the edge to drag them by", async ({ page }) => {
@@ -81,5 +81,53 @@ test.describe("Selecting cells", () => {
     await settled(page);
     await expect(page.locator("table[data-test-old]")).toHaveCount(1);
     expect(await markdown(page)).toBe(before);
+  });
+});
+
+test.describe("The selection after deleting", () => {
+  const PAGE = "# Test\n\n| A | B |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |\n";
+
+  test("rows deleted with Delete: the row that came up is selected whole, the keyboard going on from there", async ({ page }) => {
+    await page.locator("#source").fill(PAGE);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(cell(page, 3, 1)).toHaveText("z");
+    await drag(page, cell(page, 2, 0), cell(page, 2, 1));
+    await page.keyboard.press("Delete");
+    await expect.poll(() => markdown(page)).toMatch(/\| 1 +\| x +\|\n\| +\| +\|\n/);
+    await expect(cell(page, 2, 0)).toHaveText("");
+    await page.keyboard.press("Delete");
+    await expect.poll(() => markdown(page)).not.toContain("| 2 |");
+    // Row 2 is now 3's, selected whole
+    await expect(cell(page, 2, 0)).toHaveText("3");
+    await expect(page.locator(".swt-selected")).toHaveCount(2);
+    await expect(cell(page, 2, 0)).toHaveClass(/swt-selected/);
+    // (One cell selected from there: the row above's)
+    await page.keyboard.press("ArrowUp");
+    await expect(page.locator('tr[data-swt-row="1"] > td.swt-selected')).toHaveCount(1);
+    await expect(page.locator(".swt-selected")).toHaveCount(1);
+  });
+
+  test("the last row deleted: the row above it, now last, is selected whole", async ({ page }) => {
+    await page.locator("#source").fill(PAGE);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(cell(page, 3, 1)).toHaveText("z");
+    await drag(page, cell(page, 3, 0), cell(page, 3, 1));
+    await page.keyboard.press("Delete");
+    await expect(cell(page, 3, 0)).toHaveText("");
+    await page.keyboard.press("Delete");
+    await expect.poll(() => markdown(page)).not.toContain("| 3 |");
+    await expect(page.locator('tr[data-swt-row="2"] > td.swt-selected')).toHaveCount(2);
+  });
+
+  test("a column deleted: the column that came left is selected whole", async ({ page }) => {
+    await page.locator("#source").fill("# Test\n\n| A | B | C |\n|---|---|---|\n| 1 | | x |\n| 2 | | y |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(cell(page, 2, 2)).toHaveText("y");
+    await drag(page, header(page, 1), cell(page, 2, 1));
+    await page.keyboard.press("Delete");
+    await expect.poll(() => markdown(page)).not.toContain("| B |");
+    await expect(header(page, 1)).toHaveText(/C/);
+    await expect(page.locator(".swt-selected")).toHaveCount(3);
+    await expect(cell(page, 1, 1)).toHaveClass(/swt-selected/);
   });
 });

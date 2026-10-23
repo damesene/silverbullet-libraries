@@ -1051,7 +1051,10 @@ export class Selection implements Feature {
     // Every row's cells, also the rows a filter hides: their data would go too
     if (wholeColumns && columns.length === info.columns && table.rows.every((r, row) => row === 0 || r.cells.every((_, column) => empty(row, column)))) {
       this.clear();
-      await this.host.deleteTable(info, { unasked: true });
+      // Laid out on a grid (the sheet): its cell where the table was selected, the keyboard going on from there
+      const frame = this.host.addressFrame(info);
+      const origin = frame?.origin;
+      if ((await this.host.deleteTable(info, { unasked: true })) === "written" && frame && origin) frame.selectCell(origin);
       return;
     }
     if (wholeRows && body.every((row) => columns.every((column) => empty(row, column)))) {

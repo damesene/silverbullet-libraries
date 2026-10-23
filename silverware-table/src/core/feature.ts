@@ -78,6 +78,8 @@ export type AddressFrame = {
   previewPlace(at: CellRef | undefined): void;
   /** The table put with its header's first cell at `at`, in one edit; where it cannot go, nothing written and said why */
   moveTo(at: CellRef): Promise<WriteResult>;
+  /** The frame's cell at `at` selected, a table's or none's (where a table deleted was: the keyboard goes on there) */
+  selectCell(at: CellRef): void;
 };
 
 /** What a cell shows in place of what its markdown renders to: a text, or a link (opened in a new tab) */

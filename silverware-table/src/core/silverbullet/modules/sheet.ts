@@ -947,6 +947,13 @@ export class Sheet implements AdapterFeature {
       placeProblem: (at) => this.placeProblemOf(info.key, at),
       previewPlace: (at) => this.previewPlace(info.key, at),
       moveTo: (at) => this.moveTable(info.key, at),
+      // (Once the board follows the page: a table deleted is still on it until then)
+      selectCell: (at) =>
+        void this.refresh().then(() => {
+          if (this.board !== board) return;
+          board.box.focus({ preventScroll: true });
+          this.go(at, false);
+        }),
     };
   }
 
