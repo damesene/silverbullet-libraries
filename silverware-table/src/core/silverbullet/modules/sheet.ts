@@ -28,7 +28,7 @@
 // SilverBullet's navigation. Formulas of the board's tables read in the
 // sheet's addresses (addressFrame): a reference is to a record, so sorting a
 // table changes the address shown, not the value.
-import { CELL_MENU_ORDER, type AdapterFeature, type AddressFrame, type CellArea, type CellMenuGroup, type CellRef, type RenderedEditor, type TableHost, type TableInfo, type ToolbarButton, type WidgetInfo, type WriteResult } from "../../feature.ts";
+import { CELL_MENU_ORDER, type AdapterFeature, type AddressFrame, type CellArea, type CellEditor, type CellMenuGroup, type CellRef, type RenderedEditor, type TableHost, type TableInfo, type ToolbarButton, type WidgetInfo, type WriteResult } from "../../feature.ts";
 import { oncePerFrame } from "../../frame.ts";
 import { claimWindow, releaseWindow } from "../../overwindow.ts";
 import { DRAWN_CLASS, STAND_IN_CLASS, UI_CLASS } from "../../../dom.ts";
@@ -38,6 +38,7 @@ import { ICONS } from "../../../icons.ts";
 import { escapeCell, findTables, parseTable, type Table, type TableRange } from "../../../markdown.ts";
 import { metaName, sameTableName, withMeta, withMetaName } from "../../../meta.ts";
 import { AT_ATTRIBUTE, formatAt, freeName, freeSheetName, parseAt, SHEET_ATTRIBUTE, SHEET_WIDTH_PREFIX, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { parseClipboardCells } from "../../../paste.ts";
 import { placeProblem, roomFor } from "../../../sheet/layout.ts";
 import { watchPress } from "../../press.ts";
 import { growTo } from "../../structure.ts";
@@ -1153,17 +1154,8 @@ export class Sheet implements AdapterFeature {
    * exist yet), said so.
    */
   private async writeNew(at: SheetCell, typed: string, key: TableKey | undefined): Promise<"written" | "unchanged" | "failed"> {
-    const board = this.board;
-    if (!board) return "failed";
+    if (!this.board) return "failed";
     const text = await this.host.bridge.getText();
-    // A table alone: put on a sheet with it, at A1, named (a formula refers to another table by its name)
-    const keys = this.host.tableKeys(this.host.currentPage, text);
-    const alone = board.sheet ? undefined : findTables(text)[keys.indexOf(board.alone)];
-    const sheet = board.sheet ?? freeSheetName(text);
-    const aloneName = alone && (metaName(parseTable(alone.text)) ?? freeName(text));
-    const ranges = findTables(text);
-    const last = ranges[ranges.length - 1];
-    if (!last) return "failed";
     const trimmed = typed.trim();
     const value = trimmed.startsWith("'=") ? trimmed.slice(1) : trimmed;
     if (!trimmed.startsWith("'=") && isFormulaInput(trimmed)) {
@@ -1172,8 +1164,26 @@ export class Sheet implements AdapterFeature {
         "info",
       );
     }
-    let table = parseTable(`| Column 1 |\n|---|\n| ${escapeCell(value)} |`);
-    table = withMeta(withMeta(withMetaName(table, freeName(text, aloneName ? [aloneName] : [])), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, formatAt({ row: Math.max(0, at.row - 1), column: at.column }));
+    return this.insertNew(text, parseTable(`| Column 1 |\n|---|\n| ${escapeCell(value)} |`), { row: Math.max(0, at.row - 1), column: at.column }, key);
+  }
+
+  /**
+   * A new table at `at` on the board's sheet: named, its sheet and place in its
+   * metadata, written after the page's last table, with `key`. A table alone's
+   * board becomes a sheet with it (the table at A1, named), in the same edit.
+   */
+  private async insertNew(text: string, made: Table, at: SheetCell, key: TableKey | undefined): Promise<"written" | "unchanged" | "failed"> {
+    const board = this.board;
+    if (!board) return "failed";
+    // A table alone: put on a sheet with it, at A1, named (a formula refers to another table by its name)
+    const keys = this.host.tableKeys(this.host.currentPage, text);
+    const alone = board.sheet ? undefined : findTables(text)[keys.indexOf(board.alone)];
+    const sheet = board.sheet ?? freeSheetName(text);
+    const aloneName = alone && (metaName(parseTable(alone.text)) ?? freeName(text));
+    const ranges = findTables(text);
+    const last = ranges[ranges.length - 1];
+    if (!last) return "failed";
+    const table = withMeta(withMeta(withMetaName(made, freeName(text, aloneName ? [aloneName] : [])), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, formatAt(at));
     const also = alone && {
       target: { key: board.alone, source: alone.text, hint: alone.from },
       change: (t: Table) => withMeta(withMeta(withMetaName(t, aloneName!), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, "A1"),
@@ -1185,6 +1195,56 @@ export class Sheet implements AdapterFeature {
       void this.host.bridge.flash(`Silverware Table: the table and the new one are on the sheet ${sheet} now (Ctrl+Z undoes it)`, "info");
     }
     return result;
+  }
+
+  /**
+   * Cells pasted into an empty cell no table grows to (Ctrl+V on it selected,
+   * or into its editor), from a spreadsheet or a table: a table of their own,
+   * its top left at the cell, their first row its header (one row: the body,
+   * under Column 1…), as a spreadsheet pastes them there. A single value goes
+   * into the field, as typed.
+   */
+  editorPaste(editor: CellEditor, text: string): boolean {
+    const making = this.making;
+    if (!editor.placed || !making || !this.cell || !same(making.at, this.cell.at)) return false;
+    const data = parseClipboardCells(text);
+    if (!data) return false;
+    void this.pasteNew(making.at, data);
+    return true;
+  }
+
+  private async pasteNew(at: SheetCell, data: readonly (readonly string[])[]): Promise<void> {
+    const board = this.board;
+    if (!board) return;
+    const columns = Math.max(...data.map((row) => row.length));
+    const header = data.length > 1 ? data[0]! : [];
+    const body = data.length > 1 ? data.slice(1) : data;
+    const rows = body.length + 1;
+    const inWay = [...board.tables.values()].find((p) => {
+      const e = this.extent(p);
+      return at.column + columns - 1 >= e.left && at.column <= e.right && at.row + rows - 1 >= e.top && at.row <= e.bottom;
+    });
+    // The editor opened for the paste goes, nothing of it written
+    this.host.takeEditor();
+    this.making = undefined;
+    if (inWay) {
+      // (The cell stays selected)
+      this.go(at, false);
+      const name = metaName(parseTable(inWay.range.text));
+      void this.host.bridge.flash(`Silverware Table: there is no room here for the ${rows} rows and ${columns} columns pasted: they would cover ${name ?? `the table at ${formatAt(inWay.at)}`}`, "info");
+      return;
+    }
+    // The table takes the cell's place
+    this.unselect();
+    const line = (cells: readonly string[], blank: (c: number) => string) =>
+      `| ${Array.from({ length: columns }, (_, c) => escapeCell((cells[c] ?? "").trim()) || blank(c)).join(" | ")} |`;
+    const markdown = [
+      line(header, (c) => `Column ${c + 1}`),
+      `|${"---|".repeat(columns)}`,
+      ...body.map((cells) => line(cells, () => "")),
+    ].join("\n");
+    const result = await this.insertNew(await this.host.bridge.getText(), parseTable(markdown), at, undefined);
+    if (result === "written") void this.host.bridge.flash(`Silverware Table: pasted as a new table (Ctrl+Z undoes it)`, "info");
   }
 
   /** The module's td over an empty cell (the one selected or edited), where that cell is now */

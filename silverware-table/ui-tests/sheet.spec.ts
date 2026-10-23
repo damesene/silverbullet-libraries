@@ -156,6 +156,27 @@ test.describe("Sheet view", () => {
     expect(text).toMatch(/\| Poland +\| 1 +\| 2 +\|/);
   });
 
+  test("cells pasted into an empty cell no table grows to make a table there, their first row its header", async ({ page }) => {
+    await openSheet(page);
+    const point = await emptyCell(page, { right: 2, row: 1 });
+    await page.mouse.click(point.x, point.y);
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    await page.keyboard.press("Control+v");
+    const field = page.locator(".swt-sheet-cell .swt-cell-editor");
+    await expect(field).toBeFocused();
+    await field.evaluate((input) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "Fruit\tQty\nPear\t3\nFig\t\n");
+      input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(2);
+    const text = await markdown(page);
+    expect(text).toMatch(/\| Fruit +\| Qty +\|\n\|[- |]+\|\n\| Pear +\| 3 +\|\n\| Fig +\| +\|\n\| <meta name='table2' sheet='Sheet1' at='\w+2'> \|/);
+    await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
+  });
+
   test("Esc unselects an empty cell, a second Esc closes the view", async ({ page }) => {
     await openSheet(page);
     const point = await emptyCell(page, { right: 0, row: 1 });
@@ -645,9 +666,9 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-sheet-board")).toBeFocused();
   });
 
-  test("cells pasted into a far cell go into no table (the one its editor belongs to, past its end, either)", async ({ page }) => {
+  test("cells pasted into a far cell go into no table (the one its editor belongs to, past its end, either): a table of their own", async ({ page }) => {
     await openSheet(page);
-    const before = await markdown(page);
+    const before = (await markdown(page)).split("\n").filter((line) => line.startsWith("|") && !line.includes("<meta")).map((line) => line.replace(/ +/g, "").replace(/-+/g, "-"));
     const box = (await sheetTable(page).locator("table").boundingBox())!;
     await page.mouse.click(box.x + box.width + 250, box.y + box.height + 200);
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -660,10 +681,10 @@ test.describe("Sheet view", () => {
       data.setData("text/plain", "x\ty\n1\t2");
       input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     });
-    await page.waitForTimeout(300);
-    // Left to the field (text): nothing written into the table
-    expect(await markdown(page)).toBe(before);
-    await expect(field).toBeFocused();
+    await expect.poll(() => markdown(page)).toMatch(/\| x +\| y +\|\n\|[- |]+\|\n\| 1 +\| 2 +\|/);
+    // The table's rows as they were (aligned anew: written with its sheet), before the new table
+    const after = (await markdown(page)).split("\n").filter((line) => line.startsWith("|") && !line.includes("<meta")).map((line) => line.replace(/ +/g, "").replace(/-+/g, "-"));
+    expect(after.slice(0, before.length)).toEqual(before);
   });
 
   test("AutoFill on the sheet: the fill handle in a cell's corner can be dragged", async ({ page }) => {
