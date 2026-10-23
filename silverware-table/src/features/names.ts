@@ -37,7 +37,7 @@ export class Names implements Feature {
   // The names (lowercase) more than one table of the page has, by how many, for the page's text as last read
   private shared: { readonly text: string; readonly names: ReadonlyMap<string, number> } | undefined;
   // The names said to be shared on this page so far
-  private told = { page: "", names: new Set<string>() };
+  private readonly told = new Set<string>();
 
   private sharedNames(): ReadonlyMap<string, number> {
     const text = this.host.pageText;
@@ -58,14 +58,22 @@ export class Names implements Feature {
     return name && this.sharedNames().has(name.toLowerCase()) ? name : undefined;
   }
 
+  /** Another page: its names said anew */
+  pageLoaded(): void {
+    this.told.clear();
+  }
+
   /** A table whose name another has too: said, once for that name on the page */
   enhanced(info: TableInfo): void {
-    if (this.told.page !== this.host.currentPage) this.told = { page: this.host.currentPage, names: new Set() };
+    // (The page's text as last read without this table as rendered: read before it, nothing to tell by)
+    if (!this.host.pageText.includes(info.source)) return;
     const shared = this.sharedNames();
-    for (const name of [...this.told.names]) if (!shared.has(name)) this.told.names.delete(name);
+    const own = metaName(parseTable(info.source))?.toLowerCase();
+    // No longer shared (renamed): said again should it be shared again
+    if (own && !shared.has(own)) this.told.delete(own);
     const name = this.sharedName(info);
-    if (!name || this.told.names.has(name.toLowerCase())) return;
-    this.told.names.add(name.toLowerCase());
+    if (!name || this.told.has(name.toLowerCase())) return;
+    this.told.add(name.toLowerCase());
     const count = shared.get(name.toLowerCase())!;
     void this.host.bridge.flash(
       `Silverware Table: ${count} tables on this page are named ${name}: formulas in other tables use the first of them. Rename the others (their name in the toolbar, in red)`,
