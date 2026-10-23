@@ -1583,6 +1583,13 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   bottom: 0;
   z-index: 3;
 }
+/* The room above a held header (STICKY_GAP) covered in the page's color: the
+   header's top cells cast it, a shadow as tall as the cell moved up; three of
+   them (22, 44, 66px up) cover it all for a header of at least 22px (one moved
+   66px up left the 17px above a 49px header showing the rows under it) */
+.sb-table-widget {
+  --swt-held-cover: 0 -22px 0 0 var(--root-background-color, #fff), 0 -44px 0 0 var(--root-background-color, #fff), 0 -66px 0 0 var(--root-background-color, #fff);
+}
 /* Its header opaque, and the room above it covered in the page's color, at
    all times: the browser holds the header at once while the script marks it
    held (swt-stuck) only a frame later, so a fast scroll showed rows there.
@@ -1595,7 +1602,7 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
     var(--root-background-color, #fff);
 }
 .sb-table-widget.swt-sticky-box :where(thead tr:first-child > td) {
-  box-shadow: 0 -66px 0 0 var(--root-background-color, #fff);
+  box-shadow: var(--swt-held-cover);
 }
 
 /* Header held at the top of the view while the table scrolls past (moved by
@@ -1618,18 +1625,18 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 }
 /* Only the top row casts it: from the filter row it would cover the header row */
 .sb-table-widget thead.swt-stuck tr:first-child td {
-  box-shadow: 0 -66px 0 0 var(--root-background-color, #fff);
+  box-shadow: var(--swt-held-cover);
 }
 /* With the tint of a selected or edited cell, or of a hovered grip's line (inset shadows too) */
 .sb-table-widget.swt-table thead.swt-stuck tr:first-child td:is(.swt-selected, .swt-editing) {
   box-shadow:
-    0 -66px 0 0 var(--root-background-color, #fff),
+    var(--swt-held-cover),
     inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent),
     inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
 }
 .sb-table-widget.swt-table thead.swt-stuck tr:first-child td.swt-handle-hover {
   box-shadow:
-    0 -66px 0 0 var(--root-background-color, #fff),
+    var(--swt-held-cover),
     inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 10%, transparent);
 }
 
