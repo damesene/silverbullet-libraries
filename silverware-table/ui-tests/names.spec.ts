@@ -192,3 +192,24 @@ test.describe("Names in the toolbar", () => {
     await expect(drawn.first()).toContainText("Brno");
   });
 });
+
+test.describe("A table name two tables of the page have", () => {
+  test("shows in red in the toolbar of each, the setting aside; said at the top until closed", async ({ page }) => {
+    const prices = "| Item | Price |\n|---|---|\n| Pear | 3 |\n| <meta name='prices'> |\n";
+    await page.locator("#source").fill(`# Test\n\n${prices}\n${prices}`);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    const note = page.locator("#flash > div", { hasText: "2 tables on this page are named prices" });
+    await expect(note).toBeVisible();
+    // Under the top bar, and still there after the time another notification goes
+    expect((await note.boundingBox())!.y).toBeLessThan(200);
+    await page.waitForTimeout(3500);
+    await expect(note).toBeVisible();
+    for (const index of [0, 1]) {
+      await hoverCell(page, table(page, index).locator("tr[data-swt-row='1'] > td").first());
+      await expect(name(page, "table")).toHaveText("prices");
+      await expect(name(page, "table")).toHaveClass(/swt-attention/);
+    }
+    await note.click();
+    await expect(note).toHaveCount(0);
+  });
+});

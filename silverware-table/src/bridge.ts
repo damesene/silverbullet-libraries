@@ -7,7 +7,8 @@ export type Bridge = {
   readonly replaceRange: (from: number, to: number, text: string) => unknown;
   readonly moveCursor: (pos: number, center?: boolean) => unknown;
   readonly getCurrentPage: () => string | Promise<string>;
-  readonly flash: (message: string, type?: "info" | "error") => unknown;
+  // `timeout` 0: shown until closed (SilverBullet's main; a release before it closes it as any other)
+  readonly flash: (message: string, type?: "info" | "error", options?: { readonly timeout?: number }) => unknown;
   // Optional: without it, settings keep their defaults
   readonly getConfig?: (path: string, defaultValue: unknown) => unknown;
   // Optional: without them, undoing a table edit scrolls to the editor's cursor

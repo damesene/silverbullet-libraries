@@ -1091,3 +1091,27 @@ describe("Delete table", () => {
     expect(text).toBe("Intro\n");
   });
 });
+
+describe("A table name two tables of the page have", () => {
+  useTablePage();
+  const TWICE = "| A |\n|---|\n| 1 |\n| <meta name='prices'> |\n\n| B |\n|---|\n| 2 |\n| <meta name='Prices'> |\n\n| C |\n|---|\n| 3 |\n| <meta name='other'> |\n";
+  const barName = (table: number) => {
+    editor.querySelectorAll("table")[table]!.rows[1]!.cells[0]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    return document.querySelector<HTMLElement>(".swt-bar .swt-bar-name-table .swt-bar-name");
+  };
+
+  it("shows in red in the toolbar on each of them, whatever the setting, and is said once", async () => {
+    await setup(TWICE, { "silverware.table.toolbarNames": "never" });
+    expect(flashes.filter((f) => f.includes("2 tables on this page are named"))).toHaveLength(1);
+    for (const table of [0, 1]) {
+      const name = barName(table)!;
+      expect(name.classList.contains("swt-attention")).toBe(true);
+      expect(name.title).toContain("Another table on this page is named");
+    }
+    // A name of its own: not in the toolbar with the setting off
+    expect(barName(2)).toBeNull();
+    // Rendered anew: not said again
+    await controller.scan();
+    expect(flashes.filter((f) => f.includes("are named"))).toHaveLength(1);
+  });
+});

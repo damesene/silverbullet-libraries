@@ -10,6 +10,10 @@
 // prices!vat, on another page [[Page]]prices!vat.
 // And a row's name (its row menu): pear[price] is the row's Price cell,
 // wherever the row is moved or sorted.
+// A name more than one table of the page has (typed into the markdown, a
+// table copied with it): formulas elsewhere use the first of them, so each
+// such table's name shows in the danger color in the toolbar, whatever the
+// setting, and it is said once (again once it was not shared meanwhile).
 import { columnIdOf } from "../columns.ts";
 import type { CellLook, CellRef, Feature, HeaderLook, MetadataPart, NamingTarget, ModelHost, TableLooks, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { functionNamed } from "../formulas/registry.ts";
@@ -29,6 +33,47 @@ function listed(names: readonly string[]): string {
 
 export class Names implements Feature {
   constructor(private readonly host: ModelHost) {}
+
+  // The names (lowercase) more than one table of the page has, by how many, for the page's text as last read
+  private shared: { readonly text: string; readonly names: ReadonlyMap<string, number> } | undefined;
+  // The names said to be shared on this page so far
+  private told = { page: "", names: new Set<string>() };
+
+  private sharedNames(): ReadonlyMap<string, number> {
+    const text = this.host.pageText;
+    if (this.shared?.text !== text) {
+      const counts = new Map<string, number>();
+      for (const range of findTables(text)) {
+        const name = metaName(parseTable(range.text))?.toLowerCase();
+        if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+      }
+      this.shared = { text, names: new Map([...counts].filter(([, n]) => n > 1)) };
+    }
+    return this.shared.names;
+  }
+
+  /** The table's name, if another table of the page has it too */
+  private sharedName(info: TableInfo): string | undefined {
+    const name = metaName(parseTable(info.source));
+    return name && this.sharedNames().has(name.toLowerCase()) ? name : undefined;
+  }
+
+  /** A table whose name another has too: said, once for that name on the page */
+  enhanced(info: TableInfo): void {
+    if (this.told.page !== this.host.currentPage) this.told = { page: this.host.currentPage, names: new Set() };
+    const shared = this.sharedNames();
+    for (const name of [...this.told.names]) if (!shared.has(name)) this.told.names.delete(name);
+    const name = this.sharedName(info);
+    if (!name || this.told.names.has(name.toLowerCase())) return;
+    this.told.names.add(name.toLowerCase());
+    const count = shared.get(name.toLowerCase())!;
+    void this.host.bridge.flash(
+      `Silverware Table: ${count} tables on this page are named ${name}: formulas in other tables use the first of them. Rename the others (their name in the toolbar, in red)`,
+      "error",
+      // Until closed: what is wrong stays wrong until a table is renamed
+      { timeout: 0 },
+    );
+  }
 
   /** A name is one cell's, one row's: a copy of a row takes none */
   uniqueTags(): readonly string[] {
@@ -88,11 +133,15 @@ export class Names implements Feature {
   /** The table's name in the toolbar's row of names, Table (muted) without one: a click on it its field */
   toolbarButtons(info: TableInfo): ToolbarButton[] {
     const name = metaName(parseTable(info.source));
-    const title = name
-      ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`
-      : "This table has no name: click to name it, so formulas in other tables can refer to it (name!A1)";
+    const shared = this.sharedName(info) !== undefined;
+    const title = shared
+      ? `Another table on this page is named ${name} too: formulas in other tables use the first of them (${name}!A1). Click to rename this one`
+      : name
+        ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`
+        : "This table has no name: click to name it, so formulas in other tables can refer to it (name!A1)";
     const naming = this.menuNaming(info, { kind: "table" });
-    return [{ label: name ?? "Table", title, place: "name", slot: "table", ...(name ? {} : { muted: true }), ...(naming ? { naming } : {}), run: () => {} }];
+    const look = shared ? { attention: true } : name ? {} : { muted: true };
+    return [{ label: name ?? "Table", title, place: "name", slot: "table", ...look, ...(naming ? { naming } : {}), run: () => {} }];
   }
 
   /**

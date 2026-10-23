@@ -363,6 +363,7 @@ A formula can use the cells of another table on the same page, once that table h
 * When Silverware Table edits a table, the tables that refer to it get their new results in the same edit (one Ctrl+Z undoes both). When the other table is changed in the markdown, *Recalculate* in the toolbar is highlighted.
 * `[@column]` is always the formula's own row: another table's rows are reached with `XLOOKUP` or by cell.
 * References to another table follow its edits made with Silverware Table, as references in a table do (see [[#References]]): `prices!B2` follows its rows and columns when they are inserted, deleted, moved or sorted into the markdown, `prices![price]` a renamed or moved column, and a reference to deleted cells becomes `prices!#REF!`. Renaming the table (the pencil in its ⋯ menu's title) renames the references to it on the page. Edits made in the markdown do not change references.
+* **Two tables of one name** (a table copied in the markdown with its metadata row): formulas use the first of them on the page, and edits of the others do not move references. A message at the top says so until you close it, and each such table's name shows in red in its toolbar, whether the toolbar shows names or not: click it to rename the table.
 
 ### Tables on other pages
 
