@@ -804,6 +804,7 @@ export class Controller implements TableHost {
   /** A table enhanced shown as such: decorated, its view applied, what follows it across a write given back, the features told */
   private showEnhanced(widget: HTMLElement, info: WidgetInfo): void {
     try {
+      if (widget.classList.contains(DRAWN_CLASS)) this.drawnKeys.add(info.key);
       this.decorate(widget, info);
       this.applyView(widget, info);
       // A table under one Silverware Table drew for its key (the sheet's) keeps its place and its own scroll:
@@ -850,7 +851,16 @@ export class Controller implements TableHost {
       }
       if (this.drawnFor(info.key)) continue;
       this.covered.delete(widget);
+      this.drawnKeys.delete(info.key);
       this.showEnhanced(widget, info);
+    }
+    // Not rendered anew while the drawn one stood for it (the table the sheet view was opened from): shown again too
+    for (const key of [...this.drawnKeys]) {
+      if (this.drawnFor(key)) continue;
+      this.drawnKeys.delete(key);
+      const widget = this.widgetForKey(key);
+      const info = widget && this.infos.get(widget);
+      if (widget && info && widget.isConnected && renderedTable(widget) === info.table) this.showEnhanced(widget, info);
     }
   }
 
@@ -2022,6 +2032,10 @@ export class Controller implements TableHost {
 
   // SilverBullet's tables a drawn one stands for (not decorated meanwhile), and their showing once it is gone
   private readonly covered = new Set<HTMLElement>();
+  // The keys a drawn table has stood for (DRAWN_CLASS): once it is gone, SilverBullet's table of the key is shown as
+  // itself again, rendered anew meanwhile or not (what the features placed in the table standing for the key, a
+  // width handle, was in the drawn one)
+  private readonly drawnKeys = new Set<TableKey>();
   private readonly queueUncover: () => void;
 
   // A write of each table going on: the next of the table waits for it

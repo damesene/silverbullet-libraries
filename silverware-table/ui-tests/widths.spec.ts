@@ -1,5 +1,5 @@
 // Column widths: the handle on a header's right edge dragged, double-clicked
-import { expect, header, hoverCell, test } from "./playground.ts";
+import { cell, expect, header, hoverCell, table, tableIcon, test } from "./playground.ts";
 
 test.describe("Column widths", () => {
   test("a header's handle dragged widens its column by as much; a double click makes it automatic again", async ({ page }) => {
@@ -19,5 +19,19 @@ test.describe("Column widths", () => {
     const again = (await header(page, 0).locator(".swt-col-resize").boundingBox())!;
     await page.mouse.dblclick(again.x + again.width / 2, again.y + again.height / 2);
     await expect.poll(async () => Math.abs((await header(page, 0).boundingBox())!.width - before)).toBeLessThan(2);
+  });
+
+  test("the table the sheet view was opened from has its handles again once the view is closed, its header as it was", async ({ page }) => {
+    const heads = () => table(page).locator("thead tr").first().evaluate((tr) => Array.from(tr.children, (c) => c.querySelectorAll(".swt-head").length));
+    const before = await heads();
+    await hoverCell(page, cell(page, 1, 0));
+    await (await tableIcon(page, "Sheet view")).click();
+    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".swt-sheet-board")).toHaveCount(0);
+    await expect(header(page, 0).locator(".swt-col-resize")).toHaveCount(1);
+    expect(await table(page).locator("thead .swt-col-resize").count()).toBe(await table(page).locator("thead tr").first().locator("> *").count());
+    // Shown again, not decorated twice
+    expect(await heads()).toEqual(before);
   });
 });
