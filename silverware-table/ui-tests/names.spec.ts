@@ -215,7 +215,7 @@ test.describe("A table name two tables of the page have", () => {
 });
 
 test.describe("Removing a name", () => {
-  test("Remove name under the table's name field, Remove from sheet under the sheet's", async ({ page }) => {
+  test("Remove from sheet under the sheet's name field; none under the table's (an empty name removes it)", async ({ page }) => {
     await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -227,8 +227,8 @@ test.describe("Removing a name", () => {
     await hoverCell(page, cell(page, 1, 0));
     await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
     await page.locator(".swt-menu .swt-menu-rename").click();
-    await page.locator(".swt-menu .swt-menu-name-clear", { hasText: "Remove name" }).click();
-    await expect.poll(() => markdown(page)).not.toContain("<meta");
+    await expect(page.locator(".swt-menu .swt-menu-name")).toBeFocused();
+    await expect(page.locator(".swt-menu .swt-menu-name-clear")).toHaveCount(0);
   });
 });
 

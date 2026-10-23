@@ -1110,11 +1110,9 @@ describe("A table name two tables of the page have", () => {
     }
     // A name of its own: not in the toolbar with the setting off
     expect(barName(2)).toBeNull();
-    // Remove name under the field: the table without one
+    // The table's name field has no Remove name: an empty name does it
     toolbarName("table", 1);
-    document.querySelector<HTMLElement>(".swt-menu-name-clear")!.click();
-    await flush();
-    expect(text).not.toContain("name='Prices'");
+    expect(document.querySelector(".swt-menu-name-clear")).toBeNull();
     // Rendered anew: not said again
     await controller.scan();
     expect(flashes.filter((f) => f.includes("are named"))).toHaveLength(1);
