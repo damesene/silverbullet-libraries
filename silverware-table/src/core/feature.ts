@@ -666,11 +666,12 @@ export interface ModelHost {
   /** The cells selected changed (the selection module): what follows them (the quiet + of a last row or column) follows */
   selectionChanged(): void;
   /**
-   * An arrow on a cell selected alone at the table's edge, away from the
-   * table (the selection module): whether a feature took the selection on past
-   * it (Feature.selectionLeaves), so the table's selection ends
+   * An arrow at the table's edge, away from the table, on a cell selected
+   * alone (the selection module) or edited (Ctrl+arrow in the cell editor):
+   * what goes on past it, if a feature has cells there (Feature.selectionLeaves),
+   * selecting the cell there or editing it; undefined: nothing is past it
    */
-  selectionLeaves(info: TableInfo, from: CellRef, step: readonly [number, number]): boolean;
+  selectionLeaves(info: TableInfo, from: CellRef, step: readonly [number, number]): ((edit: boolean) => void) | undefined;
   /** The addresses a table's cells have where a feature lays it out on a grid of its own (Feature.addressFrame), if one does */
   addressFrame(info: TableInfo): AddressFrame | undefined;
   /** Whether a module is on (one feature serves another: pageLinks reads pages for formulas) */
@@ -1067,11 +1068,13 @@ export interface Feature {
   /** The cells selected changed (the selection module): what goes with them follows */
   selectionChanged?(): void;
   /**
-   * An arrow on a cell selected alone at the table's edge, away from it
-   * (`step`: rows and columns, one of them ±1): true, the feature selects on
-   * past the edge (the sheet view's empty cells), the table's selection ends
+   * An arrow at the table's edge, away from it (`step`: rows and columns, one
+   * of them ±1), on a cell selected alone or edited: what selects (edit:
+   * false) or edits (true) the cell past the edge, where the feature has one
+   * (the sheet view's empty cells, another table there); the table's
+   * selection, or its editor, ends first
    */
-  selectionLeaves?(info: TableInfo, from: CellRef, step: readonly [number, number]): boolean;
+  selectionLeaves?(info: TableInfo, from: CellRef, step: readonly [number, number]): ((edit: boolean) => void) | undefined;
   /** The addresses the table's cells have where the feature lays it out on a grid of its own (the sheet view) */
   addressFrame?(info: TableInfo): AddressFrame | undefined;
   /**

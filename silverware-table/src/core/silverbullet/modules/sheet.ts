@@ -824,13 +824,15 @@ export class Sheet implements AdapterFeature {
     return false;
   }
 
-  /** An arrow on a table's cell selected alone at its edge: on into the sheet past it (an empty cell, or another table) */
-  selectionLeaves(info: WidgetInfo, from: CellRef, step: readonly [number, number]): boolean {
+  /** An arrow at a table's edge: on into the sheet past it (an empty cell, or another table), selected or edited */
+  selectionLeaves(info: WidgetInfo, from: CellRef, step: readonly [number, number]): ((edit: boolean) => void) | undefined {
     const placed = this.board?.tables.get(info.key);
     const here = placed && this.sheetCellOf(info, placed, from);
-    if (!here) return false;
-    this.go({ row: Math.max(0, here.row + step[0]), column: Math.max(0, here.column + step[1]) }, false);
-    return true;
+    if (!here) return undefined;
+    const to = { row: Math.max(0, here.row + step[0]), column: Math.max(0, here.column + step[1]) };
+    return (edit) => {
+      if (this.board) this.go(to, edit);
+    };
   }
 
   /** Presses on the empty cells are the module's: other buttons than the left do nothing there */

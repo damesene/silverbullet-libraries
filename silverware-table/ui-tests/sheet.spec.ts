@@ -35,6 +35,34 @@ async function emptyCell(page: Page, at: { right?: number; below?: number; row?:
   return { x, y };
 }
 
+test.describe("Ctrl+arrows out of a table on the sheet", () => {
+  test("a cell selected at the table's right edge: Ctrl+ArrowRight selects the empty cell past it", async ({ page }) => {
+    await page.evaluate(() => localStorage.removeItem("silverware.table.editMode"));
+    await page.reload();
+    await openSheet(page);
+    const last = sheetTable(page).locator("tr[data-swt-row='1'] > td").last();
+    await last.click();
+    await expect(last).toHaveClass(/swt-selected/);
+    await page.keyboard.press("Control+ArrowRight");
+    await expect(page.locator(".swt-sheet-cell")).toBeVisible();
+    await expect(last).not.toHaveClass(/swt-selected/);
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
+  });
+
+  test("a cell edited at the table's right edge: Ctrl+ArrowRight saves it and edits the empty cell past it", async ({ page }) => {
+    await openSheet(page);
+    const last = sheetTable(page).locator("tr[data-swt-row='1'] > td").last();
+    await last.dblclick();
+    const field = page.locator(".swt-cell-editor");
+    await expect(field).toBeFocused();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("77");
+    await page.keyboard.press("Control+ArrowRight");
+    await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toBeFocused();
+    await expect.poll(() => markdown(page)).toMatch(/\| 77 +\|\n/);
+  });
+});
+
 test.describe("A table far down the sheet", () => {
   test("edited, drawn anew: the board stays scrolled where it is (the table placed at once, the next cell focused there)", async ({ page }) => {
     await page.locator("#source").fill(

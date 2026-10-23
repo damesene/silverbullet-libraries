@@ -297,7 +297,8 @@ export class Selection implements Feature {
     }
     if (!inField && this.editFromKey(e)) return true;
     // An arrow on a cell selected alone at the table's edge, away from it: a feature may select on past it
-    if (!inField && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && this.leavesTable(e)) {
+    // (Ctrl too: Ctrl+arrows move the selection as arrows do, and out of the table as a cell editor's do)
+    if (!inField && !e.altKey && !e.metaKey && !e.shiftKey && this.leavesTable(e)) {
       e.preventDefault();
       e.stopPropagation();
       this.clear();
@@ -390,7 +391,9 @@ export class Selection implements Feature {
     const r = at + step[0];
     const column = focus.column + step[1];
     const inside = r >= 0 && r < order.length && column >= 0 && column < info.columns;
-    return at >= 0 && !inside && this.host.selectionLeaves(info, focus, step);
+    const go = at >= 0 && !inside ? this.host.selectionLeaves(info, focus, step) : undefined;
+    go?.(false);
+    return !!go;
   }
 
   /**

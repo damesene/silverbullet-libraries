@@ -15,6 +15,9 @@ import { withoutTags } from "../tags.ts";
 import type { TableKey } from "./tables.ts";
 
 // Ctrl+Alt + these keys move the edited cell's row or column
+// An arrow's step: rows and columns
+const STEP: Readonly<Record<string, readonly [number, number]>> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+
 const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 
 // Ctrl(+Shift) + these keys move the cell editor to another cell
@@ -598,6 +601,15 @@ export class CellEditing {
     else if (key === "PageUp") r = r === 0 ? 0 : Math.max(1, r - PAGE_ROWS);
     else if (key === "PageDown") r = Math.min(shown.length - 1, r + PAGE_ROWS);
     const target = shown[r]?.cells[column];
+    // Past the table's edge (an arrow): edited on there, where a feature has cells past it (the sheet's), the cell saved
+    const step = STEP[key];
+    if (!target && !shift && step && !active.growth && !active.place) {
+      const go = this.host.selectionLeaves(info, { row: active.row, column: active.column }, step);
+      if (!go) return;
+      await this.finish(true, undefined, false);
+      go(true);
+      return;
+    }
     if (!target || target === active.cell) return;
     const ref = this.host.cellRef(info, target);
     if (!ref) return;
