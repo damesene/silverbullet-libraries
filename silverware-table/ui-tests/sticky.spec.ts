@@ -14,6 +14,11 @@ test.describe("The held header", () => {
     expect(at.table - at.view).toBeLessThan(66);
     expect(Math.round(at.head.top)).toBe(Math.round(at.table));
     expect(at.row).toBeGreaterThanOrEqual(at.head.bottom - 0.5);
+    // The toolbar above the header (less of a gap, the room being small), not over its names
+    await table(page).locator("tbody tr td").first().hover();
+    const bar = (await page.locator(".swt-bar.swt-visible").boundingBox())!;
+    expect(bar.y + bar.height).toBeLessThanOrEqual(at.head.top + 0.5);
+    expect(bar.y).toBeGreaterThanOrEqual(at.view - 0.5);
   });
 
   test("the room above it is covered whole in the page's color: no row shows between the view's top and the header", async ({ page }) => {

@@ -317,7 +317,8 @@ export class Toolbar {
     // held at the top of the view has the room (STICKY_GAP): the toolbar goes
     // there, so it never covers a column's name while the page scrolls
     const held = info.table.tHead?.classList.contains("swt-stuck") ?? false;
-    const fits = held || above >= shown.top + 2;
+    // (A table near the page's top, its header where it starts: above it with less of a gap, where the toolbar fits)
+    const fits = held || above >= shown.top + 2 || headerRect.top - bar.offsetHeight >= shown.top;
     const top = fits ? Math.max(above, shown.top) : headerRect.top + (headerRect.height - bar.offsetHeight) / 2;
     // At the table's right edge, or its box's when the table scrolls in it,
     // as far as it is in view: the page around a wide table may scroll
