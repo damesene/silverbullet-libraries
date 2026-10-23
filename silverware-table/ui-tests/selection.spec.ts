@@ -21,6 +21,29 @@ test.describe("Selecting cells", () => {
     await expect(cell(page, 2, 1)).not.toHaveClass(/swt-navigating-here/);
   });
 
+  test("Tab and Shift+Tab move the cell selected along its row and on to the next, as in a cell editor", async ({ page }) => {
+    const last = cell(page, 1, 3);
+    await last.click();
+    await expect(last).toHaveClass(/swt-selected/);
+    await page.keyboard.press("Tab");
+    await expect(cell(page, 2, 0)).toHaveClass(/swt-selected/);
+    await page.keyboard.press("Shift+Tab");
+    await expect(last).toHaveClass(/swt-selected/);
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
+  });
+
+  test("Enter in the last row's cell editor adds a row under it, edited in the same column", async ({ page }) => {
+    const rows = page.locator(".sb-table-widget table").first().locator("tbody tr[data-swt-row]");
+    const count = await rows.count();
+    const lastCell = rows.last().locator("td").nth(1);
+    await lastCell.dblclick();
+    await expect(page.locator(".swt-cell-editor")).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(rows).toHaveCount(count + 1);
+    await expect(page.locator(".swt-cell-editor")).toBeFocused();
+    expect(await page.locator(".swt-cell-editor").evaluate((f) => (f.closest("tr") as HTMLTableRowElement).dataset.swtRow)).toBe(String(count + 1));
+  });
+
   test("copied cells are outlined until Esc", async ({ page }) => {
     await drag(page, cell(page, 1, 1), cell(page, 3, 2));
     await page.keyboard.press("Control+c");

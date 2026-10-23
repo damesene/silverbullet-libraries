@@ -161,7 +161,7 @@ export const SETTINGS = {
     hint: "What Enter does while a cell is edited",
     default: "moveDown",
     choices: ["save", "moveDown"],
-    choiceLabels: ["Save", "Save, edit the cell below"],
+    choiceLabels: ["Save", "Save, edit the cell below (on the last row, a new one)"],
     parse: (v) => (v === "save" || v === "moveDown" ? v : undefined),
   } satisfies Setting<"save" | "moveDown">,
   smartFilters: {

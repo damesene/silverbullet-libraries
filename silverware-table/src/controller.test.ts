@@ -42,6 +42,8 @@ describe("Controller", () => {
       "silverware.table.modules.columnTypes.enabled": false,
       "silverware.table.modules.handles.enabled": false,
       "silverware.table.modules.formulas.enabled": false,
+      // (Enter saves: on the last row it would add one)
+      "silverware.table.editor.enterKey": "save",
     });
     // No column type: the cell as written, the hashtag shown
     expect(cell(1, 1).textContent).toBe("yes");

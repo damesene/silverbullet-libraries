@@ -42,7 +42,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 
 | Key | While editing a cell |
 |---|---|
-| Enter | Save, edit the cell below (with the `save` setting: only save) |
+| Enter | Save, edit the cell below; on the last row, add a row and edit it (with the `save` setting: only save) |
 | Ctrl+Enter | Save, add a row below, edit it |
 | Esc | Cancel; the cell stays selected (marked) for the keys of [[#Copying cells]], a second Esc ends that |
 | F4 | In a formula: the cell or range reference at the cursor cycles its `$`: `A1`, `$A$1`, `A$1`, `$A1`, see [[#References]] |
@@ -60,7 +60,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 | Ctrl+Alt+Home / End | Move the column to the start / end |
 | Ctrl+Alt+PageUp / PageDown | Move the row 10 places up / down |
 
-* Tab on the last cell adds a row.
+* Tab on the last cell adds a row; so does Enter on the last row (not with the `save` setting).
 * While a name is typed in a formula, its list takes ↑ / ↓, Tab and Esc; Enter saves the formula as typed. See [[#References]].
 * Shift+Enter opens the cell below the other way round: with its whole text selected, or with the cursor at the end when the *Click selects the cell's text* setting is on. See [[#Settings]].
 * Ctrl+Alt+arrows save the cell and move it with its row or column, and keep editing it. Rows cannot move while sorted or filtered, nor the header row.
@@ -73,7 +73,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * Press on a cell and drag across others, the header included if you like: the cells in between are selected. A click selects one cell (in *Edit mode* it edits it, see [[#Editing cells]]). On a touch screen, drag the dots at the selection's corners, see [[#Touch screens]].
 * **Shift+click** a cell: the cells from the one being edited (it is saved) to this one are selected; with cells selected already, from the first of them; else just this cell.
 * **Shift+arrows** (Ctrl+Shift+arrows too) move the selection's far corner by a cell; in a cell editor, Ctrl+Shift+arrows start a selection there.
-* With cells selected, **arrows** (and Ctrl+arrows) go to the cell beside, **Home / End** to the row's first / last cell, **Ctrl+Home / End** to the table's first / last cell, **PageUp / PageDown** 10 rows up / down (PageUp stops at the first row under the header). The selection is then that cell; with Shift it extends to it.
+* With cells selected, **arrows** (and Ctrl+arrows) go to the cell beside, **Home / End** to the row's first / last cell, **Ctrl+Home / End** to the table's first / last cell, **PageUp / PageDown** 10 rows up / down (PageUp stops at the first row under the header). The selection is then that cell; with Shift it extends to it. **Tab / Shift+Tab** select the next / previous cell, along the row and on to the next, as they do in a cell editor; Tab on the table's last cell adds a row and edits its first cell.
 * **Ctrl+C** copies them as a spreadsheet does, so Excel, Google Sheets or LibreOffice paste them into cells, and other editors as text (a tab between cells, a line break between rows). The cells copied are outlined with a dashed line, as in a spreadsheet, until they are pasted, or Esc, another copy or a change of them; they can be pasted again after that too (the clipboard keeps them). **Ctrl+X** cuts them: see [[#Cut and paste]].
 * Cells copy what they show: a formula's result, a link's text.
 * The selection follows the rows as shown: in a sorted or filtered table it takes the rows in their order on the screen, without the hidden ones.
@@ -802,7 +802,7 @@ Setting a part replaces what an earlier `config.set` of the same part set: set e
 
 * **Enter in a cell editor** (`enterKey`), default `moveDown`
   * `save`: Enter saves the cell.
-  * `moveDown`: Enter saves and edits the cell below; Shift+Enter too, opening it with its text selected (with *Click selects the cell's text*: with the cursor at the end).
+  * `moveDown`: Enter saves and edits the cell below (on the last row: a row added under it, edited); Shift+Enter too, opening it with its text selected (with *Click selects the cell's text*: with the cursor at the end).
 * **Click selects the cell's text** (`selectOnClick`), default `false`
   * `false`: a click, Enter, Tab and Ctrl+arrows open a cell with the cursor at the end of its text; Shift+Enter opens the cell below with its whole text selected.
   * `true`: they open it with its whole text selected; Shift+Enter with the cursor at the end.

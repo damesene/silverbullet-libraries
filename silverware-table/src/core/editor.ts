@@ -511,7 +511,15 @@ export class CellEditing {
       return;
     }
     const shown = this.host.shownRows(info);
-    const target = shown[shown.indexOf(active.cell.parentElement as HTMLTableRowElement) + 1];
+    const index = shown.indexOf(active.cell.parentElement as HTMLTableRowElement);
+    const target = shown[index + 1];
+    // Enter on the last row adds a row (above the rows pinned to the bottom), edited in the same column, as Tab on the
+    // last cell does
+    if (!target && index > 0) {
+      const closed = this.close()!;
+      await insertRowWith(this.host, info, appendRowAt(info.pins, info.rows), closed.column, (t) => this.withSaved(t, closed), { after: closed.row });
+      return;
+    }
     const cell = target?.cells[active.column];
     const ref = cell && this.host.cellRef(info, cell);
     await this.finish(true, ref ? { widget: active.widget, ...ref, select: this.selectsWith(shift) } : undefined);

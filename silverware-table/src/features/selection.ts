@@ -34,6 +34,8 @@ import {
   type TableInfo,
 } from "../core/feature.ts";
 import { watchPress } from "../core/press.ts";
+import { insertRowWith } from "../core/structure.ts";
+import { appendRowAt } from "../pins.ts";
 import { clipboardHtml, clipboardText, writeClipboard } from "../clipboard.ts";
 import {
   columnBlockTo,
@@ -301,6 +303,13 @@ export class Selection implements Feature {
       this.clear();
       return true;
     }
+    // Tab / Shift+Tab: the next / previous cell, along the row and on to the next (as in a cell editor)
+    if (e.key === "Tab" && !inField && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.tab(e.shiftKey ? -1 : 1);
+      return true;
+    }
     // Keys that move the selection's last cell: Shift extends to it, else the selection is that cell
     const target = !inField && !e.altKey && !e.metaKey ? this.keyTarget(e) : undefined;
     if (target) {
@@ -406,6 +415,37 @@ export class Selection implements Feature {
     else if (e.key === "PageDown" && !ctrl) r = r + PAGE_ROWS;
     else return undefined;
     return { row: order[Math.max(0, Math.min(order.length - 1, r))]!, column: Math.max(0, Math.min(info.columns - 1, column)) };
+  }
+
+  /**
+   * Tab: the cell after the selection's last one selected, the row's first
+   * after its last (rows as shown); on the table's last cell a row is added
+   * and its first cell edited, as Tab in a cell editor does. Shift+Tab: the
+   * cell before (none before the first)
+   */
+  private async tab(direction: 1 | -1): Promise<void> {
+    const selection = this.selection;
+    const info = selection && this.host.tableFor(selection.key);
+    if (!selection || !info) return;
+    const order = this.host.shownOrder(info);
+    let r = order.indexOf(selection.focus.row);
+    if (r < 0) return;
+    let column = selection.focus.column + direction;
+    if (column >= info.columns) {
+      column = 0;
+      r++;
+    } else if (column < 0) {
+      column = info.columns - 1;
+      r--;
+    }
+    if (r < 0) return;
+    if (r < order.length) {
+      this.moveTo({ row: order[r]!, column }, false);
+      return;
+    }
+    const after = selection.focus.row;
+    this.clear();
+    await insertRowWith(this.host, info, appendRowAt(info.pins, info.rows), 0, (t) => t, { after });
   }
 
   /** The selection's last cell to `to`; without `extend` the selection is just that cell */

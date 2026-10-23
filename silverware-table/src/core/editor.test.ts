@@ -101,12 +101,13 @@ describe("Cell editor", () => {
     key(editing()!, "Enter", { shiftKey: true }); // also down
     await waitFor(() => at()?.[0] === 3);
     expect(at()).toEqual([3, 1]);
-    // the last row: Enter just saves
+    // The last row: Enter adds a row under it, edited in the same column
     clickOn(cell(3, 0));
     await waitFor(() => at()?.[0] === 3);
     key(editing()!, "Enter");
-    await waitFor(() => editing() === null);
-    expect(editing()).toBeNull();
+    await waitFor(() => at()?.[0] === 4);
+    expect(at()).toEqual([4, 0]);
+    expect(text.split("\n").filter((line) => line.startsWith("|"))).toHaveLength(6);
   });
 
   it("moves down on Enter by default and with an unknown setting, only saves with save", async () => {

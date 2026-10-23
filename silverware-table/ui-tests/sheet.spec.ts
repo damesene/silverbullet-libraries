@@ -831,6 +831,23 @@ test("a write on the sheet lays out the sheet's table only: the page's under the
   await expect(underneath.locator(".swt-cell-content", { hasText: "Quince" })).toHaveCount(1);
 });
 
+test("a formula's result on the sheet is marked as in the page: its underline is not cut off", async ({ page }) => {
+  await page.locator("#source").fill("# Test\n\n| Item | Qty | Double |\n|---|---|---|\n| Pear | 3 | 6 <meta f='=B1*2'> |\n");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
+  await hoverCell(page, cell(page, 1, 0));
+  await (await tableIcon(page, "Sheet view")).click();
+  const result = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table tr[data-swt-row='1'] > td").nth(2);
+  await expect(result).toHaveClass(/swt-formula/);
+  // The box its overflow clips to reaches past the underline (0.3em under the text, 2px thick)
+  const room = await result.locator(".swt-cell-content").evaluate((box) => {
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    return box.getBoundingClientRect().bottom - range.getBoundingClientRect().bottom;
+  });
+  expect(room).toBeGreaterThanOrEqual(5);
+});
+
 test("a cell's text on the sheet sits in the middle of its row, not pushed to its bottom", async ({ page }) => {
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
@@ -928,21 +945,37 @@ test("editing a table placed lower on the sheet scrolls nothing, its column as w
   }
 });
 
-test("a formula's result on the sheet is marked as in the page: its underline is not cut off", async ({ page }) => {
-  await page.locator("#source").fill("# Test\n\n| Item | Qty | Double |\n|---|---|---|\n| Pear | 3 | 6 <meta f='=B1*2'> |\n");
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
+test("a table shown as a sheet but on none says so in its toolbar, red, its name a click away", async ({ page }) => {
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
-  const result = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table tr[data-swt-row='1'] > td").nth(2);
-  await expect(result).toHaveClass(/swt-formula/);
-  // The box its overflow clips to reaches past the underline (0.3em under the text, 2px thick)
-  const room = await result.locator(".swt-cell-content").evaluate((box) => {
-    const range = document.createRange();
-    range.selectNodeContents(box);
-    return box.getBoundingClientRect().bottom - range.getBoundingClientRect().bottom;
-  });
-  expect(room).toBeGreaterThanOrEqual(5);
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  await drawn.locator("tr[data-swt-row='1'] > td").first().hover();
+  // In the toolbar whatever the names setting (Shift not held), in the danger color
+  const missing = page.locator(".swt-bar.swt-visible .swt-bar-name-container .swt-bar-name");
+  await expect(missing).toHaveText("No sheet");
+  await expect(missing).toHaveClass(/swt-attention/);
+  await missing.click();
+  const field = page.locator(".swt-menu .swt-menu-name");
+  await expect(field).toBeFocused();
+  await field.fill("Plan");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => markdown(page)).toMatch(/sheet='Plan' at='A1'/);
+  // On a sheet now: no longer asking (the names back to the setting: hidden until Shift)
+  await drawn.locator("tr[data-swt-row='1'] > td").first().hover();
+  await expect(page.locator(".swt-bar.swt-visible .swt-bar-names")).toHaveCount(0);
+});
+
+test("Enter in the last row's cell editor on the sheet adds a row under it", async ({ page }) => {
+  await hoverCell(page, cell(page, 1, 0));
+  await (await tableIcon(page, "Sheet view")).click();
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  const rows = drawn.locator("tbody tr[data-swt-row]");
+  const count = await rows.count();
+  await rows.last().locator("td").first().dblclick();
+  await expect(page.locator(".swt-cell-editor")).toBeFocused();
+  await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
+  await expect(rows).toHaveCount(count + 1);
+  await expect(page.locator(".swt-cell-editor")).toBeFocused();
 });
 
 test("the + pressed again and again on a sheet's table adds a row each time, with the new row's editor open meanwhile", async ({ page }) => {
@@ -964,26 +997,6 @@ test("the + pressed again and again on a sheet's table adds a row each time, wit
     await expect(drawn.locator("tbody tr[data-swt-row]")).toHaveCount(2 + i);
   }
   await expect(page.locator("#flash > div", { hasText: "changed in the meantime" })).toHaveCount(0);
-});
-
-test("a table shown as a sheet but on none says so in its toolbar, red, its name a click away", async ({ page }) => {
-  await hoverCell(page, cell(page, 1, 0));
-  await (await tableIcon(page, "Sheet view")).click();
-  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
-  await drawn.locator("tr[data-swt-row='1'] > td").first().hover();
-  // In the toolbar whatever the names setting (Shift not held), in the danger color
-  const missing = page.locator(".swt-bar.swt-visible .swt-bar-name-container .swt-bar-name");
-  await expect(missing).toHaveText("No sheet");
-  await expect(missing).toHaveClass(/swt-attention/);
-  await missing.click();
-  const field = page.locator(".swt-menu .swt-menu-name");
-  await expect(field).toBeFocused();
-  await field.fill("Plan");
-  await page.keyboard.press("Enter");
-  await expect.poll(() => markdown(page)).toMatch(/sheet='Plan' at='A1'/);
-  // On a sheet now: no longer asking (the names back to the setting: hidden until Shift)
-  await drawn.locator("tr[data-swt-row='1'] > td").first().hover();
-  await expect(page.locator(".swt-bar.swt-visible .swt-bar-names")).toHaveCount(0);
 });
 
 test.describe("Pins on the sheet", () => {

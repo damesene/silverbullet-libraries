@@ -24,7 +24,8 @@ describe("Formulas", () => {
   };
 
   it("writes a typed formula's result with the formula", async () => {
-    await setup(TOTAL);
+    // (Enter saves: on the last row it would add one)
+    await setup(TOTAL, { "silverware.table.editor.enterKey": "save" });
     clickOn(cell(3, 1));
     await type("=SUM(B1:B2)");
     expect(text).toBe(`| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Apple | 10 |\n| Total | 13 <meta f='=SUM(B1:B2)'> |\n`);
@@ -99,6 +100,8 @@ describe("Formulas", () => {
   it("computes a new row with the formula its columns compute every row with", async () => {
     await setup(
       `| Item | Qty | Price | Amount |\n|---|---|---|---|\n| a | 2 | 3 | 6 <meta f='=[@Qty]*[@Price]'> |\n`,
+      // (Enter saves: on the last row it would add one)
+      { "silverware.table.editor.enterKey": "save" },
     );
     clickOn(cell(1, 0));
     key(field(), "Enter", { ctrlKey: true });

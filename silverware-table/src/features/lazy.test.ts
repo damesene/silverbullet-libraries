@@ -18,7 +18,8 @@ describe("Lazy saving", () => {
 
   it("shows what was typed into an empty cell while it is held", async () => {
     const page = "| A | B |\n|---|---|\n| 1 |  |\n";
-    await setup(page, { "silverware.table.modules.lazy.delay": 5000 });
+    // (Enter saves: on the last row it would add one)
+    await setup(page, { "silverware.table.modules.lazy.delay": 5000, "silverware.table.editor.enterKey": "save" });
     button().click();
     type(1, 1, "new");
     key(field()!, "Enter");
