@@ -757,7 +757,7 @@ The sheet view of a table on a sheet shows all the sheet's tables, each at its p
 * A table that gets smaller moves nothing back.
 * It is one edit: one Ctrl+Z puts everything back.
 
-In the sheet view a table's header and pinned rows and columns stay in view while the table is, as frozen rows and columns do in a spreadsheet, each table on its own. A column's width dragged there (the handle on a header's right edge) is the sheet's column's, for every table in that column, as a spreadsheet's columns are (kept in the sheet's first table, `sheet.width.B='140'`); a double-click makes it automatic again. A table's own widths still apply in the page. The sheet view of a table alone works the same: the width dragged is its sheet view's column's, kept in the table.
+In the sheet view a table's header and pinned rows and columns stay in view while the table is, as frozen rows and columns do in a spreadsheet, each table on its own. A column's width dragged there (the handle on a header's right edge, or the right edge of the column's letter above the sheet, also for a column no table has) is the sheet's column's, for every table in that column, as a spreadsheet's columns are (kept in the sheet's first table, `sheet.width.B='140'`); a double-click makes it automatic again. A table's own widths still apply in the page. The sheet view of a table alone works the same: the width dragged is its sheet view's column's, kept in the table.
 
 In the sheet view formulas read in the sheet's addresses, as the letters and numbers show them: in a table at `D1`, whose own `A1` is the sheet's `D2`, `=prices!B1*2` reads `=B2*2` where `prices` is at `A1`, and a formula typed or pointed at there is stored in its tables' addresses again (`=B3*2` as `prices!B2*2`). A reference stays on its row: sorting a table changes the address shown, not the value. In a sorted or filtered table a range of several rows cannot be pointed at there, as its rows are not in the markdown's order (the hint under the cell says so); a click on a header gives the whole column (`[qty]`). While a formula waits for a reference, the sheet's other tables can be pointed at too: a cell gives its sheet's address (stored by the table's name, `prices!B2`), a header the table's column (`prices![price]`). A range is always within one table. A reference to a table on no sheet, or on another page, reads as stored; one to the sheet's empty cells is written as `#REF!`. Out of the sheet view a formula reads as stored.
 
@@ -2037,6 +2037,30 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 }
 .swt-sheet-letters > span[hidden] {
   display: none;
+}
+/* A column's letter's right edge: dragged, the column's width (a table there or none); a line under the pointer */
+.swt-sheet-letters > span > .swt-sheet-width {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  pointer-events: auto;
+}
+.swt-sheet-letters > span > .swt-sheet-width:hover,
+.swt-sheet-letters > span > .swt-sheet-width.swt-active {
+  background: linear-gradient(var(--ui-accent-color), var(--ui-accent-color)) center / 2px 100% no-repeat;
+}
+/* A letter's edge lit: its letter whole */
+.swt-sheet-letters > span:has(> .swt-sheet-width:is(:hover, .swt-active)) {
+  opacity: 1;
+}
+/* Off for a finger, as a table's width handles are */
+@media (pointer: coarse) {
+  .swt-sheet-letters > span > .swt-sheet-width {
+    display: none;
+  }
 }
 .swt-floating.swt-sheet-numbers {
   background: var(--root-background-color, #fff);

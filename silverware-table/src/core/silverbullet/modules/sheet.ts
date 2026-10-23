@@ -52,6 +52,8 @@ import type { TableKey } from "../../tables.ts";
 // An empty column's width, a row's height when no table gives one
 const COLUMN_WIDTH = 100;
 const ROW_HEIGHT = 36;
+// A column's narrowest width dragged by its letter's edge (as the widths module's)
+const MIN_COLUMN_WIDTH = 40;
 // How long a copy stands in at most for a table drawn anew that is not enhanced
 const STAND_IN_MS = 1000;
 // The room for the rows' numbers (left) and the columns' letters (above): as the full screen's
@@ -157,6 +159,14 @@ export class Sheet implements AdapterFeature {
     this.queueRefresh = oncePerFrame(doc, () => void this.refresh());
     this.letters = host.floating("div", "swt-sheet-letters");
     this.letters.setAttribute("aria-hidden", "true");
+    // The edge right of a column's letter sets its width, as a spreadsheet's does: a table there or none
+    this.letters.addEventListener("pointerdown", (e) => this.widthPress(e));
+    this.letters.addEventListener("dblclick", (e) => {
+      const column = this.widthColumn(e.target);
+      if (column === undefined || !this.board) return;
+      e.preventDefault();
+      void this.setColumnWidth(this.board, column, undefined);
+    });
     this.numbers = host.floating("div", "swt-over-window-rows swt-sheet-numbers");
     this.numbers.setAttribute("aria-hidden", "true");
     this.columnLines = doc.createElement("div");
@@ -1642,15 +1652,73 @@ export class Sheet implements AdapterFeature {
       let letter = layer.children[shown] as HTMLElement | undefined;
       if (!letter) {
         letter = this.host.doc.createElement("span");
+        const edge = el(this.host.doc, "span", { class: "swt-sheet-width", title: "Drag to set the column's width; double-click for its width as its cells need" });
+        letter.append(this.host.doc.createTextNode(""), edge);
         layer.append(letter);
       }
       letter.hidden = false;
-      letter.textContent = columnLetters(c);
+      (letter.firstChild as Text).data = columnLetters(c);
+      (letter.lastElementChild as HTMLElement).dataset.column = String(c);
       letter.style.left = `${left}px`;
       letter.style.width = `${width}px`;
       shown++;
     }
     for (let i = shown; i < layer.children.length; i++) (layer.children[i] as HTMLElement).hidden = true;
+  }
+
+  /** The column whose letter's edge `target` is */
+  private widthColumn(target: EventTarget | null): number | undefined {
+    const edge = target instanceof Element ? target.closest<HTMLElement>(".swt-sheet-width") : null;
+    const column = edge ? Number(edge.dataset.column) : NaN;
+    return Number.isInteger(column) ? column : undefined;
+  }
+
+  /**
+   * A letter's edge dragged: the column as wide as at the press plus the
+   * pointer's move (shown meanwhile, the grid laid out anew each frame), stored
+   * as it is let go as the table's header's handle stores it; Esc leaves it
+   */
+  private widthPress(e: PointerEvent): void {
+    const board = this.board;
+    const column = this.widthColumn(e.target);
+    if (!board || column === undefined || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const edge = e.target as HTMLElement;
+    edge.setPointerCapture?.(e.pointerId);
+    const start = this.columnWidth(column);
+    const x = e.clientX;
+    let width = start;
+    edge.classList.add("swt-active");
+    const move = (ev: PointerEvent) => {
+      width = Math.max(MIN_COLUMN_WIDTH, Math.round(start + ev.clientX - x));
+      board.preview.set(column, width);
+      this.queuePlace();
+    };
+    const finish = (store: boolean) => {
+      edge.removeEventListener("pointermove", move);
+      edge.removeEventListener("pointerup", up);
+      edge.removeEventListener("pointercancel", cancel);
+      this.host.doc.removeEventListener("keydown", key, true);
+      edge.classList.remove("swt-active");
+      if (store && width !== start) void this.setColumnWidth(board, column, width);
+      else {
+        board.preview.delete(column);
+        this.queuePlace();
+      }
+    };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      finish(false);
+    };
+    edge.addEventListener("pointermove", move);
+    edge.addEventListener("pointerup", up);
+    edge.addEventListener("pointercancel", cancel);
+    this.host.doc.addEventListener("keydown", key, true);
   }
 
   /** Every row's number in view, in the room beside the grid */

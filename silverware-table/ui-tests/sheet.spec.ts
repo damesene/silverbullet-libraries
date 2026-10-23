@@ -35,6 +35,28 @@ async function emptyCell(page: Page, at: { right?: number; below?: number; row?:
   return { x, y };
 }
 
+test.describe("Column widths by the sheet's letters", () => {
+  test("a column no table has: its letter's edge dragged sets its width in the first table's metadata; a double click takes it off", async ({ page }) => {
+    await openSheet(page);
+    const letters = page.locator(".swt-sheet-letters > span:not([hidden])");
+    // A column in view past the table (not the last, which the view's edge may cut)
+    const letter = letters.nth((await letters.count()) - 2);
+    const name = (await letter.textContent())!;
+    const before = (await letter.boundingBox())!;
+    const edge = letter.locator(".swt-sheet-width");
+    const at = (await edge.boundingBox())!;
+    await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(at.x + at.width / 2 + 60, at.y + at.height / 2, { steps: 4 });
+    // Shown as it is dragged
+    await expect.poll(async () => Math.round((await letter.boundingBox())!.width)).toBe(Math.round(before.width) + 60);
+    await page.mouse.up();
+    await expect.poll(() => markdown(page)).toMatch(new RegExp(`sheet\\.width\\.${name}='${Math.round(before.width) + 60}'`));
+    await page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: new RegExp(`^${name}$`) }).locator(".swt-sheet-width").dblclick();
+    await expect.poll(() => markdown(page)).not.toContain(`sheet.width.${name}=`);
+  });
+});
+
 test.describe("Middle-button autoscroll on the sheet", () => {
   test("from an empty cell, as from a table's: the board scrolls both ways", async ({ page }) => {
     await openSheet(page);
