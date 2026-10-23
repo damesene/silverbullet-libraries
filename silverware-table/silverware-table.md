@@ -708,6 +708,7 @@ A theme's name is letters, digits, `-` and `_`; menus show it capitalized (`sand
 | `--swt-head-line` | The line under the header (else as `--swt-row-line`) | `2px` |
 | `--swt-column-line` | Lines between columns | `1px` |
 | `--swt-outline` | A line around the table | `1px` |
+| `--swt-sheet-table-line` | The line around a table in the sheet view, where it ends among the empty cells | the text's color, 40 % |
 | `--swt-radius` | The table's corners | `8px` |
 | `--swt-shadow` | The table's shadow | `0 2px 8px rgba(0, 0, 0, 0.1)` |
 | `--swt-padding` | The cells' padding (density) | `6px 10px` |
@@ -1945,6 +1946,9 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   overflow: hidden !important;
   max-height: none !important;
   cursor: auto;
+  /* A light line round it, stronger than the grid's: where the table ends among the empty cells (a shadow: its box
+     clips what is in it, not what is drawn round it) */
+  box-shadow: 0 0 0 1px var(--swt-sheet-table-line, color-mix(in srgb, currentColor 40%, transparent));
 }
 /* On the sheet nothing of a table is held (its header, its pinned rows and
    columns): the grid scrolls as one, as a spreadsheet's does */
