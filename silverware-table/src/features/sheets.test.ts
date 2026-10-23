@@ -157,3 +157,35 @@ describe("Sheets: a table that grows makes room on its sheet", () => {
   });
 });
 
+
+describe("Sheets: a table of a sheet deleted (Delete table)", () => {
+  useTablePage();
+
+  const answer = () => {
+    const questions: string[] = [];
+    (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+      questions.push(message);
+      return true;
+    };
+    return questions;
+  };
+
+  it("hands the sheet's widths to its next table in the same edit", async () => {
+    await setup(PAGE, { "silverware.table.metadata": true });
+    const questions = answer();
+    const before = edits;
+    tableMenuItem(/^Delete table$/, 0)!.click();
+    await vi.waitFor(() => expect(edits - before).toBe(1));
+    expect(questions[0]).toBe("Delete the table costs (2 rows) from the page? Ctrl+Z brings it back.");
+    expect(text).not.toContain("costs");
+    expect(text).toContain("| <meta name='notes' sheet='Budget' at='D1' sheet.width.B='140'> |");
+  });
+
+  it("says the sheet goes with its only table", async () => {
+    await setup("| Note |\n|---|\n| ok |\n| <meta name='notes' sheet='Plan' at='A1'> |\n", { "silverware.table.metadata": true });
+    const questions = answer();
+    tableMenuItem(/^Delete table$/)!.click();
+    await vi.waitFor(() => expect(questions).toHaveLength(1));
+    expect(questions[0]).toBe("Delete the table notes (1 row) from the page? The sheet Plan goes with it, as it is its only table. Ctrl+Z brings it back.");
+  });
+});

@@ -36,6 +36,14 @@ import {
 export class Sheets implements Feature {
   constructor(private readonly host: ModelHost) {}
 
+  /** Deleting the sheet's last table: the sheet goes with it */
+  tableDeleteWarning(info: TableInfo): string | undefined {
+    const sheet = sheetOf(info.source);
+    if (!sheet) return undefined;
+    const others = sheetTables(this.host.pageText).filter((t) => sameSheet(t.sheet, sheet) && t.range.text !== info.source);
+    return others.length ? undefined : `the sheet ${sheet} goes with it, as it is its only table`;
+  }
+
   /**
    * The sheet's name in the toolbar's row of names, No sheet (muted) on none: a
    * click on it its field. Typed there, the table goes to that sheet (a new
@@ -129,8 +137,12 @@ export class Sheets implements Feature {
     return room && "refused" in room ? `the table cannot grow into ${room.refused}, which overlaps it on the sheet already: check their places (at)` : undefined;
   }
 
-  /** The page's other tables the write changes: those giving or taking the sheet's own data, those moved to make room */
-  otherTablesWritten(before: Table, after: Table, edit: WriteEdit): readonly PageTable[] {
+  /**
+   * The page's other tables the write changes: those giving or taking the
+   * sheet's own data, those moved to make room; the table deleted (no `after`):
+   * its sheet's next table takes the data
+   */
+  otherTablesWritten(before: Table, after: Table | undefined, edit: WriteEdit): readonly PageTable[] {
     const page = new Map(edit.page.tables.map((t) => [t.range.from, t]));
     const written = new Map<number, PageTable>();
     const change = (from: number | undefined, f: (table: Table) => Table) => {
@@ -141,7 +153,7 @@ export class Sheets implements Feature {
       change(move.from, (t) => move.data.reduce((out, [name]) => withMeta(out, name, undefined), t));
       change(move.to, (t) => move.data.reduce((out, [name, value]) => withMeta(out, name, value), t));
     }
-    const room = roomOnSheet(before, after, edit);
+    const room = after && roomOnSheet(before, after, edit);
     if (room && "moved" in room) for (const [from, at] of room.moved) change(from, (t) => withMeta(t, AT_ATTRIBUTE, formatAt(at)));
     return [...written.values()];
   }
@@ -175,9 +187,11 @@ function roomOnSheet(before: Table, after: Table, edit: WriteEdit): Room | undef
  * after it, where they differ (by where they are in the page); none to go
  * to: the sheet is gone with its data
  */
-function handovers(before: Table, after: Table, edit: WriteEdit): { data: [string, string][]; from: number; to: number | undefined }[] {
+function handovers(before: Table, after: Table | undefined, edit: WriteEdit): { data: [string, string][]; from: number; to: number | undefined }[] {
   const at = edit.page.from;
-  const withEdited = (table: Table) => edit.page.tables.map((t) => (t.range.from === at ? { range: t.range, table } : t));
+  // (No table: it is deleted)
+  const withEdited = (table: Table | undefined) =>
+    edit.page.tables.flatMap((t) => (t.range.from !== at ? [t] : table ? [{ range: t.range, table }] : []));
   const sheetsBefore = sheetsOf(sheetTablesOf(withEdited(before)));
   const sheetsAfter = sheetsOf(sheetTablesOf(withEdited(after)));
   const moves: { data: [string, string][]; from: number; to: number | undefined }[] = [];

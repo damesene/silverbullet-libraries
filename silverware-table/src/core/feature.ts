@@ -911,15 +911,17 @@ export interface Feature {
   /**
    * Other tables of the page the write changes too, in the same edit (formulas
    * referring to the edited table); `edit.page.tables` has those features
-   * before it changed
+   * before it changed. `after` undefined: the table is deleted (Delete table)
    */
-  otherTablesWritten?(before: Table, after: Table, edit: WriteEdit): readonly PageTable[];
+  otherTablesWritten?(before: Table, after: Table | undefined, edit: WriteEdit): readonly PageTable[];
   /** Other pages read for formulas (the pageLinks module) */
   otherPages?(): OtherPages;
   /** SilverBullet indexed a page (it changed) */
   pageIndexed?(name: string): Promise<void> | void;
   /** What deleting a column of the table also removes, asked first: "the names of 2 rows pear and fig: …" */
   columnDeleteWarning?(info: TableInfo, column: number): string | undefined;
+  /** What deleting the whole table (Delete table) also affects, asked first: "the formulas of 2 tables that refer to it show #REF!" */
+  tableDeleteWarning?(info: TableInfo): string | undefined;
   /** Attributes of the feature's hidden tags a copy of a row leaves out (a name is one cell's, one row's) */
   uniqueTags?(): readonly string[];
   /** What the feature keeps in these tables, for Remove metadata (which removes it) */

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { STICKY_GAP } from "./core/layout.ts";
-import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashes, flush, inInsertBand, key, pointInsert, press, renderPage, setText, setup, tableMenuItem, text, useTablePage, tableKey } from "./testing/page.ts";
+import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, edits, flashes, flush, inInsertBand, key, pointInsert, press, renderPage, setText, setup, tableMenuItem, text, useTablePage, tableKey } from "./testing/page.ts";
 
 describe("Controller", () => {
   useTablePage();
@@ -126,6 +126,7 @@ describe("Controller", () => {
       "Silverware Table settings…",
       "—",
       "Remove metadata",
+      "Delete table",
     ]);
     expect(bar.querySelector(".swt-bar-more")!.classList.contains("swt-active")).toBe(true);
     // Escape closes it, and so does a press elsewhere
@@ -944,5 +945,52 @@ describe("Controller", () => {
         }
       });
     });
+  });
+});
+
+describe("Delete table", () => {
+  useTablePage();
+
+  const answer = (yes: boolean) => {
+    const questions: string[] = [];
+    (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+      questions.push(message);
+      return yes;
+    };
+    return questions;
+  };
+
+  it("asks, then deletes the table and the blank line after it in one edit", async () => {
+    await setup("Intro\n\n| A |\n|---|\n| 1 |\n| 2 |\n\nAfter\n");
+    const questions = answer(true);
+    const before = edits;
+    tableMenuItem(/^Delete table$/)!.click();
+    await flush();
+    await flush();
+    expect(questions).toEqual(["Delete the table (2 rows) from the page? Ctrl+Z brings it back."]);
+    expect(text).toBe("Intro\n\nAfter\n");
+    expect(edits - before).toBe(1);
+  });
+
+  it("is the last item of the ⋯ menu, a danger one", async () => {
+    await setup(PAGE);
+    const item = tableMenuItem(/^Delete table$/)!;
+    const items = Array.from(document.querySelectorAll(".swt-menu .swt-menu-item"));
+    expect(items[items.length - 1]).toBe(item);
+    expect(item.classList.contains("swt-danger")).toBe(true);
+  });
+
+  it("deletes the page's last table with the blank line before it, and nothing when the answer is no", async () => {
+    await setup("Intro\n\n| A |\n|---|\n| 1 |\n");
+    const asked = answer(false);
+    tableMenuItem(/^Delete table$/)!.click();
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    await flush();
+    expect(text).toBe("Intro\n\n| A |\n|---|\n| 1 |\n");
+    answer(true);
+    tableMenuItem(/^Delete table$/)!.click();
+    await flush();
+    await flush();
+    expect(text).toBe("Intro\n");
   });
 });

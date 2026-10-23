@@ -94,3 +94,32 @@ test.describe("Grips", () => {
     await page.mouse.up();
   });
 });
+
+test("Delete table, last in the ⋯ menu, asks and takes the table out of the page; No keeps it", async ({ page }) => {
+  await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n\nBetween.\n\n| City |\n|---|\n| Brno |\n");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
+  const asked: string[] = [];
+  const answer = (yes: boolean) =>
+    page.once("dialog", (dialog) => {
+      asked.push(dialog.message());
+      void (yes ? dialog.accept() : dialog.dismiss());
+    });
+  const deleteFirst = async () => {
+    await hoverCell(page, cell(page, 1, 0));
+    await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
+    const items = page.locator(".swt-menu .swt-menu-item");
+    await expect(items.last()).toHaveText("Delete table");
+    await items.last().click();
+  };
+  answer(false);
+  await deleteFirst();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(await markdown(page)).toContain("| Pear | 3 |");
+  answer(true);
+  await deleteFirst();
+  await expect.poll(() => markdown(page)).toBe("# Test\n\nBetween.\n\n| City |\n|---|\n| Brno |\n");
+  expect(asked[1]).toBe("Delete the table (1 row) from the page? Ctrl+Z brings it back.");
+  // The toolbar and menu of the table deleted do not stay
+  await expect(page.locator(".swt-menu")).toHaveCount(0);
+});

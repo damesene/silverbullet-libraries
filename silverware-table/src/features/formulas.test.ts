@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buttonLabel, cell, cellMenuItem, clickOn, controller, cursorMoves, editor, flashes, flush, key, menuButtons, nameInMenu, pointInsert, press, renderPage, setup as setupPage, text, toolbarName, useTablePage, tableKey } from "../testing/page.ts";
+import { buttonLabel, cell, cellMenuItem, clickOn, controller, cursorMoves, edits, editor, flashes, flush, key, menuButtons, nameInMenu, pointInsert, press, renderPage, setup as setupPage, tableMenuItem, text, toolbarName, useTablePage, tableKey } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
 import { clearCustomFunctions, defineCustomFunctions, functionNamed } from "../formulas/registry.ts";
 import { toNumber, type Value } from "../formulas/values.ts";
@@ -1119,5 +1119,25 @@ describe("Formulas", () => {
       expect(field().value).toBe("=[Qty]");
       expect(document.querySelector(".swt-cell-editor")).not.toBeNull();
     });
+  });
+});
+
+describe("Formulas when a table they refer to is deleted", () => {
+  useTablePage();
+
+  it("say so when asked, and show #REF! in the same edit", async () => {
+    await setupPage("| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta name='prices'> |\n\n| Double |\n|---|\n| 24 <meta f='=prices!B1*2'> |\n| <meta name='costs'> |\n", { "silverware.table.metadata": true });
+    const questions: string[] = [];
+    (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+      questions.push(message);
+      return true;
+    };
+    const before = edits;
+    tableMenuItem(/^Delete table$/)!.click();
+    await vi.waitFor(() => expect(edits - before).toBe(1));
+    expect(questions).toEqual([
+      "Delete the table prices (1 row) from the page? The formulas of the table costs that refer to it show #REF!. Ctrl+Z brings it back.",
+    ]);
+    expect(text).toBe("| Double |\n|---|\n| #REF! <meta f='=prices!B1*2'> |\n| <meta name='costs'> |\n");
   });
 });

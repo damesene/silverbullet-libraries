@@ -111,7 +111,7 @@ describe("Column widths", () => {
 `, { "silverware.table.metadata": true });
     tableMenuItem(/^Edit markdown$/);
     const labels = Array.from(document.querySelectorAll(".swt-menu .swt-menu-item")).map((e) => e.textContent);
-    expect(labels.slice(-2)).toEqual(["Reset column widths", "Remove metadata"]);
+    expect(labels.slice(-3)).toEqual(["Reset column widths", "Remove metadata", "Delete table"]);
     tableMenuItem(/^Reset column widths$/)!.click();
     await flush();
     expect(text).toBe(`${PAGE}| <meta sort.qty='desc'> |

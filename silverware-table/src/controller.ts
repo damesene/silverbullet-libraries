@@ -57,7 +57,7 @@ import {
 } from "./markdown.ts";
 import type { MenuBack, MenuEntry, MenuNaming, MenuTitleIcon } from "./menu.ts";
 import { floatingMenu, focusMenu } from "./core/menu.ts";
-import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
+import { metadataAfterEdit, metaName, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { keepTags } from "./tags.ts";
 import { nameEmptyHeaders, reorderRows } from "./ops.ts";
 import {
@@ -263,6 +263,7 @@ export class Controller implements TableHost {
       applySort: (widget, info) => void this.applySort(widget, info),
       showMarkdown: (info) => void this.showMarkdown(info),
       openSettings: () => void this.openSettings(),
+      deleteTable: (info) => void this.deleteTable(info),
       namesShown: () => this.namesShown === "always" || (this.namesShown === "shift" && this.shiftHeld),
     });
     this.insert = new InsertControls({
@@ -492,6 +493,81 @@ export class Controller implements TableHost {
 
   tablesChanged(): void {
     for (const feature of this.features) feature.tablesChanged?.();
+  }
+
+  /**
+   * Deletes a table from the page, asked first (what goes with it: the
+   * features' tableDeleteWarning): in one edit, so Ctrl+Z brings it back, with
+   * the blank line after it, the other tables the features change for it
+   * (otherTablesWritten with no table after: formulas referring to it, a
+   * sheet's data handed on) in the same edit. Edits held for it go with it.
+   */
+  async deleteTable(shown: WidgetInfo): Promise<WriteResult> {
+    await this.saveEditing();
+    const info = this.tableFor(shown.key) ?? shown;
+    const table = parseTable(info.source);
+    const name = metaName(table);
+    const rows = table.rows.length - 1;
+    const lost = this.features.flatMap((f) => f.tableDeleteWarning?.(info) ?? []);
+    const what = `the table${name ? ` ${name}` : ""} (${rows} ${rows === 1 ? "row" : "rows"})`;
+    const question = `Delete ${what} from the page?${lost.length ? ` ${lost.map((l) => l[0]!.toUpperCase() + l.slice(1)).join(". ")}.` : ""} Ctrl+Z brings it back.`;
+    if (!(await this.ask(question))) return "unchanged";
+    try {
+      for (const feature of this.features) await feature.prepareWrite?.(info);
+      const text = await this.bridge.getText();
+      this.pageText = text;
+      const range = locateBySource(text, info.hint, info.source);
+      if (!range) {
+        void this.bridge.flash(NOT_SAVED.replace(", nothing was saved", ", nothing was deleted"), "error");
+        return "failed";
+      }
+      const held = this.features.flatMap((f) => f.pendingEdits?.(info) ?? []);
+      const before = parseTable(range.text);
+      const page: WritePage = { text, tables: pageTablesOf(text), from: range.from };
+      const format = await this.setting("autoFormat");
+      const serialize = (t: Table) => serializeTable(format ? { ...t, padded: true } : t);
+      // The other tables the features change for it, each seeing the earlier ones' changes
+      const others = new Map<number, PageTable>();
+      let pageNow = page;
+      for (const feature of this.features) {
+        for (const other of feature.otherTablesWritten?.(before, undefined, { page: pageNow }) ?? []) {
+          if (other.range.from === range.from) continue;
+          others.set(other.range.from, other);
+          pageNow = { ...pageNow, tables: pageNow.tables.map((t) => (t.range.from === other.range.from ? { range: t.range, table: other.table } : t)) };
+        }
+      }
+      // The table and the blank line after it; the last of the page, the blank line before it (one line break kept)
+      let from = range.from;
+      let to = range.to;
+      const next = /^[ \t]*(\r?\n)+/.exec(text.slice(to))?.[0] ?? "";
+      if (to + next.length < text.length) to += next.length;
+      else {
+        to = text.length;
+        const previous = /(\r?\n)+$/.exec(text.slice(0, from))?.[0] ?? "";
+        from -= Math.max(0, previous.length - 1);
+      }
+      const updates = [{ from, to, markdown: "" }, ...[...others.values()].map((o) => ({ from: o.range.from, to: o.range.to, markdown: serialize(o.table) }))];
+      let written = text;
+      for (const update of [...updates].sort((a, b) => b.from - a.from)) written = written.slice(0, update.from) + update.markdown + written.slice(update.to);
+      const replace = minimalEdit(text, written);
+      const spanFrom = Math.min(...updates.map((u) => u.from));
+      const spanTo = Math.max(...updates.map((u) => u.to));
+      const after: ((editFrom: number, lengthChange: number) => void)[] = [];
+      for (const feature of this.features) {
+        const then = await feature.beforeWrite?.(text, spanFrom, spanTo, replace);
+        if (then) after.push(then);
+      }
+      this.hideFloating(true);
+      await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
+      this.pageText = written;
+      for (const pending of held) pending.written();
+      for (const then of after) then(replace.from, written.length - text.length);
+      return "written";
+    } catch (e) {
+      console.error("Silverware Table: could not delete the table", e);
+      void this.bridge.flash(`Silverware Table: could not delete the table (${String(e)})`, "error");
+      return "failed";
+    }
   }
 
   columnDeleteWarnings(info: WidgetInfo, column: number): string[] {

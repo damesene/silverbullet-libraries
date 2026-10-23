@@ -223,11 +223,14 @@ export class Formulas implements Feature {
    * their results for it as written, their references to it following its
    * moved rows and columns and its new name. Other tables are left as they are.
    */
-  otherTablesWritten(before: Table, after: Table, edit: WriteEdit): readonly PageTable[] {
+  otherTablesWritten(before: Table, after: Table | undefined, edit: WriteEdit): readonly PageTable[] {
     const { page } = edit;
-    const now = pageTables(() => page.tables, this.host.currentPage, { from: page.from, table: after }, this.host.otherPages());
+    // Deleted (no `after`): the page without it, so what refers to it is #REF!
+    const now = after
+      ? pageTables(() => page.tables, this.host.currentPage, { from: page.from, table: after }, this.host.otherPages())
+      : pageTables(() => page.tables.filter((t) => t.range.from !== page.from), this.host.currentPage, undefined, this.host.otherPages());
     // Its name and the names of its cells, before and after the edit, and in turn those of the tables that refer to them
-    const affected = affectedBy(before, after);
+    const affected = after ? affectedBy(before, after) : affectedBy(before);
     const oldName = metaName(before)?.toLowerCase();
     // What each other table refers to, read once for all the passes below
     const others = page.tables.filter((other) => other.range.from !== page.from).map((other) => ({ ...other, referred: referredBy(other.table) }));
@@ -241,12 +244,23 @@ export class Formulas implements Feature {
         found = true;
         addAffected(affected, table);
         // Its references to this table follow the edit: moved rows and columns, a new name
-        const followed = oldName && referred.tables.has(oldName) ? followTable(table, before, after, edit.rowMap, edit.columnMap) : table;
+        const followed = after && oldName && referred.tables.has(oldName) ? followTable(table, before, after, edit.rowMap, edit.columnMap) : table;
         const recalculated = recalculate(followed, now);
         if (recalculated !== table) written.push({ range, table: recalculated });
       }
     }
     return written;
+  }
+
+  /** Deleting a named table: the formulas of the page's tables that refer to it show #REF! */
+  tableDeleteWarning(info: TableInfo): string | undefined {
+    const name = metaName(parseTable(info.source))?.toLowerCase();
+    if (!name) return undefined;
+    const referring = pageTablesOf(this.host.pageText).filter((t) => t.range.text !== info.source && referredBy(t.table).tables.has(name));
+    if (!referring.length) return undefined;
+    const names = referring.map((t) => metaName(t.table)).filter((n): n is string => !!n);
+    const which = referring.length === 1 ? "the table" : `${referring.length} tables`;
+    return `the formulas of ${which}${names.length ? ` ${names.join(", ")}` : ""} that refer to it show #REF!`;
   }
 
   /**

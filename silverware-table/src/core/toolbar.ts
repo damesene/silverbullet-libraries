@@ -36,6 +36,8 @@ export type ToolbarContext = {
   readonly applySort: (widget: HTMLElement, info: WidgetInfo) => void;
   readonly showMarkdown: (info: WidgetInfo) => void;
   readonly openSettings: () => void;
+  /** The table deleted from the page, asked first (Delete table) */
+  readonly deleteTable: (info: WidgetInfo) => void;
   /** The names in the toolbar too (the toolbarNames setting), not only in the ⋯ menu */
   readonly namesShown: () => boolean;
 };
@@ -268,6 +270,14 @@ export class Toolbar {
         title: "Settings for every table in the space (not just this one): SilverBullet's configuration",
         icon: ICONS.settings,
         run: () => this.context.openSettings(),
+      },
+      // The last of the destructive ones (the modules' come before): it takes the whole table
+      {
+        label: "Delete table",
+        title: "Delete this table from the page (asked first; Ctrl+Z brings it back)",
+        icon: ICONS.trash,
+        danger: true,
+        run: () => this.context.deleteTable(this.context.current(widget, info)[1]),
       },
     ];
   }
