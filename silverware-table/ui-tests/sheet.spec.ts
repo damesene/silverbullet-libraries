@@ -135,6 +135,26 @@ test.describe("A table far down the sheet", () => {
   });
 });
 
+test.describe("A column's width on the sheet", () => {
+  test("no width of its own and a long text: the column as wide as its cells' text, at most 300px", async ({ page }) => {
+    const long = "A very long note that goes on and on and would make the column as wide as the window if nothing held it";
+    await page.locator("#source").fill(`# Test
+
+| Item | Note |
+|---|---|
+| Pear | ${long} |
+| Fig | short |
+`);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(2);
+    await openSheet(page);
+    const note = sheetTable(page).locator("tr[data-swt-row='1'] > td").nth(1);
+    await expect.poll(async () => Math.round((await note.boundingBox())!.width)).toBeLessThanOrEqual(300);
+    // A short column as wide as its text, not the cap
+    expect((await sheetTable(page).locator("tr[data-swt-row='1'] > td").first().boundingBox())!.width).toBeLessThan(150);
+  });
+});
+
 test.describe("Long text on the sheet", () => {
   test("a narrow column: its header and its cells stay within it, cut with an ellipsis", async ({ page }) => {
     await page.evaluate(() => localStorage.setItem("silverwarePlayground.settings", JSON.stringify({ "silverware.table.metadata": true, "silverware.table.modules.longText.overflow": "ellipsis" })));

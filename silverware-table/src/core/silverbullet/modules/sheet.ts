@@ -51,6 +51,9 @@ import type { TableKey } from "../../tables.ts";
 
 // An empty column's width, a row's height when no table gives one
 const COLUMN_WIDTH = 100;
+// The widest a column of no width of its own is, by its cells' text (a long text is cut or wraps in it, as the longText
+// module's setting says; its maximum width, when smaller, too): a sheet's columns are narrower than a page's tables
+const NATURAL_MAX = 300;
 const ROW_HEIGHT = 36;
 // The room for the sheets' tabs, at the board's bottom (its border: CSS)
 const TABS_ROOM = 30;
@@ -678,7 +681,9 @@ export class Sheet implements AdapterFeature {
     }
     table.style.tableLayout = "auto";
     table.style.width = "max-content";
-    placed.natural = Array.from(table.rows[0]?.cells ?? [], (cell) => cell.getBoundingClientRect().width);
+    // (At most NATURAL_MAX, or the longText module's maximum width where it is smaller)
+    const limit = Math.min(NATURAL_MAX, parseFloat(this.host.doc.defaultView!.getComputedStyle(widget).getPropertyValue("--swt-cell-max-width")) || Infinity);
+    placed.natural = Array.from(table.rows[0]?.cells ?? [], (cell) => Math.min(limit, cell.getBoundingClientRect().width));
     placed.rowHeight = this.host.bodyRows(info).find((tr) => tr.isConnected)?.getBoundingClientRect().height ?? 0;
     table.style.tableLayout = tableLayout;
     table.style.width = width;
