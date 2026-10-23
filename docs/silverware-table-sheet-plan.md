@@ -328,3 +328,10 @@ other pages on a sheet.
   it is), one edit with the tables the modules change for it
   (`otherTablesWritten` with no `after`: `#REF!`, the sheet's widths handed
   on). Next: moving tables on the sheet.
+- 2026-10-23, phase 5: moving a table on the sheet (a table on a sheet
+  only): its handle at the top left corner (dragged; clicked: the whole table
+  selected), *Move table…* in the ⋯ and cell menus (the next press or tap),
+  the whole table selected dragged by its edge (the selection module, through
+  the frame: no hook); all through `AddressFrame` (`origin`, `cellAt`,
+  `placeProblem`, `previewPlace`, `moveTo`), the rule `placeProblem` in
+  `sheet/layout.ts` (never over another table, never past A1).
