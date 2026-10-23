@@ -35,6 +35,45 @@ async function emptyCell(page: Page, at: { right?: number; below?: number; row?:
   return { x, y };
 }
 
+test.describe("A table far down the sheet", () => {
+  test("edited, drawn anew: the board stays scrolled where it is (the table placed at once, the next cell focused there)", async ({ page }) => {
+    await page.locator("#source").fill(
+      "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| City | N |\n|---|---|\n| Brno | 1 |\n| Praha | 2 |\n| <meta name='b' sheet='Plan' at='B25'> |\n",
+    );
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(2);
+    await openSheet(page);
+    const board = page.locator(".swt-sheet-board");
+    await board.evaluate((b) => (b.scrollTop = 1500));
+    const b = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)", { hasText: "Brno" });
+    await expect(b).toBeVisible();
+    const before = await board.evaluate((x) => x.scrollTop);
+    // Every frame's scroll, from here on
+    await board.evaluate((x) => {
+      const tops: number[] = [];
+      (window as unknown as { tops: number[] }).tops = tops;
+      const log = () => {
+        tops.push(Math.round(x.scrollTop));
+        requestAnimationFrame(log);
+      };
+      requestAnimationFrame(log);
+    });
+    await sheetRendersAnew(
+      page,
+      async () => {
+        await b.locator("tr[data-swt-row='1'] > td").nth(1).dblclick();
+        await page.keyboard.press("Control+a");
+        await page.keyboard.type("7");
+        await page.keyboard.press("Enter");
+      },
+      1,
+    );
+    await expect(page.locator(".swt-cell-editor")).toBeFocused();
+    await page.waitForTimeout(200);
+    expect([...new Set(await page.evaluate(() => (window as unknown as { tops: number[] }).tops))]).toEqual([Math.round(before)]);
+  });
+});
+
 test.describe("Long text on the sheet", () => {
   test("a narrow column: its header and its cells stay within it, cut with an ellipsis", async ({ page }) => {
     await page.evaluate(() => localStorage.setItem("silverwarePlayground.settings", JSON.stringify({ "silverware.table.metadata": true, "silverware.table.modules.longText.overflow": "ellipsis" })));

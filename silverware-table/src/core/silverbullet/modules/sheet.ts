@@ -392,6 +392,10 @@ export class Sheet implements AdapterFeature {
       void navigate(link.dataset.ref);
     });
     widget.classList.add("swt-sheet-table");
+    // At its place on the grid at once, not at the board's start until the next frame lays it out: the cell to edit
+    // next is focused in it as it is enhanced, which scrolled the board to where it stood first
+    const grid = this.grid;
+    if (grid) Object.assign(widget.style, { left: `${this.leftOf(at.column)}px`, top: `${at.row * grid.rowHeight}px` });
     if (before) {
       // (Drawn anew again before shown: the copy of what was shown stays)
       if (!this.standIns.has(key)) {
