@@ -7,7 +7,8 @@ import { excelHtml, excelText } from "./clipboard.ts";
 import { excelFormula } from "../testing/formulas.ts";
 import { EXCEL_FUNCTIONS, SAME_IN_EXCEL, withFutureNames } from "./functions.ts";
 import { excelValue, serialOf } from "./values.ts";
-import { crc32, sheetName, xlsxFile, xlsxParts, xmlText } from "./xlsx.ts";
+import { crc32, excelColumnNames, excelTableName, sheetName, xlsxFile, xlsxParts, xmlText } from "./xlsx.ts";
+import { structuredColumn } from "./formulas.ts";
 
 // A table with a total row under it, a named row (pear) and a named cell (vat)
 const SHOP = parseTable(
@@ -120,6 +121,28 @@ describe("Excel's formulas", () => {
     for (const name of Object.keys(BUILT_IN_FUNCTIONS)) {
       expect([name, SAME_IN_EXCEL.has(name) !== (name in EXCEL_FUNCTIONS)]).toEqual([name, true]);
     }
+  });
+});
+
+describe("as an Excel table", () => {
+  it("names the table and its columns as Excel takes them", () => {
+    expect(excelTableName("prices")).toBe("prices");
+    expect(excelTableName(undefined)).toBe("Table1");
+    expect(excelTableName("A1")).toBe("Table1");
+    expect(excelTableName("R1C1")).toBe("Table1");
+    expect(excelTableName("Rates")).toBe("Rates");
+    expect(excelColumnNames(["Qty", "qty", "", "Qty"])).toEqual(["Qty", "qty2", "Column3", "Qty3"]);
+    expect(structuredColumn("Bob's [x] #1")).toBe("[Bob''s '[x'] '#1]");
+  });
+
+  it("writes column references by the table's columns: its totals row not among their rows, else cells", () => {
+    const table = parseTable("| Name | Jan | Feb | Total |\n|---|---|---|---|\n| a | 1 | 2 | |\n| b | 3 | 4 | |\n| Sum | 4 <meta formulas.f='=SUM([jan])'> | | |");
+    const structured = { name: "T", columns: ["Name", "Jan", "Feb", "Total"], totalsRow: true };
+    expect(excelFormula("=SUM([jan])", table, 2, 1, {}, structured)).toEqual({ text: "SUM(T[Jan])", array: false });
+    expect(excelFormula("=[@jan]*2", table, 0, 3, {}, structured)).toEqual({ text: "T[[#This Row],[Jan]]*2", array: false });
+    expect(excelFormula("=SUM([@[feb]:[jan]])", table, 0, 3, {}, structured)).toEqual({ text: "SUM(T[[#This Row],[Jan]:[Feb]])", array: false });
+    // Its total row not its last one (no totals row): the column's cells as before
+    expect(excelFormula("=SUM([jan])", table, 2, 1, {}, { ...structured, totalsRow: false })).toEqual({ text: "SUM(B2:B3)", array: false });
   });
 });
 

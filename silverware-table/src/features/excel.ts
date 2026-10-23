@@ -19,9 +19,9 @@ import { excelHtml, excelText } from "../excel/clipboard.ts";
 import { excelCell, excelFormula } from "../excel/formulas.ts";
 import type { ExcelTemplates } from "../excel/functions.ts";
 import { excelValue } from "../excel/values.ts";
-import { columnWidth, xlsxFile, type XlsxCell } from "../excel/xlsx.ts";
+import { columnWidth, excelColumnNames, excelTableName, xlsxFile, type XlsxCell } from "../excel/xlsx.ts";
 import { currentTable, type ExportedTable, exportedTable } from "../export/table.ts";
-import type { FormulasOffer } from "../formulas/index.ts";
+import { type FormulasOffer, totalRows } from "../formulas/index.ts";
 import { ICONS } from "../icons.ts";
 
 const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -221,7 +221,7 @@ export class Excel implements Feature {
       "Download .xlsx",
       [
         "The whole table, every row in the order of the markdown (not as sorted or filtered), the header in row 1.",
-        "Numbers, dates and times as Excel's values; formulas as Excel formulas, calculated again by Excel.",
+        "An Excel table (its name, filters in its header, a totals row): numbers, dates and times as Excel's values; formulas as Excel formulas by the table's columns, calculated again by Excel.",
       ],
       [nameField, download],
       formulaNote,
@@ -274,9 +274,16 @@ export class Excel implements Feature {
     const skipped: Skipped[] = [];
     let formulas = 0;
     const cells = this.host.offered<FormulasOffer>("formulas")?.cells;
-    const own = cells && { table: model, name: this.host.tableName(model), cells };
+    // An Excel table: its name, its columns named as its header shows them (unique), its last row its totals row
+    // where that is the table's only total row (a total of its own column: what [qty] leaves out)
+    const columns = excelColumnNames(exported.header);
+    const bodyRows = Math.max(0, model.rows.length - 1);
+    const totals = cells ? totalRows(cells, model) : new Set<number>();
+    const totalsRow = bodyRows >= 2 && totals.size === 1 && totals.has(bodyRows - 1);
+    const tableName = excelTableName(this.host.tableName(model));
+    const own = cells && { table: model, name: this.host.tableName(model), cells, structured: { name: tableName, columns, totalsRow } };
     // Each markdown row in its place: Excel's row 2 is the first under the header, as formulas count them
-    const rows: XlsxCell[][] = Array.from({ length: Math.max(0, model.rows.length - 1) }, () => []);
+    const rows: XlsxCell[][] = Array.from({ length: bodyRows }, () => []);
     for (const { row, values } of exported.rows) {
       rows[row - 1] = values.map((text, column) => {
         const value = excelValue(text);
@@ -294,8 +301,15 @@ export class Excel implements Feature {
     }
     const page = await this.host.bridge.getCurrentPage();
     const name = this.host.tableName(model) ?? page.split("/").pop() ?? "Table";
-    const widths = exported.header.map((h, c) => columnWidth([h, ...exported.rows.map((r) => r.values[c] ?? "")]));
-    return { name, make: () => xlsxFile({ name, header: exported.header, rows, widths }), formulas, skipped };
+    const widths = columns.map((h, c) => columnWidth([h, ...exported.rows.map((r) => r.values[c] ?? "")]));
+    // A calculated column: the same formula in every row but the totals row, in Excel's form too
+    const dataRows = rows.slice(0, totalsRow ? -1 : undefined);
+    const calculated = columns.map((_, c) => {
+      const first = dataRows[0]?.[c]?.formula;
+      return first && dataRows.every((r) => r[c]?.formula?.text === first.text && r[c]?.formula?.array === first.array) ? first : undefined;
+    });
+    const table = { name: tableName, totalsRow, calculated };
+    return { name, make: () => xlsxFile({ name, header: columns, rows, widths, table }), formulas, skipped };
   }
 
   /** The file made and given to the browser to download */

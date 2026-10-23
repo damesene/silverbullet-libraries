@@ -41,10 +41,26 @@ export function excelCell(row: number, column: number, fixed?: { readonly column
 type Written = { readonly text: string; readonly range: boolean };
 
 /** The formula (with its =) in the body cell `row`, `column` of `table`, as Excel writes it (without =) */
-/** The table a formula is in, as formulas see it: its cells as they read them, its name */
-export type ExcelTable = { readonly table: Table; readonly name?: string; readonly cells: FormulaCells };
+/**
+ * The table a formula is in, as formulas see it: its cells as they read them,
+ * its name; `structured`: written as an Excel table of that name, its columns
+ * named so (as its header cells say), its last row its totals row where
+ * `totalsRow`: column references are then the table's (Table1[qty],
+ * Table1[[#This Row],[qty]])
+ */
+export type ExcelTable = {
+  readonly table: Table;
+  readonly name?: string;
+  readonly cells: FormulaCells;
+  readonly structured?: { readonly name: string; readonly columns: readonly string[]; readonly totalsRow: boolean };
+};
 
-export function excelFormula(formula: string, { table, name, cells }: ExcelTable, row: number, column: number, templates: ExcelTemplates = {}): ExcelFormula {
+/** A column's name in a structured reference: its brackets, # and ' written with ' before them */
+export function structuredColumn(name: string): string {
+  return `[${name.replace(/['[\]#]/g, "'$&")}]`;
+}
+
+export function excelFormula(formula: string, { table, name, cells, structured }: ExcelTable, row: number, column: number, templates: ExcelTemplates = {}): ExcelFormula {
   const tree = parseFormula(formula);
   if (tree instanceof FormulaError) return { reason: `it cannot be read: ${tree.detail}` };
   const headers = table.rows[0]?.cells ?? [];
@@ -79,15 +95,23 @@ export function excelFormula(formula: string, { table, name, cells }: ExcelTable
         if (node.table) throw new NotInExcel(`it refers to the table ${node.table.name}`);
         const c = columnOf(node.name);
         if (c === undefined) return { text: "#REF!", range: false };
+        // An Excel table's column, as its header names it
+        const named = (index: number) => structuredColumn(structured!.columns[index]!);
         if (node.thisRow && node.last !== undefined) {
           // [@[a]:[b]]: the formula's row from one column to the other
           const last = columnOf(node.last);
           if (last === undefined) return { text: "#REF!", range: false };
-          return { text: `${excelCell(row, Math.min(c, last))}:${excelCell(row, Math.max(c, last))}`, range: true };
+          const [from, to] = [Math.min(c, last), Math.max(c, last)];
+          if (structured) return { text: `${structured.name}[[#This Row],${named(from)}:${named(to)}]`, range: true };
+          return { text: `${excelCell(row, from)}:${excelCell(row, to)}`, range: true };
         }
-        if (node.thisRow) return { text: excelCell(row, c), range: false };
-        // The column's rows without the total rows, as [qty] takes them: one run in Excel
+        if (node.thisRow) return { text: structured ? `${structured.name}[[#This Row],${named(c)}]` : excelCell(row, c), range: false };
+        // The column's rows without the total rows, as [qty] takes them: the table's column where they are its totals row (or none)
         totals ??= totalRows(cells, table);
+        if (structured && (totals.size === 0 || (structured.totalsRow && totals.size === 1 && totals.has(bodyRows - 1)))) {
+          return { text: `${structured.name}${named(c)}`, range: true };
+        }
+        // Else one run of cells in Excel
         const rows = Array.from({ length: bodyRows }, (_, r) => r).filter((r) => !totals!.has(r));
         if (rows.length === 0) throw new NotInExcel(`[${node.name}] has no rows`);
         const first = rows[0]!;

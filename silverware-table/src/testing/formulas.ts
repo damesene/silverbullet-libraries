@@ -5,7 +5,7 @@
 import { formulaCellsOf } from "../features/formulas.ts";
 import * as domain from "../formulas/index.ts";
 import * as page from "../formulas/page.ts";
-import { excelFormula as excelFormulaOf } from "../excel/formulas.ts";
+import { type ExcelTable, excelFormula as excelFormulaOf } from "../excel/formulas.ts";
 import type { ExcelTemplates } from "../excel/functions.ts";
 import type { OtherPages, PageTable, Table } from "../markdown.ts";
 import { attributeName, metaName } from "../meta.ts";
@@ -61,5 +61,5 @@ export const pageTables = (tables: () => readonly PageTable[], here: string, rep
 export const pageNameChoices = (tables: readonly PageTable[]) => page.pageNameChoices(CELLS, named(tables));
 export const ownNameChoices = (table: Table) => page.ownNameChoices(CELLS, table);
 export const tablesWritten = (all: readonly PageTable[], source: string) => page.tablesWritten(CELLS, named(all), source);
-export const excelFormula = (formula: string, table: Table, row: number, column: number, templates?: ExcelTemplates) =>
-  excelFormulaOf(formula, { table, name: metaName(table), cells: CELLS }, row, column, templates);
+export const excelFormula = (formula: string, table: Table, row: number, column: number, templates?: ExcelTemplates, structured?: ExcelTable["structured"]) =>
+  excelFormulaOf(formula, { table, name: metaName(table), cells: CELLS, ...(structured ? { structured } : {}) }, row, column, templates);

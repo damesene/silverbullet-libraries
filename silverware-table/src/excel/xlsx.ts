@@ -2,7 +2,10 @@
 // rows under it, values as Excel keeps them (values.ts), formulas with their
 // results (Excel calculates them again when it opens the file). An .xlsx file
 // is a zip of XML parts (Office Open XML, ECMA-376); this writes the few a
-// sheet needs, stored without compression, so no library is needed.
+// sheet needs, stored without compression, so no library is needed. With a
+// table, the sheet's cells are an Excel table too (Insert > Table): its name,
+// its columns (as the header names them), a filter in its header, banded rows,
+// its last row its totals row where asked, its calculated columns' formulas.
 import { columnLetters } from "../formulas/index.ts";
 import type { ExcelValue, NumberFormat } from "./values.ts";
 
@@ -14,11 +17,44 @@ export type XlsxCell = {
 
 export type XlsxSheet = {
   readonly name: string;
+  // As an Excel table: its column names, unique and not empty
   readonly header: readonly string[];
   readonly rows: readonly (readonly XlsxCell[])[];
   // The columns' widths, in characters
   readonly widths?: readonly number[];
+  readonly table?: XlsxTable;
 };
+
+/** The sheet's cells as an Excel table */
+export type XlsxTable = {
+  // A name Excel takes for a table (excelTableName)
+  readonly name: string;
+  // The last row is the table's totals row
+  readonly totalsRow: boolean;
+  // Each column's formula where it is a calculated column (the same in every row but the totals row), in Excel's form
+  readonly calculated: readonly ({ readonly text: string; readonly array: boolean } | undefined)[];
+};
+
+/**
+ * A name Excel takes for a table (letters, digits, _ and ., starting with a
+ * letter or _, not a cell: A1, R1C1): the one given, else `Table1`
+ */
+export function excelTableName(name: string | undefined): string {
+  const ok = !!name && /^[A-Za-z_][\w.]{0,254}$/.test(name) && !/^[A-Za-z]{1,3}\d+$/.test(name) && !/^(R\d*C?\d*|C\d*)$/i.test(name);
+  return ok ? name! : "Table1";
+}
+
+/** A table's column names as Excel wants them: not empty, none twice (ignoring case): Column1, Qty2 */
+export function excelColumnNames(header: readonly string[]): string[] {
+  const taken = new Set<string>();
+  return header.map((text, c) => {
+    const base = text.replace(/\s+/g, " ").trim() || `Column${c + 1}`;
+    let name = base;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base}${n}`;
+    taken.add(name.toLowerCase());
+    return name;
+  });
+}
 
 // The styles' order in styles.xml: 0 the default, 1 the header, then one per number format
 const FORMAT_STYLES: readonly NumberFormat[] = ["date", "dateTime", "dateTimeSeconds", "time", "timeSeconds", "percent", "percent1", "percent2"];
@@ -99,11 +135,12 @@ function sheetXml(sheet: XlsxSheet): string {
     .join("");
   return (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
     '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
     '<sheetFormatPr defaultRowHeight="15"/>' +
     (cols ? `<cols>${cols}</cols>` : "") +
     `<sheetData>${header}${rows}</sheetData>` +
+    (sheet.table ? '<tableParts count="1"><tablePart r:id="rId1"/></tableParts>' : "") +
     "</worksheet>"
   );
 }
@@ -132,6 +169,40 @@ function stylesXml(): string {
 
 const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 
+/** The table part: where it is, its columns (a totals row's label or formula, a calculated column's formula), its style */
+function tableXml(sheet: XlsxSheet, table: XlsxTable): string {
+  const columns = sheet.header.length;
+  const last = sheet.rows.length + 1;
+  const ref = `A1:${columnLetters(Math.max(0, columns - 1))}${last}`;
+  const filtered = `A1:${columnLetters(Math.max(0, columns - 1))}${table.totalsRow ? last - 1 : last}`;
+  const totals = table.totalsRow ? sheet.rows[sheet.rows.length - 1] : undefined;
+  const formula = (tag: string, f: { readonly text: string; readonly array: boolean }) => `<${tag}${f.array ? ' array="1"' : ""}>${xmlText(f.text)}</${tag}>`;
+  const tableColumns = sheet.header
+    .map((name, c) => {
+      const total = totals?.[c];
+      const label = total && !total.formula && total.value.kind !== "empty" ? ` totalsRowLabel="${xmlText(excelText(total))}"` : "";
+      const fn = total?.formula ? ' totalsRowFunction="custom"' : "";
+      const calculated = table.calculated[c];
+      const inner = (calculated ? formula("calculatedColumnFormula", calculated) : "") + (total?.formula ? formula("totalsRowFormula", total.formula) : "");
+      return `<tableColumn id="${c + 1}" name="${xmlText(name)}"${label}${fn}${inner ? `>${inner}</tableColumn>` : "/>"}`;
+    })
+    .join("");
+  return (
+    XML +
+    `<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="${xmlText(table.name)}" displayName="${xmlText(table.name)}" ref="${ref}"${table.totalsRow ? ' totalsRowCount="1"' : ""}>` +
+    `<autoFilter ref="${filtered}"/>` +
+    `<tableColumns count="${columns}">${tableColumns}</tableColumns>` +
+    '<tableStyleInfo name="TableStyleMedium2" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="0"/>' +
+    "</table>"
+  );
+}
+
+/** A totals row's label: the cell's text as written */
+function excelText(cell: XlsxCell): string {
+  const v = cell.value;
+  return v.kind === "text" ? v.value : v.kind === "number" ? String(v.value) : "";
+}
+
 /** The parts of the file, by their paths in the zip */
 export function xlsxParts(sheet: XlsxSheet): [string, string][] {
   return [
@@ -143,6 +214,7 @@ export function xlsxParts(sheet: XlsxSheet): [string, string][] {
         '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
         '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
         '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+        (sheet.table ? '<Override PartName="/xl/tables/table1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>' : "") +
         "</Types>",
     ],
     [
@@ -168,6 +240,17 @@ export function xlsxParts(sheet: XlsxSheet): [string, string][] {
     ],
     ["xl/styles.xml", stylesXml()],
     ["xl/worksheets/sheet1.xml", sheetXml(sheet)],
+    ...(sheet.table
+      ? ([
+          [
+            "xl/worksheets/_rels/sheet1.xml.rels",
+            `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+              '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/>' +
+              "</Relationships>",
+          ],
+          ["xl/tables/table1.xml", tableXml(sheet, sheet.table)],
+        ] as [string, string][])
+      : []),
   ];
 }
 

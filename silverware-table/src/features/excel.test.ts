@@ -26,9 +26,10 @@ describe("Excel", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  const sheetOf = (bytes: Uint8Array) => {
+  const sheetOf = (bytes: Uint8Array) => partOf(bytes, "<worksheet", "</worksheet>");
+  const partOf = (bytes: Uint8Array, start: string, end: string) => {
     const text = new TextDecoder().decode(bytes);
-    return text.slice(text.indexOf("<worksheet"), text.indexOf("</worksheet>"));
+    return text.slice(text.indexOf(start), text.indexOf(end));
   };
   const dialog = () => document.querySelector<HTMLElement>(".swt-excel-dialog");
   const button = (text: string) => Array.from(dialog()!.querySelectorAll<HTMLElement>("button")).find((b) => b.textContent === text)!;
@@ -64,7 +65,14 @@ describe("Excel", () => {
     const sheet = sheetOf(downloads[0]!.bytes);
     expect(sheet).toContain('<c r="A2" t="inlineStr"><is><t xml:space="preserve">Pear</t></is></c>');
     expect(sheet).toContain('<c r="C2"><v>12.5</v></c>');
-    expect(sheet).toContain('<c r="B4"><f>SUM(B2:B3)</f><v>13</v></c>');
+    // An Excel table named after the table: its column by its name, the total its totals row
+    expect(sheet).toContain('<c r="B4"><f>SUM(shop[Qty])</f><v>13</v></c>');
+    expect(sheet).toContain('<tableParts count="1"><tablePart r:id="rId1"/></tableParts>');
+    const table = partOf(downloads[0]!.bytes, "<table ", "</table>");
+    expect(table).toContain('name="shop" displayName="shop" ref="A1:C4" totalsRowCount="1"');
+    expect(table).toContain('<autoFilter ref="A1:C3"/>');
+    expect(table).toContain('<tableColumn id="1" name="Fruit" totalsRowLabel="Total"/>');
+    expect(table).toContain('<tableColumn id="2" name="Qty" totalsRowFunction="custom"><totalsRowFormula>SUM(shop[Qty])</totalsRowFormula></tableColumn>');
     // The dialog stays, with the outcome
     expect(status().textContent).toBe("Downloaded shop.xlsx.");
     expect(status().classList.contains("swt-excel-ok")).toBe(true);
@@ -113,7 +121,7 @@ describe("Excel", () => {
     expect(formulas().textContent).toBe("All 1 formula will be Excel formulas.");
     button("Download").click();
     await flush();
-    expect(sheetOf(downloads[0]!.bytes)).toContain('<c r="B3"><f>(ROUND((B2)*1.21,2))</f><v>6</v></c>');
+    expect(sheetOf(downloads[0]!.bytes)).toContain('<c r="B3"><f>(ROUND((Table1[Qty])*1.21,2))</f><v>6</v></c>');
   });
 
   it("copies the rows as shown for Excel, saying what is lost", async () => {
