@@ -232,6 +232,9 @@ export class Formulas implements Feature {
     // Its name and the names of its cells, before and after the edit, and in turn those of the tables that refer to them
     const affected = after ? affectedBy(before, after) : affectedBy(before);
     const oldName = metaName(before)?.toLowerCase();
+    // References by its name are its only where it is the first table of that name (another of it, typed or copied in
+    // the markdown, is the one they use): else they stay as they are, only recalculated
+    const firstOfName = oldName && page.tables.find((t) => metaName(t.table)?.toLowerCase() === oldName)?.range.from === page.from;
     // What each other table refers to, read once for all the passes below
     const others = page.tables.filter((other) => other.range.from !== page.from).map((other) => ({ ...other, referred: referredBy(other.table) }));
     const written: PageTable[] = [];
@@ -244,7 +247,7 @@ export class Formulas implements Feature {
         found = true;
         addAffected(affected, table);
         // Its references to this table follow the edit: moved rows and columns, a new name
-        const followed = after && oldName && referred.tables.has(oldName) ? followTable(table, before, after, edit.rowMap, edit.columnMap) : table;
+        const followed = after && oldName && firstOfName && referred.tables.has(oldName) ? followTable(table, before, after, edit.rowMap, edit.columnMap) : table;
         const recalculated = recalculate(followed, now);
         if (recalculated !== table) written.push({ range, table: recalculated });
       }

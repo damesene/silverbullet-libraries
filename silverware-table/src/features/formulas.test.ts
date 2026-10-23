@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buttonLabel, cell, cellMenuItem, clickOn, controller, cursorMoves, edits, editor, flashes, flush, key, menuButtons, nameInMenu, pointInsert, press, renderPage, setup as setupPage, tableMenuItem, text, toolbarName, useTablePage, tableKey } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
+import { insertRowWith } from "../core/structure.ts";
 import { clearCustomFunctions, defineCustomFunctions, functionNamed } from "../formulas/registry.ts";
 import { toNumber, type Value } from "../formulas/values.ts";
 import { defineFunctions, resetDefinitions } from "../index.ts";
@@ -508,6 +509,17 @@ describe("Formulas", () => {
       expect(text).toContain(`| Fig | 4 <meta f='=XLOOKUP([@fruit], prices![name], prices![price])'> |`);
       expect(text).toContain(`| All | 16 <meta f='=SUM(prices![price])'> |`);
       expect(second(1, 1).textContent).toBe("4");
+    });
+
+    it("leaves the references of other tables alone when a second table of that name is edited: they use the first", async () => {
+      const PRICES = "| Name | Price |\n|---|---|\n| Pear | 12 |\n| Fig | 3 |\n| <meta name='prices'> |\n";
+      await setup(`${PRICES}\n| Item | Cost |\n|---|---|\n| Fig | 3 <meta f='=prices!B2'> |\n\n${PRICES}`, { "silverware.table.metadata": true });
+      const copy = controller.shownTables()[2]!;
+      await insertRowWith(controller, copy, 1, 0);
+      await controller.scan();
+      // The copy grew a row; the reference is still to the first table's Fig, recalculated from it
+      expect(text.split("| <meta name='prices'> |")[1]).toContain("| Item | Cost |\n|---|---|\n| Fig | 3 <meta f='=prices!B2'> |");
+      expect(text.split("| Item | Cost |")[1]!.split("\n").filter((line) => line.startsWith("|")).length).toBe(3 + 5);
     });
 
     it("leaves the tables that do not refer to the edited one as they are", async () => {
