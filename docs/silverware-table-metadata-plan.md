@@ -4,7 +4,7 @@ The decisions behind it are in CLAUDE.md, *Modules and their data*. Stored markd
 
 ## Status
 
-Steps 1 to 5 done (5: the metadata setting off in the core: `setMeta`/`setColumnsMeta` add nothing new, `canStoreMeta`/`canStoreCellTag`/`canName`/`canPin` for the modules\' menus, the write step `withoutNewTagValues`). The cell rule is the table\'s, not the column\'s: a value the table had anywhere stays, as cells moved across columns (selection, cut and paste) take their formulas along. Step 6 done (Remove metadata asks by owners, `metadataOwners`; `metadataPart` gone). Step 7 done (the sheet's data read from the table holding it, `sheetDataTable`; handed on only where the next table can take it; deleting its table says so). Step 8 done (isolation.test.ts: modules import none of meta.ts, metanames.ts, names.ts, tagvalues.ts, nor metaAttribute; the domains neither, nor read `.meta`). Step 9 done (CLAUDE.md, docs/silverware-table-isolation.md, the sheets doc, the library page, the playground's sample, the showcase pages of the local space). All steps done.
+All steps done (2026-10-24). How it turned out where it differs from the steps below: step 4 went in two commits (4a every module through its host, the names still as tables had them; 4b the format), as it cannot go module by module without reading both formats. The cells' rule of step 5 is the table's, not the column's: a value the table had anywhere stays, as cells moved across columns (the selection's move, cut and paste) take their formulas along.
 
 ## The format
 
