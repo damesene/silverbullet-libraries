@@ -751,6 +751,12 @@ export class Sheet implements AdapterFeature {
     return this.host.writeTable(info, (t) => withMeta(t, AT_ATTRIBUTE, formatAt(at)));
   }
 
+  /** The board scrolls what is on it, its tables and empty cells (middle-button autoscroll) */
+  scrollBox(target: EventTarget | null): HTMLElement | undefined {
+    const box = this.board?.box;
+    return box && target instanceof Node && box.contains(target) ? box : undefined;
+  }
+
   // ---- adding a table of the page ------------------------------------------------------------
 
   /** A right click or a long press on an empty cell: it is selected, and its menu opens by the point */

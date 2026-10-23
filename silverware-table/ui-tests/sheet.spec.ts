@@ -35,6 +35,24 @@ async function emptyCell(page: Page, at: { right?: number; below?: number; row?:
   return { x, y };
 }
 
+test.describe("Middle-button autoscroll on the sheet", () => {
+  test("from an empty cell, as from a table's: the board scrolls both ways", async ({ page }) => {
+    await openSheet(page);
+    const board = page.locator(".swt-sheet-board");
+    const point = await emptyCell(page, { right: 1, row: 1 });
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down({ button: "middle" });
+    await page.mouse.move(point.x + 120, point.y + 120, { steps: 4 });
+    await expect.poll(() => board.evaluate((b) => [b.scrollLeft > 0, b.scrollTop > 0])).toEqual([true, true]);
+    await page.mouse.up({ button: "middle" });
+    // Held and dragged: let go, it ends
+    const at = await board.evaluate((b) => [b.scrollLeft, b.scrollTop]);
+    await page.waitForTimeout(150);
+    expect(await board.evaluate((b) => [b.scrollLeft, b.scrollTop])).toEqual(at);
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
+  });
+});
+
 test.describe("Sheet view", () => {
   test("a value typed into an empty cell right of a row grows the table by a named column", async ({ page }) => {
     await openSheet(page);

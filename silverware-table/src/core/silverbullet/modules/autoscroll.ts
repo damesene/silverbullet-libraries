@@ -2,7 +2,9 @@
 // own box. The browser's own autoscroll locks onto one scrolling box, so it
 // moves either the table sideways or the page up and down; this one moves
 // both. Hold and drag, or click and move; the next click, key or wheel turn
-// ends it.
+// ends it. Where a feature scrolls its tables and cells in a box of its own
+// (the sheet's board: host.scrollBoxAt), that box moves both ways, also from
+// a cell no table has.
 import type { AdapterFeature, TableHost } from "../../feature.ts";
 
 // No movement within this distance of the start point
@@ -31,14 +33,17 @@ export class Autoscroll implements AdapterFeature {
 
   private begin(e: MouseEvent): boolean {
     const { doc } = this.host;
-    const widget = this.host.enhancedWidgetOf(e.target)?.[0];
     // A middle click on a link opens it in a new tab
+    if (e.target instanceof Element && e.target.closest("a")) return false;
+    const box = this.host.scrollBoxAt(e.target);
+    const widget = box ?? this.host.enhancedWidgetOf(e.target)?.[0];
     const scrollsSideways = !!widget && widget.scrollWidth > widget.clientWidth;
-    if (!widget || (e.target as Element).closest("a") || (!scrollsSideways && !this.host.scrollsInside(widget))) return false;
+    if (!widget || (!box && !scrollsSideways && !this.host.scrollsInside(widget))) return false;
     e.preventDefault();
     e.stopPropagation();
     const win = doc.defaultView!;
-    const page = this.host.scrollParentOf(widget) ?? doc.scrollingElement;
+    // (A feature's box: it alone moves)
+    const page = box ? undefined : (this.host.scrollParentOf(widget) ?? doc.scrollingElement);
     const origin = { x: e.clientX, y: e.clientY };
     const pointer = { ...origin };
     let held = false;

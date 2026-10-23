@@ -1962,6 +1962,14 @@ export class Controller implements TableHost {
     return scrollsInside(widget);
   }
 
+  scrollBoxAt(target: EventTarget | null): HTMLElement | undefined {
+    for (const feature of this.features) {
+      const box = feature.scrollBox?.(target);
+      if (box) return box;
+    }
+    return undefined;
+  }
+
   scrollParentOf(element: HTMLElement): HTMLElement | undefined {
     return scrollParentOf(element);
   }

@@ -768,7 +768,7 @@ Everything else works as in the page: editing, selecting, menus, formulas. A tab
 * **Sticky header**: while you scroll past a long table, its header stays at the top of the view, with the toolbar above it.
 * **Maximum height**: with the *Maximum table height* setting, a taller table scrolls inside its own box; its header stays at the top of that box. See [[#Settings]].
 * **Wide tables** scroll sideways; Silverware Table keeps the scroll position after edits, and new rows open their editor in a column you can see.
-* **Autoscroll**: the middle mouse button over a wide table scrolls the table sideways and the page up and down together. Hold and drag, or click and move; the next click ends it.
+* **Autoscroll**: the middle mouse button over a wide table scrolls the table sideways and the page up and down together; in the sheet view, anywhere on the sheet (a table or an empty cell), it scrolls the sheet both ways. Hold and drag, or click and move; the next click ends it.
 
 ## Settings
 

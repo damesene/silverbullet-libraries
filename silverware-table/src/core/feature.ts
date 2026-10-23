@@ -785,6 +785,8 @@ export interface TableHost extends ModelHost {
   heldInDocument(info: WidgetInfo): HTMLTableRowElement | undefined;
   /** Whether a table is taller than its box (the maximum height setting) and scrolls inside it */
   scrollsInside(widget: HTMLElement): boolean;
+  /** The box a feature scrolls its tables and cells in, at a point (the sheet's board): the features' `scrollBox` */
+  scrollBoxAt(target: EventTarget | null): HTMLElement | undefined;
   /** The element the page scrolls in, around an element */
   scrollParentOf(element: HTMLElement): HTMLElement | undefined;
   /**
@@ -1083,6 +1085,8 @@ export interface AdapterFeature extends Feature {
    * empty cells)
    */
   pointMenu?(target: Element, point: { x: number; y: number }): boolean;
+  /** The box the feature scrolls what is at `target` in, both ways (the sheet's board, its tables and empty cells) */
+  scrollBox?(target: EventTarget | null): HTMLElement | undefined;
   /** The pointer is over a cell, or the page moved under it */
   cellHovered?(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void;
   /** Marks on a table's cells, once its rows know their rows in the markdown (data-swt-row) */
