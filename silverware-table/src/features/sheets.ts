@@ -205,7 +205,11 @@ function handovers(before: Table, after: Table | undefined, edit: WriteEdit): { 
     const first = sheet.tables[0]!;
     const data = sheetData(first.table);
     const next = sheetsAfter.find((s) => sameSheet(s.name, sheet.name))?.tables[0];
-    if (data.length && next?.range.from !== first.range.from) moves.push({ data, from: first.range.from, to: next?.range.from });
+    if (!data.length || next?.range.from === first.range.from) continue;
+    // Its only table gone to a sheet no table was on, which it heads (the sheet renamed): its data goes with it
+    const there = !next && first.range.from === at ? sheetsAfter.find((s) => s.tables[0]?.range.from === at) : undefined;
+    if (there && !sheetsBefore.some((s) => sameSheet(s.name, there.name))) continue;
+    moves.push({ data, from: first.range.from, to: next?.range.from });
   }
   return moves;
 }

@@ -62,6 +62,13 @@ describe("Sheets: a table put on a sheet, moved and taken off it by its sheet's 
     expect(edits).toBe(1);
   });
 
+  it("the only table of its sheet moved to a sheet no table is on (the sheet renamed): the sheet's widths go with it", async () => {
+    await setup("| Item |\n|---|\n| Pear |\n| <meta name='costs' sheet='Budget' at='A1' sheet.width.B='140'> |\n", { "silverware.table.metadata": true });
+    toolbarName("container", 0);
+    expect(await nameInMenu("Plan")).toBeUndefined();
+    expect(text).toContain("| <meta name='costs' sheet='Plan' at='A1' sheet.width.B='140'> |");
+  });
+
   it("moves a table to a new sheet by a new name: its place kept, the sheet's widths handed on to the next table, one edit", async () => {
     await setup(PAGE, { "silverware.table.metadata": true });
     toolbarName("container", 0);
