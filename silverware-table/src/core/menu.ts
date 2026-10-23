@@ -308,7 +308,7 @@ function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, namin
         ? el(
             doc,
             "button",
-            { class: "swt-menu-item swt-danger swt-menu-name-clear", title: naming.clear.title, run: () => !saving && save("") },
+            { class: "swt-menu-item swt-menu-name-clear", title: naming.clear.title, run: () => !saving && save("") },
             el(doc, "span", { class: "swt-icon", html: CLOSE }),
             el(doc, "span", "swt-label", naming.clear.label),
           )
