@@ -92,6 +92,8 @@ export function renderPage(page: string, into: HTMLElement, moves: number[]): vo
 // unless a test turns it on
 export async function setup(page: string, settings: Record<string, unknown> = {}, bridgeExtras: Partial<Bridge> = {}): Promise<void> {
   const config: Record<string, unknown> = { "silverware.table.autoFormat": false, ...settings };
+  // A test setting up twice, or without useTablePage: the controller before goes (else it watched the next pages too)
+  controller?.stop();
   text = page;
   editor = document.createElement("div");
   editor.className = "cm-content";
