@@ -41,6 +41,7 @@ import { roomFor } from "../../../sheet/layout.ts";
 import { growTo } from "../../structure.ts";
 import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
 import { drawTable } from "../drawn.ts";
+import type { TableKey } from "../../tables.ts";
 
 // An empty column's width, a row's height when no table gives one
 const COLUMN_WIDTH = 100;
@@ -61,7 +62,7 @@ const ARROWS: Readonly<Record<string, readonly [number, number]>> = {
 
 /** A table on the board: where it is on the sheet, which table of the page, its drawing */
 type Placed = {
-  readonly key: string;
+  readonly key: TableKey;
   readonly range: TableRange;
   readonly at: SheetCell;
   readonly widget: HTMLElement;
@@ -74,10 +75,10 @@ type Placed = {
 type Board = {
   // (A table alone's board becomes its sheet's once a table is made beside it)
   sheet: string | undefined;
-  readonly alone: string;
+  readonly alone: TableKey;
   readonly box: HTMLElement;
   readonly content: HTMLElement;
-  readonly tables: Map<string, Placed>;
+  readonly tables: Map<TableKey, Placed>;
   // The sheet's own widths (its first table's sheet.width.*; a table alone: its own sheet.width.*), by column
   widths: ReadonlyMap<number, number>;
   // A column's width while it is dragged (AddressFrame.previewColumnWidth), by column
@@ -105,16 +106,17 @@ export class Sheet implements AdapterFeature {
   // `grown`: the table it grew and where in it the value went (rows pinned to the bottom stay last), so once that
   // is drawn anew (`ready` then)
   private after:
-    | { at: SheetCell; key: "Enter" | "Tab" | "Escape"; back: boolean; grown: { key: string; cell: CellRef } | undefined; ready: boolean }
+    | { at: SheetCell; key: "Enter" | "Tab" | "Escape"; back: boolean; grown: { key: TableKey; cell: CellRef } | undefined; ready: boolean }
     | undefined;
   // The board's tables as shown (their rows' order), as of the last view applied to them
   private shownIndex: { placed: Placed; info: WidgetInfo; order: number[] }[] | undefined;
   // The rows' order each table's cells last looked by (their formulas' addresses on the sheet follow it)
   private readonly looksOrder = new Map<string, string>();
-  // The empty cell edited that makes a table of its own (no table grows to it), and that table's key once written
-  private making: { readonly at: SheetCell; readonly key: string } | undefined;
+  // The empty cell edited that makes a table of its own (no table grows to it), and that table's key: made as Enter or
+  // Tab saves a value, before the table is written (what follows it once it is drawn needs it)
+  private making: { readonly at: SheetCell; key: TableKey | undefined } | undefined;
   // Drawings asked for, by table: only the last of each is put in
-  private readonly drawing = new Map<string, number>();
+  private readonly drawing = new Map<TableKey, number>();
   // A drawing put off while a cell of a table drawn is edited (swapping it would take the editor's cell away)
   private putOff = false;
   // The page watched while the board shows: a change no table's rendering follows (a table removed, undone) is read
@@ -235,22 +237,22 @@ export class Sheet implements AdapterFeature {
     if (!board) return;
     const text = await this.host.bridge.getText();
     if (this.board !== board) return;
-    const page = this.host.currentPage;
     // A table of the board put on another sheet (its name typed in the toolbar), or the table alone put on one: the
     // board shows that sheet from now on
     const onSheets = sheetTables(text);
-    const keyOf = (range: TableRange) => `${page}#${range.ordinal}`;
+    const keys = this.host.tableKeys(this.host.currentPage, text);
+    const keyOf = (range: TableRange) => keys[range.ordinal]!;
     const moved = board.sheet
       ? onSheets.find((t) => board.tables.has(keyOf(t.range)) && !sameSheet(t.sheet, board.sheet!))
       : onSheets.find((t) => keyOf(t.range) === board.alone);
     if (moved) board.sheet = moved.sheet;
-    const wanted = new Map<string, { range: TableRange; at: SheetCell }>();
+    const wanted = new Map<TableKey, { range: TableRange; at: SheetCell }>();
     if (board.sheet) {
       const mine = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables ?? [];
-      for (const t of mine) wanted.set(`${page}#${t.range.ordinal}`, { range: t.range, at: t.at });
+      for (const t of mine) wanted.set(keyOf(t.range), { range: t.range, at: t.at });
       board.widths = sheetWidths(mine[0]?.table);
     } else {
-      const range = findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
+      const range = findTables(text)[keys.indexOf(board.alone)];
       if (range) wanted.set(board.alone, { range, at: { row: 0, column: 0 } });
       // A table alone: its grid's widths are kept in it, as a sheet's are in its first table
       board.widths = sheetWidths(range && parseTable(range.text));
@@ -279,7 +281,7 @@ export class Sheet implements AdapterFeature {
   }
 
   /** Draws a table from its markdown and puts it in place of its drawing before; the last asked for wins */
-  private async draw(board: Board, key: string, range: TableRange, at: SheetCell): Promise<void> {
+  private async draw(board: Board, key: TableKey, range: TableRange, at: SheetCell): Promise<void> {
     const asked = (this.drawing.get(key) ?? 0) + 1;
     this.drawing.set(key, asked);
     const widget = await drawTable(this.host.doc, range.text, range.from, this.renderer);
@@ -310,7 +312,7 @@ export class Sheet implements AdapterFeature {
   }
 
   /** A table of the board as enhanced now, by its key */
-  private infoOfKey(key: string): WidgetInfo | undefined {
+  private infoOfKey(key: TableKey): WidgetInfo | undefined {
     const widget = this.board?.tables.get(key)?.widget;
     return widget?.isConnected ? this.host.infoOf(widget) : undefined;
   }
@@ -435,7 +437,7 @@ export class Sheet implements AdapterFeature {
     // anew, from where the value went
     const typed = e.key !== "Escape" && editor.field.value.trim() !== "";
     const owner = typed ? this.ownerOf(this.cell.at) : undefined;
-    const made = typed && this.making && same(this.making.at, this.cell.at) ? { key: this.making.key, cell: { row: 1, column: 0 } } : undefined;
+    const made = typed && this.making && same(this.making.at, this.cell.at) ? { key: (this.making.key ??= this.host.newTableKey()), cell: { row: 1, column: 0 } } : undefined;
     const grown = owner ? { key: owner.key, cell: growTo(owner.info, owner.cell).cell } : made;
     this.after = { at: this.cell.at, key: e.key, back: e.shiftKey, grown, ready: false };
     return false;
@@ -559,10 +561,10 @@ export class Sheet implements AdapterFeature {
   private async setColumnWidth(board: Board, column: number, width: number | undefined): Promise<void> {
     try {
       const text = await this.host.bridge.getText();
-      const page = this.host.currentPage;
+      const keys = this.host.tableKeys(this.host.currentPage, text);
       const range = board.sheet
         ? sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables[0]?.range
-        : findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
+        : findTables(text)[keys.indexOf(board.alone)];
       // Without a metadata row and the setting (a table alone): for the view only, as the widths module keeps them
       if (range && !parseTable(range.text).meta && !this.host.metadataEnabled) {
         if (width === undefined) board.preview.delete(column);
@@ -570,7 +572,7 @@ export class Sheet implements AdapterFeature {
         this.queuePlace();
         return;
       }
-      const target = range && { key: `${page}#${range.ordinal}`, source: range.text, hint: range.from };
+      const target = range && { key: keys[range.ordinal]!, source: range.text, hint: range.from };
       const result = target && (await this.host.writeTable(target, (t) => withMeta(t, `${SHEET_WIDTH_PREFIX}${columnLetters(column)}`, width === undefined ? undefined : String(width))));
       if (result === "written") return;
     } catch (e) {
@@ -582,7 +584,7 @@ export class Sheet implements AdapterFeature {
   }
 
   /** The table of the board holding a sheet's area whole, as one area of its body rows (in the markdown's order) */
-  private inward(key: string, area: CellArea): { table: string | undefined; area: CellArea } | undefined {
+  private inward(key: TableKey, area: CellArea): { table: string | undefined; area: CellArea } | undefined {
     const first = this.tableAt({ row: area.top, column: area.left });
     if (!first || first.ref.row === 0) return undefined;
     const rows: number[] = [];
@@ -650,11 +652,11 @@ export class Sheet implements AdapterFeature {
    * row it is right under (in its columns), the left one first; a cell
    * farther from a table makes a table of its own (editNew)
    */
-  private ownersOf(at: SheetCell): { key: string; info: WidgetInfo; cell: CellRef }[] {
+  private ownersOf(at: SheetCell): { key: TableKey; info: WidgetInfo; cell: CellRef }[] {
     const board = this.board;
     if (!board) return [];
     const tables = [...board.tables.values()].map((placed) => ({ placed, box: this.extent(placed) }));
-    const owners: { key: string; info: WidgetInfo; cell: CellRef; gap: number }[] = [];
+    const owners: { key: TableKey; info: WidgetInfo; cell: CellRef; gap: number }[] = [];
     const left = tables.find(({ box }) => at.row >= box.top && at.row <= box.bottom && at.column === box.right + 1);
     const leftInfo = left && this.infoOfKey(left.placed.key);
     if (left && leftInfo) {
@@ -671,7 +673,7 @@ export class Sheet implements AdapterFeature {
   }
 
   /** The table an empty cell grows (ownersOf), the nearest whose growth the sheet has room for */
-  private ownerOf(at: SheetCell): { key: string; info: WidgetInfo; cell: CellRef } | undefined {
+  private ownerOf(at: SheetCell): { key: TableKey; info: WidgetInfo; cell: CellRef } | undefined {
     return this.ownersOf(at).find((owner) => !this.wouldOverlap(owner.key, owner.cell));
   }
 
@@ -680,7 +682,7 @@ export class Sheet implements AdapterFeature {
    * structure.ts) cannot make room for, if any: the sheet's rule (sheet/layout.ts),
    * as the write applies it, the tables beyond moved
    */
-  private wouldOverlap(key: string, cell: CellRef): string | undefined {
+  private wouldOverlap(key: TableKey, cell: CellRef): string | undefined {
     const board = this.board;
     const placed = board?.tables.get(key);
     const info = this.infoOfKey(key);
@@ -802,11 +804,11 @@ export class Sheet implements AdapterFeature {
     }
     const cell = this.showCell(at);
     if (!cell) return;
-    // The new table's key: the next after the page's last table, where it is written
-    this.making = { at, key: `${this.host.currentPage}#${pageTables.length}` };
+    const making: { readonly at: SheetCell; key: TableKey | undefined } = { at, key: undefined };
+    this.making = making;
     // The editor belongs to a table of the sheet (what the features ask of it), past its rows and columns (so no
     // column's type applies): nothing of it is written
-    this.host.editBeyond(this.host.widgetOf(host), host, { row: host.rows, column: host.columns }, cell, (typed) => this.writeNew(at, typed));
+    this.host.editBeyond(this.host.widgetOf(host), host, { row: host.rows, column: host.columns }, cell, (typed) => this.writeNew(at, typed, making.key));
     if ((this.host.editing as RenderedEditor | undefined)?.cell !== cell) {
       this.chosen = undefined;
       this.making = undefined;
@@ -816,18 +818,19 @@ export class Sheet implements AdapterFeature {
 
   /**
    * A table made of a value typed into an empty cell: `| Column 1 |`, the value
-   * under it, its name, sheet and place; written after the page's last table.
+   * under it, its name, sheet and place; written after the page's last table,
+   * with `key` (made for it as its editor opened).
    * As a cell's text is read elsewhere: '=… is the text =…; a formula is
    * written as text too (its references are the sheet's, and its table does not
    * exist yet), said so.
    */
-  private async writeNew(at: SheetCell, typed: string): Promise<"written" | "unchanged" | "failed"> {
+  private async writeNew(at: SheetCell, typed: string, key: TableKey | undefined): Promise<"written" | "unchanged" | "failed"> {
     const board = this.board;
     if (!board) return "failed";
     const text = await this.host.bridge.getText();
     // A table alone: put on a sheet with it, at A1, named (a formula refers to another table by its name)
-    const page = this.host.currentPage;
-    const alone = board.sheet ? undefined : findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
+    const keys = this.host.tableKeys(this.host.currentPage, text);
+    const alone = board.sheet ? undefined : findTables(text)[keys.indexOf(board.alone)];
     const sheet = board.sheet ?? freeSheetName(text);
     const aloneName = alone && (metaName(parseTable(alone.text)) ?? freeName(text));
     const ranges = findTables(text);
@@ -847,7 +850,7 @@ export class Sheet implements AdapterFeature {
       target: { key: board.alone, source: alone.text, hint: alone.from },
       change: (t: Table) => withMeta(withMeta(withMetaName(t, aloneName!), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, "A1"),
     };
-    const result = await this.host.insertTable(table, { key: `${page}#${last.ordinal}`, source: last.text, hint: last.from }, also);
+    const result = await this.host.insertTable(table, { key: keys[last.ordinal]!, source: last.text, hint: last.from }, also, key);
     if (result === "written" && also && this.board === board) {
       // The board is the sheet's from now on: its tables, the new one too, as the page has them
       board.sheet = sheet;

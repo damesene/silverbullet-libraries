@@ -32,6 +32,11 @@ describe("isolation", () => {
     expect(matches(features, /\.body\.(append|prepend|appendChild|insertBefore)\(/)).toEqual([]);
   });
 
+  it("a table's key is made by the core's register only: no module builds one, from a table's place or otherwise", () => {
+    const outside = Object.fromEntries(Object.entries({ ...features, ...core }).filter(([path]) => path !== "./core/tables.ts"));
+    expect(matches(outside, /as TableKey\b|`\$\{[^`]*\}#\$\{/)).toEqual([]);
+  });
+
   it("the core and the adapter name no module", () => {
     // Remove metadata is the controller's own (a page command too), made by it for the list of modules
     expect(matches(core, /from "[./]*features\/(?!metadata\.ts")/)).toEqual([]);

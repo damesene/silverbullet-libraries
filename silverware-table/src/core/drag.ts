@@ -5,6 +5,7 @@
 // and a pointer held still there goes on (`repeat`). Esc, the window left or a
 // cancelled touch cancel it. What the pointer is on comes from the adapter.
 import type { CellRef, DragOptions, DragPoint, PointerTarget, WidgetInfo } from "./feature.ts";
+import type { TableKey } from "./tables.ts";
 
 export type DragContext = {
   readonly doc: Document;
@@ -12,7 +13,7 @@ export type DragContext = {
   targetOf(target: EventTarget | null): PointerTarget;
   targetAt(x: number, y: number): PointerTarget;
   /** The table with a key as shown now */
-  tableFor(key: string): WidgetInfo | undefined;
+  tableFor(key: TableKey): WidgetInfo | undefined;
   cellNear(info: WidgetInfo, x: number, y: number): CellRef | undefined;
   scrollNear(info: WidgetInfo, x: number, y: number, sideways: boolean): void;
   pageMark(mark: string, on: boolean): void;

@@ -36,6 +36,7 @@ import { parseTable } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
 import { columnMeta, withColumnMeta } from "../meta.ts";
 import { asNumber } from "../view.ts";
+import type { TableKey } from "../core/feature.ts";
 
 // A column with at most this many different values offers them to tick
 const MAX_VALUES = 12;
@@ -116,7 +117,7 @@ export class Filters implements Feature {
     | {
         readonly body: HTMLElement;
         readonly input: HTMLInputElement;
-        readonly key: string;
+        readonly key: TableKey;
         readonly column: number;
         readonly anchor: PanelAnchor;
         readonly popover: boolean;
@@ -327,7 +328,7 @@ export class Filters implements Feature {
   }
 
   /** Filters typed move with their columns; stored ones follow them in the markdown (meta.ts) */
-  columnsMoved(key: string, map: (column: number) => number | undefined): void {
+  columnsMoved(key: TableKey, map: (column: number) => number | undefined): void {
     const typed = this.typed.get(key);
     if (!typed) return;
     const moved: string[] = [];
@@ -343,7 +344,7 @@ export class Filters implements Feature {
   }
 
   /** Remove metadata: what is typed goes too, the table shows what its markdown has */
-  viewForgotten(key: string): void {
+  viewForgotten(key: TableKey): void {
     this.typed.delete(key);
     this.storesWaiting.delete(key);
   }
@@ -351,7 +352,7 @@ export class Filters implements Feature {
   // ---- storing ------------------------------------------------------------------
 
   /** Whether one of a table's filter fields (of its row, or its bubble) is typed in */
-  private typingIn(key: string): boolean {
+  private typingIn(key: TableKey): boolean {
     const active = this.host.doc.activeElement;
     if (!(active instanceof HTMLInputElement)) return false;
     if (this.bubble?.input === active) return this.bubble.key === key;
@@ -364,7 +365,7 @@ export class Filters implements Feature {
    * cell of it is edited: a write renders the table anew, which would take a
    * field's focus or close the cell editor
    */
-  private scheduleStore(key: string): void {
+  private scheduleStore(key: TableKey): void {
     clearTimeout(this.storeTimers.get(key));
     this.storeTimers.set(
       key,
@@ -392,7 +393,7 @@ export class Filters implements Feature {
     if (this.storesWaiting.delete(info.key)) this.scheduleStore(info.key);
   }
 
-  private async store(key: string): Promise<void> {
+  private async store(key: TableKey): Promise<void> {
     const info = this.host.tableFor(key);
     const typed = this.typed.get(key);
     if (!info || !typed) return;
@@ -415,7 +416,7 @@ export class Filters implements Feature {
   // ---- typing ---------------------------------------------------------------------
 
   /** A column's field in the filter row: the filter icon, the field, its clear button */
-  private rowField(key: string, column: number): RowField {
+  private rowField(key: TableKey, column: number): RowField {
     const { box, input } = this.filterBox(key, column);
     const element = el(this.host.doc, "div", "swt-filter-field", box);
     input.addEventListener("focus", () => {
@@ -427,7 +428,7 @@ export class Filters implements Feature {
   }
 
   /** A filter field with the filter icon before it and its clear button after it */
-  private filterBox(key: string, column: number): { box: HTMLElement; input: HTMLInputElement } {
+  private filterBox(key: TableKey, column: number): { box: HTMLElement; input: HTMLInputElement } {
     const { doc } = this.host;
     const input = el(doc, "input", {
       class: "swt-filter",
@@ -466,7 +467,7 @@ export class Filters implements Feature {
   }
 
   /** The toolbar chip's ×: no filter any more */
-  private clearAll(key: string): void {
+  private clearAll(key: TableKey): void {
     this.typed.set(key, []);
     for (const field of this.rows.get(key) ?? []) field.input.value = "";
     if (this.bubble?.key === key) this.hideBubble();
@@ -474,7 +475,7 @@ export class Filters implements Feature {
     this.scheduleStore(key);
   }
 
-  private setFilter(key: string, column: number, value: string): void {
+  private setFilter(key: TableKey, column: number, value: string): void {
     const info = this.host.tableFor(key);
     if (info) {
       const filters = [...this.filtersOf(info)];
@@ -491,7 +492,7 @@ export class Filters implements Feature {
   }
 
   /** Puts `value` in the field as if typed */
-  private type(key: string, input: HTMLInputElement, column: number, value: string): void {
+  private type(key: TableKey, input: HTMLInputElement, column: number, value: string): void {
     input.value = value;
     this.rows.get(key)?.[column]?.element.classList.toggle("swt-filter-typed", value !== "");
     this.setFilter(key, column, value);
@@ -538,7 +539,7 @@ export class Filters implements Feature {
     input.setSelectionRange(input.value.length, input.value.length);
   }
 
-  private showBubble(key: string, column: number, input: HTMLInputElement, anchor: PanelAnchor, head?: HTMLElement): void {
+  private showBubble(key: TableKey, column: number, input: HTMLInputElement, anchor: PanelAnchor, head?: HTMLElement): void {
     this.hideBubble();
     const element = this.panel.element;
     element.classList.toggle("swt-filter-popover", !!head);
@@ -553,7 +554,7 @@ export class Filters implements Feature {
    * A field lost the focus: its bubble goes, unless the focus went into it (a
    * value ticked), and the filters are stored once no field has it
    */
-  private left(key: string, input: HTMLInputElement, e: FocusEvent): void {
+  private left(key: TableKey, input: HTMLInputElement, e: FocusEvent): void {
     const bubble = this.bubble;
     if (bubble?.input === input && e.relatedTarget instanceof Node && this.panel.element.contains(e.relatedTarget)) return;
     if (bubble?.input === input) this.hideBubble();
@@ -610,7 +611,7 @@ export class Filters implements Feature {
   }
 
   /** The column's values to tick: ticked are those the field's =a|b names */
-  private valueList(key: string, input: HTMLInputElement, column: number, values: readonly ColumnValue[]): HTMLElement {
+  private valueList(key: TableKey, input: HTMLInputElement, column: number, values: readonly ColumnValue[]): HTMLElement {
     const { doc } = this.host;
     const text = input.value.trim();
     const ticked = new Set(text.startsWith("=") ? text.slice(1).split("|").map((v) => normalizeForFilter(v.trim())) : []);

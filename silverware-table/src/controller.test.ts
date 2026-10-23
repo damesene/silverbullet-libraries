@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { STICKY_GAP } from "./core/layout.ts";
-import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashes, flush, inInsertBand, key, pointInsert, press, renderPage, setText, setup, tableMenuItem, text, useTablePage } from "./testing/page.ts";
+import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, flashes, flush, inInsertBand, key, pointInsert, press, renderPage, setText, setup, tableMenuItem, text, useTablePage, tableKey } from "./testing/page.ts";
 
 describe("Controller", () => {
   useTablePage();
@@ -179,7 +179,7 @@ describe("Controller", () => {
       await flush();
       expect(bodyTexts()).toEqual(["apple"]);
       // The + under the last row shown (jsdom has no layout to hover it: set as the pointer would)
-      pointInsert({ key: "Test#0", axis: "row", at: 4, beside: { after: 3 } });
+      pointInsert({ key: tableKey(), axis: "row", at: 4, beside: { after: 3 } });
       document.querySelector<HTMLElement>(".swt-insert")!.click();
       await waitFor(() => !!editing());
       expect(bodyTexts()).toEqual(["apple", ""]);
@@ -245,7 +245,7 @@ describe("Controller", () => {
     await setup(PAGE);
     const mark = document.querySelector<HTMLElement>(".swt-insert")!;
     // The band beside the table, a + shown (jsdom has no layout to hover it: set as the pointer would)
-    pointInsert({ key: "Test#0", axis: "row", at: 4, beside: { after: 3 } }, true);
+    pointInsert({ key: tableKey(), axis: "row", at: 4, beside: { after: 3 } }, true);
     mark.classList.add("swt-visible");
     const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
     editor.querySelector(".sb-table-widget")!.dispatchEvent(down);
@@ -260,7 +260,7 @@ describe("Controller", () => {
     editor.querySelector(".sb-table-widget")!.dispatchEvent(again);
     expect(again.defaultPrevented).toBe(true);
     // The pointer leaves the window
-    pointInsert({ key: "Test#0", axis: "row", at: 1, beside: {} }, true);
+    pointInsert({ key: tableKey(), axis: "row", at: 1, beside: {} }, true);
     mark.classList.add("swt-visible");
     document.body.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: null }));
     expect(mark.classList.contains("swt-visible")).toBe(false);
@@ -608,6 +608,31 @@ describe("Controller", () => {
     expect(cursorMoves.length).toBe(1);
   });
 
+  it("keeps a table's view with it when a table before it goes and comes back (an edit elsewhere, Ctrl+Z)", async () => {
+    const first = "| A |\n|---|\n| 1 |\n";
+    const second = "| Name |\n|---|\n| b |\n| a |\n| c |\n";
+    await setup(`${first}\n${second}`);
+    const last = () => Array.from(editor.querySelectorAll("table")).pop()!;
+    const names = () => Array.from(last().tBodies[0]!.rows, (r) => r.cells[0]!.textContent);
+    const again = async (page: string) => {
+      setText(page);
+      renderPage(text, editor, cursorMoves);
+      await controller.scan();
+    };
+    // Sorted for the view (no metadata): the table's own state
+    clickOn(last().rows[0]!.cells[0]!.querySelector(".swt-sort")!);
+    expect(names()).toEqual(["a", "b", "c"]);
+    // The table before it deleted: the sorted one is the page's first now, still sorted
+    await again(second);
+    expect(editor.querySelectorAll("table")).toHaveLength(1);
+    expect(names()).toEqual(["a", "b", "c"]);
+    // Back: the first one as it was (not sorted), the second still sorted
+    await again(`${first}\n${second}`);
+    expect(editor.querySelectorAll("table")).toHaveLength(2);
+    expect(names()).toEqual(["a", "b", "c"]);
+    expect(editor.querySelector("table")!.querySelector(".swt-sort-active, [aria-sort]")).toBeNull();
+  });
+
   it("refuses to save when the table changed underneath", async () => {
     await setup(PAGE);
     clickOn(cell(1, 0));
@@ -722,7 +747,7 @@ describe("Controller", () => {
       const before = top();
       jumpAfterWrite();
       const mark = document.querySelector<HTMLElement>(".swt-insert")!;
-      pointInsert({ key: "Test#0", axis: "row", at: 4, beside: { after: 3 } });
+      pointInsert({ key: tableKey(), axis: "row", at: 4, beside: { after: 3 } });
       mark.classList.add("swt-visible");
       const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
       mark.dispatchEvent(down);
@@ -745,7 +770,7 @@ describe("Controller", () => {
       link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 }));
       expect(reached).toEqual(["click"]);
       // Another press right after the + is not swallowed
-      pointInsert({ key: "Test#0", axis: "row", at: 1, beside: {} });
+      pointInsert({ key: tableKey(), axis: "row", at: 1, beside: {} });
       mark.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
       link.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
       link.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));

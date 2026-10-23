@@ -22,7 +22,7 @@
 // so the + of a new column and its line are in view, clear of the toolbar.
 import { OUT_OF_LINE_CLASS, UI_CLASS, WIDGET_SELECTOR } from "../dom.ts";
 import { columnLetters } from "../formulas/index.ts";
-import type { TableHost, WidgetInfo } from "./feature.ts";
+import type { TableHost, TableKey, WidgetInfo } from "./feature.ts";
 import { oncePerFrame } from "./frame.ts";
 import { firstRowBelow } from "./geometry.ts";
 import { STICKY_GAP } from "./layout.ts";
@@ -93,7 +93,7 @@ export function releaseWindow(host: TableHost, owner: WindowOwner): void {
 
 export class OverWindow {
   // The table shown over the window (its key) and its widget as rendered now
-  private shownKey: string | undefined;
+  private shownKey: TableKey | undefined;
   private shownWidget: HTMLElement | undefined;
   // The table rendered anew taken for it before it was enhanced (tableAdded)
   private guessed: HTMLElement | undefined;

@@ -17,6 +17,7 @@ import { appendColumnAt, appendRowAt } from "../pins.ts";
 import type { RowHold, TableHost, WidgetInfo } from "./feature.ts";
 import { heldBounds, type Rect } from "./geometry.ts";
 import { insertColumnWith, insertRowWith } from "./structure.ts";
+import type { TableKey } from "./tables.ts";
 
 // How near the table's end a column border must be to count as in view
 export const INSERT_REACH = 6;
@@ -37,7 +38,7 @@ const INSERT_CLICK_MS = 1000;
 type Axis = "row" | "column";
 
 /** Where a + inserts: a row (column) at `at` of the markdown, a new row held beside `beside` while it is edited */
-export type InsertTarget = { readonly key: string; readonly axis: Axis; readonly at: number; readonly beside: RowHold };
+export type InsertTarget = { readonly key: TableKey; readonly axis: Axis; readonly at: number; readonly beside: RowHold };
 
 /** Where a pointer hovering was last */
 export type PointerAt = { readonly pointerType: string; readonly clientX: number; readonly clientY: number };

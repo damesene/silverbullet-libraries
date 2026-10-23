@@ -8,6 +8,7 @@ import { Controller } from "../controller.ts";
 import type { InsertControls, InsertTarget } from "../core/insert.ts";
 import { findTables, parseTable } from "../markdown.ts";
 import { metaTagPattern } from "../tags.ts";
+import type { TableKey } from "../core/tables.ts";
 
 export let text: string;
 export let editor: HTMLElement;
@@ -218,6 +219,9 @@ export const buttonLabel = (button: Element) => button.getAttribute("aria-label"
 const insertControls = () => (controller as unknown as { insert: InsertControls }).insert;
 
 /** A + shown where the pointer would bring it up (undefined: none), the pointer in the band around the table or not */
+/** The key the core gives the page's table at `index` (as findTables counts them) */
+export const tableKey = (index = 0): TableKey => controller.tableKeys(controller.currentPage, text)[index]!;
+
 export function pointInsert(at: InsertTarget | undefined, inBand = false): void {
   const insert = insertControls();
   insert.at = at;

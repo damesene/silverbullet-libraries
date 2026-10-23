@@ -27,6 +27,7 @@ import {
   type Panel,
   type ModelHost,
   type TableInfo,
+  type TableKey,
 } from "../core/feature.ts";
 import { watchPress } from "../core/press.ts";
 import { ICONS } from "../icons.ts";
@@ -65,7 +66,7 @@ export class AutoFill implements Feature {
   // Ends the drag (Esc: without filling)
   private endDrag: ((apply: boolean) => void) | undefined;
   // AutoFill to…: the table whose cells selected fill to the cell clicked next, and those cells (as the markdown has them)
-  private picking: string | undefined;
+  private picking: TableKey | undefined;
   private pickingFrom = "";
   // A touch while picking, until it is a tap or not
   private stopTap: (() => void) | undefined;

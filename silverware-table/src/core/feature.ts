@@ -1,6 +1,8 @@
 // What Silverware Table's features share: the controller (the host) finds and
 // enhances tables, routes events and writes tables; each feature keeps its own
 // state and listeners and works through the host.
+import type { TableKey } from "./tables.ts";
+export type { TableKey } from "./tables.ts";
 import type { Bridge, FeatureName, SETTINGS, SettingValue } from "../bridge.ts";
 import type { Dialog, DialogOptions } from "./dialog.ts";
 import type { Rect } from "./geometry.ts";
@@ -18,7 +20,7 @@ export type TableInfo = {
   // rendered table while its markdown stays exactly the same
   readonly source: string;
   readonly hint: number;
-  readonly key: string;
+  readonly key: TableKey;
   readonly columns: number;
   // The table ends with a metadata row (`<meta …>`), rendered as its last row
   readonly metaRow: boolean;
@@ -50,7 +52,7 @@ export type CellArea = { readonly top: number; readonly left: number; readonly b
  */
 export type AddressFrame = {
   /** The tables laid out in the frame, by their keys (the one the frame is for among them) */
-  readonly tables: readonly string[];
+  readonly tables: readonly TableKey[];
   /** A table's area (`table`: another table's name; undefined: the one the frame is for) in the frame: undefined if it is not there as one area */
   outward(table: string | undefined, area: CellArea): CellArea | undefined;
   /** The table holding an area of the frame whole, as one area (its name; undefined: the one the frame is for), and the area in it */
@@ -146,7 +148,7 @@ export type PendingEdits = { readonly apply: (table: Table) => Table; readonly w
  * move off them (docs/silverware-table-isolation.md)
  */
 export type CellEditor = {
-  readonly key: string;
+  readonly key: TableKey;
   readonly row: number;
   readonly column: number;
   // What the field holds now, and its selection (the caret: from = to)
@@ -195,7 +197,7 @@ export function editorRect(editor: RenderedEditor): DOMRect {
  */
 export type PanelAnchor =
   | { readonly kind: "editor" }
-  | { readonly kind: "cell"; readonly key: string; readonly row: number; readonly column: number }
+  | { readonly kind: "cell"; readonly key: TableKey; readonly row: number; readonly column: number }
   | { readonly kind: "point"; readonly x: number; readonly y: number }
   // An element of the feature's own UI (a field of its header row)
   | { readonly kind: "element"; readonly element: HTMLElement };
@@ -215,7 +217,7 @@ export type PanelOptions = { readonly place?: "below" | "above"; readonly minWid
  */
 export interface MarkLayer {
   /** The cells of a table that have the mark; its other cells lose it */
-  set(key: string, cells: readonly CellRef[]): void;
+  set(key: TableKey, cells: readonly CellRef[]): void;
   /** No cell of any table has it */
   clear(): void;
 }
@@ -231,7 +233,7 @@ export type Side = "top" | "bottom" | "left" | "right";
  */
 export interface OutlineLayer {
   /** The area outlined: these rows (of the markdown, in the order shown) and the columns from..to; the outline before it gone */
-  show(key: string, rows: readonly number[], columns: readonly [number, number]): void;
+  show(key: TableKey, rows: readonly number[], columns: readonly [number, number]): void;
   hide(): void;
   /** Whether it outlines an area now */
   readonly shown: boolean;
@@ -258,7 +260,7 @@ export type HandlePlace = {
 
 /** Handles in cells (the selection's, the fill handle): placed by the adapter, kept by table, pressed: TableHost.targetOf says which */
 export interface HandleLayer {
-  place(key: string, handles: readonly HandlePlace[]): void;
+  place(key: TableKey, handles: readonly HandlePlace[]): void;
   hide(): void;
 }
 
@@ -268,9 +270,9 @@ export interface HandleLayer {
  * of Silverware Table's own controls (a panel, a menu, the toolbar), or none of these
  */
 export type PointerTarget =
-  | { readonly kind: "cell"; readonly key: string; readonly row: number; readonly column: number }
-  | { readonly kind: "outline"; readonly layer: string; readonly key: string; readonly row: number; readonly column: number }
-  | { readonly kind: "handle"; readonly layer: string; readonly key: string; readonly className: string; readonly row: number; readonly column: number }
+  | { readonly kind: "cell"; readonly key: TableKey; readonly row: number; readonly column: number }
+  | { readonly kind: "outline"; readonly layer: string; readonly key: TableKey; readonly row: number; readonly column: number }
+  | { readonly kind: "handle"; readonly layer: string; readonly key: TableKey; readonly className: string; readonly row: number; readonly column: number }
   | { readonly kind: "control" }
   | { readonly kind: "none" };
 
@@ -294,7 +296,7 @@ export type DragPoint = {
  * table; `pageMark` on the page meanwhile (TableHost.pageMark)
  */
 export type DragOptions = {
-  readonly key: string;
+  readonly key: TableKey;
   readonly events: "mouse" | "pointer";
   readonly autoscroll?: boolean;
   readonly sideways?: boolean;
@@ -466,13 +468,24 @@ export interface ModelHost {
   /**
    * A new table written into the page, in one edit: after the table `after`
    * (an empty line between), else at the page's end; `also`: a table of the
-   * page changed in the same edit (put on a sheet with it). Tables are known
-   * by their place among the page's (their keys): put after the page's last
-   * table, it moves no other table's key.
+   * page changed in the same edit (put on a sheet with it); `key`: the new
+   * table's, made before it is written (newTableKey), for what the caller
+   * keeps for it meanwhile. No other table's key changes, wherever it goes.
    */
-  insertTable(table: Table, after?: TableTarget, also?: { readonly target: TableTarget; readonly change: (table: Table) => Table }): Promise<WriteResult>;
+  insertTable(table: Table, after?: TableTarget, also?: { readonly target: TableTarget; readonly change: (table: Table) => Table }, key?: TableKey): Promise<WriteResult>;
+  /** A key for a table not written yet (insertTable's `key`, given back if it is not written), on the current page */
+  newTableKey(): TableKey;
   /** A table shown, by its key, as it is now (rendered anew after a write: its new info) */
-  tableFor(key: string): TableInfo | undefined;
+  tableFor(key: TableKey): TableInfo | undefined;
+  /**
+   * The keys of a page's tables in its text (as read now: bridge.getText), in
+   * the order findTables gives them: a table found in the text by its key. How
+   * tables are told apart is the core's (core/tables.ts): a key is made by it
+   * only, never from a table's place
+   */
+  tableKeys(page: string, text: string): readonly TableKey[];
+  /** The page a table's key is of */
+  pageOf(key: TableKey): string | undefined;
   /** The tables shown on the page */
   shownTables(): TableInfo[];
   /** The rows shown, in display order: the header (0) first, then the body rows (their rows in the markdown) as sorted and filtered */
@@ -510,7 +523,7 @@ export interface ModelHost {
   /** A state of the page for CSS while it lasts (class swt-<mark> on the page: a drag going on, a mode) */
   pageMark(mark: string, on: boolean): void;
   /** A state of a table for CSS while it lasts (class swt-<mark> on it: picking a cell in it), kept by its key: rendered anew, it has it again */
-  tableMark(key: string, mark: string, on: boolean): void;
+  tableMark(key: TableKey, mark: string, on: boolean): void;
   /** A cell scrolled into view, the page and its table's box as needed */
   revealCell(info: TableInfo, ref: CellRef): void;
   /** The rows shown from one row to another (of the markdown, in the order shown), both included; empty: either not shown */
@@ -587,7 +600,7 @@ export interface ModelHost {
    * Closes the cell editor for an edit that ends editing: `save` adds what the
    * editor held to that edit (undefined: the cell changed in the meantime)
    */
-  takeEditor(): { readonly key: string; readonly row: number; readonly column: number; readonly save: (table: Table) => Table | undefined } | undefined;
+  takeEditor(): { readonly key: TableKey; readonly row: number; readonly column: number; readonly save: (table: Table) => Table | undefined } | undefined;
   /** Closes the cell editor saving, as leaving it does (an edit a feature holds stays held), the focus left where it is */
   saveEditing(): Promise<void>;
   /** Asks the user (SilverBullet's dialog, else the browser's) */
@@ -642,9 +655,9 @@ export interface ModelHost {
    * Ends the view a table's metadata stored (its sorting, the features' state
    * read from it: filters), so the table shows its rows as written
    */
-  forgetStoredView(key: string): void;
+  forgetStoredView(key: TableKey): void;
   /** The same for the table with `key`, as it is shown now */
-  viewChangedFor(key: string): void;
+  viewChangedFor(key: TableKey): void;
   /**
    * A cell's new markdown with the hidden tags the cell had, but those the
    * features that manage them take (Feature.takesTags): editing, pasting or
@@ -686,14 +699,14 @@ export interface ModelHost {
 export interface TableHost extends ModelHost {
   infoOf(widget: HTMLElement): WidgetInfo | undefined;
   /** The rendered table a key belongs to, if it is enhanced and on screen */
-  widgetForKey(key: string): HTMLElement | undefined;
+  widgetForKey(key: TableKey): HTMLElement | undefined;
   /** The enhanced table an event target is in */
   enhancedWidgetOf(target: EventTarget | null): [HTMLElement, WidgetInfo] | undefined;
   /** The header or body cell an event target is in (not the filter or metadata row) */
   tableCellOf(info: WidgetInfo, target: EventTarget | null): HTMLTableCellElement | undefined;
   cellRef(info: WidgetInfo, cell: HTMLTableCellElement): CellRef | undefined;
   /** The header or body cell an event target is in, in an enhanced table; with `key`, only in that table */
-  cellUnder(target: EventTarget | null, key?: string): CellHit | undefined;
+  cellUnder(target: EventTarget | null, key?: TableKey): CellHit | undefined;
   /** The row of the markdown a row rendered is (the header 0) */
   rowOf(info: WidgetInfo, tr: HTMLTableRowElement): number;
   /** The header row and the shown body rows, in display order */
@@ -774,7 +787,7 @@ export interface TableHost extends ModelHost {
   /** The cell editor as rendered: its field, its cell */
   rendered(editor: CellEditor): RenderedEditor;
   /** A table shown, by its key, as rendered now */
-  tableFor(key: string): WidgetInfo | undefined;
+  tableFor(key: TableKey): WidgetInfo | undefined;
   /** The tables shown, as rendered */
   shownTables(): WidgetInfo[];
   /** The open cell editor as rendered, if any */
@@ -929,9 +942,9 @@ export interface Feature {
    */
   headerRow?(info: TableInfo): HeaderRow | undefined;
   /** The view a table's metadata stored ends (Remove metadata): state read from it goes */
-  viewForgotten?(key: string): void;
+  viewForgotten?(key: TableKey): void;
   /** Columns of the table with `key` moved or were deleted (`map`: their new indexes, undefined: deleted) */
-  columnsMoved?(key: string, map: (column: number) => number | undefined): void;
+  columnsMoved?(key: TableKey, map: (column: number) => number | undefined): void;
   /**
    * A click on an element the feature marked with data-swt-action in a table
    * (a header icon's `action`, or its own UI's element), with the column of its

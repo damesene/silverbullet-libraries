@@ -25,6 +25,7 @@ import { type MenuEntry, namingThatCloses, wrapRuns } from "../menu.ts";
 import { setAlign } from "../ops.ts";
 import { columnZone, insertColumnAt, insertRowAt, rowZone } from "../pins.ts";
 import { type ViewState, withoutSort, withSort } from "../view.ts";
+import type { TableKey } from "../core/feature.ts";
 
 type Axis = "row" | "column";
 
@@ -68,7 +69,7 @@ export class Grips implements Feature {
         // Opened at a point in a cell, not by the grip: the grip is not marked as the menu's
         byPoint?: boolean;
         // Asked for on a cell (cellMenu): opened again there when its table is rendered anew (an edit saved by the press)
-        again?: { readonly key: string; readonly at: CellRef; readonly point: { x: number; y: number } };
+        again?: { readonly key: TableKey; readonly at: CellRef; readonly point: { x: number; y: number } };
         // The cells selected as it opened (selectionOf): it closes when they change, not when they are shown again
         selected: string;
       }
@@ -77,11 +78,11 @@ export class Grips implements Feature {
   // The grips select lines themselves (their menu stays for them)
   private selectingLines = false;
   // The line a grip's click selected last: Shift+click on another grip selects from it, as a spreadsheet's anchor
-  private lineAnchor: { readonly key: string; readonly axis: Axis; readonly line: number } | undefined;
+  private lineAnchor: { readonly key: TableKey; readonly axis: Axis; readonly line: number } | undefined;
   // The press on a grip going on opened its menu otherwise (a right click: macOS's Ctrl+click, Android's long press): its end does nothing
   private pressOpenedMenu = false;
   // The lines selected whole, by table and axis, worked out once per selection (a grip is marked on every hover)
-  private linesSelected: { readonly key: string; readonly row: ReadonlySet<number>; readonly column: ReadonlySet<number> } | undefined;
+  private linesSelected: { readonly key: TableKey; readonly row: ReadonlySet<number>; readonly column: ReadonlySet<number> } | undefined;
   // The cells of the row (column) a grip hovered acts on, tinted
   private readonly hoverTint: MarkLayer;
 

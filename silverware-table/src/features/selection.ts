@@ -52,6 +52,7 @@ import type { MenuEntry } from "../menu.ts";
 import { withoutTags } from "../tags.ts";
 import type { Table } from "../markdown.ts";
 import { setCell } from "../ops.ts";
+import type { TableKey } from "../core/feature.ts";
 
 // Ctrl+Alt + these keys move the rows (up, down, 10 rows) or columns (left, right, to the first or last) selected, as in the cell editor
 const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
@@ -106,10 +107,10 @@ const same = (a: CellRef, b: CellRef) => a.row === b.row && a.column === b.colum
 
 export class Selection implements Feature {
   // The cells selected (rows of the markdown, header 0), in the table with this key
-  private selection: { readonly key: string; readonly anchor: CellRef; focus: CellRef } | undefined;
+  private selection: { readonly key: TableKey; readonly anchor: CellRef; focus: CellRef } | undefined;
   private stopSelecting: (() => void) | undefined;
   // The selection when a press came: the press itself ends it first
-  private pressed: { readonly key: string; readonly anchor: CellRef; readonly focus: CellRef } | undefined;
+  private pressed: { readonly key: TableKey; readonly anchor: CellRef; readonly focus: CellRef } | undefined;
   // A touch on cells selected, until it is a tap (their menu) or not
   private stopTap: (() => void) | undefined;
   // The cells selected, and the one selected alone (the next click edits it)
@@ -617,7 +618,7 @@ export class Selection implements Feature {
    * (inside them on the table's edges, the core's); after a touch (the handles
    * show only then), those of whole rows (columns) in the middle of what is in view
    */
-  private placeHandles(key: string, area: Area): void {
+  private placeHandles(key: TableKey, area: Area): void {
     const { info, rows, left, right } = area;
     const order = this.host.shownOrder(info);
     const wholeRows = left === 0 && right === info.columns - 1 && rows[0] !== order[0];
@@ -744,7 +745,7 @@ export class Selection implements Feature {
    * cell on the selection's edge (CSS shows it for a mouse only, with the move
    * pointer); none where the cells cannot move
    */
-  private placeEdges(key: string): void {
+  private placeEdges(key: TableKey): void {
     const block = this.block();
     if (block) this.edges.show(key, block.rows, [block.left, block.right]);
     else this.edges.hide();

@@ -70,6 +70,7 @@ import {
   withoutSort,
   withSort,
 } from "./view.ts";
+import { type TableKey, TableRegister } from "./core/tables.ts";
 
 // The cell editor as features see it, and what it takes to put the cell back
 
@@ -105,7 +106,9 @@ export class Controller implements TableHost {
 
   // Tables being enhanced: a scan meanwhile waits for it instead of starting again
   private readonly enhancing = new WeakMap<HTMLElement, Promise<void>>();
-  private readonly views = new Map<string, ViewState>();
+  // Which table is which (keys for the session; core/tables.ts)
+  private readonly register = new TableRegister();
+  private readonly views = new Map<TableKey, ViewState>();
   // The maximum table height setting, in pixels; 0: no limit
   private maxHeight = 0;
   // The metadata setting, for menus that offer pinning
@@ -144,7 +147,7 @@ export class Controller implements TableHost {
   // The row being edited (or just added), in the table with `key`: it stays
   // where it is shown until the editor leaves it, so sorting and filters do not
   // move or hide it while it is typed into
-  private held: (RowHold & { readonly key: string; readonly row: number }) | undefined;
+  private held: (RowHold & { readonly key: TableKey; readonly row: number }) | undefined;
   private settingsTimer: ReturnType<typeof setTimeout> | undefined;
   private settingsReadAt = 0;
   private readonly sortTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -182,9 +185,9 @@ export class Controller implements TableHost {
   // The outlines (TableHost.outlineLayer) and handles (handleLayer) shown, by layer: in which table, where
   private readonly outlines = new Map<
     string,
-    { readonly pieces: (sides: readonly Side[]) => readonly string[]; at?: { readonly key: string; readonly rows: readonly number[]; readonly columns: readonly [number, number] } }
+    { readonly pieces: (sides: readonly Side[]) => readonly string[]; at?: { readonly key: TableKey; readonly rows: readonly number[]; readonly columns: readonly [number, number] } }
   >();
-  private readonly handleLayers = new Map<string, { at?: { readonly key: string; readonly places: readonly HandlePlace[] } }>();
+  private readonly handleLayers = new Map<string, { at?: { readonly key: TableKey; readonly places: readonly HandlePlace[] } }>();
   private readonly dragContext: DragContext;
   // The tables marked (TableHost.tableMark), by mark
   private readonly tableMarks = new Map<string, Set<string>>();
@@ -551,7 +554,7 @@ export class Controller implements TableHost {
    * The view a table's metadata stored ends with the metadata, so the rows
    * show as written: forgotten, so Ctrl+Z (the metadata back) shows it again
    */
-  forgetStoredView(key: string): void {
+  forgetStoredView(key: TableKey): void {
     clearTimeout(this.sortTimers.get(key));
     this.sortTimers.delete(key);
     this.sortsWaiting.delete(key);
@@ -680,7 +683,7 @@ export class Controller implements TableHost {
         table,
         source: range.text,
         hint: range.from,
-        key: `${page}#${range.ordinal}`,
+        key: this.register.keysOf(page, text)[range.ordinal]!,
         columns: shape.columns,
         metaRow: model.meta !== undefined,
         rows: model.rows.length,
@@ -866,7 +869,7 @@ export class Controller implements TableHost {
     this.setView(widget, info, this.viewOf(info));
   }
 
-  viewChangedFor(key: string): void {
+  viewChangedFor(key: TableKey): void {
     const widget = this.widgetForKey(key);
     const info = widget && this.infos.get(widget);
     if (widget && info) this.viewChanged(widget, info);
@@ -897,7 +900,7 @@ export class Controller implements TableHost {
    * table is edited (writing would render the table anew under the editor): then
    * once the editor closes.
    */
-  private scheduleSortStore(key: string): void {
+  private scheduleSortStore(key: TableKey): void {
     clearTimeout(this.sortTimers.get(key));
     this.sortTimers.set(
       key,
@@ -916,7 +919,7 @@ export class Controller implements TableHost {
     if (key && this.sortsWaiting.delete(key)) this.scheduleSortStore(key);
   }
 
-  private async storeSort(key: string): Promise<void> {
+  private async storeSort(key: TableKey): Promise<void> {
     const widget = this.widgetForKey(key);
     const info = widget && this.infos.get(widget);
     if (this.stopped || !widget || !info || !(await this.metadataAllowed(info))) return;
@@ -931,7 +934,15 @@ export class Controller implements TableHost {
     return this.infos.get(widget);
   }
 
-  tableFor(key: string): WidgetInfo | undefined {
+  tableKeys(page: string, text: string): readonly TableKey[] {
+    return this.register.keysOf(page, text);
+  }
+
+  pageOf(key: TableKey): string | undefined {
+    return this.register.pageOf(key);
+  }
+
+  tableFor(key: TableKey): WidgetInfo | undefined {
     const widget = this.widgetForKey(key);
     return widget && this.infos.get(widget);
   }
@@ -1009,9 +1020,9 @@ export class Controller implements TableHost {
   }
 
   markLayer(mark: string): MarkLayer {
-    const tables = new Map<string, readonly CellRef[]>();
+    const tables = new Map<TableKey, readonly CellRef[]>();
     this.markLayers.set(mark, tables);
-    const show = (key: string, cells: readonly CellRef[]) => {
+    const show = (key: TableKey, cells: readonly CellRef[]) => {
       const info = this.tableFor(key);
       if (info) this.adapter.markCells(info, mark, cells);
     };
@@ -1042,7 +1053,7 @@ export class Controller implements TableHost {
   }
 
   outlineLayer(name: string, pieces: (sides: readonly Side[]) => readonly string[]): OutlineLayer {
-    const layer: { pieces: typeof pieces; at?: { key: string; rows: readonly number[]; columns: readonly [number, number] } } = { pieces };
+    const layer: { pieces: typeof pieces; at?: { key: TableKey; rows: readonly number[]; columns: readonly [number, number] } } = { pieces };
     this.outlines.set(name, layer);
     return {
       show: (key, rows, columns) => {
@@ -1062,7 +1073,7 @@ export class Controller implements TableHost {
   }
 
   handleLayer(name: string): HandleLayer {
-    const layer: { at?: { key: string; places: readonly HandlePlace[] } } = {};
+    const layer: { at?: { key: TableKey; places: readonly HandlePlace[] } } = {};
     this.handleLayers.set(name, layer);
     return {
       place: (key, places) => {
@@ -1092,7 +1103,7 @@ export class Controller implements TableHost {
     this.adapter.pageMark(mark, on);
   }
 
-  tableMark(key: string, mark: string, on: boolean): void {
+  tableMark(key: TableKey, mark: string, on: boolean): void {
     let tables = this.tableMarks.get(mark);
     if (!tables) this.tableMarks.set(mark, (tables = new Set()));
     if (on) tables.add(key);
@@ -1260,7 +1271,7 @@ export class Controller implements TableHost {
     return this.cellEditor.finish(true, undefined, false);
   }
 
-  takeEditor(): { key: string; row: number; column: number; save: (table: Table) => Table | undefined } | undefined {
+  takeEditor(): { key: TableKey; row: number; column: number; save: (table: Table) => Table | undefined } | undefined {
     const closed = this.cellEditor.close();
     const key = closed && this.infos.get(closed.widget)?.key;
     return closed && key !== undefined ? { key, row: closed.row, column: closed.column, save: (t) => this.cellEditor.withSaved(t, closed) } : undefined;
@@ -1336,7 +1347,7 @@ export class Controller implements TableHost {
   }
 
   /** The rendered table a view key belongs to, if it is enhanced and on screen */
-  widgetForKey(key: string): HTMLElement | undefined {
+  widgetForKey(key: TableKey): HTMLElement | undefined {
     // A table drawn by Silverware Table stands for SilverBullet's of its key while it is shown
     const widgets = this.enhancedWidgets().filter((widget) => this.infos.get(widget)!.key === key);
     return widgets.find((widget) => widget.classList.contains(DRAWN_CLASS)) ?? widgets[0];
@@ -1414,7 +1425,7 @@ export class Controller implements TableHost {
   }
 
   /** After a write: a new row focused is held beside the rows asked */
-  private holdAfterWrite(key: string, options: WriteOptions): void {
+  private holdAfterWrite(key: TableKey, options: WriteOptions): void {
     if (options.hold && options.focus) {
       this.held = { key, row: options.focus.row, ...options.hold };
       return;
@@ -1902,7 +1913,7 @@ export class Controller implements TableHost {
     return this.rows.cellRef(info, cell);
   }
 
-  cellUnder(target: EventTarget | null, key?: string): CellHit | undefined {
+  cellUnder(target: EventTarget | null, key?: TableKey): CellHit | undefined {
     const hit = this.enhancedWidgetOf(target);
     if (!hit || (key !== undefined && hit[1].key !== key)) return undefined;
     const [widget, info] = hit;
@@ -1968,7 +1979,18 @@ export class Controller implements TableHost {
     return info && info.source === target.source ? this.writeAt(info, widget, change, options) : this.writeAt(target, undefined, change, options);
   }
 
-  async insertTable(table: Table, after?: TableTarget, also?: { readonly target: TableTarget; readonly change: (table: Table) => Table }): Promise<WriteResult> {
+  newTableKey(): TableKey {
+    return this.register.reserve(this.currentPage);
+  }
+
+  async insertTable(table: Table, after?: TableTarget, also?: { readonly target: TableTarget; readonly change: (table: Table) => Table }, key?: TableKey): Promise<WriteResult> {
+    const result = await this.insertTableNow(table, after, also, key);
+    // Not written: no table gets the key made for it
+    if (key && result !== "written") this.register.release(key);
+    return result;
+  }
+
+  private async insertTableNow(table: Table, after: TableTarget | undefined, also: { readonly target: TableTarget; readonly change: (table: Table) => Table } | undefined, key: TableKey | undefined): Promise<WriteResult> {
     try {
       const text = await this.bridge.getText();
       const range = after && locateBySource(text, after.hint, after.source);
@@ -1980,6 +2002,8 @@ export class Controller implements TableHost {
       const at = range ? range.to : text.length;
       const format = await this.setting("autoFormat");
       const serialize = (t: Table) => serializeTable(format ? { ...t, padded: true } : t);
+      // The new table's text: its key's once it is in the page
+      if (key) this.register.writing(key, serialize(table).trimEnd());
       // An empty line before it, and after it where text follows
       const insert = `${at > 0 ? "\n\n" : ""}${serialize(table)}${text.slice(at).startsWith("\n") || at === text.length ? "" : "\n\n"}`;
       const updates = [{ from: at, to: at, text: insert }, ...(changed ? [{ from: changed.from, to: changed.to, text: serialize(also!.change(parseTable(changed.text))) }] : [])];

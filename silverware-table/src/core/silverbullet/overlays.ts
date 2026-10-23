@@ -9,9 +9,10 @@ import type { HandlePlace, PointerTarget, Side, WidgetInfo } from "../feature.ts
 import { intersect, isEmpty, shownRect, viewBounds } from "../geometry.ts";
 import { Outline } from "../outline.ts";
 import type { TableRows } from "../rows.ts";
+import type { TableKey } from "../tables.ts";
 
-type PieceOf = { readonly layer: string; readonly key: string; readonly row: number; readonly column: number };
-type HandleOf = { readonly layer: string; readonly key: string; readonly className: string; readonly row: number; readonly column: number };
+type PieceOf = { readonly layer: string; readonly key: TableKey; readonly row: number; readonly column: number };
+type HandleOf = { readonly layer: string; readonly key: TableKey; readonly className: string; readonly row: number; readonly column: number };
 
 export class Overlays {
   private readonly outlines = new Map<string, Outline>();

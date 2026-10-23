@@ -14,6 +14,7 @@
 import { SETTINGS } from "../../../bridge.ts";
 import type { AdapterFeature, TableHost, WidgetInfo } from "../../feature.ts";
 import { UI_CLASS } from "../../../dom.ts";
+import type { TableKey } from "../../tables.ts";
 
 const LARGE_CLASS = "swt-large-table";
 const SPACER_CLASS = "swt-large-spacer";
@@ -25,7 +26,7 @@ const ROW_HEIGHT = 36;
 type State = {
   readonly widget: HTMLElement;
   readonly table: HTMLTableElement;
-  key: string | undefined;
+  key: TableKey | undefined;
   info: WidgetInfo | undefined;
   // The body rows shown, in their order (the view's), and those of them in the document
   shown: readonly HTMLTableRowElement[];

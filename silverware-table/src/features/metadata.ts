@@ -100,10 +100,10 @@ export class Metadata implements Feature {
     const from = tables[tables.length - 1]!.from;
     const to = tables[0]!.to;
     let span = text.slice(from, to);
-    const page = await bridge.getCurrentPage();
+    const keys = this.host.tableKeys(await bridge.getCurrentPage(), text);
     for (const range of tables) {
       const table = parseTable(range.text);
-      if (table.meta) this.host.forgetStoredView(`${page}#${range.ordinal}`);
+      if (table.meta) this.host.forgetStoredView(keys[range.ordinal]!);
       span = span.slice(0, range.from - from) + serializeTable(withoutMetadata(table)) + span.slice(range.to - from);
     }
     const edit = minimalEdit(text.slice(from, to), span);

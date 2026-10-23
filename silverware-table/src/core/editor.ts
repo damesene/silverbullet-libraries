@@ -12,6 +12,7 @@ import { type AdapterFeature, type CellField, type CellRef, type FocusTarget, PA
 import { STICKY_GAP } from "./layout.ts";
 import { type Growth, growTo, insertRowWith, MOVE_BLOCKED } from "./structure.ts";
 import { withoutTags } from "../tags.ts";
+import type { TableKey } from "./tables.ts";
 
 // Ctrl+Alt + these keys move the edited cell's row or column
 const MOVE_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
@@ -77,7 +78,7 @@ export type EditorContext = {
 export class CellEditing {
   private editor: ActiveEditor | undefined;
   // A cell to edit once its table is rendered again (after a write)
-  private pending: (FocusTarget & { key: string; until: number }) | undefined;
+  private pending: (FocusTarget & { key: TableKey; until: number }) | undefined;
   // The selectOnClick setting: a plain click, Enter, Tab and Ctrl+arrows select the cell's text
   selectOnClick = false;
 
@@ -91,7 +92,7 @@ export class CellEditing {
   }
 
   /** After a write: edit `focus` in the table with `key` once it is rendered again */
-  editAfterWrite(key: string, focus: FocusTarget): void {
+  editAfterWrite(key: TableKey, focus: FocusTarget): void {
     this.pending = { key, ...focus, until: Date.now() + 3000 };
   }
 

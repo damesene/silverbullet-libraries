@@ -6,21 +6,22 @@
 // scroll events, for up to ANCHOR_MS or until the user wheels, touches,
 // presses or types (`drop`).
 import { scrollParentOf } from "./geometry.ts";
+import type { TableKey } from "./tables.ts";
 
 // How long a table rendered anew is kept where it was, against the editor's own scrolling
 const ANCHOR_MS = 1000;
 
 export class ViewAnchor {
   // The table being written (its key), its scroller and its top's offset below the scroller's top
-  private anchor: { readonly key: string; readonly scroller: HTMLElement; offset: number; readonly until: number } | undefined;
+  private anchor: { readonly key: TableKey; readonly scroller: HTMLElement; offset: number; readonly until: number } | undefined;
 
   constructor(
     private readonly doc: Document,
-    private readonly widgetForKey: (key: string) => HTMLElement | undefined,
+    private readonly widgetForKey: (key: TableKey) => HTMLElement | undefined,
   ) {}
 
   /** A table about to be written: where it is in the page's view */
-  set(widget: HTMLElement, key: string): void {
+  set(widget: HTMLElement, key: TableKey): void {
     const scroller = widget.isConnected ? scrollParentOf(widget) : undefined;
     this.anchor = scroller && {
       key,
@@ -31,7 +32,7 @@ export class ViewAnchor {
   }
 
   /** The table rendered anew is scrolled to where it was, so the row edited stays under the user's eyes */
-  keep(key: string, widget = this.widgetForKey(key)): void {
+  keep(key: TableKey, widget = this.widgetForKey(key)): void {
     const anchor = this.anchor;
     if (!anchor || anchor.key !== key || !widget) return;
     if (Date.now() > anchor.until || !anchor.scroller.isConnected) {
@@ -47,7 +48,7 @@ export class ViewAnchor {
    * there, also once the editor has measured the new rendering, in the next
    * frames
    */
-  again(widget: HTMLElement, key: string): void {
+  again(widget: HTMLElement, key: TableKey): void {
     const anchor = this.anchor;
     if (!anchor || anchor.key !== key) return;
     anchor.offset = widget.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;

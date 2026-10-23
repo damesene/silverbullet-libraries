@@ -79,6 +79,7 @@ import { namedRows } from "../names.ts";
 import { insertColumn, setCell } from "../ops.ts";
 import { insertColumnAt } from "../pins.ts";
 import { withoutTags } from "../tags.ts";
+import type { TableKey } from "../core/feature.ts";
 
 // New formulas are stored in the table (a <meta f> tag), as other metadata
 export const FORMULAS_NEED_METADATA =
@@ -113,7 +114,7 @@ function choiceHelp(choice: FormulaChoice): FormulaHelp {
 const REFERENCE_COLORS = ["#3b6fd4", "#d0453a", "#8a55c9", "#2f9a4a", "#d9771c", "#1c9c9c"];
 
 /** A cell edited, as one string */
-const editKey = (key: string, cell: CellRef) => `${key}\u0000${cell.row}\u0000${cell.column}`;
+const editKey = (key: TableKey, cell: CellRef) => `${key}\u0000${cell.row}\u0000${cell.column}`;
 
 /** Whether a reference's table is the table named `own` on the formula's page */
 const isOwn = (table: { readonly name: string; readonly page?: string } | undefined, own: string | undefined) =>
@@ -178,7 +179,7 @@ export class Formulas implements Feature {
   // Tables (by key, as of their markdown) whose formula cells show results from before a change made outside Silverware Table
   private readonly stale = new WeakMap<TableInfo, boolean>();
   // The tables whose cells can be pointed at (marked): the formula's own, and the others laid out with it in a frame
-  private pointing: readonly string[] = [];
+  private pointing: readonly TableKey[] = [];
   // The page's tables for formulas, as of the page's text and the other pages read
   private source: { readonly key: string; readonly source: TableSource } | undefined;
   // The cell edited whose formula shows in its table's addresses though a frame lays the table out (editKey):
@@ -514,7 +515,7 @@ export class Formulas implements Feature {
   }
 
   /** The tables whose cells the formula edited can point at: its own, and those a frame lays out with it */
-  private pointable(info: TableInfo, active: CellEditor): readonly string[] {
+  private pointable(info: TableInfo, active: CellEditor): readonly TableKey[] {
     const frame = this.frameFor(info, active);
     return frame ? [info.key, ...frame.tables.filter((key) => key !== info.key)] : [info.key];
   }
@@ -724,7 +725,7 @@ export class Formulas implements Feature {
   }
 
   /** The tables whose cells can be pointed at now, marked (none: empty) */
-  private markPointing(keys: readonly string[]): void {
+  private markPointing(keys: readonly TableKey[]): void {
     if (this.pointing.length === keys.length && this.pointing.every((key, i) => key === keys[i])) return;
     for (const key of this.pointing) if (!keys.includes(key)) this.host.tableMark(key, "pointing", false);
     for (const key of keys) if (!this.pointing.includes(key)) this.host.tableMark(key, "pointing", true);

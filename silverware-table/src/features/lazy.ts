@@ -15,6 +15,7 @@ import { ICONS } from "../icons.ts";
 import { locateBySource, parseTable, serializeTable, type Table, unescapeCell } from "../markdown.ts";
 import { setCell } from "../ops.ts";
 import { withoutTags } from "../tags.ts";
+import type { TableKey } from "../core/feature.ts";
 
 // After a navigation started, what is held waits this long at most for the page loaded
 const LEAVING_MS = 5000;
@@ -51,11 +52,11 @@ function applyEdits(table: Table, edits: readonly HeldEdit[]): { table: Table; s
 
 export class Lazy implements Feature {
   // Tables switched to lazy saving, by key (for this visit of the page)
-  private readonly on = new Set<string>();
-  private readonly held = new Map<string, Held>();
+  private readonly on = new Set<TableKey>();
+  private readonly held = new Map<TableKey, Held>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   // A table's flush on its way (the delay, the tab hidden or closing, a toggle may come together): the others wait for it
-  private readonly flushing = new Map<string, Promise<boolean>>();
+  private readonly flushing = new Map<TableKey, Promise<boolean>>();
   // A navigation started: nothing is written into the editor until the page is loaded
   private leavingSince = 0;
 
@@ -97,7 +98,7 @@ export class Lazy implements Feature {
     ];
   }
 
-  private toggle(key: string): void {
+  private toggle(key: TableKey): void {
     if (this.on.delete(key)) void this.switchedOff(key);
     else this.on.add(key);
     this.host.toolbarChanged();
@@ -108,7 +109,7 @@ export class Lazy implements Feature {
    * toolbar leaves its editor open): closed and saved first, no longer held,
    * in a write that takes the others along
    */
-  private async switchedOff(key: string): Promise<void> {
+  private async switchedOff(key: TableKey): Promise<void> {
     if (this.host.editing) await this.host.saveEditing();
     await this.flush(key);
   }
@@ -145,7 +146,7 @@ export class Lazy implements Feature {
   }
 
   /** Edits written (by any write of the table): no longer held, unless edited again meanwhile */
-  private written(key: string, edits: readonly HeldEdit[], skipped: number): void {
+  private written(key: TableKey, edits: readonly HeldEdit[], skipped: number): void {
     const held = this.held.get(key);
     if (held) {
       for (const edit of edits) if (held.edits.get(cellId(edit)) === edit) held.edits.delete(cellId(edit));
@@ -224,7 +225,7 @@ export class Lazy implements Feature {
    * Writes what is held for a table: into the editor while its page is there,
    * else into the page's file; whether it went into the editor (one undo step)
    */
-  private async flush(key: string): Promise<boolean> {
+  private async flush(key: TableKey): Promise<boolean> {
     const going = this.flushing.get(key);
     if (going) {
       await going;
@@ -235,7 +236,7 @@ export class Lazy implements Feature {
     return flush;
   }
 
-  private async flushNow(key: string): Promise<boolean> {
+  private async flushNow(key: TableKey): Promise<boolean> {
     clearTimeout(this.timer);
     const held = this.held.get(key);
     if (!held?.edits.size) return false;
@@ -252,7 +253,7 @@ export class Lazy implements Feature {
   }
 
   /** The page left: what was held for it is written into its file (SilverBullet saved it before loading the other) */
-  private async flushToPage(key: string, held: Held): Promise<void> {
+  private async flushToPage(key: TableKey, held: Held): Promise<void> {
     const { readPage, writePage } = this.host.bridge;
     const count = held.edits.size;
     const lost = () => void this.host.bridge.flash(`Silverware Table: ${count} ${count === 1 ? "cell" : "cells"} edited on ${held.page} could not be saved`, "error");
@@ -280,7 +281,7 @@ export class Lazy implements Feature {
     // (flush finds the page is not in the editor: into its file)
     for (const [key, held] of [...this.held]) if (held.page !== name) await this.flush(key);
     // A table of the page left is a different table now
-    for (const key of [...this.on]) if (!key.startsWith(`${name}#`)) this.on.delete(key);
+    for (const key of [...this.on]) if (this.host.pageOf(key) !== name) this.on.delete(key);
   }
 
   // A navigation: nothing goes into the editor until the other page is loaded (pageLoaded)
