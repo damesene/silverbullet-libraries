@@ -3417,10 +3417,8 @@ html[data-theme="dark"] .swt-excel-error {
 .swt-menu-back {
   justify-self: start;
 }
-/* With an icon before the title (the table's ⋯ menu): the title starts at it, the icon where the first row's are */
-.swt-menu-title.swt-menu-title-start {
-  grid-template-columns: auto minmax(0, max-content) auto minmax(22px, 1fr);
-}
+/* With an icon before the title (the table's ⋯ menu): the icon at the left, where the first row's are, the title
+   centered as every menu's */
 .swt-menu-title-icon {
   grid-column: 1;
   justify-self: start;

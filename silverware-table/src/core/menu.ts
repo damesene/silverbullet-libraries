@@ -50,8 +50,8 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
   const heading = el(
     doc,
     "div",
-    // An icon before the title, which it acts on: the title starts at it
-    titleIcon ? "swt-menu-title swt-menu-title-start" : "swt-menu-title",
+    // An icon before the title, which it acts on: at the left, the title centered as in every menu
+    "swt-menu-title",
     back && el(doc, "button", { class: "swt-menu-back", title: "Back", attrs: { "aria-label": "Back" }, html: back.icon, run: back.run }),
     titleIcon &&
       el(doc, "button", {
