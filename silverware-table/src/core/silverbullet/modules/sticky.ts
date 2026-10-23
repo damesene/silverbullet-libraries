@@ -38,6 +38,13 @@ export class Sticky implements AdapterFeature {
       const native = !overWindow && !inside && widget.clientWidth > 0 && info.table.offsetWidth <= widget.clientWidth + 1;
       widget.classList.toggle("swt-sticky-native", native);
       widget.classList.toggle("swt-sticky-box", overWindow);
+      // Held below the view's top by the room for the toolbar (STICKY_GAP), but never lower than the table lies in the
+      // page: a table nearer the page's top had its header pushed down over its first rows, the page not even scrolled
+      const gap = overWindow ? STICKY_GAP : this.gapFor(widget, info.table, scroller.top);
+      if (native) {
+        const top = `${gap}px`;
+        if (widget.style.getPropertyValue("--swt-sticky-top") !== top) widget.style.setProperty("--swt-sticky-top", top);
+      }
       if (native || overWindow) {
         const table = info.table.getBoundingClientRect();
         head.style.transform = "";
@@ -49,7 +56,7 @@ export class Sticky implements AdapterFeature {
         continue;
       }
       const box = this.host.innerBox(widget);
-      const pageTop = scroller.top + STICKY_GAP;
+      const pageTop = scroller.top + gap;
       const boxTop = inside ? box.top : -Infinity;
       const table = info.table.getBoundingClientRect();
       // Rows pinned to the bottom first: held at the bottom of the view (the
@@ -72,5 +79,16 @@ export class Sticky implements AdapterFeature {
       head.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
       head.classList.toggle("swt-stuck", offset > 0);
     }
+  }
+
+  /**
+   * STICKY_GAP, or how far below its page's top the table lies, where that is
+   * less: from the view's top (`viewTop`), the page's scroll added (none while
+   * it is too short to scroll: no scrolling element then, the case it shows in)
+   */
+  private gapFor(widget: HTMLElement, table: HTMLTableElement, viewTop: number): number {
+    const scrolled = this.host.scrollParentOf(widget)?.scrollTop ?? 0;
+    const lies = table.getBoundingClientRect().top - viewTop + scrolled;
+    return Math.max(0, Math.min(STICKY_GAP, Math.floor(lies)));
   }
 }

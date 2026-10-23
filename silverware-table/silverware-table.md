@@ -1558,7 +1558,8 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 .sb-table-widget.swt-sticky-native thead,
 .sb-table-widget.swt-sticky-native thead.swt-stuck {
   position: sticky;
-  top: 66px;
+  /* STICKY_GAP, less for a table nearer the page's top (the script: --swt-sticky-top) */
+  top: var(--swt-sticky-top, 66px);
   z-index: 3;
 }
 .sb-table-widget.swt-sticky-native tfoot,
