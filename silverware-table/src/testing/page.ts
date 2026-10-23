@@ -166,7 +166,7 @@ export function tableMenuItem(label: RegExp, table = 0): HTMLElement | undefined
 /**
  * A name of a table (its own, or what holds it: its sheet) clicked: in the
  * toolbar's row of names (the toolbarNames setting), else in the table's ⋯
- * menu (the table's: the pencil in its title; its sheet's: its first row);
+ * menu (the table's: the pencil in its title; its sheet's: the first button of its row);
  * its field open
  */
 export function toolbarName(slot: "table" | "container", table = 0): HTMLElement {
@@ -175,7 +175,7 @@ export function toolbarName(slot: "table" | "container", table = 0): HTMLElement
   let name = document.querySelector<HTMLElement>(`.swt-bar .swt-bar-name-${slot} .swt-bar-name`);
   if (!name) {
     document.querySelector<HTMLElement>(".swt-bar .swt-bar-more")!.click();
-    name = document.querySelector<HTMLElement>(slot === "table" ? ".swt-menu .swt-menu-rename" : `.swt-menu .swt-menu-name-${slot} .swt-menu-name-button`)!;
+    name = document.querySelector<HTMLElement>(slot === "table" ? ".swt-menu .swt-menu-rename" : `.swt-menu .swt-menu-row-${slot} .swt-segment`)!;
   }
   name.click();
   return name;

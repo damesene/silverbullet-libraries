@@ -353,36 +353,33 @@ export class Toolbar {
     const info = host.infoOf(widget);
     const naming = info && host.menuNaming(info, { kind: "table" });
     const title = naming?.name ?? "Table";
-    // The table's icon before the title (its name); first, what holds the table: its sheet's name after its icon (a
-    // click on the name its field, in the menu's place)
-    const tableIcon = named.find((b) => b.place === "name-icon" && b.slot === "table");
-    const slots = [...new Set(named.map((b) => b.slot))].filter((slot) => slot !== "table");
-    const names: MenuEntry[] = slots.length
-      ? [
-          {
-            kind: "names",
-            names: slots.flatMap((slot) => {
-              const n = named.find((b) => b.place === "name" && b.slot === slot);
-              const icon = named.find((b) => b.place === "name-icon" && b.slot === slot);
-              if (!n && !icon?.icon) return [];
-              return [
-                {
-                  ...(icon?.icon ? { icon: { icon: icon.icon, label: icon.label, title: icon.title, ...(icon.pressed !== undefined ? { pressed: icon.pressed } : {}), run: icon.run } } : {}),
-                  key: slot!,
-                  ...(n ? { name: n.label, title: n.title, ...(n.muted ? { muted: true } : {}), ...(n.attention ? { attention: true } : {}), run: () => this.showNaming(widget, anchor, n) } : {}),
-                  // The name's field's button taking it away (Remove from sheet), as a × after it
-                  ...(n?.naming?.clear && n.naming.name && !n.naming.disabled ? { clear: { title: n.naming.clear.label, run: () => void n.naming!.save("") } } : {}),
-                },
-              ];
-            }),
-          },
-          { kind: "separator" },
-        ]
-      : [];
-    const titleIcon = tableIcon?.icon
-      ? { icon: tableIcon.icon, label: tableIcon.label, title: tableIcon.title, ...(tableIcon.pressed !== undefined ? { pressed: tableIcon.pressed } : {}), run: tableIcon.run }
-      : undefined;
-    menu.show(widget, title, [...names, ...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], place, undefined, naming, titleIcon);
+    // First the ways the table is shown (the table's own: full screen; what holds it: the sheet view) as items, then
+    // what holds it (its sheet) in a row as a column's type is in its menu: its name, a button naming another (its
+    // field, in the menu's place), a × taking it away
+    const icons = named.filter((b) => b.place === "name-icon" && b.icon);
+    const views = [...icons.filter((b) => b.slot === "table"), ...icons.filter((b) => b.slot !== "table")].map(
+      (b): MenuEntry => ({ kind: "item", label: b.label, icon: b.icon!, hint: b.title, run: b.run }),
+    );
+    const rows = named
+      .filter((b) => b.place === "name" && b.slot !== "table")
+      .map((n): MenuEntry => {
+        const clear = n.naming?.clear;
+        return {
+          kind: "segmented",
+          ...(n.slot ? { key: n.slot } : {}),
+          label: n.caption ? (n.muted || n.attention ? n.caption : `${n.caption}: ${n.label}`) : n.label,
+          ...(n.title ? { hint: n.title } : {}),
+          ...(n.attention ? { attention: true } : {}),
+          options: [
+            { icon: ICONS.rename, title: n.naming?.label ?? n.title ?? n.label, run: () => this.showNaming(widget, anchor, n), ...(n.naming?.disabled ? { disabled: n.naming.disabled } : {}) },
+            ...(clear && n.naming
+              ? [{ icon: ICONS.clear, title: clear.label, run: () => void n.naming!.save(""), ...(n.naming.name && !n.naming.disabled ? {} : { disabled: n.naming.disabled ?? n.label }) }]
+              : []),
+          ],
+        };
+      });
+    const head: MenuEntry[] = views.length || rows.length ? [...views, ...rows, { kind: "separator" }] : [];
+    menu.show(widget, title, [...head, ...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], place, undefined, naming);
     if (startNamed) menu.startNaming();
   }
 }

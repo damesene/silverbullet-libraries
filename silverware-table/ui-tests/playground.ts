@@ -102,8 +102,8 @@ export async function drag(page: Page, from: Locator, to: Locator | { x: number;
 export async function tableIcon(page: Page, label: string): Promise<Locator> {
   const inBar = page.locator(`.swt-bar.swt-visible button[aria-label="${label}"]`);
   if (await inBar.count()) return inBar;
-  if (!(await page.locator(".swt-menu .swt-menu-names").count())) await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
-  return page.locator(`.swt-menu button[aria-label="${label}"]`);
+  if (!(await page.locator(".swt-menu").count())) await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
+  return page.locator(".swt-menu .swt-menu-item").filter({ hasText: new RegExp(`^${label}$`) });
 }
 
 export async function hoverCell(page: Page, target: Locator): Promise<void> {

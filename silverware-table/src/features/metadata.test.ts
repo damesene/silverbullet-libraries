@@ -41,9 +41,9 @@ describe("Table metadata", () => {
     tableMenuItem(/^Edit markdown$/);
     const menu = document.querySelector<HTMLElement>(".swt-menu")!;
     menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-    // The first of its buttons, not the pencil: the table's icon before the title
+    // The first of its items, not the pencil: Full screen
     expect(document.activeElement?.classList.contains("swt-menu-rename")).toBe(false);
-    expect(document.activeElement?.classList.contains("swt-menu-title-icon")).toBe(true);
+    expect(document.activeElement?.textContent).toBe("Full screen");
     // The cell selected, then the name's field: a copy there is the field's
     clickOn(cell(1, 0));
     key(document.activeElement ?? editor, "Escape");

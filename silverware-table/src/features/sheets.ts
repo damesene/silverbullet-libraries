@@ -65,6 +65,7 @@ export class Sheets implements Feature {
         title,
         place: "name",
         slot: "container",
+        caption: "Sheet",
         ...(sheet ? {} : missing ? { attention: true } : { muted: true }),
         naming: {
           ...(sheet ? { name: sheet } : {}),

@@ -22,8 +22,8 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Paste from a spreadsheet**: copy cells in Excel or Google Sheets, click a cell, Ctrl+V; Ctrl+Shift+V adds them as new rows. See [[#Pasting from a spreadsheet]].
 * **Column types**: `| Price #currency |` shows `12.99` as `€12.99`, `#stars` a rating as stars, `#check` yes / no as ✅ / ❌. See [[#Column types]].
 * **Formulas**: type `=SUM(B1:B3)` or `=SUM([qty])` into a cell; the result is written into the markdown. See [[#Formulas]].
-* **The table's names**: the title of a table's ⋯ menu is its name (the pencil after it names it), and its first row the sheet it is on (muted *No sheet* on none: click it to type a sheet's name), the sheet icon before it showing the sheet, the table icon after it the table full screen. Hold Shift and the toolbar shows both names too, left of its icons (above them where both do not fit); the *Names in the toolbar* setting shows them always, or never.
-* **Sheet view**: the sheet icon (in the first row of a table's ⋯ menu) shows the table like a spreadsheet over the whole window, with empty rows and columns around it; type into one to grow the table. See [[#Sheet view]].
+* **The table's names**: the title of a table's ⋯ menu is its name (the pencil after it names it); under *Full screen* and *Sheet view*, the row *Sheet* says the sheet it is on (*Sheet: Budget*), its pencil to type another sheet's name, its × to take the table off it. Hold Shift and the toolbar shows both names too, left of its icons (above them where both do not fit); the *Names in the toolbar* setting shows them always, or never.
+* **Sheet view** (in a table's ⋯ menu) shows the table like a spreadsheet over the whole window, with empty rows and columns around it; type into one to grow the table. See [[#Sheet view]].
 * **Pin rows and columns** to the edges, where they stay in view (needs *Store table metadata*). See [[#Pinning]].
 * **Themes**: how tables look (header, lines, stripes, spacing), for all tables in the settings or for one in its ⋯ menu; your own in a `space-style` block. See [[#Themes]].
 * **Change how Enter or filters work**: *Configuration: Open*, category *Silverware Table*. See [[#Settings]].
@@ -733,7 +733,7 @@ The sheet icon (a grid, before the sheet's name in the first row of a table's �
 
 ### Sheets of several tables
 
-A page's tables can share a sheet, as a spreadsheet's sheet holds several tables. The first row of the table's ⋯ menu shows the sheet it is on (*No sheet*, muted, on none); click the sheet's name and type another to put the table on that sheet: one of the page's, or a new one. It keeps its place there where nothing is in its way, else it goes in column A, one empty row under the sheet's lowest table; the sheet's other tables stay where they are. A table without a name is named for it (`table1`): the sheet's other tables refer to its cells by its name (`costs!B2`). An empty name, *Remove from sheet* under the field, or the × after the sheet's name in the ⋯ menu takes the table off its sheet, its name kept. The table keeps its place in the page, which shows it as before; its metadata row says which sheet it is on and where (`<meta name='costs' sheet='Budget' at='B3'>`). It needs the *Store table metadata* setting (or a metadata row the table has already). A sheet view showing the table goes to its new sheet. In the sheet view, right-click an empty cell (or long-press it, or press the Menu key on it selected) and choose *Add table here*: it lists the page's tables not on this sheet, by their name, else their header; hover one to see where it would go, click it to put it on the sheet with its top left in that cell. One that would cover a table of the sheet is offered disabled. A table moved from another sheet whose only table it is asks first, as that sheet goes with it. *Delete table* in its ⋯ menu takes it off the sheet with the page; the sheet's column widths, kept in its first table, go to the next one.
+A page's tables can share a sheet, as a spreadsheet's sheet holds several tables. The row *Sheet* of the table's ⋯ menu shows the sheet it is on (*Sheet: Budget*; *Sheet* alone on none); click its pencil and type another to put the table on that sheet: one of the page's, or a new one. It keeps its place there where nothing is in its way, else it goes in column A, one empty row under the sheet's lowest table; the sheet's other tables stay where they are. A table without a name is named for it (`table1`): the sheet's other tables refer to its cells by its name (`costs!B2`). An empty name, *Remove from sheet* under the field, or the × of the row *Sheet* takes the table off its sheet, its name kept. The table keeps its place in the page, which shows it as before; its metadata row says which sheet it is on and where (`<meta name='costs' sheet='Budget' at='B3'>`). It needs the *Store table metadata* setting (or a metadata row the table has already). A sheet view showing the table goes to its new sheet. In the sheet view, right-click an empty cell (or long-press it, or press the Menu key on it selected) and choose *Add table here*: it lists the page's tables not on this sheet, by their name, else their header; hover one to see where it would go, click it to put it on the sheet with its top left in that cell. One that would cover a table of the sheet is offered disabled. A table moved from another sheet whose only table it is asks first, as that sheet goes with it. *Delete table* in its ⋯ menu takes it off the sheet with the page; the sheet's column widths, kept in its first table, go to the next one.
 
 To move a table on its sheet:
 
@@ -3150,90 +3150,18 @@ html[data-theme="dark"] .swt-excel-error {
 }
 /* Something missing (a table shown as a sheet on none): in the danger color, in the toolbar and the ⋯ menu alike */
 .swt-bar button.swt-bar-name.swt-attention,
-.swt-menu-names .swt-menu-name-button.swt-attention {
+.swt-menu-segmented .swt-label.swt-attention {
   font-weight: 600;
   color: var(--danger-color, #c62828);
   opacity: 1;
 }
-/* The first row of a table's ⋯ menu: its names, each after its icon (as the toolbar's row of names) */
-.swt-menu-names {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 2px 4px;
-}
-.swt-menu-name-slot {
-  display: inline-flex;
-  align-items: center;
-}
-.swt-menu-names button {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 5px;
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 0;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.swt-menu-title-icon {
-  display: inline-flex;
-  align-items: center;
-  /* Where the first row's icons are: the title is 4px further in than the row */
-  margin: -3px 0 -3px -4px;
-  padding: 3px 5px;
-  color: inherit;
-  background: none;
-  border: 0;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.swt-menu .swt-menu-title-icon svg {
-  width: 14px;
-  height: 14px;
-}
-.swt-menu-title-icon:hover,
-.swt-menu-title-icon:focus-visible,
-.swt-menu-title-icon[aria-pressed="true"],
-.swt-menu-names button:hover,
-.swt-menu-names button:focus-visible,
-.swt-menu-names button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--ui-accent-color) 16%, transparent);
-}
-.swt-menu-names .swt-menu-name-icon svg {
-  width: 14px;
-  height: 14px;
-}
-/* The × after a name taking it away (Remove from sheet; nothing is lost: not in the danger color): quiet, whole under the pointer */
-.swt-menu-names .swt-menu-name-clear-x {
-  opacity: 0.55;
-}
-.swt-menu-names .swt-menu-name-clear-x:hover,
-.swt-menu-names .swt-menu-name-clear-x:focus-visible {
-  opacity: 1;
-}
-.swt-menu-names .swt-menu-name-clear-x svg {
-  width: 12px;
-  height: 12px;
-}
-/* A long name cut, whole in its tooltip (as in the toolbar's row of names) */
-.swt-menu-names .swt-menu-name-button,
+/* A long name cut, whole in its tooltip */
 .swt-bar button.swt-bar-name {
   display: block;
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.swt-menu-names .swt-menu-name-button {
-  font-weight: 600;
-  color: var(--ui-accent-color);
-}
-.swt-menu-names .swt-menu-name-button.swt-muted {
-  font-weight: normal;
-  color: inherit;
-  opacity: 0.55;
 }
 .swt-bar button.swt-bar-name.swt-active {
   background: color-mix(in srgb, var(--ui-accent-color) 16%, transparent);
@@ -3415,12 +3343,6 @@ html[data-theme="dark"] .swt-excel-error {
   font-weight: 600;
 }
 .swt-menu-back {
-  justify-self: start;
-}
-/* With an icon before the title (the table's ⋯ menu): the icon at the left, where the first row's are, the title
-   centered as every menu's */
-.swt-menu-title-icon {
-  grid-column: 1;
   justify-self: start;
 }
 .swt-menu-title-text {
@@ -3700,6 +3622,13 @@ html[data-theme="dark"] .swt-excel-error {
   justify-content: space-between;
   gap: 8px;
   padding: 2px 4px 2px 8px;
+}
+/* A long label (a sheet's name) cut, whole in its tooltip: the menu as wide as its items */
+.swt-menu-segmented > .swt-label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .swt-segments {
   display: flex;

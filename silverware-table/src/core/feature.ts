@@ -14,7 +14,7 @@ export type { Dialog, DialogOptions } from "./dialog.ts";
 export type { Rect } from "./geometry.ts";
 import type { IndexMap } from "../ops.ts";
 import type { OtherPages, PageTable, Table, TableMeta } from "../markdown.ts";
-import type { MenuBack, MenuEntry, MenuNaming, MenuTitleIcon } from "../menu.ts";
+import type { MenuBack, MenuEntry, MenuNaming } from "../menu.ts";
 import type { Pins, ViewState } from "../view.ts";
 
 /** A table shown, in model terms (what modules get): where it is in the page, its shape, its pins */
@@ -369,6 +369,8 @@ export type ToolbarButton = {
   readonly muted?: boolean;
   // A name: what a click on it names (the title of a menu that is its field)
   readonly naming?: MenuNaming;
+  // A name: what it names (Sheet), before it in its row of the ⋯ menu
+  readonly caption?: string;
   readonly icon?: string;
   // Asks to be used: highlighted (a name: in the danger color, and the row of names shown in the toolbar whatever
   // the toolbarNames setting, as something is missing: the sheet of a table shown as a sheet)
@@ -615,7 +617,7 @@ export interface ModelHost {
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
   openCellMenu(info: TableInfo, at: CellRef, point: { x: number; y: number }): boolean;
   /** A menu floating over the page (core/menu.ts) made of the entries, one of the core's floating elements, in the page: to place and focus (focusMenu) */
-  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object; readonly titleIcon?: MenuTitleIcon }): HTMLElement;
+  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object }): HTMLElement;
   /** A file given to the browser to download (made in the page: nothing is sent anywhere) */
   download(file: string, data: Uint8Array, type: string): void;
   /** The keyboard into a menu made by floatingMenu, once it is placed (its entry checked, if it is a list) */

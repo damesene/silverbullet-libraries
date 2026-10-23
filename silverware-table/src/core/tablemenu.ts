@@ -1,7 +1,7 @@
 // The open menu of a table's toolbar (⋯, below its button) or of cells (at
 // the pointer): one at a time. Its items close it when run; Esc, its × or a
 // press elsewhere close it (the controller routes those).
-import { type MenuBack, type MenuEntry, type MenuNaming, type MenuTitleIcon, namingThatCloses, wrapRuns } from "../menu.ts";
+import { type MenuBack, type MenuEntry, type MenuNaming, namingThatCloses, wrapRuns } from "../menu.ts";
 import { focusMenu, startNaming } from "./menu.ts";
 
 export type MenuKind = "table" | "cell";
@@ -17,7 +17,7 @@ export class TableMenu {
     // Hands the keyboard back to SilverBullet's editor (a menu closed from the keyboard)
     private readonly focusEditor: (widget: HTMLElement) => void,
     // A floating menu, made by the core (TableHost.floatingMenu)
-    private readonly floatingMenu: (title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object; readonly titleIcon?: MenuTitleIcon }) => HTMLElement,
+    private readonly floatingMenu: (title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object }) => HTMLElement,
   ) {}
 
   /** Which menu is open, if any */
@@ -30,7 +30,7 @@ export class TableMenu {
   }
 
   /** Shows a menu (the one open before goes); `naming`: its title named, a save closing it */
-  show(widget: HTMLElement, title: string, entries: readonly MenuEntry[], place: MenuPlace, back?: MenuBack, naming?: MenuNaming, titleIcon?: MenuTitleIcon): void {
+  show(widget: HTMLElement, title: string, entries: readonly MenuEntry[], place: MenuPlace, back?: MenuBack, naming?: MenuNaming): void {
     this.close(false);
     const closing = wrapRuns(entries, (run) => () => {
       this.close(false);
@@ -38,8 +38,6 @@ export class TableMenu {
     });
     const element = this.floatingMenu(title, closing, {
       owner: this,
-      // (Closing first: its run is an item's)
-      ...(titleIcon ? { titleIcon: { ...titleIcon, run: () => { this.close(false); titleIcon.run(); } } } : {}),
       back,
       naming: namingThatCloses(naming, () => this.close(false)),
       close: () => this.close(true),

@@ -4,7 +4,7 @@
 // keyboard (arrows, Home/End, Enter). The core's: modules give its entries
 // (src/menu.ts) and get it through TableHost.floatingMenu.
 import { el, pressed, type ElementChild, type ElementProps } from "../elements.ts";
-import type { MenuBack, MenuDetail, MenuEntry, MenuNaming, MenuTitleIcon } from "../menu.ts";
+import type { MenuBack, MenuDetail, MenuEntry, MenuNaming } from "../menu.ts";
 
 /** A press in a menu keeps the focus where it is (on its button, in the page), but in its field (a name typed) */
 export function keepFocus(menu: HTMLElement): void {
@@ -35,33 +35,23 @@ export function floatingMenu(
   doc: Document,
   title: string,
   entries: readonly MenuEntry[],
-  options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly titleIcon?: MenuTitleIcon },
+  options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void },
 ): HTMLElement {
-  const menu = renderMenu(doc, title, entries, options.back, options.naming, options.titleIcon);
+  const menu = renderMenu(doc, title, entries, options.back, options.naming);
   menu.classList.add("swt-floating", "swt-menu", "swt-visible");
   keepFocus(menu);
   onMenuClose(menu, options.close);
   return menu;
 }
 
-export function renderMenu(doc: Document, title: string, entries: readonly MenuEntry[], back?: MenuBack, naming?: MenuNaming, titleIcon?: MenuTitleIcon): HTMLElement {
+export function renderMenu(doc: Document, title: string, entries: readonly MenuEntry[], back?: MenuBack, naming?: MenuNaming): HTMLElement {
   // A list to pick from (a submenu: Type, a table's Theme): focusMenu starts at its choice
   const menu = el(doc, "div", { attrs: { role: "menu", "aria-label": title, "data-swt-list": back ? "" : undefined } });
   const heading = el(
     doc,
     "div",
-    // An icon before the title, which it acts on: at the left, the title centered as in every menu
     "swt-menu-title",
     back && el(doc, "button", { class: "swt-menu-back", title: "Back", attrs: { "aria-label": "Back" }, html: back.icon, run: back.run }),
-    titleIcon &&
-      el(doc, "button", {
-        class: "swt-menu-name-icon swt-menu-title-icon",
-        title: titleIcon.title,
-        attrs: { "aria-label": titleIcon.label, "aria-pressed": pressed(titleIcon.pressed) },
-        html: titleIcon.icon,
-        run: titleIcon.run,
-      }),
-    // Cut where long: whole in its tooltip
     el(doc, "span", { class: "swt-menu-title-text", text: title, title }),
   );
   menu.append(heading);
@@ -157,31 +147,6 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
         item.addEventListener("blur", hideDetail);
       }
       menu.append(item);
-    } else if (entry.kind === "names") {
-      menu.append(
-        el(
-          doc,
-          "div",
-          { class: "swt-menu-names", attrs: { role: "group" } },
-          ...entry.names.map((n) =>
-            el(
-              doc,
-              "span",
-              `swt-menu-name-slot${n.key ? ` swt-menu-name-${n.key}` : ""}`,
-              n.icon &&
-                button("swt-menu-name-icon", n.icon.run, undefined, {
-                  title: n.icon.title,
-                  attrs: { role: "menuitem", "aria-label": n.icon.label, "aria-pressed": pressed(n.icon.pressed) },
-                  html: n.icon.icon,
-                }),
-              n.name !== undefined &&
-                n.run &&
-                button(`swt-menu-name-button${n.muted ? " swt-muted" : ""}${n.attention ? " swt-attention" : ""}`, n.run, undefined, { title: n.title ?? n.name, attrs: { role: "menuitem" }, text: n.name }),
-              n.clear && button("swt-menu-name-clear-x", n.clear.run, undefined, { title: n.clear.title, attrs: { role: "menuitem", "aria-label": n.clear.title }, html: CLOSE }),
-            ),
-          ),
-        ),
-      );
     } else if (entry.kind === "actions") {
       menu.append(
         el(
@@ -206,8 +171,8 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
         el(
           doc,
           "div",
-          "swt-menu-segmented",
-          el(doc, "span", { class: "swt-label", text: entry.label }),
+          `swt-menu-segmented${entry.key ? ` swt-menu-row-${entry.key}` : ""}`,
+          el(doc, "span", { class: `swt-label${entry.attention ? " swt-attention" : ""}`, text: entry.label, ...(entry.hint ? { title: entry.hint } : {}) }),
           el(
             doc,
             "div",

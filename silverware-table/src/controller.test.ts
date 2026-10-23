@@ -112,14 +112,16 @@ describe("Controller", () => {
     expect(Array.from(bar.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Filter", "Edit mode", "Lazy saving", "More"]);
     tableMenuItem(/^Edit markdown$/);
     const menu = document.querySelector(".swt-menu")!;
-    // Its title the table's name after the table's icon (full screen), a pencil naming it; first, the sheet's name
-    // (none: muted) after its icon
+    // Its title the table's name, a pencil naming it, as every menu's; first the ways it is shown, then its sheet in a
+    // row as a column's type: a button naming another, a × taking it off (none to take it off: disabled)
     expect(menu.querySelector(".swt-menu-title-text")!.textContent).toBe("prices");
-    expect(menu.querySelector(".swt-menu-title .swt-menu-title-icon")!.getAttribute("aria-label")).toBe("Full screen");
     expect(menu.querySelector(".swt-menu-rename")).not.toBeNull();
-    expect(Array.from(menu.querySelectorAll(".swt-menu-names button"), (b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Sheet view", "No sheet"]);
-    expect(menu.querySelector(".swt-menu-name-button.swt-muted")!.textContent).toBe("No sheet");
+    const sheet = menu.querySelector(".swt-menu-row-container")!;
+    expect(sheet.querySelector(".swt-label")!.textContent).toBe("Sheet");
+    expect(Array.from(sheet.querySelectorAll(".swt-segment"), (b) => b.getAttribute("aria-disabled") === "true")).toEqual([false, true]);
     expect(Array.from(menu.querySelectorAll(".swt-menu-item, .swt-menu-separator")).map((e) => e.textContent || "—")).toEqual([
+      "Full screen",
+      "Sheet view",
       "—",
       "Theme: Native (global)",
       "Copy as CSV",

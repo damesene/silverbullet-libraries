@@ -57,7 +57,7 @@ import {
   type TableMeta,
   type TableRange,
 } from "./markdown.ts";
-import type { MenuBack, MenuEntry, MenuNaming, MenuTitleIcon } from "./menu.ts";
+import type { MenuBack, MenuEntry, MenuNaming } from "./menu.ts";
 import { floatingMenu, focusMenu } from "./core/menu.ts";
 import { metadataAfterEdit, metaName, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { keepTags } from "./tags.ts";
@@ -2456,7 +2456,7 @@ export class Controller implements TableHost {
     return this.dialogs.open(options);
   }
 
-  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object; readonly titleIcon?: MenuTitleIcon }): HTMLElement {
+  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object }): HTMLElement {
     // One menu at a time: another's open (a grip's while the ⋯ menu opens) is closed as its × would close it; an
     // owner's menu replacing its own (a submenu) is its own to close
     for (const [open, made] of this.openMenus) {

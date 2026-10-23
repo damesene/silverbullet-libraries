@@ -14,7 +14,7 @@ async function namesInToolbar(page: import("@playwright/test").Page): Promise<vo
 }
 
 test.describe("Names in the ⋯ menu", () => {
-  test("the first row of the ⋯ menu: the sheet's and the table's names, each after its icon; a click on one its field", async ({ page }) => {
+  test("the ⋯ menu: the table's name its title, centered as every menu's; its views as items, its sheet in a row as a column's type", async ({ page }) => {
     await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
@@ -24,15 +24,18 @@ test.describe("Names in the ⋯ menu", () => {
     await expect(page.locator('.swt-bar.swt-visible button[aria-label="Sheet view"]')).toHaveCount(0);
     await expect(page.locator('.swt-bar.swt-visible button[aria-label="Full screen"]')).toHaveCount(0);
     await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
-    const names = page.locator(".swt-menu .swt-menu-names");
-    // The sheet's name in the first row; the table's in the title, its pencil its field
-    await expect(names.locator(".swt-menu-name-button")).toHaveText(["No sheet"]);
-    await expect(page.locator(".swt-menu .swt-menu-title-text")).toHaveText("Table");
-    // The table's icon before the title, in line with the sheet's icon under it
-    const tableIcon = (await page.locator(".swt-menu .swt-menu-title-icon svg").boundingBox())!;
-    const sheetIcon = (await names.locator(".swt-menu-name-icon svg").boundingBox())!;
-    expect(Math.abs(tableIcon.x - sheetIcon.x)).toBeLessThan(1);
-    expect(tableIcon.width).toBe(sheetIcon.width);
+    const menu = page.locator(".swt-menu");
+    const title = menu.locator(".swt-menu-title-text");
+    await expect(title).toHaveText("Table");
+    // Centered: as far from the menu's left edge as from its right one, the pencil and the × aside
+    const m = (await menu.boundingBox())!;
+    const t = (await title.boundingBox())!;
+    expect(Math.abs(t.x + t.width / 2 - (m.x + m.width / 2))).toBeLessThan(24);
+    await expect(menu.locator(".swt-menu-item").first()).toHaveText("Full screen");
+    await expect(menu.locator(".swt-menu-item").nth(1)).toHaveText("Sheet view");
+    const sheet = menu.locator(".swt-menu-row-container");
+    await expect(sheet.locator(".swt-label")).toHaveText("Sheet");
+    await expect(sheet.locator(".swt-segment").nth(1)).toHaveAttribute("aria-disabled", "true");
     await page.locator(".swt-menu .swt-menu-rename").click();
     const field = page.locator(".swt-menu .swt-menu-name");
     await expect(field).toBeFocused();
@@ -87,7 +90,7 @@ test("long names in the ⋯ menu are cut, whole in their tooltips, the table's i
   const title = page.locator(".swt-menu .swt-menu-title-text");
   await expect(title).toHaveText("asdasdasdasdasdasdasdasdasda");
   await expect(title).toHaveAttribute("title", "asdasdasdasdasdasdasdasdasda");
-  const sheet = page.locator(".swt-menu .swt-menu-name-button");
+  const sheet = page.locator(".swt-menu .swt-menu-row-container .swt-label");
   await expect(sheet).toHaveCount(1);
   expect(await sheet.evaluate((b) => b.scrollWidth > b.clientWidth)).toBe(true);
   expect(await sheet.getAttribute("title")).toContain("Sheet1withaverylongnameindeed");
@@ -221,7 +224,7 @@ test.describe("Removing a name", () => {
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
     await hoverCell(page, cell(page, 1, 0));
     await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
-    await page.locator(".swt-menu .swt-menu-names .swt-menu-name-button", { hasText: "Plan" }).click();
+    await page.locator(".swt-menu .swt-menu-row-container .swt-segment").first().click();
     await page.locator(".swt-menu .swt-menu-name-clear", { hasText: "Remove from sheet" }).click();
     await expect.poll(() => markdown(page)).toContain("| <meta name='prices'> |");
     await hoverCell(page, cell(page, 1, 0));
@@ -233,20 +236,21 @@ test.describe("Removing a name", () => {
 });
 
 test.describe("The sheet's × in the ⋯ menu", () => {
-  test("a × after the sheet's name takes the table off it; none on No sheet", async ({ page }) => {
+  test("the × in the sheet's row takes the table off it; disabled on none", async ({ page }) => {
     await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n");
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
     await hoverCell(page, cell(page, 1, 0));
     await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
-    const x = page.locator(".swt-menu .swt-menu-name-container .swt-menu-name-clear-x");
+    await expect(page.locator(".swt-menu .swt-menu-row-container .swt-label")).toHaveText("Sheet: Plan");
+    const x = page.locator(".swt-menu .swt-menu-row-container .swt-segment").nth(1);
     await expect(x).toHaveAttribute("aria-label", "Remove from sheet");
     await x.click();
     await expect.poll(() => markdown(page)).toContain("| <meta name='prices'> |");
     await expect(page.locator(".swt-menu")).toHaveCount(0);
     await hoverCell(page, cell(page, 1, 0));
     await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
-    await expect(page.locator(".swt-menu .swt-menu-name-button", { hasText: "No sheet" })).toBeVisible();
-    await expect(page.locator(".swt-menu .swt-menu-name-clear-x")).toHaveCount(0);
+    await expect(page.locator(".swt-menu .swt-menu-row-container .swt-label")).toHaveText("Sheet");
+    await expect(page.locator(".swt-menu .swt-menu-row-container .swt-segment").nth(1)).toHaveAttribute("aria-disabled", "true");
   });
 });

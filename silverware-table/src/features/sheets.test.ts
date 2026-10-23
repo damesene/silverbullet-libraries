@@ -24,15 +24,19 @@ const PAGE = [
 describe("Sheets: a table put on a sheet, moved and taken off it by its sheet's name in the toolbar", () => {
   useTablePage();
 
-  it("shows the sheet's name in the row of names, No sheet muted on none", async () => {
+  it("shows the sheet in its row of the ⋯ menu, Sheet: Budget, Sheet alone on none, its × taking it off disabled there", async () => {
     await setup(PAGE, { "silverware.table.metadata": true });
-    expect(toolbarName("container", 0).textContent).toBe("Budget");
-    expect(toolbarName("container", 0).classList.contains("swt-muted")).toBe(false);
-    const none = toolbarName("container", 1);
-    expect(none.textContent).toBe("No sheet");
-    expect(none.classList.contains("swt-muted")).toBe(true);
-    // Nothing of it is in the ⋯ menu any more
-    expect(tableMenuItem(/sheet/i, 1)).toBeUndefined();
+    const row = (table: number) => {
+      tableMenuItem(/^Edit markdown$/, table);
+      return document.querySelector(".swt-menu .swt-menu-row-container")!;
+    };
+    expect(row(0).querySelector(".swt-label")!.textContent).toBe("Sheet: Budget");
+    expect(row(0).querySelectorAll(".swt-segment")[1]!.getAttribute("aria-disabled")).toBeNull();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(row(1).querySelector(".swt-label")!.textContent).toBe("Sheet");
+    expect(row(1).querySelectorAll(".swt-segment")[1]!.getAttribute("aria-disabled")).toBe("true");
+    // No item of its own in the ⋯ menu (the sheet view is the sheet module's)
+    expect(Array.from(document.querySelectorAll(".swt-menu .swt-menu-item"), (b) => b.textContent).filter((l) => /sheet/i.test(l!))).toEqual(["Sheet view"]);
   });
 
   it("takes a table off its sheet by Remove from sheet under the field, its name kept; none on a table on no sheet", async () => {
