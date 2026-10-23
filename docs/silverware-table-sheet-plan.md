@@ -390,3 +390,11 @@ other pages on a sheet.
   a cell editor (Ctrl+arrows move the selection); a sheet's tables have a light
   line round them (`--swt-sheet-table-line`), where each ends among the empty
   cells.
+  A formula's result on the sheet is underlined again (the content's box
+  clipped the underline: room above and below the line now). A write of a
+  table whose last write is not rendered anew yet waits for it (a + pressed
+  twice on the sheet, in SilverBullet: "the table changed in the meantime").
+  A table shown as a sheet but on none says so in its toolbar: its sheet's
+  name *No sheet* in the danger color, the row of names shown whatever the
+  setting (a name's `attention`), a click its field (agreed with the user: no
+  label of its own on the board).
