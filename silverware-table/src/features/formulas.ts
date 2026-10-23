@@ -254,10 +254,16 @@ export class Formulas implements Feature {
 
   /** Deleting a named table: the formulas of the page's tables that refer to it show #REF! */
   tableDeleteWarning(info: TableInfo): string | undefined {
-    const name = metaName(parseTable(info.source))?.toLowerCase();
+    const own = metaName(parseTable(info.source));
+    const name = own?.toLowerCase();
     if (!name) return undefined;
-    const referring = pageTablesOf(this.host.pageText).filter((t) => t.range.text !== info.source && referredBy(t.table).tables.has(name));
+    const others = pageTablesOf(this.host.pageText).filter((t) => t.range.text !== info.source);
+    const referring = others.filter((t) => referredBy(t.table).tables.has(name));
     if (!referring.length) return undefined;
+    // Another table of that name (typed into the markdown: Silverware Table names none twice): formulas take the
+    // first of a name, so from now on that one
+    const namesake = others.some((t) => metaName(t.table)?.toLowerCase() === name);
+    if (namesake) return `another table on the page is named ${own} too: the formulas that refer to ${own} use that one from now on`;
     const names = referring.map((t) => metaName(t.table)).filter((n): n is string => !!n);
     const which = referring.length === 1 ? "the table" : `${referring.length} tables`;
     return `the formulas of ${which}${names.length ? ` ${names.join(", ")}` : ""} that refer to it show #REF!`;

@@ -14,7 +14,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Edit a cell**: click it and type (or click it again, or double-click it), press Enter. The *Edit mode* button (✎, left of ⋯ in the toolbar) edits on the first click. See [[#Editing cells]].
 * **Move between cells**: Tab / Shift+Tab, or Ctrl+arrows while editing; Ctrl+Alt+arrows move the row or column (with cells selected, all their rows or columns). See [[#Keyboard]].
 * **See the markdown**: hover the table and click *Edit markdown* in the toolbar's ⋯ menu, or Alt+click a cell. See [[#Showing the markdown]].
-* **Delete a table**: *Delete table*, last in its ⋯ menu, removes the whole table from the page. It asks first and says what goes with it (formulas in other tables that refer to it show `#REF!`; a sheet whose only table it is); Ctrl+Z brings it back.
+* **Delete a table**: *Delete table*, last in its ⋯ menu, removes the whole table from the page. It asks first and says what goes with it (formulas in other tables that refer to it show `#REF!`, or use another table of the same name from then on; a sheet whose only table it is); Ctrl+Z brings it back.
 * **Sort**: click ⇅ in a column header. See [[#Sorting]].
 * **Filter**: hover the table and click *Filter*; `>10`, `/regex/`, `=text` and `!text` work too. See [[#Filtering]].
 * **Add, move or delete rows and columns**: click the ⠿ grip next to a row or above a column. See [[#Rows and columns]].

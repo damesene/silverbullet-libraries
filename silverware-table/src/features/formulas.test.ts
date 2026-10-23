@@ -1125,6 +1125,23 @@ describe("Formulas", () => {
 describe("Formulas when a table they refer to is deleted", () => {
   useTablePage();
 
+  it("say so when another table has its name: the formulas use that one from now on", async () => {
+    const prices = (price: number) => `| Item | Price |\n|---|---|\n| Pear | ${price} |\n| <meta name='prices'> |\n`;
+    await setupPage(`${prices(12)}\n${prices(5)}\n| Double |\n|---|\n| 24 <meta f='=prices!B1*2'> |\n| <meta name='costs'> |\n`, { "silverware.table.metadata": true });
+    const questions: string[] = [];
+    (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+      questions.push(message);
+      return true;
+    };
+    const before = edits;
+    tableMenuItem(/^Delete table$/)!.click();
+    await vi.waitFor(() => expect(edits - before).toBe(1));
+    expect(questions).toEqual([
+      "Delete the table prices (1 row) from the page? Another table on the page is named prices too: the formulas that refer to prices use that one from now on. Ctrl+Z brings it back.",
+    ]);
+    expect(text).toContain("| 10 <meta f='=prices!B1*2'> |");
+  });
+
   it("say so when asked, and show #REF! in the same edit", async () => {
     await setupPage("| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta name='prices'> |\n\n| Double |\n|---|\n| 24 <meta f='=prices!B1*2'> |\n| <meta name='costs'> |\n", { "silverware.table.metadata": true });
     const questions: string[] = [];
