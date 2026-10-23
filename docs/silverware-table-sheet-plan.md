@@ -174,3 +174,15 @@ other pages on a sheet.
   tables: `AddressFrame.tables`): its cell in the sheet's address, stored by its
   name; its header as `name![column]`; its outlines shown (moved by pointing
   again, not by their edges); a table without a name is said so.
+- 2026-10-23, phase 3: a table that grows makes room on its sheet (agreed
+  with the user after comparing Excel and Google Sheets): everything that
+  starts below its bottom moves down, whatever its columns, everything right
+  of it moves right, all by the same amount, so the layout stays; rows or
+  columns inserted move it by as many, those claimed by a value typed or
+  pasted past the table as far as they reach into a table; a table beside it
+  stays; nothing moves back when a table shrinks; one edit. The rule is
+  `sheet/layout.ts` (`roomFor`), alone, to change in one place; the write
+  passes `claims`, the sheets module applies it (`otherTablesWritten`) and
+  refuses only a layout that overlaps already (`refusesWrite`: tables that do
+  not overlap never meet so, which the agreed exception for a table beside
+  turned out to be).
