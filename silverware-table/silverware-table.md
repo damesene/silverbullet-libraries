@@ -1944,8 +1944,16 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   height: var(--swt-sheet-row);
   padding-top: 0 !important;
   padding-bottom: 0 !important;
+}
+/* The cell is not clipped itself (what sits on its edges stays reachable: the
+   fill handle, the pin mark, the selection's handles); its content is, on one
+   line cut at the cell's width, as the sheet's rows have one height */
+.sb-table-widget.swt-sheet-table tr > td > .swt-cell-content {
+  display: block;
+  max-height: var(--swt-sheet-row);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .swt-sheet-content > td.swt-sheet-cell {
   position: absolute;

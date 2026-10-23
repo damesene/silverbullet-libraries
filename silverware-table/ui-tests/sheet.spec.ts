@@ -608,6 +608,33 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-sheet-board")).toBeFocused();
   });
 
+  test("AutoFill on the sheet: the fill handle in a cell's corner can be dragged", async ({ page }) => {
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|--:|\n| Pear | 1 |\n| Fig | 2 |\n| Kiwi | |\n| Plum | |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(4);
+    await openSheet(page);
+    // Pear's and Fig's Qty selected, the handle dragged down to Plum's: 3, 4
+    const from = (await sheetCell(page, 1, 1).boundingBox())!;
+    const to = (await sheetCell(page, 2, 1).boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 4 });
+    await page.mouse.up();
+    const handle = page.locator(".swt-fill-handle");
+    await expect(handle).toBeVisible();
+    const h = (await handle.boundingBox())!;
+    const plum = (await sheetCell(page, 4, 1).boundingBox())!;
+    // The handle is what is under the pointer at its centre (not cut off by its cell)
+    expect(await page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest(".swt-fill-handle"), { x: h.x + h.width / 2, y: h.y + h.height / 2 })).toBe(true);
+    await sheetRendersAnew(page, async () => {
+      await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(plum.x + plum.width / 2, plum.y + plum.height / 2, { steps: 6 });
+      await page.mouse.up();
+    });
+    expect(await markdown(page)).toMatch(/\| Kiwi +\| +3 \|\n\| Plum +\| +4 \|/);
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");
