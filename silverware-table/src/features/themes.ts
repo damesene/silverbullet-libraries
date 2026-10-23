@@ -78,8 +78,8 @@ export class Themes implements Feature {
    * settings become). As names are, only where the table can have metadata.
    */
   toolbarButtons(info: TableInfo): ToolbarButton[] {
-    if (!info.metaRow && !this.host.metadataEnabled) return [];
     const table = parseTable(info.source);
+    if (!this.host.canStoreMeta(table, "name") && !this.host.canStoreMeta(table, "stripes")) return [];
     const own = this.ownTheme(table);
     const ownStripes = this.ownStripes(table);
     const set = (choices: Readonly<Record<string, string | undefined>>) => () => void this.choose(info, choices);

@@ -663,8 +663,8 @@ export class Grips implements Feature {
             ? "Pinned rows stay with the other pinned rows"
             : "Already at the edge"
           : undefined;
-    // Pinning more needs the metadata setting; unpinning (a checked item) always works
-    const pinBlocked = (to: string) => (host.metadataEnabled || zone === to ? undefined : PIN_NEEDS_METADATA);
+    // Pinning at an edge without pins needs the metadata setting; unpinning (a checked item) always works
+    const pinBlocked = (to: "top" | "bottom" | "left" | "right") => (zone === to || host.canPin(parseTable(info.source), to) ? undefined : PIN_NEEDS_METADATA);
     // Nothing goes above the first row pinned to the top, nor below the last one pinned to the bottom
     const insertBlocked = (at: number) =>
       insertRowAt(info.pins, info.rows, at).at === at
@@ -801,8 +801,8 @@ export class Grips implements Feature {
           ? "Pinned columns stay with the other pinned columns"
           : "Already at the edge"
         : undefined;
-    // Pinning more needs the metadata setting; unpinning (a checked item) always works
-    const pinBlocked = (to: string) => (host.metadataEnabled || zone === to ? undefined : PIN_NEEDS_METADATA);
+    // Pinning at an edge without pins needs the metadata setting; unpinning (a checked item) always works
+    const pinBlocked = (to: "top" | "bottom" | "left" | "right") => (zone === to || host.canPin(parseTable(info.source), to) ? undefined : PIN_NEEDS_METADATA);
     const insertBlocked = (at: number) =>
       insertColumnAt(info.pins, info.columns, at).at === at
         ? undefined

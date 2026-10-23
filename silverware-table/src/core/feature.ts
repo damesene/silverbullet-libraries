@@ -704,6 +704,19 @@ export interface ModelHost {
   columnsMeta(table: Table, key: string): Map<number, string>;
   /** The table with the module's attribute of the key on these columns (by column), and on no other */
   setColumnsMeta(table: Table, key: string, values: ReadonlyMap<number, string>): Table;
+  /**
+   * Whether the module may store this attribute in the table: the metadata
+   * setting is on, or the table has it already (it may change or go; with
+   * the setting off nothing new is stored: setMeta and setColumnsMeta leave
+   * it out)
+   */
+  canStoreMeta(table: Table, key: string, at?: { readonly column: number }): boolean;
+  /**
+   * Whether the module may write its attribute of the key into this cell's
+   * hidden tags: the setting on, or the cell has it (with the setting off, a
+   * write takes off the tags new to the table: the core's write step)
+   */
+  canStoreCellTag(cell: string, key: string): boolean;
   /** The module's attribute of the key in a cell's hidden tags */
   getCellTag(cell: string, key: string): string | undefined;
   /** The cell with the module's attribute of the key set (undefined: removed), its text and other tags kept */
@@ -725,6 +738,10 @@ export interface ModelHost {
   /** A body cell's name */
   cellName(table: Table, row: number, column: number): string | undefined;
   withCellName(table: Table, row: number, column: number, name: string | undefined): Table;
+  /** Whether a name may be given there: the metadata setting on, or one is there already (renamed or removed) */
+  canName(table: Table, target: NamingTarget): boolean;
+  /** Whether rows (columns) may be pinned at that edge: the metadata setting on, or the table has pins there already */
+  canPin(table: Table, edge: "top" | "bottom" | "left" | "right"): boolean;
   /** A table's named rows, in their order */
   rowNames(table: Table): readonly RowName[];
   /** A table's named body cells, in their order */

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
+import { parseTable } from "../markdown.ts";
 import { PAGE, bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, nameInMenu, setup, tableMenuItem, text, toolbarName, useTablePage } from "../testing/page.ts";
 
 describe("Table metadata", () => {
@@ -60,15 +61,21 @@ describe("Table metadata", () => {
     expect(document.activeElement).toBe(editor);
   });
 
-  it("offers a name only with the setting on, or to a table with a metadata row", async () => {
+  it("offers a name only with the setting on, or to rename a table named already", async () => {
     const pencil = () => document.querySelector<HTMLElement>(".swt-menu .swt-menu-rename")!;
     await setup(PAGE);
     toolbarName("table");
     expect(pencil().getAttribute("aria-disabled")).toBe("true");
-    // A table with a metadata row gets one with the setting off too
+    // A metadata row without a name: nothing new is stored with the setting off
     controller.stop();
     document.body.replaceChildren();
     await setup(`| A |\n|---|\n| 1 |\n| 2 |\n| <meta core.table core.pin-top='1'> |\n`);
+    toolbarName("table");
+    expect(pencil().getAttribute("aria-disabled")).toBe("true");
+    // A name it has may change
+    controller.stop();
+    document.body.replaceChildren();
+    await setup(`| A |\n|---|\n| 1 |\n| 2 |\n| <meta core.table core.name='fruit'> |\n`);
     // (Allowed: the name's field opens at once)
     toolbarName("table");
     expect(document.querySelector(".swt-menu .swt-menu-name")).not.toBeNull();
@@ -79,6 +86,36 @@ describe("Table metadata", () => {
     clickOn(cell(0, 0).querySelector(".swt-sort")!);
     await wait(700);
     expect(text).toBe(PAGE);
+  });
+
+  it("with the setting off, changes a sorting stored, but stores none in a table that has none (a name only)", async () => {
+    const SORTED = `| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta core.table core.-c-qty.sort='desc'> |\n`;
+    await setup(SORTED);
+    clickOn(cell(0, 0).querySelector(".swt-sort")!);
+    await wait(700);
+    expect(text).toContain("core.-c-name.sort='asc'");
+    controller.stop();
+    document.body.replaceChildren();
+    const NAMED = `| Name | Qty |\n|---|---|\n| Pear | 3 |\n| apple | 10 |\n| <meta core.table core.name='fruit'> |\n`;
+    await setup(NAMED);
+    clickOn(cell(0, 0).querySelector(".swt-sort")!);
+    await wait(700);
+    expect(text).toBe(NAMED);
+  });
+
+  it("with the setting off, takes the hidden values new to a table off a write, and says so; those it has stay", async () => {
+    await setup(`| Name | Qty |\n|---|---|\n| Pear <meta x.note='a'> | 3 |\n| apple | 10 |\n`);
+    const [info] = controller.shownTables();
+    await controller.writeTable(info!, (t) => ({
+      ...t,
+      rows: t.rows.map((row, r) => (r === 1 ? { cells: ["Pears <meta x.note='b'>", "3 <meta x.note='c'>"] } : r === 2 ? { cells: ["apple <meta x.other='1'>", "10"] } : row)),
+    }));
+    expect(text).toContain("| Pears <meta x.note='b'> | 3 |");
+    expect(text).toContain("| apple | 10 |");
+    expect(flashes.some((f) => f.includes("2 new hidden values") && f.includes("not stored"))).toBe(true);
+    // (Pins: only where the table has them)
+    expect(controller.canPin(parseTable(`| A |\n|---|\n| 1 |\n| <meta core.table core.pin-top='1'> |`), "top")).toBe(true);
+    expect(controller.canPin(parseTable(`| A |\n|---|\n| 1 |\n| <meta core.table core.pin-top='1'> |`), "bottom")).toBe(false);
   });
 
   it("stores the sorting with the setting on, only where the clicks end", async () => {

@@ -4,7 +4,7 @@ The decisions behind it are in CLAUDE.md, *Modules and their data*. Stored markd
 
 ## Status
 
-Steps 1 to 4 done: every module through its host, the format below (4b, verified in a local SilverBullet: attributes with dots and `-c-` kept in the rendered `<meta>`, a theme read from it, a write recalculating another table). Next: step 5.
+Steps 1 to 5 done (5: the metadata setting off in the core: `setMeta`/`setColumnsMeta` add nothing new, `canStoreMeta`/`canStoreCellTag`/`canName`/`canPin` for the modules\' menus, the write step `withoutNewTagValues`). The cell rule is the table\'s, not the column\'s: a value the table had anywhere stays, as cells moved across columns (selection, cut and paste) take their formulas along. Next: step 6.
 
 ## The format
 

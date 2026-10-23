@@ -208,7 +208,7 @@ export const SETTINGS = {
   metadata: {
     path: "silverware.table.metadata",
     label: "Store table metadata",
-    hint: "Tables keep their sorting, filters, column widths, pins, names and formulas in a hidden last row; pinning and new formulas need it. Off, sorting and filters are only a view",
+    hint: "Tables keep their sorting, filters, column widths, pins, names and formulas in a hidden last row; pinning and new formulas need it. Off, nothing new is stored (sorting and filters are only a view); what a table has may change or go",
     default: false,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,

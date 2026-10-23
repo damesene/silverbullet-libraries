@@ -371,16 +371,18 @@ class FilterTable {
       this.typed = undefined;
       return;
     }
-    if (!(info.metaRow || this.host.metadataEnabled)) return;
     // What is written: filters typed meanwhile are stored with the next blur
     const written = [...typed];
     const filters = new Map<number, string>();
     written.forEach((filter, column) => {
       if (filter.trim() !== "") filters.set(column, filter.trim());
     });
+    // A filter the table cannot take (the metadata setting off, none stored for its column) stays typed: a view
+    const table = parseTable(info.source);
+    const storable = [...filters.keys()].every((column) => this.host.canStoreMeta(table, "condition", { column }));
     const result = await this.host.writeTable(info, (t) => this.host.setColumnsMeta(t, "condition", filters));
     // Stored: the table's markdown has them now
-    if (result !== "failed" && sameFilters(this.typed ?? [], written)) this.typed = undefined;
+    if (result !== "failed" && storable && sameFilters(this.typed ?? [], written)) this.typed = undefined;
   }
 
   // ---- typing ---------------------------------------------------------------------

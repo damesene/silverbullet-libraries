@@ -532,7 +532,9 @@ export class Sheet implements AdapterFeature {
     const board = this.board;
     if (!board) return;
     const needs = "A sheet is kept in its tables' metadata: turn on Store table metadata in the settings";
-    const disabled = this.host.metadataEnabled ? undefined : needs;
+    // Its tables have it: a name they have may change (none made new: the sheet's tables only)
+    const tables = sheetsOf(sheetTables(this.host, this.host.pageText)).find((s) => sameSheet(s.name, sheet))?.tables ?? [];
+    const disabled = tables.every((t) => this.host.canStoreMeta(t.table, SHEET_KEY)) ? undefined : needs;
     const fresh = board.fresh && !!board.sheet && sameSheet(board.sheet, sheet);
     const naming = namingThatCloses(
       { name: sheet, label: "Rename this sheet", ...(disabled ? { disabled } : {}), save: (name) => this.renameSheet(sheet, name) },
@@ -1084,7 +1086,7 @@ export class Sheet implements AdapterFeature {
         icon: ICONS.table,
         hint: "Put one of the page's tables on this sheet, its top left in this cell",
         ...(this.board?.tables.size && count === 0 ? { disabled: "Every table of the page is on this sheet" } : {}),
-        ...(!this.host.metadataEnabled ? { disabled: "A table's sheet is kept in its metadata: turn on Store table metadata in the settings" } : {}),
+        ...(count > 0 && !this.addable().some((t) => t.storable) ? { disabled: "A table's sheet is kept in its metadata: turn on Store table metadata in the settings" } : {}),
         run: () => this.showAddable(at),
       },
     ];
@@ -1106,7 +1108,7 @@ export class Sheet implements AdapterFeature {
         label: table.label,
         icon: ICONS.table,
         hint: table.sheet ? `On the sheet ${table.sheet}: moved to this one` : "On no sheet",
-        ...(problem ? { disabled: `It would cover ${problem}` } : {}),
+        ...(problem ? { disabled: `It would cover ${problem}` } : !table.storable ? { disabled: "A table's sheet is kept in its metadata: turn on Store table metadata in the settings" } : {}),
         highlight: (on) => {
           if (on) this.outline(at, table.rows, table.columns, problem && `${problem} is there`);
           else if (this.preview) this.preview.hidden = true;
@@ -1161,7 +1163,7 @@ export class Sheet implements AdapterFeature {
    * any but that table), by their name, else their header's text; their size
    * as in the markdown
    */
-  private addable(): { key: TableKey; label: string; sheet: string | undefined; rows: number; columns: number }[] {
+  private addable(): { key: TableKey; label: string; sheet: string | undefined; rows: number; columns: number; storable: boolean }[] {
     const board = this.board;
     if (!board) return [];
     const text = this.host.pageText;
@@ -1174,7 +1176,8 @@ export class Sheet implements AdapterFeature {
       if (board.sheet && sheet && sameSheet(sheet, board.sheet)) return [];
       const header = (model.rows[0]?.cells ?? []).map((cell) => withoutTags(cell).trim()).filter(Boolean).join(", ");
       const label = this.host.tableName(model) ?? (header.length > 40 ? `${header.slice(0, 39)}…` : header || "Table");
-      return [{ key, label, sheet, rows: model.rows.length, columns: model.align.length }];
+      // (Its place is metadata: the setting off, only a table on a sheet already has one to change)
+      return [{ key, label, sheet, rows: model.rows.length, columns: model.align.length, storable: this.host.canStoreMeta(model, AT_KEY) }];
     });
   }
 
@@ -1400,15 +1403,16 @@ export class Sheet implements AdapterFeature {
       const range = board.sheet
         ? sheetsOf(sheetTables(this.host, text)).find((s) => sameSheet(s.name, board.sheet!))?.tables[0]?.range
         : findTables(text)[keys.indexOf(board.alone)];
-      // Without a metadata row and the setting (a table alone): for the view only, as the widths module keeps them
-      if (range && !parseTable(range.text).meta && !this.host.metadataEnabled) {
+      // Where the table cannot take it (the setting off, no width of that column stored): for the view only, as the widths module keeps them
+      const key = `${WIDTH_PREFIX}${columnLetters(column)}`;
+      if (range && width !== undefined && !this.host.canStoreMeta(parseTable(range.text), key)) {
         if (width === undefined) board.preview.delete(column);
         else board.preview.set(column, width);
         this.queuePlace();
         return;
       }
       const target = range && { key: keys[range.ordinal]!, source: range.text, hint: range.from };
-      const result = target && (await this.host.writeTable(target, (t) => this.host.setMeta(t, `${WIDTH_PREFIX}${columnLetters(column)}`, width === undefined ? undefined : String(width))));
+      const result = target && (await this.host.writeTable(target, (t) => this.host.setMeta(t, key, width === undefined ? undefined : String(width))));
       if (result === "written") return;
     } catch (e) {
       console.error("Silverware Table: could not store the column's width", e);

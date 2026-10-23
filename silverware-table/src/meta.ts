@@ -202,16 +202,26 @@ export function withMetaName(table: Table, name: string | undefined): Table {
 /**
  * The step every table edit goes through for the metadata row: the columns'
  * attributes follow their columns (`columnMap`), and edits that change the
- * pins store them. (Pins are counts at the edges: the edits that change them
- * set them.)
+ * pins store them, at the edges they may be stored at (`canPin`: the metadata
+ * setting off, only where the table has pins already). (Pins are counts at
+ * the edges: the edits that change them set them.)
  */
 export function metadataAfterEdit(
   before: Table,
   after: Table,
   edit: { readonly columnMap?: (column: number) => number | undefined; readonly pins?: Pins },
+  canPin: (edge: keyof typeof PIN_KEYS) => boolean = () => true,
 ): Table {
   const followed = followColumnMeta(before, after, edit.columnMap ?? ((c) => c));
-  return edit.pins ? withMetaPins(followed, edit.pins) : followed;
+  if (!edit.pins) return followed;
+  const kept = metaPins(followed);
+  const pins = edit.pins;
+  return withMetaPins(followed, {
+    top: canPin("top") ? pins.top : kept.top,
+    bottom: canPin("bottom") ? pins.bottom : kept.bottom,
+    left: canPin("left") ? pins.left : kept.left,
+    right: canPin("right") ? pins.right : kept.right,
+  });
 }
 
 export { NO_PINS };

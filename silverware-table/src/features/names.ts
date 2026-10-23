@@ -137,7 +137,7 @@ export class Names implements Feature {
       return {
         ...(name ? { name } : {}),
         label: name ? `Rename this table (formulas elsewhere refer to it as ${name}!A1)` : "Name this table, so formulas in other tables can refer to it (name!A1)",
-        ...(info.metaRow || this.host.metadataEnabled ? {} : { disabled: needs }),
+        ...(this.host.canName(table, target) ? {} : { disabled: needs }),
         save: (next) => this.renameTable(info, next),
       };
     }
@@ -146,7 +146,7 @@ export class Names implements Feature {
       return {
         ...(name ? { name } : {}),
         label: name ? `Rename this row (formulas use its cells as ${name}[column])` : "Name this row, so formulas use its cells as name[column], wherever it is moved",
-        ...(this.host.metadataEnabled || name !== undefined ? {} : { disabled: needs }),
+        ...(this.host.canName(table, target) ? {} : { disabled: needs }),
         save: (next) => this.nameRow(info, target.row, next),
       };
     }
@@ -155,7 +155,7 @@ export class Names implements Feature {
       return {
         ...(name ? { name } : {}),
         label: name ? `Rename this cell (formulas use it as ${name})` : "Name this cell, so formulas use it by its name, wherever it is moved",
-        ...(this.host.metadataEnabled || name !== undefined ? {} : { disabled: needs }),
+        ...(this.host.canName(table, target) ? {} : { disabled: needs }),
         save: (next) => this.nameCell(info, target.row, target.column, next),
       };
     }
@@ -163,7 +163,7 @@ export class Names implements Feature {
     return {
       ...(name ? { name } : {}),
       label: name ? `Rename this column (formulas refer to it as [${name}])` : "Name this column, so formulas refer to it as [name] whatever its header says",
-      ...(this.host.metadataEnabled || name !== undefined ? {} : { disabled: needs }),
+      ...(this.host.canName(table, target) ? {} : { disabled: needs }),
       save: (next) => this.rename(info, target.column, next),
     };
   }

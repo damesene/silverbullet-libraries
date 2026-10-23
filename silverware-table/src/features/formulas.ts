@@ -313,7 +313,8 @@ export class Formulas implements Feature {
    */
   columnMenuInsertEntries(info: TableInfo, column: number): MenuEntry[] {
     const insert = insertColumnAt(info.pins, info.columns, column);
-    const blocked = !this.host.metadataEnabled
+    // New formulas in new cells
+    const blocked = !this.host.canStoreCellTag("", "f")
       ? FORMULAS_NEED_METADATA
       : insert.at > column
         ? "Columns pinned to the left stay at the left"
@@ -453,7 +454,7 @@ export class Formulas implements Feature {
    * one with a metadata row keeps its sorting)
    */
   private allowed(editor: CellEditor): boolean {
-    return this.host.metadataEnabled || this.cells.formulaOf(editor.original) !== undefined;
+    return this.host.canStoreCellTag(editor.original, "f");
   }
 
   /**
@@ -599,7 +600,8 @@ export class Formulas implements Feature {
    */
   fillCell(info: TableInfo, cell: string, from: CellRef, to: CellRef): string | undefined {
     const stored = this.cells.formulaOf(cell);
-    if (!stored || from.row === 0 || to.row === 0 || !this.host.metadataEnabled) return undefined;
+    // (A formula moved elsewhere is a new one: with the setting off, the value is copied)
+    if (!stored || from.row === 0 || to.row === 0 || !this.host.canStoreCellTag("", "f")) return undefined;
     const table = parseTable(info.source);
     const size = { rows: table.rows.length - 1, columns: table.rows[0]?.cells.length ?? 0 };
     return this.cells.formulaCell("", filledFormula(stored.formula, to.row - from.row, to.column - from.column, size));
@@ -609,8 +611,9 @@ export class Formulas implements Feature {
   cellMenuEntries(info: TableInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
     const [cell] = cells;
     if (cells.length !== 1 || !cell || cell.row === 0) return undefined;
-    const hasFormula = this.cells.formulaOf(parseTable(info.source).rows[cell.row]?.cells[cell.column] ?? "") !== undefined;
-    const allowed = this.host.metadataEnabled || hasFormula;
+    const raw = parseTable(info.source).rows[cell.row]?.cells[cell.column] ?? "";
+    const hasFormula = this.cells.formulaOf(raw) !== undefined;
+    const allowed = this.host.canStoreCellTag(raw, "f");
     return {
       // After clearing and moving: what is written into the cell
       order: CELL_MENU_ORDER.inserting,

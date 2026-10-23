@@ -101,7 +101,10 @@ class TableWidths {
     for (const column of set.keys()) this.host.showColumnWidth(info, column, undefined);
     // Reset column widths offered or not
     this.host.toolbarChanged();
-    if (!(info.metaRow || this.host.metadataEnabled)) return;
+    // Those the table can take (the metadata setting off: only where it has a width stored); the others are the view's
+    const table = parseTable(info.source);
+    const stored = [...set.keys()].filter((column) => set.get(column) === undefined || this.host.canStoreMeta(table, "size", { column }));
+    if (!stored.length) return;
     const result = await this.host.writeTable(info, (t) => {
       const widths = this.host.columnsMeta(t, "size");
       for (const [column, width] of set) {
@@ -111,7 +114,7 @@ class TableWidths {
       return this.host.setColumnsMeta(t, "size", widths);
     });
     // Stored (or already so): the table's metadata has them now
-    if (result !== "failed") for (const column of set.keys()) this.viewed.delete(column);
+    if (result !== "failed") for (const column of stored) this.viewed.delete(column);
   }
 
   /** Columns moved, inserted or deleted: the widths set for the view go with them */
