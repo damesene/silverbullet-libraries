@@ -194,3 +194,10 @@ other pages on a sheet.
   sheet view; on a table alone, said to put it on a sheet first). The core
   got `editBeyond`'s `place` and `insertTable`. Next: selection, copying,
   AutoFill, filters, sorting, widths, pins on the sheet.
+- 2026-10-23, branch `sheet-interactions` (phase 3, step 4): a survey found
+  selection, copying, the cell menu, sorting and filters working on the
+  sheet's tables as they are; fixed: the fill handle cut off by its cell
+  (the cell's content clipped instead). Agreed: a column's width dragged on
+  the sheet is the sheet's column's (`sheet.width.<letters>`, every table in
+  it, through the address frame's widths), a table alone's its own; a filter
+  hides rows of its table only (not the sheet's whole rows, as Excel would).
