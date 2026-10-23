@@ -45,7 +45,9 @@ export function findColumn(headers: readonly string[], id: ColumnId): number | u
   // A fixed name first: it is the column's whatever the headers say
   const fixed = fixedColumn(headers, id.name);
   if (fixed >= 0 && id.nth === 1) return fixed;
-  const wanted = columnKey(id.name);
+  // A name written as a key is that key: its _ at an end is a character the key stands for (`Množství` is
+  // `mno_stv_`), not markdown's emphasis, which columnName drops from a header
+  const wanted = /^\w+$/.test(id.name) ? id.name.replace(/_+/g, "_").toLowerCase() : columnKey(id.name);
   // The column with the fixed name is the first of that name, the headers of that key follow it
   let seen = fixed >= 0 ? 1 : 0;
   const index = headers.findIndex((header, c) => c !== fixed && columnKey(header) === wanted && ++seen === id.nth);

@@ -38,6 +38,16 @@ describe("columns by name", () => {
     expect(findColumn(headers, { name: "Nope", nth: 1 })).toBeUndefined();
   });
 
+  it("finds a column by its key ending in _ (a header ending in a letter with a diacritic, or a sign)", () => {
+    const czech = ["Název", "Množství", "Price €"];
+    expect(findColumn(czech, { name: "mno_stv_", nth: 1 })).toBe(1);
+    expect(findColumn(czech, { name: "price_", nth: 1 })).toBe(2);
+    expect(findColumn(czech, { name: "n_zev", nth: 1 })).toBe(0);
+    expect(findColumn(["a b"], { name: "a__b", nth: 1 })).toBe(0);
+    // What the key of a column with such a header is, as metadata and formulas write it
+    expect(findColumn(czech, columnIdOf(czech, 1)!)).toBe(1);
+  });
+
   it("names a column by its key, with whether others share it", () => {
     expect(columnIdOf(headers, 2)).toEqual({ name: "unit_price", nth: 1, shared: false });
     expect(columnIdOf(headers, 3)).toEqual({ name: "qty", nth: 2, shared: true });
