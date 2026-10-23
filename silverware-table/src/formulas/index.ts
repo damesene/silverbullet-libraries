@@ -19,6 +19,9 @@
 // files beside it, the functions in builtin/ (only functions: what a formula
 // can call), custom functions in custom.ts, which exist in registry.ts.
 export { formulaCell, formulaCount, formulaOf, isErrorText, isFormulaInput, type StoredFormula } from "./cell.ts";
+
+/** What the formulas module offers other modules (ModelHost.offered("formulas")): the formula a cell holds */
+export type FormulasOffer = { readonly formulaOf: (cell: string) => import("./cell.ts").StoredFormula | undefined };
 export { type Area, areaText, callsCustomFunctions, type Fixed, cellName, cellNamesOf, columnLetters, columnRefText, type NamedReference, namedReferences, type Reference, referencedColumn, referencedColumnId, references, referredPages, referredTableNames, type TableRef, withColumnKeys } from "./references.ts";
 export { autofixFormula, type FormulaFix, qualifyCellNames } from "./autofix.ts";
 export { formulaErrors, type NamedCell, recalculate, type TableSource, totalRows } from "./evaluate.ts";

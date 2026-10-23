@@ -119,6 +119,8 @@ export class Controller implements TableHost {
   private maxHeight = 0;
   // The metadata setting, for menus that offer pinning
   private metadataOn = false;
+  // What modules offer others (TableHost.offer), by the module's name
+  private readonly offers = new Map<FeatureName, object>();
   // The toolbarNames setting: the table's names in its toolbar too, not only in its ⋯ menu (always, or while Shift
   // alone is held: `shiftHeld`)
   private namesShown: "never" | "always" | "shift" = "shift";
@@ -345,7 +347,8 @@ export class Controller implements TableHost {
     // A module with parts for tables as one feature: its hooks about a table go to that table's part
     // Each module with a host of its own (one per name: the sheet's two parts share theirs)
     const hosts = new Map<FeatureName, TableHost>();
-    const hostOf = (name: FeatureName) => hosts.get(name) ?? hosts.set(name, moduleHost<TableHost>(this)).get(name)!;
+    const own = (name: FeatureName) => ({ offer: (api: object) => void this.offers.set(name, api) });
+    const hostOf = (name: FeatureName) => hosts.get(name) ?? hosts.set(name, moduleHost<TableHost>(this, own(name))).get(name)!;
     const features = all.filter((_, i) => enabled[i]).map(({ name, create }) => this.parts.routed(create(name ? hostOf(name) : this)));
     this.features.push(...features);
     for (const feature of features) feature.start?.();
@@ -500,6 +503,14 @@ export class Controller implements TableHost {
 
   moduleOn(name: FeatureName): boolean {
     return this.modulesOn.has(name);
+  }
+
+  offer(): void {
+    throw new Error("Silverware Table: only a module offers an API (its own host)");
+  }
+
+  offered<T extends object>(name: FeatureName): T | undefined {
+    return this.offers.get(name) as T | undefined;
   }
 
   tablesChanged(): void {

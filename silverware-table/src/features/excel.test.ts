@@ -86,6 +86,15 @@ describe("Excel", () => {
     expect(status().textContent).toBe("Downloaded Test.xlsx, 1 formula as values.");
   });
 
+  it("writes the cells' values without the formulas module: it offers their formulas", async () => {
+    await setup(SHOP, { "silverware.table.modules.formulas.enabled": false });
+    await open();
+    expect(formulas().textContent).toBe("No formulas in the table.");
+    button("Download").click();
+    await flush();
+    expect(sheetOf(downloads[0]!.bytes)).toContain('<c r="B4"><v>13</v></c>');
+  });
+
   it("downloads the file under the name typed, Enter in its field downloading too", async () => {
     await setup(SHOP);
     await open();

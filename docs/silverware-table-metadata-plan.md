@@ -4,7 +4,7 @@ The decisions behind it are in CLAUDE.md, *Modules and their data*. Stored markd
 
 ## Status
 
-Step 1 done (a host per module).
+Steps 1 and 2 done (a host per module; offer and offered).
 
 ## The format
 

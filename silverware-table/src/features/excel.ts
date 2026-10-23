@@ -21,7 +21,7 @@ import type { ExcelTemplates } from "../excel/functions.ts";
 import { excelValue } from "../excel/values.ts";
 import { columnWidth, xlsxFile, type XlsxCell } from "../excel/xlsx.ts";
 import { currentTable, type ExportedTable, exportedTable } from "../export/table.ts";
-import { formulaOf } from "../formulas/index.ts";
+import type { FormulasOffer } from "../formulas/index.ts";
 import { ICONS } from "../icons.ts";
 import { metaName } from "../meta.ts";
 
@@ -274,12 +274,14 @@ export class Excel implements Feature {
     const templates = excelTemplates(await this.host.bridge.getConfig?.(FUNCTIONS_PATH, {}));
     const skipped: Skipped[] = [];
     let formulas = 0;
+    const cells = this.host.offered<FormulasOffer>("formulas");
     // Each markdown row in its place: Excel's row 2 is the first under the header, as formulas count them
     const rows: XlsxCell[][] = Array.from({ length: Math.max(0, model.rows.length - 1) }, () => []);
     for (const { row, values } of exported.rows) {
       rows[row - 1] = values.map((text, column) => {
         const value = excelValue(text);
-        const stored = formulaOf(model.rows[row]?.cells[column] ?? "");
+        // (Without the formulas module, no formulas: the cells' values)
+        const stored = cells?.formulaOf(model.rows[row]?.cells[column] ?? "");
         if (!stored) return { value };
         formulas++;
         const formula = excelFormula(stored.formula, model, row - 1, column, templates);

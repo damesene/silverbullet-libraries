@@ -680,6 +680,13 @@ export interface ModelHost {
   addressFrame(info: TableInfo): AddressFrame | undefined;
   /** Whether a module is on (one feature serves another: pageLinks reads pages for formulas) */
   moduleOn(name: FeatureName): boolean;
+  /**
+   * Offers other modules what they may use of this module's (its data they
+   * need: formulas' cells for the Excel file); only a module's own host has it
+   */
+  offer(api: object): void;
+  /** What the module of that name offers (`offer`): undefined while it is off or offers nothing */
+  offered<T extends object>(name: FeatureName): T | undefined;
   /** Tables changed outside the page (another page read anew): features check them again */
   tablesChanged(): void;
   /** What deleting a column also removes, by the features (names of rows and cells in it) */

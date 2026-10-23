@@ -41,6 +41,7 @@ import {
   formulaHelp,
   type Fixed,
   formulaOf,
+  type FormulasOffer,
   formulasAfterEdit,
   followTable,
   choiceText,
@@ -191,6 +192,7 @@ export class Formulas implements Feature {
   constructor(private readonly host: ModelHost) {
     this.formulaHint = host.panel("swt-formula-hint");
     this.functions = new FunctionDialog(host);
+    host.offer({ formulaOf } satisfies FormulasOffer);
   }
 
   /** The page's tables (as last read) formulas can refer to by name, and those of the other pages read */
