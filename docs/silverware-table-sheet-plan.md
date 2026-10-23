@@ -306,3 +306,19 @@ other pages on a sheet.
   playground a light bar flickers over the top of a sheet's table and its
   left edge, the table looking shifted into the letters and numbers.
   Next: phase 4, then phase 5.
+- 2026-10-23, phase 4 (branch `table-state`): `core/tables.ts`, the core's
+  register: `TableKey` (modules hold keys, never make or read one: the
+  isolation test says so), matched to the page's tables each time its text is
+  read: a table of unchanged text keeps its key wherever it is (a table
+  inserted or deleted before it, Ctrl+Z), the others take in order the keys
+  left between those, a gone table's key stays for it to come back to;
+  `tableKeys(page, text)`, `pageOf`, `newTableKey` (the sheet's new table) on
+  the host. Reviewed; fixed: a gone table's key taken by the next table
+  edited after it (keys of tables in the text before come first), one early
+  match by text (a copy pasted before the tables) dropping the keys of all
+  after it (the longest run in order kept, a table moved found too), a new
+  table written again after an undo taking its gone key instead of the one
+  made for it (reserved keys before gone ones), keys made for tables never
+  written (made as the value is saved, given back if not written). Modules' state for a table stays theirs, in maps by key: with keys
+  that never change, a state held by the core would be the same maps (weighed
+  and left).
