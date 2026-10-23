@@ -945,6 +945,27 @@ test("a formula's result on the sheet is marked as in the page: its underline is
   expect(room).toBeGreaterThanOrEqual(5);
 });
 
+test("the + pressed again and again on a sheet's table adds a row each time, with the new row's editor open meanwhile", async ({ page }) => {
+  await page.locator("#source").fill("# Test\n\n| A | B |\n|---|---|\n| 1 |  |\n| 2 |  |\n| <meta sheet='Sheet1' at='A1' name='t'> |\n");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(2);
+  await hoverCell(page, cell(page, 1, 0));
+  await (await tableIcon(page, "Sheet view")).click();
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  await drawn.locator("tr[data-swt-row='1'] > td").first().click();
+  for (let i = 1; i <= 3; i++) {
+    const first = drawn.locator("tr[data-swt-row='1'] > td").first();
+    const box = (await first.boundingBox())!;
+    await page.mouse.move(box.x - 20, box.y + 2, { steps: 4 });
+    const plus = page.locator(".swt-insert:not(.swt-quiet).swt-visible");
+    await expect(plus).toHaveCount(1);
+    await plus.click();
+    // (Its editor opens in the new row: the next press saves it first)
+    await expect(drawn.locator("tbody tr[data-swt-row]")).toHaveCount(2 + i);
+  }
+  await expect(page.locator("#flash > div", { hasText: "changed in the meantime" })).toHaveCount(0);
+});
+
 test.describe("Pins on the sheet", () => {
   // A table on a sheet, at B2, its first row pinned to the top, its last (Total) to the bottom, its first column left
   const rows = Array.from({ length: 30 }, (_, i) => `| item ${i} | ${i} | ${i * 2} |`).join("\n");

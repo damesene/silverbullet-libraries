@@ -634,6 +634,51 @@ describe("Controller", () => {
     expect(editor.querySelector("table")!.querySelector(".swt-sort-active, [aria-sort]")).toBeNull();
   });
 
+  it("inserts twice when a + is pressed again before the table is rendered anew (SilverBullet renders later)", async () => {
+    // As SilverBullet does: the edit at once, the table rendered anew a moment later
+    await setup(PAGE, {}, {
+      replaceRange: (from, to, insert) => {
+        setText(text.slice(0, from) + insert + text.slice(to));
+        setTimeout(() => renderPage(text, editor, cursorMoves), 40);
+      },
+    });
+    const rows = () => text.split("\n").filter((line) => line.startsWith("|")).length;
+    const before = rows();
+    pointInsert({ key: tableKey(), axis: "row", at: 2, beside: { after: 1 } });
+    document.querySelector<HTMLElement>(".swt-insert")!.click();
+    await flush();
+    // Again, the table not rendered anew yet
+    pointInsert({ key: tableKey(), axis: "row", at: 2, beside: { after: 1 } });
+    document.querySelector<HTMLElement>(".swt-insert")!.click();
+    await vi.waitFor(() => expect(rows()).toBe(before + 2), { timeout: 2000 });
+    expect(flashes).toEqual([]);
+    // The last rendering waited for, so none comes into the next test's page
+    await vi.waitFor(() => expect(editor.querySelector("table")!.rows.length).toBe(before + 1));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
+
+  it("inserts with a + pressed while a cell is edited: the cell saved first, then the row (two writes of the table, one after the other)", async () => {
+    await setup(PAGE, {}, {
+      replaceRange: (from, to, insert) => {
+        setText(text.slice(0, from) + insert + text.slice(to));
+        setTimeout(() => renderPage(text, editor, cursorMoves), 40);
+      },
+    });
+    const rows = () => text.split("\n").filter((line) => line.startsWith("|")).length;
+    const before = rows();
+    clickOn(cell(1, 0));
+    editor.querySelector<HTMLInputElement>(".swt-cell-editor")!.value = "Quince";
+    // The press on the + leaves the editor (saved) as the + inserts
+    void controller.saveEditing();
+    pointInsert({ key: tableKey(), axis: "row", at: 3, beside: { after: 2 } });
+    document.querySelector<HTMLElement>(".swt-insert")!.click();
+    await vi.waitFor(() => expect(rows()).toBe(before + 1), { timeout: 2000 });
+    expect(text).toContain("| Quince |");
+    expect(flashes).toEqual([]);
+    await vi.waitFor(() => expect(editor.querySelector("table")!.rows.length).toBe(before));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
+
   it("refuses to save when the table changed underneath", async () => {
     await setup(PAGE);
     clickOn(cell(1, 0));

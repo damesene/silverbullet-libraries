@@ -97,6 +97,9 @@ const STORE_SORT_DELAY_MS = 400;
 
 const NOT_SAVED = "Silverware Table: the table changed in the meantime, nothing was saved";
 
+// How long a write waits at most for the table written before to be rendered anew (SilverBullet renders after the edit)
+const RENDERED_MS = 1000;
+
 // The element under the pointer while Ctrl is held in a cell editor (the move cursor, CSS)
 const NAVIGATING_CLASS = "swt-navigating-here";
 
@@ -818,6 +821,7 @@ export class Controller implements TableHost {
       if (standsFor) this.cellEditor.takePending(widget, info);
       if (standsFor) this.anchor.again(widget, info.key);
       for (const feature of this.features) feature.enhanced?.(info);
+      this.writeRendered(widget, info);
       // The cell showing the move cursor was rendered anew (Ctrl+arrows saved a cell)
       if (this.navigating) this.markNavigating();
       this.insert.tableEnhanced(widget, info);
@@ -826,6 +830,26 @@ export class Controller implements TableHost {
     } catch (e) {
       console.error("Silverware Table: could not show a table", e);
     }
+  }
+
+  /** A table written as `source`: until the table that stands for its key is rendered so (or a second has gone), its next write waits */
+  private awaitRendering(key: TableKey, source: string): void {
+    this.rendering.get(key)?.finish();
+    let resolve!: () => void;
+    const done = new Promise<void>((r) => (resolve = r));
+    const timer = setTimeout(() => finish(), RENDERED_MS);
+    const finish = () => {
+      clearTimeout(timer);
+      if (this.rendering.get(key)?.done === done) this.rendering.delete(key);
+      resolve();
+    };
+    this.rendering.set(key, { source, done, finish });
+  }
+
+  /** A table rendered: a write waiting for it goes on, once the one standing for its key has what was written */
+  private writeRendered(widget: HTMLElement, info: WidgetInfo): void {
+    const waiting = this.rendering.get(info.key);
+    if (waiting && waiting.source === info.source && this.widgetForKey(info.key) === widget) waiting.finish();
   }
 
   /** The table Silverware Table drew for a key (the sheet's), enhanced and in the page */
@@ -2009,6 +2033,11 @@ export class Controller implements TableHost {
   private readonly covered = new Set<HTMLElement>();
   private readonly queueUncover: () => void;
 
+  // A write of each table going on (written, until its table is rendered anew): the next of the table waits for it
+  private readonly writing = new Map<TableKey, Promise<void>>();
+  // Tables written and not rendered anew yet with what was written, by key: a write of one waits for it
+  private readonly rendering = new Map<TableKey, { readonly source: string; readonly done: Promise<void>; readonly finish: () => void }>();
+
   // Drags going on that Esc cancels (host.drag with `escape`)
   private escapableDrags = 0;
 
@@ -2201,12 +2230,44 @@ export class Controller implements TableHost {
   }
 
   /** A table written where `info` says it is in the page; `widget` its table rendered, if it is */
-  private async writeAt(
-    info: TableTarget,
-    widget: HTMLElement | undefined,
-    change: (table: Table) => Table | undefined,
-    options: WriteOptions,
-  ): Promise<WriteResult> {
+  /**
+   * A table's writes one after the other: each waits for the one before to be
+   * written and its table rendered anew (SilverBullet renders after the edit),
+   * then writes the table as it is then; else it would look for the table as
+   * it was before that write and find it changed. A cell editor open in the
+   * table written with a cell to edit after it (a + pressed, Insert row) is
+   * saved first, as a press elsewhere would: kept open, a table drawn for its
+   * key (the sheet's) would not be drawn anew under it
+   */
+  private async writeAt(given: TableTarget, shown: HTMLElement | undefined, change: (table: Table) => Table | undefined, options: WriteOptions): Promise<WriteResult> {
+    const key = given.key;
+    if (options.focus && this.cellEditor.active?.key === key) await this.saveEditing();
+    const before = this.writing.get(key);
+    let release!: () => void;
+    const mine = new Promise<void>((resolve) => (release = resolve));
+    this.writing.set(key, mine);
+    let info = given;
+    let widget = shown;
+    if (before) {
+      await before;
+      const now = this.tableFor(key);
+      if (now) {
+        info = now;
+        widget = this.widgetForKey(key) ?? widget;
+      }
+    }
+    try {
+      return await this.writeNow(info, widget, change, options);
+    } finally {
+      // The next goes on once this one's table is rendered anew (if it wrote it)
+      void (this.rendering.get(key)?.done ?? Promise.resolve()).then(() => {
+        if (this.writing.get(key) === mine) this.writing.delete(key);
+        release();
+      });
+    }
+  }
+
+  private async writeNow(info: TableTarget, widget: HTMLElement | undefined, change: (table: Table) => Table | undefined, options: WriteOptions): Promise<WriteResult> {
     const { focus, columnMap } = options;
     try {
       // What the write needs read is read before the page's text (other pages,
@@ -2286,6 +2347,7 @@ export class Controller implements TableHost {
       }
       // (A table Silverware Table draws is its feature's to place, in a box whose scroll the write does not move)
       if (widget && !widget.classList.contains(DRAWN_CLASS)) this.anchor.set(widget, info.key);
+      this.awaitRendering(info.key, markdown);
       await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
       this.pageText = written;
       for (const pending of held) pending.written();
