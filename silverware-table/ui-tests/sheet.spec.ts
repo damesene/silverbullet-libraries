@@ -818,3 +818,36 @@ test("a cell's text on the sheet sits in the middle of its row, not pushed to it
   const content = (await td.locator(".swt-cell-content").boundingBox())!;
   expect(Math.abs(content.y + content.height / 2 - (box.y + box.height / 2))).toBeLessThan(2);
 });
+
+test("the controls of the table clicked do not stay over the sheet or the full screen, nor after either ends", async ({ page }) => {
+  // Shown and visible: the toolbar, the grips, the + a pointer brought up, a menu (the quiet + of a cell selected: apart)
+  const controls = () =>
+    page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>(".swt-floating.swt-visible"))
+        .filter((e) => e.getBoundingClientRect().width > 0 && /swt-bar|swt-grip|swt-insert|swt-menu/.test(e.className) && !e.classList.contains("swt-quiet"))
+        .map((e) => e.className),
+    );
+  const quiet = page.locator(".swt-insert.swt-quiet.swt-visible");
+  for (const [open, exit] of [
+    ["Sheet view", "Exit sheet view"],
+    ["Full screen", "Exit full screen"],
+  ] as const) {
+    // The table's last cell selected: its quiet + of the last row and column shows, as long as the table is in sight
+    await cell(page, 2, 1).click();
+    await page.keyboard.press("Control+End");
+    await hoverCell(page, cell(page, 2, 1));
+    expect((await controls()).length).toBeGreaterThan(0);
+    await expect(quiet.first()).toBeVisible();
+    // The pointer stays where the icon was: nothing moved over what is shown now
+    await (await tableIcon(page, open)).click();
+    await expect.poll(controls).toEqual([]);
+    // Over the sheet the table is out of sight, its cell still selected; in full screen it is the table shown
+    if (open === "Sheet view") await expect(quiet).toHaveCount(0);
+    else await expect(quiet.first()).toBeVisible();
+    await page.locator(".swt-over-window, .swt-sheet-board").first().locator("td").first().hover();
+    await (await tableIcon(page, exit)).click();
+    await expect.poll(controls).toEqual([]);
+    // Back in the page, its cell selected
+    await expect(quiet.first()).toBeVisible();
+  }
+});

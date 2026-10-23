@@ -178,7 +178,7 @@ export class Sheet implements AdapterFeature {
     box.append(content);
     const board: Board = { sheet: sheetOf(info.source), alone: info.key, box, content, tables: new Map(), widths: new Map(), preview: new Map() };
     this.board = board;
-    claimWindow(doc, this);
+    claimWindow(this.host, this);
     box.addEventListener("scroll", () => this.queuePlace());
     doc.body.append(box);
     box.focus({ preventScroll: true });
@@ -202,7 +202,7 @@ export class Sheet implements AdapterFeature {
     const board = this.board;
     if (!board) return;
     this.board = undefined;
-    releaseWindow(this.host.doc, this);
+    releaseWindow(this.host, this);
     this.watching?.disconnect();
     this.watching = undefined;
     this.drawing.clear();

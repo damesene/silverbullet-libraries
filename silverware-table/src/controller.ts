@@ -1761,6 +1761,10 @@ export class Controller implements TableHost {
     if (this.navigating) this.markNavigating();
   }
 
+  hideControls(): void {
+    this.hideFloating(true);
+  }
+
   shownPart(widget: HTMLElement, info: WidgetInfo, cell: HTMLElement): Rect | undefined {
     return shownPart(widget, info, cell);
   }

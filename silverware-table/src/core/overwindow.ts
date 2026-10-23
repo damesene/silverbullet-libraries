@@ -64,16 +64,31 @@ export function coveredAt(widget: HTMLElement, node: Node): boolean {
   return !!owner && owner.holds(node) && !owner.holds(widget);
 }
 
-/** Something is shown over the window (one at a time): what was before ends */
-export function claimWindow(doc: Document, owner: WindowOwner): void {
-  const other = current.get(doc);
-  if (other && other !== owner) other.end();
-  current.set(doc, owner);
+/** Whether a table's widget is under what is over the window (not part of it): out of sight, it shows no controls */
+export function underWindow(widget: HTMLElement): boolean {
+  const owner = widget.ownerDocument && current.get(widget.ownerDocument);
+  return !!owner && !owner.holds(widget);
 }
 
-/** It no longer is */
-export function releaseWindow(doc: Document, owner: WindowOwner): void {
-  if (current.get(doc) === owner) current.delete(doc);
+/**
+ * Something is shown over the window (one at a time): what was before ends.
+ * What is under the pointer changed, so the controls of the table hovered go
+ * (its toolbar, grips, the +, a menu open on it), the next move shows them for
+ * what is there now
+ */
+export function claimWindow(host: TableHost, owner: WindowOwner): void {
+  const other = current.get(host.doc);
+  if (other === owner) return;
+  other?.end();
+  current.set(host.doc, owner);
+  host.hideControls();
+}
+
+/** It no longer is: the page is under the pointer again, its controls shown by the next move */
+export function releaseWindow(host: TableHost, owner: WindowOwner): void {
+  if (current.get(host.doc) !== owner) return;
+  current.delete(host.doc);
+  host.hideControls();
 }
 
 export class OverWindow {
@@ -124,7 +139,7 @@ export class OverWindow {
   }
 
   begin(widget: HTMLElement, info: WidgetInfo): void {
-    claimWindow(this.host.doc, this);
+    claimWindow(this.host, this);
     // The other's table may have gone with it (the sheet's own drawing): the one that stands for the key now
     if (!widget.isConnected) {
       const now = this.host.widgetForKey(info.key);
@@ -149,7 +164,7 @@ export class OverWindow {
     const widget = this.shownWidget;
     this.shownKey = undefined;
     this.shownWidget = undefined;
-    releaseWindow(this.host.doc, this);
+    releaseWindow(this.host, this);
     if (widget) this.unmark(widget);
     for (const layer of this.numbers) layer.classList.remove("swt-visible");
     this.options.changed();

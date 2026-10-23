@@ -12,7 +12,7 @@
 // link the click would follow).
 import { ICONS } from "../icons.ts";
 import { renderedTable, WIDGET_SELECTOR } from "../dom.ts";
-import { coveredAt } from "./overwindow.ts";
+import { coveredAt, underWindow } from "./overwindow.ts";
 import { appendColumnAt, appendRowAt } from "../pins.ts";
 import type { RowHold, TableHost, WidgetInfo } from "./feature.ts";
 import { heldBounds, type Rect } from "./geometry.ts";
@@ -350,7 +350,8 @@ export class InsertControls {
     const selected = Array.from(host.doc.querySelectorAll<HTMLTableCellElement>(".swt-selected"));
     const first = editing ?? hovered ?? selected[0];
     const hit = first && host.enhancedWidgetOf(first);
-    if (!hit) return undefined;
+    // A table under what is over the window (its cell still selected): out of sight
+    if (!hit || underWindow(hit[0])) return undefined;
     const [widget, info] = hit;
     const rows = host.shownRows(info);
     const lastRow = rows.length > 1 ? rows[rows.length - 1] : undefined;
