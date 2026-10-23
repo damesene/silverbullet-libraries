@@ -63,6 +63,39 @@ test.describe("Ctrl+arrows out of a table on the sheet", () => {
   });
 });
 
+test.describe("Ctrl+arrows in the sheet's empty cells", () => {
+  test("an empty cell selected: Ctrl+arrows move to the next cell as arrows do (the page gets no key)", async ({ page }) => {
+    await openSheet(page);
+    const point = await emptyCell(page, { right: 2, row: 1 });
+    await page.mouse.click(point.x, point.y);
+    const empty = page.locator(".swt-sheet-cell");
+    await expect(empty).toBeVisible();
+    const at = (await empty.boundingBox())!;
+    await page.keyboard.press("Control+ArrowRight");
+    await expect.poll(async () => Math.round((await empty.boundingBox())!.x)).toBeGreaterThan(Math.round(at.x));
+    await page.keyboard.press("Control+ArrowDown");
+    await expect.poll(async () => Math.round((await empty.boundingBox())!.y)).toBeGreaterThan(Math.round(at.y));
+    await expect(page.locator(".swt-sheet-board")).toBeVisible();
+  });
+
+  test("an empty cell edited: Ctrl+ArrowDown saves what was typed and edits the cell under it", async ({ page }) => {
+    await openSheet(page);
+    const point = await emptyCell(page, { right: 3, row: 1 });
+    await page.mouse.dblclick(point.x, point.y);
+    const field = page.locator(".swt-sheet-cell .swt-cell-editor");
+    await expect(field).toBeFocused();
+    await page.keyboard.type("Quince");
+    await page.keyboard.press("Control+ArrowDown");
+    await expect.poll(() => markdown(page)).toMatch(/\| Quince +\|/);
+    await expect(page.locator(".swt-sheet-cell .swt-cell-editor")).toBeFocused();
+    // The cell under the value: a new table's, the value its first body cell
+    const value = (await page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)", { hasText: "Quince" }).locator("tr[data-swt-row='1'] > td").first().boundingBox())!;
+    const editor = (await page.locator(".swt-sheet-cell").boundingBox())!;
+    expect(Math.round(editor.y)).toBeGreaterThan(Math.round(value.y));
+    expect(Math.abs(editor.x - value.x)).toBeLessThan(2);
+  });
+});
+
 test.describe("A table far down the sheet", () => {
   test("edited, drawn anew: the board stays scrolled where it is (the table placed at once, the next cell focused there)", async ({ page }) => {
     await page.locator("#source").fill(

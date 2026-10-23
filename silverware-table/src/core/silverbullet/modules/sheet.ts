@@ -125,7 +125,8 @@ export class Sheet implements AdapterFeature {
   // `grown`: the table it grew and where in it the value went (rows pinned to the bottom stay last), so once that
   // is drawn anew (`ready` then)
   private after:
-    | { at: SheetCell; key: "Enter" | "Tab" | "Escape"; back: boolean; grown: { key: TableKey; cell: CellRef } | undefined; ready: boolean }
+    // (key: Enter, Tab, Escape, or an arrow: Ctrl+arrow)
+    | { at: SheetCell; key: string; back: boolean; grown: { key: TableKey; cell: CellRef } | undefined; ready: boolean }
     | undefined;
   // The board's tables as shown (their rows' order), as of the last view applied to them
   private shownIndex: { placed: Placed; info: WidgetInfo; order: number[] }[] | undefined;
@@ -769,7 +770,8 @@ export class Sheet implements AdapterFeature {
       // AltGr arrives as Ctrl+Alt
       const typing = e.key.length === 1 && (!(e.ctrlKey || e.metaKey) || (e.ctrlKey && e.altKey));
       const paste = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v";
-      const step = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey ? ARROWS[e.key] : undefined;
+      // (Ctrl+arrows as arrows, as in a table)
+      const step = !e.metaKey && !e.altKey && !e.shiftKey ? ARROWS[e.key] : undefined;
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
@@ -809,11 +811,14 @@ export class Sheet implements AdapterFeature {
 
   /**
    * Enter, Tab or Esc in the empty cell's editor: the core's editor saves it (or
-   * drops it); where the keyboard goes then is the module's, as in a table
+   * drops it); where the keyboard goes then is the module's, as in a table.
+   * Ctrl+arrow: saved, and the next cell that way edited, as a table's editor does.
    */
   editorKeyDown(e: KeyboardEvent, editor: RenderedEditor): boolean {
-    if (!this.cell || editor.cell !== this.cell.element || e.ctrlKey || e.metaKey || e.altKey) return false;
-    if (e.key !== "Enter" && e.key !== "Tab" && e.key !== "Escape") return false;
+    if (!this.cell || editor.cell !== this.cell.element || e.metaKey || e.altKey) return false;
+    const arrow = e.ctrlKey && !e.shiftKey && !!ARROWS[e.key];
+    if (e.ctrlKey && !arrow) return false;
+    if (!arrow && e.key !== "Enter" && e.key !== "Tab" && e.key !== "Escape") return false;
     // Something typed is written, the table grown to hold it (or made: its first body cell): on once it is drawn
     // anew, from where the value went
     const typed = e.key !== "Escape" && editor.field.value.trim() !== "";
@@ -821,6 +826,13 @@ export class Sheet implements AdapterFeature {
     const made = typed && this.making && same(this.making.at, this.cell.at) ? { key: (this.making.key ??= this.host.newTableKey()), cell: { row: 1, column: 0 } } : undefined;
     const grown = owner ? { key: owner.key, cell: growTo(owner.info, owner.cell).cell } : made;
     this.after = { at: this.cell.at, key: e.key, back: e.shiftKey, grown, ready: false };
+    // The core's editor saves on Enter, Tab and Esc; a Ctrl+arrow here is saved so
+    if (arrow) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.host.saveEditing();
+      return true;
+    }
     return false;
   }
 
@@ -1535,7 +1547,9 @@ export class Sheet implements AdapterFeature {
     const info = grown && this.infoOfKey(grown.key);
     const at = (grown && info && after.grown && this.sheetCellOf(info, grown, after.grown.cell)) || after.at;
     const sign = after.back ? -1 : 1;
-    if (after.key === "Escape") this.go(at, false);
+    const step = ARROWS[after.key];
+    if (step) this.go({ row: Math.max(0, at.row + step[0]), column: Math.max(0, at.column + step[1]) }, true);
+    else if (after.key === "Escape") this.go(at, false);
     else if (after.key === "Tab") this.go({ row: at.row, column: Math.max(0, at.column + sign) }, true);
     else if ((await this.host.setting("enterKey")) === "moveDown") this.go({ row: Math.max(0, at.row + sign), column: at.column }, true);
     else this.go(at, false);
