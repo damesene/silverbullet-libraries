@@ -370,3 +370,11 @@ other pages on a sheet.
   saving off cancels the delay again (every flush does, as before); the module
   routed knows its parts as the module's own (no second set). Left: the sheet
   keeps its board's tables by key (the board spans them).
+- 2026-10-23, branch `sheet-followups`: SilverBullet's table under a drawn
+  one is no longer decorated nor viewed (only registered, the features told),
+  shown as itself once the board ends: a write on the sheet lays out one table
+  (400 rows: about 210 to 160 ms in the playground). Pins on the sheet tried:
+  they scroll with the sheet, a value under a row pinned to the bottom or
+  right of a column pinned right goes before it (as in the page), scenarios
+  and the library page say so. Delete table says when another table of the
+  same name takes the references over.
