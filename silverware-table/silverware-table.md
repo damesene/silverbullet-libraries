@@ -739,7 +739,7 @@ To move a table on its sheet:
 * Or select the whole table (a click on that handle) and drag the selection by its edge, as you move cells.
 * Or pick *Move table…* in its ⋯ menu or a cell's menu, then click or tap the cell where its top left corner goes; Esc cancels. This is the easy way on a phone.
 
-Moving changes only the table's place on the sheet (`at`); the page keeps the table where it is, and its formulas stay as they are. A table never goes over another one, nor pushes one aside. A table shown alone (on no sheet) is put on a sheet first: type a sheet's name in its ⋯ menu.
+Moving changes only the table's place on the sheet (`at`); the page keeps the table where it is, and its formulas stay as they are. A table never goes over another one, nor pushes one aside. A table shown alone (on no sheet) is put on a sheet first: its toolbar says *No sheet* in red there, whatever the *Names in the toolbar* setting; click it and type a sheet's name.
 
 Rows and columns pinned in a table (see [[#Pinning]]) scroll with the sheet there, as its other cells do. A table still grows as in the page: a value typed under a row pinned to the bottom (a total) goes into a new row above it, and one typed right of a column pinned to the right into a new column left of it, so the pinned ones stay last.
 
@@ -3128,6 +3128,13 @@ html[data-theme="dark"] .swt-excel-error {
   font-weight: normal;
   color: inherit;
   opacity: 0.55;
+}
+/* Something missing (a table shown as a sheet on none): in the danger color, in the toolbar and the ⋯ menu alike */
+.swt-bar button.swt-bar-name.swt-attention,
+.swt-menu-names .swt-menu-name-button.swt-attention {
+  font-weight: 600;
+  color: var(--danger-color, #c62828);
+  opacity: 1;
 }
 /* The first row of a table's ⋯ menu: its names, each after its icon (as the toolbar's row of names) */
 .swt-menu-names {

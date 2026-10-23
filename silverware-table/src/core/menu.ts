@@ -169,7 +169,7 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
                 }),
               n.name !== undefined &&
                 n.run &&
-                button(`swt-menu-name-button${n.muted ? " swt-muted" : ""}`, n.run, undefined, { title: n.title ?? n.name, attrs: { role: "menuitem" }, text: n.name }),
+                button(`swt-menu-name-button${n.muted ? " swt-muted" : ""}${n.attention ? " swt-attention" : ""}`, n.run, undefined, { title: n.title ?? n.name, attrs: { role: "menuitem" }, text: n.name }),
             ),
           ),
         ),

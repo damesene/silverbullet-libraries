@@ -370,7 +370,8 @@ export type ToolbarButton = {
   // A name: what a click on it names (the title of a menu that is its field)
   readonly naming?: MenuNaming;
   readonly icon?: string;
-  // Asks to be used: highlighted
+  // Asks to be used: highlighted (a name: in the danger color, and the row of names shown in the toolbar whatever
+  // the toolbarNames setting, as something is missing: the sheet of a table shown as a sheet)
   readonly attention?: boolean;
   // An icon button that is on (the filter row shown)
   readonly pressed?: boolean;

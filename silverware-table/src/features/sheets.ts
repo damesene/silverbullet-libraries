@@ -52,16 +52,20 @@ export class Sheets implements Feature {
    */
   toolbarButtons(info: TableInfo): ToolbarButton[] {
     const sheet = sheetOf(info.source);
+    // Shown as a sheet (laid out on a grid: the sheet view) but on none: said so, in the toolbar whatever its setting
+    const missing = !sheet && !!this.host.addressFrame(info);
     const title = sheet
       ? `This table is on the sheet ${sheet}: click to move it to another sheet (type its name: a new one, or one of the page's), or off it (empty)`
-      : "This table is on no sheet: click to put it on one (type its name: a new one, or one of the page's), to show it with other tables as a spreadsheet's sheet";
+      : missing
+        ? "This table is shown as a sheet but is on none: click to put it on one (type its name: a new one, or one of the page's); then tables can be made, moved and grown beside it"
+        : "This table is on no sheet: click to put it on one (type its name: a new one, or one of the page's), to show it with other tables as a spreadsheet's sheet";
     return [
       {
         label: sheet ?? "No sheet",
         title,
         place: "name",
         slot: "container",
-        ...(sheet ? {} : { muted: true }),
+        ...(sheet ? {} : missing ? { attention: true } : { muted: true }),
         naming: {
           ...(sheet ? { name: sheet } : {}),
           label: sheet ? "Move this table to another sheet (empty: off the sheet)" : "Put this table on a sheet",

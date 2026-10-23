@@ -56,8 +56,9 @@ export type MenuEntry =
         // None: the icon alone (what it names is named elsewhere: the table in the menu's title)
         readonly name?: string;
         readonly title?: string;
-        // A stand-in for none (No sheet): muted
+        // A stand-in for none (No sheet): muted; something missing (a table shown as a sheet on none): in the danger color
         readonly muted?: boolean;
+        readonly attention?: boolean;
         readonly run?: () => void;
       }[];
     }

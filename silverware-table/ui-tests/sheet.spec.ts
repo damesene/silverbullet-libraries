@@ -966,6 +966,26 @@ test("the + pressed again and again on a sheet's table adds a row each time, wit
   await expect(page.locator("#flash > div", { hasText: "changed in the meantime" })).toHaveCount(0);
 });
 
+test("a table shown as a sheet but on none says so in its toolbar, red, its name a click away", async ({ page }) => {
+  await hoverCell(page, cell(page, 1, 0));
+  await (await tableIcon(page, "Sheet view")).click();
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  await drawn.locator("tr[data-swt-row='1'] > td").first().hover();
+  // In the toolbar whatever the names setting (Shift not held), in the danger color
+  const missing = page.locator(".swt-bar.swt-visible .swt-bar-name-container .swt-bar-name");
+  await expect(missing).toHaveText("No sheet");
+  await expect(missing).toHaveClass(/swt-attention/);
+  await missing.click();
+  const field = page.locator(".swt-menu .swt-menu-name");
+  await expect(field).toBeFocused();
+  await field.fill("Plan");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => markdown(page)).toMatch(/sheet='Plan' at='A1'/);
+  // On a sheet now: no longer asking (the names back to the setting: hidden until Shift)
+  await drawn.locator("tr[data-swt-row='1'] > td").first().hover();
+  await expect(page.locator(".swt-bar.swt-visible .swt-bar-names")).toHaveCount(0);
+});
+
 test.describe("Pins on the sheet", () => {
   // A table on a sheet, at B2, its first row pinned to the top, its last (Total) to the bottom, its first column left
   const rows = Array.from({ length: 30 }, (_, i) => `| item ${i} | ${i} | ${i * 2} |`).join("\n");

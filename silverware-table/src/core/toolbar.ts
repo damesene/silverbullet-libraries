@@ -93,7 +93,8 @@ export class Toolbar {
     const featureButtons = this.context.buttons(widget, info);
     // The row of names (each slot's icon button, then its name), with the setting; else the names and their icons are
     // in the ⋯ menu only (its first row, as always)
-    const namesShown = this.context.namesShown();
+    // (A name asking for attention shows the row whatever the setting)
+    const namesShown = this.context.namesShown() || featureButtons.some((b) => b.place === "name" && b.attention);
     const names = namesShown ? this.namesRow(widget, featureButtons) : undefined;
     if (names) bar.append(names.row);
     const main = el(doc, "div", "swt-bar-main");
@@ -208,7 +209,7 @@ export class Toolbar {
       );
       if (name) {
         const b: HTMLButtonElement = el(doc, "button", {
-          class: `swt-bar-name${name.muted ? " swt-muted" : ""}`,
+          class: `swt-bar-name${name.muted ? " swt-muted" : ""}${name.attention ? " swt-attention" : ""}`,
           text: name.label,
           title: name.title,
           attrs: { tabindex: -1 },
@@ -368,7 +369,7 @@ export class Toolbar {
                 {
                   ...(icon?.icon ? { icon: { icon: icon.icon, label: icon.label, title: icon.title, ...(icon.pressed !== undefined ? { pressed: icon.pressed } : {}), run: icon.run } } : {}),
                   key: slot!,
-                  ...(n ? { name: n.label, title: n.title, ...(n.muted ? { muted: true } : {}), run: () => this.showNaming(widget, anchor, n) } : {}),
+                  ...(n ? { name: n.label, title: n.title, ...(n.muted ? { muted: true } : {}), ...(n.attention ? { attention: true } : {}), run: () => this.showNaming(widget, anchor, n) } : {}),
                 },
               ];
             }),
