@@ -201,3 +201,13 @@ other pages on a sheet.
   the sheet is the sheet's column's (`sheet.width.<letters>`, every table in
   it, through the address frame's widths), a table alone's kept in it the same way; a filter
   hides rows of its table only (not the sheet's whole rows, as Excel would).
+- 2026-10-23: phase 3 reviewed (from the end of phase 2); fixed: a table made
+  on the sheet is written after the page's last table, not the sheet's (a
+  table put among others moves their keys: views, held edits, view-only
+  widths would go to the wrong tables), `'=` read as text there as anywhere,
+  a press while its cell is edited not lost, its editor past the host
+  table's columns (no column type of it applies), the history marker kept out
+  of the table it goes after; the sheet's widths written only with a
+  metadata row or the setting (else for the view), a width not stored not
+  left shown; the range hint names another table's column with its table;
+  looks not made twice when a sheet opens.
