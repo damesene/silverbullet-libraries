@@ -72,7 +72,7 @@ import { functionNamed } from "../formulas/registry.ts";
 import { FunctionDialog } from "./functiondialog.ts";
 import { el } from "../elements.ts";
 import { ICONS } from "../icons.ts";
-import { escapeCell, type PageTable, pageTablesOf, parseTable, type Table, unescapeCell } from "../markdown.ts";
+import { escapeCell, locateBySource, type PageTable, pageTablesOf, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
 import { metaName, sameTableName } from "../meta.ts";
 import { namedRows } from "../names.ts";
@@ -257,12 +257,17 @@ export class Formulas implements Feature {
     const own = metaName(parseTable(info.source));
     const name = own?.toLowerCase();
     if (!name) return undefined;
-    const others = pageTablesOf(this.host.pageText).filter((t) => t.range.text !== info.source);
+    // The table itself by its place (a copy of it, the same text, is another table)
+    const self = locateBySource(this.host.pageText, info.hint, info.source);
+    const others = pageTablesOf(this.host.pageText).filter((t) => (self ? t.range.from !== self.from : t.range.text !== info.source));
     const referring = others.filter((t) => referredBy(t.table).tables.has(name));
     if (!referring.length) return undefined;
     // Another table of that name (typed into the markdown: Silverware Table names none twice): formulas take the
     // first of a name, so from now on that one
-    const namesake = others.some((t) => metaName(t.table)?.toLowerCase() === name);
+    const namesake = others.some((t) => {
+      const other = metaName(t.table);
+      return !!other && sameTableName(other, name);
+    });
     if (namesake) return `another table on the page is named ${own} too: the formulas that refer to ${own} use that one from now on`;
     const names = referring.map((t) => metaName(t.table)).filter((n): n is string => !!n);
     const which = referring.length === 1 ? "the table" : `${referring.length} tables`;
