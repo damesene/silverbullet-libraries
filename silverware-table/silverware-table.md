@@ -855,6 +855,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("silverwa
 | `autoscroll` | The middle mouse button over a table scrolls it. |
 | `fullScreen` | The table's icon (in the first row of its ⋯ menu, or in its toolbar while you hold Shift) shows the table over the whole window (not the browser's full screen), with its toolbar, menus and editing as in the page, the columns' letters above the header and the rows' numbers left of them, as formulas refer to them (`B3`); the same icon (*Exit full screen*) or Esc closes it. |
 | `sheet` | The sheet's name in the table's ⋯ menu (a table is put on a sheet, moved and taken off it there) and the sheet icon, which shows the table's sheet as a spreadsheet over the whole window, as `fullScreen` does, with empty rows and columns around its tables (more as you scroll on), their letters and numbers too. Type into the empty cell right under or next to a table: Enter or Tab saves it, and the table grows by that row or column, a new column named *Column 4*; farther from the tables, a value makes a table of its own. A cell left empty adds nothing; Esc drops it. The same icon (*Exit sheet view*) or Esc closes it. See [[#Sheet view]]. |
+| `tableLabels` | A named table shows its name in a small tab at its top right corner, so you can tell tables apart at a glance, in the page and on the sheet. The tab stays on the header while the header is held at the top, and it hides while you hover the table, where the toolbar shows instead. |
 | `largeTables` | Off by default. A table with many rows (setting `minRows`, default `200`) scrolls in a box of its own: as tall as *Maximum table height*, else the window. Only the rows in and around the box's view are in the page, so editing, sorting and filtering a table of thousands of rows stays quick. The browser's find (Ctrl+F) finds only those rows. Off: every row is in the page, the table as tall as its rows (unless *Maximum table height* is set). |
 
 ## Table names
@@ -1357,6 +1358,18 @@ config.define("silverware.table", {
               default = true,
               description = "An icon in a table's toolbar shows the table as a spreadsheet over the whole window, with empty rows and columns past it: a value typed into one grows the table.",
               ui = { category = "Silverware Table: Modules", label = "Sheet view", priority = 1.75 },
+            },
+          },
+        },
+        tableLabels = {
+          type = "object",
+          additionalProperties = false,
+          properties = {
+            enabled = {
+              type = "boolean",
+              default = true,
+              description = "A named table shows its name in a small tab at its top right corner, in the page and on the sheet, while it is not hovered.",
+              ui = { category = "Silverware Table: Modules", label = "Table labels", priority = 1.8 },
             },
           },
         },
@@ -2240,6 +2253,33 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   background: var(--root-background-color, #fff);
   border-radius: 0.2em;
 }
+/* A named table's tab (the tableLabels module): its name on a quiet tint of the page's text color at its top right corner, above it, or in
+   its header's corner where the view leaves no room above (swt-inside); over the sheet's board, under the controls;
+   it takes no presses */
+.swt-floating.swt-table-label {
+  z-index: 47;
+  box-sizing: border-box;
+  height: 18px;
+  padding: 1px 7px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--root-color, #222) 70%, transparent);
+  background: color-mix(in srgb, var(--root-color, #222) 9%, var(--root-background-color, #fff));
+  border-radius: 5px 5px 0 0;
+  pointer-events: none;
+}
+.swt-floating.swt-table-label.swt-visible {
+  display: block !important;
+}
+.swt-floating.swt-table-label.swt-inside {
+  border-radius: 0 0 0 5px;
+  opacity: 0.9;
+}
+
 /* The expand button of a cell whose text does not fit: opens its popup */
 .swt-expand {
   z-index: 52;

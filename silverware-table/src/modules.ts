@@ -25,6 +25,7 @@ import { Selection } from "./features/selection.ts";
 import { Sheet } from "./core/silverbullet/modules/sheet.ts";
 import { Sheets } from "./features/sheets.ts";
 import { Sticky } from "./core/silverbullet/modules/sticky.ts";
+import { TableLabels } from "./core/silverbullet/modules/labels.ts";
 import { Themes } from "./features/themes.ts";
 import { Widths } from "./features/widths.ts";
 
@@ -67,6 +68,8 @@ export function featureEntries(host: TableHost, metadata: Feature): readonly Fea
     optional("sheet", () => new Sheets(host)),
     // Its icon last in the toolbar, before the menu
     optional("fullScreen", () => new FullScreen(host)),
+    // After what moves tables (the held header, the sheet): placed by where they are then
+    optional("tableLabels", () => new TableLabels(host)),
     always(() => new Expressions(host)),
     always(() => new History(host)),
     always(() => new CellPopup(host)),
