@@ -67,6 +67,12 @@ describe("Excel's formulas", () => {
     expect(write('=MAXIFS([qty], [fruit], "p*")')).toBe('_xlfn.MAXIFS(B2:B3,A2:A3,"p*")');
   });
 
+  it("writes a named row as its cells' run, but from a cell in it (it leaves its own cell out)", () => {
+    const table = parseTable(`| Name | Jan | Total |\n|---|---|---|\n| Pear <meta core.n='pear'> | 4 | |\n| Fig | 1 | |`);
+    expect(excelFormula("=SUM(pear)", table, 1, 2)).toEqual({ text: "SUM(A2:C2)", array: false });
+    expect(excelFormula("=SUM(pear)", table, 0, 2)).toEqual({ reason: "pear is its own row, whose cell Excel cannot leave out" });
+  });
+
   it("says why a formula cannot be one in Excel", () => {
     expect(write("=prices!B2")).toEqual({ reason: "it refers to the table prices" });
     expect(write("=[[Prices]]vat")).toEqual({ reason: "it refers to vat on another page" });

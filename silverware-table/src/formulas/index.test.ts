@@ -869,9 +869,9 @@ describe("named cells", () => {
     expect(error("=vat", sourceOf([UNNAMED]))).toContain("vat is a cell of another table, which has no name: name that table");
     expect(error("=vat", sourceOf([RATES, UNNAMED]))).toBe("#NAME? vat is a cell of several tables (rates): write which, as rates!vat");
     expect(error("=[[Other]]vat", sourceOf([], [RATES]))).toBe("#NAME? vat is a cell of the table rates: write [[Other]]rates!vat");
-    expect(error("=tax", sourceOf([RATES]))).toBe("#NAME? there is no cell named tax in this table");
-    expect(error("=rates!tax", sourceOf([RATES]))).toBe("#NAME? there is no cell named tax in rates");
-    expect(error("=[[Other]]tax", sourceOf([], [RATES]))).toBe("#NAME? there is no cell named tax on Other");
+    expect(error("=tax", sourceOf([RATES]))).toBe("#NAME? there is no cell or row named tax in this table");
+    expect(error("=rates!tax", sourceOf([RATES]))).toBe("#NAME? there is no cell or row named tax in rates");
+    expect(error("=[[Other]]tax", sourceOf([], [RATES]))).toBe("#NAME? there is no cell or row named tax on Other");
   });
 
   it("writes another table's cell named bare, as before a name was its table's, as that table's: only where one named table has it", () => {
@@ -924,6 +924,23 @@ describe("named rows", () => {
     expect(formulaOf(recalculate(withFormula).rows[2]!.cells[2]!)!.value).toBe("8");
     expect(result("=prices!pear[price]+prices!FIG[price]")).toBe("15");
     expect(result("=[[Shop]]prices!fig[price]")).toBe("3");
+  });
+
+  it("is a range of the row's cells, bare: the formula's own cell left out, also by its table's name", () => {
+    const own = parseTable(`| Name | Jan | Feb | Total |\n|---|---|---|---|\n| Pear <meta core.n='pear'> | 4 | 5 | |\n| Fig | 1 | 2 | |\n| <meta core.table core.name='fruit'> |`);
+    const at = (row: number, formula: string) => setCell(own, row, 3, formulaCell("", formula));
+    // In its own row: the other cells only (the name's text is no number for SUM)
+    expect(formulaOf(recalculate(at(1, "=SUM(pear)")).rows[1]!.cells[3]!)!.value).toBe("9");
+    expect(formulaOf(recalculate(at(1, "=COUNTA(fruit!pear)")).rows[1]!.cells[3]!)!.value).toBe("3");
+    // From another row: all of it
+    expect(formulaOf(recalculate(at(2, "=MAX(pear)")).rows[2]!.cells[3]!)!.value).toBe("5");
+    // Where one value is asked for: as for a whole column
+    expect(formulaErrors(at(2, "=pear*2")).get("2,3")).toContain("#VALUE!");
+    // From another table
+    expect(result("=SUM(prices!pear)")).toBe("12");
+    // A cell's name goes before a row's
+    const both = setCell(setCell(own, 2, 1, `1 <meta core.cn='pear'>`), 2, 3, formulaCell("", "=pear+1"));
+    expect(formulaOf(recalculate(both).rows[2]!.cells[3]!)!.value).toBe("2");
   });
 
   it("says what is missing, and is not a named cell", () => {

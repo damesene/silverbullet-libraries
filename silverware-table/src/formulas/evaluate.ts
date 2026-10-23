@@ -253,27 +253,56 @@ class Sheet {
   }
 
   /**
-   * A named cell's value: of this table (vat), or of the table named before it
-   * (prices!vat). A bare name is this table's only, as a name is unique in its
-   * table only: one of another table is an error saying how to write it.
+   * A named cell's value, or a named row's cells as a range: of this table
+   * (vat, pear), or of the table named before it (prices!vat). A cell's name
+   * goes first. A row's range leaves out the cell of the formula (`row`,
+   * `column`, in this table), so a total beside a row's values counts them
+   * and not itself. A bare name is this table's only, as a name is unique in
+   * its table only: one of another table is an error saying how to write it.
    */
-  private named(node: Extract<Node, { kind: "named" }>): Value {
+  private named(node: Extract<Node, { kind: "named" }>, row: number, column: number): Value {
     if (node.table) {
       const sheet = this.sheetOf(node.table);
       if (isError(sheet)) return sheet;
-      return sheet.ownNamed(node.name, node.table.name);
+      return sheet === this ? this.ownNamed(node.name, node.table.name, { row, column }) : sheet.ownNamed(node.name, node.table.name);
     }
     if (node.page === undefined || node.page === this.page) {
       const own = this.cellNamed(node.name);
       if (own) return this.value(own.row, own.column);
+      const named = this.rowNamed(node.name);
+      if (named !== undefined) return this.rowValues(named, { row, column });
     }
     return new FormulaError("#NAME?", this.namedElsewhere(node.name, node.page));
   }
 
-  /** This table's cell named so, for a reference from another table (`table`: this one's name, as written there) */
-  ownNamed(name: string, table: string): Value {
+  /**
+   * This table's cell named so, or its row's cells, for a reference by the
+   * table's name (`table`: as written there); `from`: the formula's cell where
+   * it is this table's, left out of a row's range
+   */
+  ownNamed(name: string, table: string, from?: { row: number; column: number }): Value {
     const own = this.cellNamed(name);
-    return own ? this.value(own.row, own.column) : new FormulaError("#NAME?", `there is no cell named ${name} in ${table}`);
+    if (own) return this.value(own.row, own.column);
+    const named = this.rowNamed(name);
+    return named !== undefined ? this.rowValues(named, from) : new FormulaError("#NAME?", `there is no cell or row named ${name} in ${table}`);
+  }
+
+  /** A body row's (from 0) values as a range, but the cell `except` (the formula's own) */
+  private rowValues(row: number, except?: { row: number; column: number }): Value {
+    const values: Scalar[] = [];
+    for (let c = 0; c < this.columns; c++) {
+      if (except && except.row === row && except.column === c) continue;
+      values.push(this.value(row, c));
+    }
+    return values;
+  }
+
+  /** The body row (from 0) of this table named so (ignoring case), if any */
+  private rowNamed(name: string): number | undefined {
+    this.rowNames ??= rowsByName(this.book.cells, this.table);
+    const found = this.rowNames.get(name.toLowerCase());
+    // rowsByName counts the header as row 0, the body starts at 0 here
+    return found === undefined ? undefined : found - 1;
   }
 
   /** Why a bare name is not found: no such cell, or how to write the one of another table */
@@ -284,7 +313,7 @@ class Sheet {
     const others = this.book
       .cellsNamed(name, page ?? this.page)
       .filter((cell) => cell.row > 0 && cell.table !== this.table && !(page === undefined && own && cell.tableName?.trim().toLowerCase() === own));
-    if (others.length === 0) return `there is no cell named ${name} ${page === undefined ? "in this table" : `on ${page}`}`;
+    if (others.length === 0) return `there is no cell or row named ${name} ${page === undefined ? "in this table" : `on ${page}`}`;
     const names = others.map((cell) => cell.tableName?.trim() || undefined);
     if (others.length > 1) {
       const named = names.filter((n): n is string => !!n);
@@ -328,7 +357,7 @@ class Sheet {
         return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
       }
       case "named":
-        return this.named(node);
+        return this.named(node, row, column);
       case "rowCell": {
         const sheet = this.sheetOf(node.table);
         if (isError(sheet)) return sheet;

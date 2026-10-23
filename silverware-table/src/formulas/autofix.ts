@@ -1,7 +1,7 @@
 // Fixing a formula typed with a common slip (a missing ")"), saying what was
 // fixed; and names of cells written as before they were their table's.
 import type { Table } from "../markdown.ts";
-import { cellsByName, type FormulaCells } from "./cell.ts";
+import { cellsByName, type FormulaCells, rowsByName } from "./cell.ts";
 import type { TableSource } from "./evaluate.ts";
 import { parse } from "./parser.ts";
 import { namedReferences } from "./references.ts";
@@ -80,7 +80,8 @@ export function autofixFormula(formula: string): FormulaFix {
  * says why).
  */
 export function qualifyCellNames(formula: string, own: { readonly table: Table; readonly name?: string }, tables: TableSource, cells: FormulaCells): FormulaFix {
-  const ownNames = cellsByName(cells, own.table);
+  // Its own cells' and rows' names: bare, they are its own
+  const ownNames = new Set([...cellsByName(cells, own.table).keys(), ...rowsByName(cells, own.table).keys()]);
   const ownName = own.name?.trim().toLowerCase();
   let fixed = formula;
   const fixes: string[] = [];

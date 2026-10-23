@@ -97,8 +97,12 @@ export function excelFormula(formula: string, { table, name, cells }: ExcelTable
         }
         if (node.page !== undefined) throw new NotInExcel(`it refers to ${node.name} on another page`);
         const found = cellsByName(cells, table).get(node.name.toLowerCase());
-        if (!found) throw new NotInExcel(`${node.name} is not a cell of this table`);
-        return { text: excelCell(found.row - 1, found.column), range: false };
+        if (found) return { text: excelCell(found.row - 1, found.column), range: false };
+        // A row's cells: one run in Excel, unless the formula is in it (it leaves its own cell out)
+        const named = rowsByName(cells, table).get(node.name.toLowerCase());
+        if (named === undefined) throw new NotInExcel(`${node.name} is not a cell or row of this table`);
+        if (named - 1 === row) throw new NotInExcel(`${node.name} is its own row, whose cell Excel cannot leave out`);
+        return { text: `${excelCell(named - 1, 0)}:${excelCell(named - 1, headers.length - 1)}`, range: true };
       }
       case "rowCell": {
         if (node.table) throw new NotInExcel(`it refers to the table ${node.table.name}`);
