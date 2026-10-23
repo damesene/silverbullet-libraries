@@ -28,7 +28,7 @@
 // SilverBullet's navigation. Formulas of the board's tables read in the
 // sheet's addresses (addressFrame): a reference is to a record, so sorting a
 // table changes the address shown, not the value.
-import { CELL_MENU_ORDER, type AdapterFeature, type AddressFrame, type CellArea, type CellEditor, type CellMenuGroup, type CellRef, type RenderedEditor, type TableHost, type TableInfo, type ToolbarButton, type WidgetInfo, type WriteResult } from "../../feature.ts";
+import { CELL_MENU_ORDER, type AdapterFeature, type AddressFrame, type AlsoChanged, type CellArea, type CellEditor, type CellMenuGroup, type CellRef, type RenderedEditor, type TableHost, type TableInfo, type ToolbarButton, type WidgetInfo, type WriteResult } from "../../feature.ts";
 import { oncePerFrame } from "../../frame.ts";
 import { claimWindow, releaseWindow } from "../../overwindow.ts";
 import { DRAWN_CLASS, STAND_IN_CLASS, UI_CLASS } from "../../../dom.ts";
@@ -920,14 +920,8 @@ export class Sheet implements AdapterFeature {
     if (from && sheetTables(text).filter((t) => sameSheet(t.sheet, from)).length === 1) {
       if (!(await this.host.ask(`Move this table here from the sheet ${from}? It is that sheet's only table: the sheet goes with it.`))) return;
     }
-    const alone = board.sheet ? undefined : ranges[keys.indexOf(board.alone)];
-    const sheet = board.sheet ?? freeSheetName(text);
-    const aloneName = alone && (metaName(parseTable(alone.text)) ?? freeName(text));
-    const name = metaName(model) ?? freeName(text, aloneName ? [aloneName] : []);
-    const also = alone && {
-      target: { key: board.alone, source: alone.text, hint: alone.from },
-      change: (t: Table) => withMeta(withMeta(withMetaName(t, aloneName!), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, "A1"),
-    };
+    const { sheet, taken, also } = this.sheetFor(board, text);
+    const name = metaName(model) ?? freeName(text, taken);
     const result = await this.host.writeTable(
       { key, source: range.text, hint: range.from },
       (t) => withMeta(withMeta(withMetaName(t, name), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, formatAt(at)),
@@ -935,11 +929,7 @@ export class Sheet implements AdapterFeature {
     );
     if (result !== "written" || this.board !== board) return;
     this.unselect();
-    if (also) {
-      // The board is the sheet's from now on: its tables, the new one too, as the page has them
-      board.sheet = sheet;
-      void this.host.bridge.flash(`Silverware Table: the table and the one added are on the sheet ${sheet} now (Ctrl+Z undoes it)`, "info");
-    }
+    this.becameSheet(board, sheet, also, "the one added");
     this.queueRefresh();
   }
 
@@ -1397,26 +1387,46 @@ export class Sheet implements AdapterFeature {
   private async insertNew(text: string, made: Table, at: SheetCell, key: TableKey | undefined): Promise<"written" | "unchanged" | "failed"> {
     const board = this.board;
     if (!board) return "failed";
-    // A table alone: put on a sheet with it, at A1, named (a formula refers to another table by its name)
     const keys = this.host.tableKeys(this.host.currentPage, text);
-    const alone = board.sheet ? undefined : findTables(text)[keys.indexOf(board.alone)];
-    const sheet = board.sheet ?? freeSheetName(text);
-    const aloneName = alone && (metaName(parseTable(alone.text)) ?? freeName(text));
     const ranges = findTables(text);
     const last = ranges[ranges.length - 1];
     if (!last) return "failed";
-    const table = withMeta(withMeta(withMetaName(made, freeName(text, aloneName ? [aloneName] : [])), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, formatAt(at));
-    const also = alone && {
-      target: { key: board.alone, source: alone.text, hint: alone.from },
-      change: (t: Table) => withMeta(withMeta(withMetaName(t, aloneName!), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, "A1"),
-    };
+    const { sheet, taken, also } = this.sheetFor(board, text);
+    const table = withMeta(withMeta(withMetaName(made, freeName(text, taken)), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, formatAt(at));
     const result = await this.host.insertTable(table, { key: keys[last.ordinal]!, source: last.text, hint: last.from }, also, key);
-    if (result === "written" && also && this.board === board) {
-      // The board is the sheet's from now on: its tables, the new one too, as the page has them
-      board.sheet = sheet;
-      void this.host.bridge.flash(`Silverware Table: the table and the new one are on the sheet ${sheet} now (Ctrl+Z undoes it)`, "info");
-    }
+    if (result === "written") this.becameSheet(board, sheet, also, "the new one");
     return result;
+  }
+
+  /**
+   * The sheet a table joins on the board: the board's, or (a table alone's
+   * board) a new one, the table alone put on it at A1, named, in the same
+   * edit (`also`: a formula refers to another table by its name); `taken`:
+   * the name given to it, which the joining table cannot have
+   */
+  private sheetFor(board: Board, text: string): { sheet: string; taken: string[]; also: AlsoChanged | undefined } {
+    if (board.sheet) return { sheet: board.sheet, taken: [], also: undefined };
+    const keys = this.host.tableKeys(this.host.currentPage, text);
+    const alone = findTables(text)[keys.indexOf(board.alone)];
+    const sheet = freeSheetName(text);
+    if (!alone) return { sheet, taken: [], also: undefined };
+    const name = metaName(parseTable(alone.text)) ?? freeName(text);
+    return {
+      sheet,
+      taken: [name],
+      also: {
+        target: { key: board.alone, source: alone.text, hint: alone.from },
+        change: (t: Table) => withMeta(withMeta(withMetaName(t, name), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, "A1"),
+      },
+    };
+  }
+
+  /** A table alone's board written to be a sheet (sheetFor's `also`): the sheet's from now on, said so */
+  private becameSheet(board: Board, sheet: string, also: AlsoChanged | undefined, joined: string): void {
+    if (!also || this.board !== board) return;
+    // Its tables, the one joining too, as the page has them
+    board.sheet = sheet;
+    void this.host.bridge.flash(`Silverware Table: the table and ${joined} are on the sheet ${sheet} now (Ctrl+Z undoes it)`, "info");
   }
 
   /**

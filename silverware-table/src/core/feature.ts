@@ -388,6 +388,9 @@ export type ToolbarButton = {
   readonly choices?: { readonly title: string; readonly entries: () => readonly MenuEntry[] };
 };
 
+/** Another table a write changes in the same edit: where it is, and how */
+export type AlsoChanged = { readonly target: TableTarget; readonly change: (table: Table) => Table };
+
 export type WriteOptions = {
   // The cell to edit once the table is rendered again
   readonly focus?: FocusTarget;
@@ -404,7 +407,7 @@ export type WriteOptions = {
   // than being inserted: what lies past them need only make room where they reach it (a sheet's other tables)
   readonly claims?: boolean;
   // Another table changed in the same edit (a table alone put on the sheet another table joins)
-  readonly also?: { readonly target: TableTarget; readonly change: (table: Table) => Table };
+  readonly also?: AlsoChanged;
 };
 
 /**
@@ -492,7 +495,7 @@ export interface ModelHost {
    * table's, made before it is written (newTableKey), for what the caller
    * keeps for it meanwhile. No other table's key changes, wherever it goes.
    */
-  insertTable(table: Table, after?: TableTarget, also?: { readonly target: TableTarget; readonly change: (table: Table) => Table }, key?: TableKey): Promise<WriteResult>;
+  insertTable(table: Table, after?: TableTarget, also?: AlsoChanged, key?: TableKey): Promise<WriteResult>;
   /**
    * Deletes a table from the page in one edit, as Delete table in its ⋯ menu
    * does; `unasked`: no question, unless something goes with it (formulas

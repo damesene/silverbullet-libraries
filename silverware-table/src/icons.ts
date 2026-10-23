@@ -29,8 +29,9 @@ export const ICONS = {
   fullScreen: svg('<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>'),
   exitFullScreen: svg('<path d="M9 4v5H4M15 4v5h5M15 20v-5h5M9 20v-5H4"/>'),
   sheet: svg('<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>'),
-  // A table: its header row and a column's line (the table's name in the toolbar, full screen)
+  // A pencil: what names (a menu's title, a sheet's row)
   rename: svg('<path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/>'),
+  // A table: its header row and a column's line (the table's name in the toolbar, full screen)
   table: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14.5h18M10 9v11"/>'),
   rowAbove: svg('<rect x="3" y="13" width="18" height="7" rx="1"/><path d="M12 3v7M8.5 6.5h7"/>'),
   rowBelow: svg('<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 14v7M8.5 17.5h7"/>'),

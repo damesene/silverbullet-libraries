@@ -4,6 +4,7 @@
 // keyboard (arrows, Home/End, Enter). The core's: modules give its entries
 // (src/menu.ts) and get it through TableHost.floatingMenu.
 import { el, pressed, type ElementChild, type ElementProps } from "../elements.ts";
+import { ICONS } from "../icons.ts";
 import type { MenuBack, MenuDetail, MenuEntry, MenuNaming } from "../menu.ts";
 
 /** A press in a menu keeps the focus where it is (on its button, in the page), but in its field (a name typed) */
@@ -209,7 +210,7 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
     // Left and right go along a row of buttons too
     const inRow =
       index >= 0 &&
-      ["swt-segment", "swt-action", "swt-menu-name-icon", "swt-menu-name-button"].some((c) => buttons[index]!.classList.contains(c));
+      ["swt-segment", "swt-action"].some((c) => buttons[index]!.classList.contains(c));
     if (e.key === "ArrowDown" || (e.key === "ArrowRight" && inRow)) {
       e.preventDefault();
       focus(index + 1);
@@ -234,7 +235,7 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
 function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, naming: MenuNaming): void {
   const pencil = el(doc, "button", {
     class: "swt-menu-rename",
-    html: PENCIL,
+    html: ICONS.rename,
     title: naming.disabled ? `${naming.label}: ${naming.disabled}` : naming.label,
     attrs: { "aria-label": naming.label, "aria-disabled": naming.disabled ? "true" : undefined },
   });
@@ -311,9 +312,6 @@ let problemIds = 0;
 const CLOSE =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
-// A pencil: what names
-const PENCIL =
-  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg>';
 
 /**
  * Focuses the menu itself: arrow keys then reach its entries, none looks
