@@ -106,6 +106,54 @@ moving the tables around it, a new table from typing far from the others),
 then step 4 (selection, copying, AutoFill, filters, sorting, widths, pins
 within a table on the sheet). Review, fixes, click-through, merge.
 
+## Phase 4: a table's identity and state kept by the core (branch `table-state`)
+
+Agreed with the user on 2026-10-23. Modules do not know how a table is told
+apart: today they key their state by `info.key` (`Page#n`, the table's place
+among the page's tables), build keys themselves (the sheet, lazy saving,
+Remove metadata) and ask `tableFor(key)`. A write that changes the order of
+the page's tables (deleting one, inserting one among others) would hand their
+state to the wrong tables. What a module needs is "the same table": its own
+state for it across renderings, the table as it is now after a wait, whether
+two are the same. The core gives exactly that and keeps how it tells tables
+apart to itself:
+
+- per-table state of a module, the same object for the same table across
+  renderings, dropped with the table (`tableState`);
+- the table as it is now from any earlier `TableInfo` (`current`), and
+  `sameTable`;
+- the core's register of the page's tables (`core/tables.ts`): an identity per
+  table for the session, kept through the core's own writes that change their
+  order; a table's place in the page text asked of it, never computed by a
+  module (the sheet).
+
+No change in behaviour; then review, fixes, merge.
+
+## Phase 5: Delete table, and moving tables on the sheet (branch after phase 4)
+
+Agreed with the user on 2026-10-23:
+
+- *Delete table* in every table's ⋯ menu (a danger item), confirmed every
+  time (what is lost: its rows, formulas elsewhere that refer to it); one
+  edit, so Ctrl+Z restores it; the tables referring to it recalculated in the
+  same edit; on a sheet, its widths handed to the next table, the sheet ended
+  with its last table.
+- Moving a table on the sheet changes its `at` only (one edit; its place in
+  the page, its formulas unchanged: the sheet's addresses follow through the
+  frame). Three ways to one move: a handle at the table's top left corner
+  (where the row and column grips meet; for a mouse on hover, after a touch
+  when a cell of it is selected; dragged: the table's outline snapped to the
+  grid with the target's address, red where it would overlap; a tap or click
+  selects the whole table); *Move table…* in the ⋯ menu and the cell menu (the
+  next press or tap places its top left corner, as *Move to…*); a selection of
+  the whole table dragged by its edge. Not through a new hook: the
+  `AddressFrame` the sheet gives gets the table's place in the grid, whether
+  a place is free and the move, which the selection module and the sheet's
+  own handle both use; the rules in `sheet/layout.ts`.
+- Rules: overlapping another table is refused (no table pushed aside); never
+  past A1.
+- Review, tests (a Playwright scenario each), merge.
+
 ## Later (not in these phases)
 
 Large tables on the sheet, touch on a phone, the live renderer
@@ -248,3 +296,13 @@ other pages on a sheet.
   on the sheet, not tried on purpose (only that pins scroll with the sheet).
   Then *Later* above. Known: commit 929a04b is marked `!` though it breaks
   nothing a space has.
+- 2026-10-23, after phase 3: Silverware Table's own elements made with one
+  helper (`el` in `elements.ts`; VanJS weighed and set aside). On the sheet: a
+  cell's text in the middle of its row (the zero-width space keeping an empty
+  row tall made a line of its own above the content's block); the controls of
+  the table under the pointer hidden when the sheet or full screen opens or
+  closes (`hideControls` through `claimWindow`/`releaseWindow`), a covered
+  table's quiet + hidden (`underWindow`). Open, not reproduced: in the user's
+  playground a light bar flickers over the top of a sheet's table and its
+  left edge, the table looking shifted into the letters and numbers.
+  Next: phase 4, then phase 5.
