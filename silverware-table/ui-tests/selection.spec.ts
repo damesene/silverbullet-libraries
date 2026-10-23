@@ -10,6 +10,17 @@ test.describe("Selecting cells", () => {
     await expect(page.locator(".swt-selected")).toHaveCount(8);
   });
 
+  test("Ctrl held over cells selected shows the move cursor, as in a cell editor; let go, the pointer is as before", async ({ page }) => {
+    await cell(page, 1, 1).click();
+    await expect(page.locator(".swt-selected")).toHaveCount(1);
+    await cell(page, 2, 1).hover();
+    await page.keyboard.down("Control");
+    await expect(cell(page, 2, 1)).toHaveClass(/swt-navigating-here/);
+    expect(await cell(page, 2, 1).evaluate((c) => getComputedStyle(c).cursor)).toBe("move");
+    await page.keyboard.up("Control");
+    await expect(cell(page, 2, 1)).not.toHaveClass(/swt-navigating-here/);
+  });
+
   test("copied cells are outlined until Esc", async ({ page }) => {
     await drag(page, cell(page, 1, 1), cell(page, 3, 2));
     await page.keyboard.press("Control+c");

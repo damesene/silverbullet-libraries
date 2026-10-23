@@ -1976,6 +1976,13 @@ export class Controller implements TableHost {
     this.anchor.drop();
     // Esc during a drag that Esc cancels is the drag's (its own listener)
     if (e.key === "Escape" && this.escapableDrags > 0) return;
+    // Ctrl held over cells selected (select mode), not in a field: Ctrl+arrows move the selection as they move a cell
+    // editor, so the move cursor shows as it does there (Ctrl let go, the window left: no more)
+    const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    if (e.key === "Control" && !inField && !this.cellEditor.active && this.shownTables().some((info) => this.selectedCells(info).length > 0)) {
+      this.navigating = true;
+      this.markNavigating();
+    }
     // A name typed in a menu's title: its keys are the field's (Esc leaves the name, not the menu)
     if (e.target instanceof HTMLInputElement && e.target.closest(".swt-menu")) return;
     if (e.key === "Escape" && this.tableMenu.kind) {
