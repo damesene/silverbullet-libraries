@@ -926,14 +926,15 @@ describe("named rows", () => {
     expect(result("=[[Shop]]prices!fig[price]")).toBe("3");
   });
 
-  it("is a range of the row's cells, bare: the formula's own cell left out, also by its table's name", () => {
+  it("is a range of the row's cells, bare: from another row, also by its table's name; from its own, a cycle", () => {
     const own = parseTable(`| Name | Jan | Feb | Total |\n|---|---|---|---|\n| Pear <meta core.n='pear'> | 4 | 5 | |\n| Fig | 1 | 2 | |\n| <meta core.table core.name='fruit'> |`);
     const at = (row: number, formula: string) => setCell(own, row, 3, formulaCell("", formula));
-    // In its own row: the other cells only (the name's text is no number for SUM)
-    expect(formulaOf(recalculate(at(1, "=SUM(pear)")).rows[1]!.cells[3]!)!.value).toBe("9");
-    expect(formulaOf(recalculate(at(1, "=COUNTA(fruit!pear)")).rows[1]!.cells[3]!)!.value).toBe("3");
-    // From another row: all of it
+    // From another row: all of it (the name's text is no number for SUM)
+    expect(formulaOf(recalculate(at(2, "=SUM(pear)")).rows[2]!.cells[3]!)!.value).toBe("9");
+    expect(formulaOf(recalculate(at(2, "=COUNTA(fruit!pear)")).rows[2]!.cells[3]!)!.value).toBe("3");
     expect(formulaOf(recalculate(at(2, "=MAX(pear)")).rows[2]!.cells[3]!)!.value).toBe("5");
+    // In its own row: the formula is in the range
+    expect(formulaErrors(at(1, "=SUM(pear)")).get("1,3")).toContain("#CYCLE!");
     // Where one value is asked for: as for a whole column
     expect(formulaErrors(at(2, "=pear*2")).get("2,3")).toContain("#VALUE!");
     // From another table

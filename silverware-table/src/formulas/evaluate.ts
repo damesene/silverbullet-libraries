@@ -255,45 +255,38 @@ class Sheet {
   /**
    * A named cell's value, or a named row's cells as a range: of this table
    * (vat, pear), or of the table named before it (prices!vat). A cell's name
-   * goes first. A row's range leaves out the cell of the formula (`row`,
-   * `column`, in this table), so a total beside a row's values counts them
-   * and not itself. A bare name is this table's only, as a name is unique in
-   * its table only: one of another table is an error saying how to write it.
+   * goes first. A row's range is all of its cells: from a cell of that row,
+   * the formula is in it, #CYCLE! (a total of a row goes in another row). A
+   * bare name is this table's only, as a name is unique in its table only:
+   * one of another table is an error saying how to write it.
    */
-  private named(node: Extract<Node, { kind: "named" }>, row: number, column: number): Value {
+  private named(node: Extract<Node, { kind: "named" }>): Value {
     if (node.table) {
       const sheet = this.sheetOf(node.table);
       if (isError(sheet)) return sheet;
-      return sheet === this ? this.ownNamed(node.name, node.table.name, { row, column }) : sheet.ownNamed(node.name, node.table.name);
+      return sheet.ownNamed(node.name, node.table.name);
     }
     if (node.page === undefined || node.page === this.page) {
       const own = this.cellNamed(node.name);
       if (own) return this.value(own.row, own.column);
       const named = this.rowNamed(node.name);
-      if (named !== undefined) return this.rowValues(named, { row, column });
+      if (named !== undefined) return this.rowValues(named);
     }
     return new FormulaError("#NAME?", this.namedElsewhere(node.name, node.page));
   }
 
-  /**
-   * This table's cell named so, or its row's cells, for a reference by the
-   * table's name (`table`: as written there); `from`: the formula's cell where
-   * it is this table's, left out of a row's range
-   */
-  ownNamed(name: string, table: string, from?: { row: number; column: number }): Value {
+  /** This table's cell named so, or its row's cells, for a reference by the table's name (`table`: as written there) */
+  ownNamed(name: string, table: string): Value {
     const own = this.cellNamed(name);
     if (own) return this.value(own.row, own.column);
     const named = this.rowNamed(name);
-    return named !== undefined ? this.rowValues(named, from) : new FormulaError("#NAME?", `there is no cell or row named ${name} in ${table}`);
+    return named !== undefined ? this.rowValues(named) : new FormulaError("#NAME?", `there is no cell or row named ${name} in ${table}`);
   }
 
-  /** A body row's (from 0) values as a range, but the cell `except` (the formula's own) */
-  private rowValues(row: number, except?: { row: number; column: number }): Value {
+  /** A body row's (from 0) values as a range */
+  private rowValues(row: number): Value {
     const values: Scalar[] = [];
-    for (let c = 0; c < this.columns; c++) {
-      if (except && except.row === row && except.column === c) continue;
-      values.push(this.value(row, c));
-    }
+    for (let c = 0; c < this.columns; c++) values.push(this.value(row, c));
     return values;
   }
 
@@ -357,7 +350,7 @@ class Sheet {
         return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
       }
       case "named":
-        return this.named(node, row, column);
+        return this.named(node);
       case "rowCell": {
         const sheet = this.sheetOf(node.table);
         if (isError(sheet)) return sheet;
