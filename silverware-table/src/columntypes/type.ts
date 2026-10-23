@@ -2,7 +2,8 @@
 export type Choice = { readonly value: string; readonly label: string };
 
 /** What a typed cell shows: text, or a link */
-export type Shown = string | { readonly text: string; readonly href: string };
+/** What a cell shows: a text, a link, or a meter (a bar filled to `meter`, from 0 to 1, `text` in a box over it) */
+export type Shown = string | { readonly text: string; readonly href: string } | { readonly text: string; readonly meter: number };
 
 /**
  * A parameter a type takes, written after its name and a dash (#stars-10).

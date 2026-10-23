@@ -592,7 +592,7 @@ Then `| Outside #temp |` and `| Oven #temp-f |` show their cells so, the *Type* 
   * `params`, the parameters written after the dash, one after another separated by dashes (the last takes the rest: `#unit-m-s`). Each is `{ kind: "number", integer, min, max, default }`, `{ kind: "choice", values: [...], default }` (any case) or `{ kind: "text", pattern, default }`. Silverware Table reads them from the hashtag: the type gets their values (a number as a number, a choice as listed, a parameter not written as its default, or `undefined`). A hashtag whose parameters do not fit is an ordinary hashtag;
   * `aliases`: other hashtags that mean the type, with its parameters as written after the dash: `{ fahrenheit: "f" }`;
   * `check(text, params)`: why a cell's text is not a value of the type (it shows in red, with the reason on hover), or nothing when it is one. Empty cells are not checked. None: every text is one;
-  * `format(text, params, locale)`: what a valid cell shows, a text or a link `{ text, href }`; `locale` is the browser's language. None: the text as written;
+  * `format(text, params, locale)`: what a valid cell shows, a text, a link `{ text, href }`, or a meter `{ text, meter }` (a bar filled to `meter`, from 0 to 1, the text in a box over it, as `#progress` shows); `locale` is the browser's language. None: the text as written;
   * `sortValue(text, params)`: what sorting and filters compare instead of the text, e.g. `1` and `0` for yes and no;
   * `choices(params)`: the values the cell editor offers, texts or `{ value, label }`.
 * A type with a built-in type's name replaces it (its aliases too). Its own name comes before another type's alias, and its aliases before the built-in types' ones; of two types of one name, the last defined counts.
@@ -2196,6 +2196,39 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+/* A meter (#progress, or a custom type's { text, meter }): a bar filled to its share in the accent color; its text
+   (the percentage) in a small box over the middle, in the page's own colors, so it reads whatever the theme, its type
+   smaller than the bar is high */
+.swt-meter {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 8em;
+  max-width: 100%;
+  height: 1.3em;
+  vertical-align: middle;
+  overflow: hidden;
+  border-radius: 0.3em;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.swt-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ui-accent-color);
+}
+.swt-meter-text {
+  position: relative;
+  padding: 0 0.4em;
+  font-size: 0.7em;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--root-color, #222);
+  background: var(--root-background-color, #fff);
+  border-radius: 0.25em;
 }
 /* The expand button of a cell whose text does not fit: opens its popup */
 .swt-expand {

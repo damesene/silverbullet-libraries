@@ -56,6 +56,23 @@ function takeBack(cell: HTMLTableCellElement): void {
 /** The node a display shows */
 function displayNode(doc: Document, display: CellDisplay): Node {
   if (typeof display === "string") return doc.createTextNode(display);
+  if ("meter" in display) {
+    const share = Math.min(1, Math.max(0, display.meter));
+    const meter = doc.createElement("span");
+    meter.className = "swt-meter";
+    meter.setAttribute("role", "meter");
+    meter.setAttribute("aria-valuemin", "0");
+    meter.setAttribute("aria-valuemax", "1");
+    meter.setAttribute("aria-valuenow", String(share));
+    const fill = doc.createElement("span");
+    fill.className = "swt-meter-fill";
+    fill.style.width = `${share * 100}%`;
+    const label = doc.createElement("span");
+    label.className = "swt-meter-text";
+    label.textContent = display.text;
+    meter.append(fill, label);
+    return meter;
+  }
   const link = doc.createElement("a");
   link.href = display.href;
   link.target = "_blank";

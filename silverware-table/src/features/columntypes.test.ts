@@ -27,6 +27,14 @@ describe("Column types", () => {
     "",
   ].join("\n");
 
+  it("shows a #progress cell as a bar filled to its share, the percentage in a box over it", async () => {
+    await setup("| Task | Done #progress |\n|---|---|\n| A | 30 |\n");
+    const meter = cell(1, 1).querySelector<HTMLElement>(".swt-meter")!;
+    expect(meter.getAttribute("role")).toBe("meter");
+    expect(meter.querySelector<HTMLElement>(".swt-meter-fill")!.style.width).toBe("30%");
+    expect(meter.querySelector(".swt-meter-text")!.textContent).toMatch(/^30\s?%$/);
+  });
+
   it("shows cells as their column's type, hiding the type's hashtag", async () => {
     await setup(PAGE);
     expect([cell(1, 1).textContent, cell(1, 2).textContent, cell(1, 3).textContent]).toEqual([usd(12.99), "★★★★☆", "☑"]);

@@ -88,7 +88,10 @@ function customType(definition: unknown): ColumnType | string {
       if (typeof shown === "string") return shown;
       if (typeof shown === "number") return String(shown);
       if (isObject(shown) && typeof shown.text === "string" && typeof shown.href === "string") return { text: shown.text, href: shown.href };
-      throw new Error(`format returned ${kindOf(shown)}: it gives a text, or a link { text, href }`);
+      if (isObject(shown) && typeof shown.text === "string" && typeof shown.meter === "number" && Number.isFinite(shown.meter)) {
+        return { text: shown.text, meter: Math.min(1, Math.max(0, shown.meter)) };
+      }
+      throw new Error(`format returned ${kindOf(shown)}: it gives a text, a link { text, href } or a meter { text, meter } (meter from 0 to 1)`);
     },
     ...(sortValue
       ? {

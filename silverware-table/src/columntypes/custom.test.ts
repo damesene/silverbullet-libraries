@@ -66,7 +66,8 @@ describe("custom column types", () => {
       {
         name: "odd",
         check: (text: string) => (text === "list" ? ["no"] : undefined),
-        format: (text: string) => (text === "promise" ? Promise.resolve("x") : text === "num" ? 42 : { text: "a", href: "https://a" }),
+        format: (text: string) =>
+          text === "promise" ? Promise.resolve("x") : text === "num" ? 42 : text === "meter" ? { text: "half", meter: 1.5 } : { text: "a", href: "https://a" },
         sortValue: () => ({}),
         choices: () => ["a", { value: "b", label: "B" }],
       },
@@ -75,6 +76,8 @@ describe("custom column types", () => {
     expect(() => type.format("promise", {})).toThrow("format returned a promise");
     expect(type.format("num", {})).toBe("42");
     expect(type.format("x", {})).toEqual({ text: "a", href: "https://a" });
+    // A meter: its share kept from 0 to 1
+    expect(type.format("meter", {})).toEqual({ text: "half", meter: 1 });
     expect(() => type.sortValue!("x", {})).toThrow("sortValue returned an object");
     expect(type.choices!({})).toEqual([
       { value: "a", label: "a" },

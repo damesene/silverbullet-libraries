@@ -82,8 +82,12 @@ export type AddressFrame = {
   selectCell(at: CellRef): void;
 };
 
-/** What a cell shows in place of what its markdown renders to: a text, or a link (opened in a new tab) */
-export type CellDisplay = string | { readonly text: string; readonly href: string };
+/**
+ * What a cell shows in place of what its markdown renders to: a text, a link
+ * (opened in a new tab), or a meter (a bar filled to `meter`, from 0 to 1, its
+ * `text` in a box over it, readable whatever the theme)
+ */
+export type CellDisplay = string | { readonly text: string; readonly href: string } | { readonly text: string; readonly meter: number };
 
 /**
  * How a feature wants a cell to look (Feature.looks), in model terms: the

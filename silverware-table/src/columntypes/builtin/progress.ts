@@ -13,9 +13,9 @@ export default columnType({
     const n = numberOf(text);
     return n !== undefined && n >= 0 && n <= max ? undefined : `"${text}" is not a number from 0 to ${max}`;
   },
+  // A bar filled to the share, the percentage in a box over it
   format: (text, { max }, locale) => {
     const share = numberOf(text)! / max;
-    const filled = Math.round(share * 10);
-    return `${"█".repeat(filled)}${"░".repeat(10 - filled)} ${formatNumber(share, locale, { style: "percent" })}`;
+    return { meter: share, text: formatNumber(share, locale, { style: "percent" }) };
   },
 });
