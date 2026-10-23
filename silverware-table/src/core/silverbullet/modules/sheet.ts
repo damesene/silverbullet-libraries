@@ -5,13 +5,15 @@
 // tables, each at its place on one grid; a table on no sheet shows alone, at
 // A1. Around them empty cells in every direction, as many as the window shows
 // and more as it scrolls on, the columns' letters above, the rows' numbers
-// beside. A value typed into an empty cell right of a table (in its rows) or
-// below it (in its columns), up to the next table, grows that table to hold it
-// in one edit (TableHost.editBeyond), the tables beyond moved as far as it
-// reaches into them (sheet/layout.ts, in the sheets module's write); a value
-// typed elsewhere makes a table of its own there (header *Column 1* above it,
-// named, on the sheet: TableHost.insertTable, after the page's last table, so
-// no other table's key moves), a formula as text until its table exists.
+// beside. A value typed into the empty cell right next to a table (in its
+// rows) or right under it (in its columns) grows that table by that column or
+// row, as a spreadsheet's table grows, in one edit (TableHost.editBeyond), the
+// tables beyond moved as far as it reaches into them (sheet/layout.ts, in the
+// sheets module's write); a value typed elsewhere makes a table of its own
+// there (header *Column 1* above it, named, on the sheet: TableHost.insertTable,
+// after the page's last table, so no other table's key moves), a formula as
+// text until its table exists. A table alone's sheet view becomes a sheet so
+// (`Sheet1`, the table at A1 and named, in the same edit).
 // The same icon or Esc closes it.
 //
 // The tables are drawn by the module itself from the markdown (drawn.ts, their
@@ -32,9 +34,9 @@ import { claimWindow, releaseWindow } from "../../overwindow.ts";
 import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
 import { columnLetters, isFormulaInput } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
-import { escapeCell, findTables, parseTable, type TableRange } from "../../../markdown.ts";
+import { escapeCell, findTables, parseTable, type Table, type TableRange } from "../../../markdown.ts";
 import { metaName, sameTableName, withMeta, withMetaName } from "../../../meta.ts";
-import { AT_ATTRIBUTE, formatAt, freeName, parseAt, SHEET_ATTRIBUTE, SHEET_WIDTH_PREFIX, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { AT_ATTRIBUTE, formatAt, freeName, freeSheetName, parseAt, SHEET_ATTRIBUTE, SHEET_WIDTH_PREFIX, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
 import { roomFor } from "../../../sheet/layout.ts";
 import { growTo } from "../../structure.ts";
 import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
@@ -70,7 +72,8 @@ type Placed = {
 
 /** The board shown: which sheet (none: the table `alone`, by its key), its tables, its box */
 type Board = {
-  readonly sheet: string | undefined;
+  // (A table alone's board becomes its sheet's once a table is made beside it)
+  sheet: string | undefined;
   readonly alone: string;
   readonly box: HTMLElement;
   readonly content: HTMLElement;
@@ -632,23 +635,23 @@ export class Sheet implements AdapterFeature {
   }
 
   /**
-   * The tables an empty cell can grow, nearest first, with the cell in each:
-   * the nearest table left of it in its row (the cell in that table's rows)
-   * and the nearest above it in its column (in its columns); of the two the
-   * one fewer cells away, the left one where they are as far
+   * The tables an empty cell can grow, with the cell in each: the table whose
+   * last column it is right next to (in that table's rows), the one whose last
+   * row it is right under (in its columns), the left one first; a cell
+   * farther from a table makes a table of its own (editNew)
    */
   private ownersOf(at: SheetCell): { key: string; info: WidgetInfo; cell: CellRef }[] {
     const board = this.board;
     if (!board) return [];
     const tables = [...board.tables.values()].map((placed) => ({ placed, box: this.extent(placed) }));
     const owners: { key: string; info: WidgetInfo; cell: CellRef; gap: number }[] = [];
-    const left = tables.filter(({ box }) => at.row >= box.top && at.row <= box.bottom && at.column > box.right).sort((a, b) => b.box.right - a.box.right)[0];
+    const left = tables.find(({ box }) => at.row >= box.top && at.row <= box.bottom && at.column === box.right + 1);
     const leftInfo = left && this.infoOfKey(left.placed.key);
     if (left && leftInfo) {
       const order = this.shownOrder(leftInfo);
       owners.push({ key: left.placed.key, info: leftInfo, cell: { row: order[at.row - left.box.top]!, column: at.column - left.box.left }, gap: at.column - left.box.right });
     }
-    const above = tables.filter(({ box }) => at.column >= box.left && at.column <= box.right && at.row > box.bottom).sort((a, b) => b.box.bottom - a.box.bottom)[0];
+    const above = tables.find(({ box }) => at.column >= box.left && at.column <= box.right && at.row === box.bottom + 1);
     const aboveInfo = above && this.infoOfKey(above.placed.key);
     if (above && aboveInfo) {
       const cell = { row: aboveInfo.rows + (at.row - above.box.bottom - 1), column: at.column - above.box.left };
@@ -770,10 +773,6 @@ export class Sheet implements AdapterFeature {
   private editNew(at: SheetCell): void {
     const board = this.board;
     if (!board) return;
-    if (!board.sheet) {
-      void this.host.bridge.flash("Silverware Table: put the table on a sheet first (Add to sheet… in its ⋯ menu) to make other tables beside it", "info");
-      return;
-    }
     if (!this.host.metadataEnabled) {
       void this.host.bridge.flash("Silverware Table: a table on a sheet is kept in its metadata: turn on Store table metadata in the settings first", "info");
       return;
@@ -814,8 +813,13 @@ export class Sheet implements AdapterFeature {
    */
   private async writeNew(at: SheetCell, typed: string): Promise<"written" | "unchanged" | "failed"> {
     const board = this.board;
-    if (!board?.sheet) return "failed";
+    if (!board) return "failed";
     const text = await this.host.bridge.getText();
+    // A table alone: put on a sheet with it, at A1, named (a formula refers to another table by its name)
+    const page = this.host.currentPage;
+    const alone = board.sheet ? undefined : findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
+    const sheet = board.sheet ?? freeSheetName(text);
+    const aloneName = alone && (metaName(parseTable(alone.text)) ?? freeName(text));
     const ranges = findTables(text);
     const last = ranges[ranges.length - 1];
     if (!last) return "failed";
@@ -828,8 +832,18 @@ export class Sheet implements AdapterFeature {
       );
     }
     let table = parseTable(`| Column 1 |\n|---|\n| ${escapeCell(value)} |`);
-    table = withMeta(withMeta(withMetaName(table, freeName(text)), SHEET_ATTRIBUTE, board.sheet), AT_ATTRIBUTE, formatAt({ row: Math.max(0, at.row - 1), column: at.column }));
-    return this.host.insertTable(table, { key: `${this.host.currentPage}#${last.ordinal}`, source: last.text, hint: last.from });
+    table = withMeta(withMeta(withMetaName(table, freeName(text, aloneName ? [aloneName] : [])), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, formatAt({ row: Math.max(0, at.row - 1), column: at.column }));
+    const also = alone && {
+      target: { key: board.alone, source: alone.text, hint: alone.from },
+      change: (t: Table) => withMeta(withMeta(withMetaName(t, aloneName!), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, "A1"),
+    };
+    const result = await this.host.insertTable(table, { key: `${page}#${last.ordinal}`, source: last.text, hint: last.from }, also);
+    if (result === "written" && also && this.board === board) {
+      // The board is the sheet's from now on: its tables, the new one too, as the page has them
+      board.sheet = sheet;
+      void this.host.bridge.flash(`Silverware Table: the table and the new one are on the sheet ${sheet} now (Ctrl+Z undoes it)`, "info");
+    }
+    return result;
   }
 
   /** The module's td over an empty cell (the one selected or edited), where that cell is now */

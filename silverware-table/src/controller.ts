@@ -1937,26 +1937,35 @@ export class Controller implements TableHost {
     return info && info.source === target.source ? this.writeAt(info, widget, change, options) : this.writeAt(target, undefined, change, options);
   }
 
-  async insertTable(table: Table, after?: TableTarget): Promise<WriteResult> {
+  async insertTable(table: Table, after?: TableTarget, also?: { readonly target: TableTarget; readonly change: (table: Table) => Table }): Promise<WriteResult> {
     try {
       const text = await this.bridge.getText();
       const range = after && locateBySource(text, after.hint, after.source);
+      const changed = also && locateBySource(text, also.target.hint, also.target.source);
+      if (also && !changed) {
+        void this.bridge.flash(NOT_SAVED, "error");
+        return "failed";
+      }
       const at = range ? range.to : text.length;
       const format = await this.setting("autoFormat");
-      const markdown = serializeTable(format ? { ...table, padded: true } : table);
+      const serialize = (t: Table) => serializeTable(format ? { ...t, padded: true } : t);
       // An empty line before it, and after it where text follows
-      const insert = `${at > 0 ? "\n\n" : ""}${markdown}${text.slice(at).startsWith("\n") || at === text.length ? "" : "\n\n"}`;
-      const replace = { from: at, to: at, insert };
+      const insert = `${at > 0 ? "\n\n" : ""}${serialize(table)}${text.slice(at).startsWith("\n") || at === text.length ? "" : "\n\n"}`;
+      const updates = [{ from: at, to: at, text: insert }, ...(changed ? [{ from: changed.from, to: changed.to, text: serialize(also!.change(parseTable(changed.text))) }] : [])];
+      let written = text;
+      for (const update of [...updates].sort((a, b) => b.from - a.from)) written = written.slice(0, update.from) + update.text + written.slice(update.to);
+      const replace = minimalEdit(text, written);
       const thens: ((editFrom: number, lengthChange: number) => void)[] = [];
-      // The span the features see: the table it goes after (the history marker goes outside it, so outside both)
-      const spanFrom = range ? range.from : at;
+      // The span the features see: the tables written and the one it goes after (the history marker goes outside them)
+      const spanFrom = Math.min(range ? range.from : at, ...(changed ? [changed.from] : []));
+      const spanTo = Math.max(at, ...(changed ? [changed.to] : []));
       for (const feature of this.features) {
-        const then = await feature.beforeWrite?.(text, spanFrom, at, replace);
+        const then = await feature.beforeWrite?.(text, spanFrom, spanTo, replace);
         if (then) thens.push(then);
       }
-      await this.bridge.replaceRange(at, at, insert);
-      this.pageText = text.slice(0, at) + insert + text.slice(at);
-      for (const then of thens) then(at, insert.length);
+      await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
+      this.pageText = written;
+      for (const then of thens) then(replace.from, written.length - text.length);
       return "written";
     } catch (e) {
       console.error("Silverware Table: could not write the table", e);

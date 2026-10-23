@@ -52,7 +52,7 @@ test.describe("Sheet view", () => {
     await expect(sheetTable(page)).toHaveClass(/swt-sheet/);
   });
 
-  test("a value typed two rows below the table adds those rows, one left empty adds nothing", async ({ page }) => {
+  test("one left empty adds nothing; a value two rows under the table makes a table of its own, the table alone made a sheet with it", async ({ page }) => {
     await openSheet(page);
     const before = await markdown(page);
     const empty = await emptyCell(page, { below: 0, column: 0 });
@@ -69,29 +69,31 @@ test.describe("Sheet view", () => {
     await page.keyboard.press("Escape");
     await expect(page.locator(".swt-sheet-cell")).toHaveCount(0);
     expect(await markdown(page)).toBe(before);
+    // Two rows under the table (not right under it, as a spreadsheet's table grows): a table of its own
     const point = await emptyCell(page, { below: 1, column: 0 });
     await page.mouse.click(point.x, point.y);
     await page.keyboard.type("Plum");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
-    // An empty row, then Plum's, after the last one
-    const lines = (await markdown(page)).split("\n");
-    const last = lines.findIndex((line) => line.startsWith("| Šípek"));
-    expect(lines[last + 1]).toMatch(/^[| ]+$/);
-    expect(lines[last + 2]).toMatch(/^\| Plum +\|/);
+    await expect(page.locator("#flash > div", { hasText: "on the sheet Sheet1 now" })).toBeVisible();
+    const text = await markdown(page);
+    // The table on the sheet Sheet1 at A1, named; the new one at A8 (the table takes rows 1 to 7), in the same edit
+    expect(text).toMatch(/\| Šípek .*\|\n\| <meta name='table1' sheet='Sheet1' at='A1'> \|/);
+    expect(text).toMatch(/\| Column 1 +\|\n\| -+ \|\n\| Plum +\|\n\| <meta name='table2' sheet='Sheet1' at='A8'> \|/);
+    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table")).toHaveCount(2);
   });
 
   test("a click elsewhere: on a table's cell selects it, on another empty cell selects that one, an edit saved first", async ({ page }) => {
     await openSheet(page);
-    const first = await emptyCell(page, { right: 1, row: 2 });
+    const first = await emptyCell(page, { right: 0, row: 2 });
     await page.mouse.click(first.x, first.y);
     await page.mouse.click(first.x, first.y);
     await page.keyboard.type("a");
-    // Another empty cell: the edit is saved (the table grows), that cell selected
-    const second = await emptyCell(page, { below: 2, column: 1 });
+    // Another empty cell (right under the table): the edit is saved (the table grows by a column), that cell selected
+    const second = await emptyCell(page, { below: 0, column: 1 });
     await sheetRendersAnew(page, () => page.mouse.click(second.x, second.y));
     await expect(page.locator(".swt-sheet-cell")).toBeVisible();
     await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
-    expect(await markdown(page)).toMatch(/\| Column 5 \| Column 6 \|/);
+    expect(await markdown(page)).toMatch(/\| Origin +\| Column 5 +\|/);
     // A table's cell: selected, the empty cell no longer
     await sheetCell(page, 1, 1).click();
     await expect(sheetTable(page).locator(".swt-selected")).toHaveCount(1);
@@ -350,14 +352,15 @@ test.describe("Sheet view", () => {
     expect(await markdown(page)).toContain("<meta sheet='Plan' at='B4'>");
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
-    // A5: the first table grown to row 5 reaches into the second (B4:C5) by 2 rows: it moves down 2, in the same edit
-    await page.mouse.click(x, first.y + 4 * rowHeight + rowHeight / 2);
+    // A4, right under it again: the first table grown to row 4 reaches into the second (B4:C5) by a row: it moves down one,
+    // in the same edit
+    await page.mouse.click(x, first.y + 3 * rowHeight + rowHeight / 2);
     await page.keyboard.type("Kiwi");
     await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
     const text = await markdown(page);
-    expect(text).toMatch(/\| Fig +\| +\|\n\| +\| +\|\n\| Kiwi +\| +\|/);
-    expect(text).toContain("<meta sheet='Plan' at='B6'>");
-    await expect.poll(async () => Math.round(((await drawn.nth(1).boundingBox())!.y - first.y) / rowHeight)).toBe(5);
+    expect(text).toMatch(/\| Fig +\| +\|\n\| Kiwi +\| +\|/);
+    expect(text).toContain("<meta sheet='Plan' at='B5'>");
+    await expect.poll(async () => Math.round(((await drawn.nth(1).boundingBox())!.y - first.y) / rowHeight)).toBe(4);
   });
 
   test("a row added to a table with Tab moves the tables under it down by one, those beside it stay", async ({ page }) => {
@@ -618,18 +621,44 @@ test.describe("Sheet view", () => {
     await expect(drawn.nth(0).locator("tr[data-swt-row='1'] > td").nth(1)).toHaveClass(/swt-selected/);
   });
 
-  test("a value typed far from a table on no sheet makes nothing, says why, and reaches no page", async ({ page }) => {
+  test("far from a table on no sheet without the metadata setting: nothing made, said why, the keys reach no page", async ({ page }) => {
+    // The setting off (the playground's settings, as its dialog keeps them)
+    await page.evaluate(() => {
+      const store = JSON.parse(localStorage.getItem("silverwarePlayground.settings") ?? "{}");
+      localStorage.setItem("silverwarePlayground.settings", JSON.stringify({ ...store, "silverware.table.metadata": false }));
+    });
+    await page.reload();
     await openSheet(page);
     const before = await markdown(page);
     const box = (await sheetTable(page).locator("table").boundingBox())!;
-    // Far below and right of the table alone
     await page.mouse.click(box.x + box.width + 250, box.y + box.height + 200);
     await page.keyboard.type("lost");
-    await expect(page.locator("#flash > div", { hasText: "put the table on a sheet first" })).toBeVisible();
+    await expect(page.locator("#flash > div", { hasText: "Store table metadata" })).toBeVisible();
     // What is typed goes nowhere: not into the page under the board, which keeps the focus
     await page.waitForTimeout(200);
     expect(await markdown(page)).toBe(before);
     await expect(page.locator(".swt-sheet-board")).toBeFocused();
+  });
+
+  test("cells pasted into a far cell go into no table (the one its editor belongs to, past its end, either)", async ({ page }) => {
+    await openSheet(page);
+    const before = await markdown(page);
+    const box = (await sheetTable(page).locator("table").boundingBox())!;
+    await page.mouse.click(box.x + box.width + 250, box.y + box.height + 200);
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    await page.keyboard.press("Control+v");
+    const field = page.locator(".swt-sheet-cell .swt-cell-editor");
+    await expect(field).toBeFocused();
+    await field.evaluate((input) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "x\ty\n1\t2");
+      input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await page.waitForTimeout(300);
+    // Left to the field (text): nothing written into the table
+    expect(await markdown(page)).toBe(before);
+    await expect(field).toBeFocused();
   });
 
   test("AutoFill on the sheet: the fill handle in a cell's corner can be dragged", async ({ page }) => {
@@ -746,7 +775,7 @@ test.describe("Sheet view", () => {
     await page.locator(".swt-menu.swt-visible").getByText("Filter: = Fig").first().click();
     await expect(drawn.nth(0).locator("tbody tr:visible")).toHaveCount(1);
     await expect(drawn.nth(1).locator("tbody tr:visible")).toHaveCount(2);
-    expect((await drawn.nth(1).boundingBox())!.y).toBe(bTop);
+    await expect.poll(async () => (await drawn.nth(1).boundingBox())!.y).toBe(bTop);
   });
 
   test("a row pinned to the bottom stays last on the sheet, sorted or not", async ({ page }) => {

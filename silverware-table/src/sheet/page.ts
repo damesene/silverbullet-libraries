@@ -111,10 +111,18 @@ export function placeBelow(tables: readonly SheetTable[]): SheetCell {
   return { row: bottom < 0 ? 0 : bottom + 2, column: 0 };
 }
 
-/** A name no table of the page has: table1, table2, … (what a table put on a sheet is offered, a new one gets) */
-export function freeName(text: string): string {
-  const names = findTables(text).map((range) => metaName(parseTable(range.text))?.toLowerCase());
+/** A name no table of the page has (nor one of `taken`): table1, table2, … (what a table put on a sheet is offered, a new one gets) */
+export function freeName(text: string, taken: readonly string[] = []): string {
+  const names = [...findTables(text).map((range) => metaName(parseTable(range.text))?.toLowerCase()), ...taken.map((name) => name.toLowerCase())];
   let n = 1;
   while (names.includes(`table${n}`)) n++;
   return `table${n}`;
+}
+
+/** A name no sheet of the page has: Sheet1, Sheet2, … (a table alone's sheet view made a sheet) */
+export function freeSheetName(text: string): string {
+  const names = sheetsOf(sheetTables(text)).map((sheet) => sheet.name);
+  let n = 1;
+  while (names.some((name) => sameSheet(name, `Sheet${n}`))) n++;
+  return `Sheet${n}`;
 }
