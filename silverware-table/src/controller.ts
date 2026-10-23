@@ -790,6 +790,8 @@ export class Controller implements TableHost {
       // that one stands for it (each write would lay both out), only the features told (it follows the page);
       // shown as itself once the drawn one is gone (windowChanged)
       if (!widget.classList.contains(DRAWN_CLASS) && this.drawnFor(info.key)) {
+        // (The ones rendered anew since are gone: not kept, with their rows, until the board ends)
+        for (const old of this.covered) if (!old.isConnected) this.covered.delete(old);
         this.covered.add(widget);
         for (const feature of this.features) feature.enhanced?.(info);
         return;
@@ -2003,7 +2005,7 @@ export class Controller implements TableHost {
     // Ctrl held over cells selected (select mode), not in a field: Ctrl+arrows move the selection as they move a cell
     // editor, so the move cursor shows as it does there (Ctrl let go, the window left: no more)
     const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
-    if (e.key === "Control" && !inField && !this.cellEditor.active && this.shownTables().some((info) => this.selectedCells(info).length > 0)) {
+    if (e.key === "Control" && !e.repeat && !inField && !this.cellEditor.active && this.shownTables().some((info) => this.selectedCells(info).length > 0)) {
       this.navigating = true;
       this.markNavigating();
     }
