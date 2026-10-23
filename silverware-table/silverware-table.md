@@ -3985,6 +3985,8 @@ body.swt-move-picking .sb-table-widget.swt-table td {
   border: 1px solid var(--swt-line, rgba(127, 127, 127, 0.45));
   border-radius: 4px;
   cursor: move;
+  /* A finger's drag is the handle's, not a scroll of the board */
+  touch-action: none;
 }
 .swt-floating.swt-sheet-grab:hover {
   color: var(--ui-accent-color, #3b6fd4);

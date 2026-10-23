@@ -63,9 +63,11 @@ export type AddressFrame = {
   previewColumnWidth(column: number, width: number | undefined): void;
   /** That width stored (undefined: automatic), for every table in the grid's column */
   setColumnWidth(column: number, width: number | undefined): Promise<void>;
+  /** Whether the frame moves the table (moveTo); a frame that does not refuses every place */
+  readonly movable: boolean;
   /** Where the table lies in the frame: its header's first cell (row and column as the frame counts them, from 0) */
   readonly origin: CellRef;
-  /** The frame's cell at a point of the window (the grid past the tables too), if the point is on the grid */
+  /** The frame's cell at a point of the window (the grid past the tables too), the point kept on the grid (left of it: its first column; above it: its first row) */
   cellAt(point: { readonly x: number; readonly y: number }): CellRef | undefined;
   /** Why the table cannot lie with its header's first cell at `at` (another table there); undefined: it can */
   placeProblem(at: CellRef): string | undefined;
@@ -813,9 +815,11 @@ export interface Feature {
   stop?(): void;
   /**
    * Something holds the pointer: a drag (the hover controls stay where they
-   * are), or an open menu (they stay in its table, cells hovered there still reported)
+   * are), an open menu (they stay in its table, cells hovered there still
+   * reported), or a feature picking a place with the next press (Move table…:
+   * keys go to it first, so Esc ends that and nothing else)
    */
-  pointerBusy?(): "drag" | "menu" | undefined;
+  pointerBusy?(): "drag" | "menu" | "pick" | undefined;
   /** The same in model terms: the cell of the table the pointer is over */
   hovered?(info: TableInfo, ref: CellRef): void;
   /**

@@ -972,6 +972,24 @@ describe("Delete table", () => {
     expect(edits - before).toBe(1);
   });
 
+  it("leaves the editor's cursor out of the table after it, also at the page's start", async () => {
+    const selections: number[] = [];
+    const extras = { setSelection: (from: number) => void selections.push(from) };
+    const a = "| A |\n|---|\n| 1 |\n";
+    const b = "| B |\n|---|\n| 2 |\n";
+    await setup(`Intro\n\n${a}\n${b}`, {}, extras);
+    answer(true);
+    tableMenuItem(/^Delete table$/)!.click();
+    await vi.waitFor(() => expect(text).toBe(`Intro\n\n${b}`));
+    expect(selections.at(-1)!).toBeLessThan(text.indexOf("| B |"));
+    // First on the page: one line break stays before the next table, the cursor on it
+    await setup(`${a}\n${b}`, {}, extras);
+    answer(true);
+    tableMenuItem(/^Delete table$/)!.click();
+    await vi.waitFor(() => expect(text).toBe(`\n${b}`));
+    expect(selections.at(-1)!).toBe(0);
+  });
+
   it("is the last item of the ⋯ menu, a danger one", async () => {
     await setup(PAGE);
     const item = tableMenuItem(/^Delete table$/)!;

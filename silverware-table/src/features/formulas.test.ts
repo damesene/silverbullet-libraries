@@ -1138,6 +1138,7 @@ describe("Formulas when a table they refer to is deleted", () => {
     expect(questions).toEqual([
       "Delete the table prices (1 row) from the page? The formulas of the table costs that refer to it show #REF!. Ctrl+Z brings it back.",
     ]);
-    expect(text).toBe("| Double |\n|---|\n| #REF! <meta f='=prices!B1*2'> |\n| <meta name='costs'> |\n");
+    // (At the page's start a line break stays, for the editor's cursor)
+    expect(text).toBe("\n| Double |\n|---|\n| #REF! <meta f='=prices!B1*2'> |\n| <meta name='costs'> |\n");
   });
 });

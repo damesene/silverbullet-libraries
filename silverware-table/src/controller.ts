@@ -42,6 +42,7 @@ import {
 import { ICONS } from "./icons.ts";
 import {
   cellSourceOffset,
+  findTables,
   locateBySource,
   locateByShape,
   locateWithEmptyHeaders,
@@ -516,7 +517,8 @@ export class Controller implements TableHost {
       for (const feature of this.features) await feature.prepareWrite?.(info);
       const text = await this.bridge.getText();
       this.pageText = text;
-      const range = locateBySource(text, info.hint, info.source);
+      // By its key (not its source as last shown: an edit saved just before may not be rendered yet)
+      const range = findTables(text)[this.register.keysOf(this.currentPage, text).indexOf(info.key)];
       if (!range) {
         void this.bridge.flash(NOT_SAVED.replace(", nothing was saved", ", nothing was deleted"), "error");
         return "failed";
@@ -540,18 +542,22 @@ export class Controller implements TableHost {
       let from = range.from;
       let to = range.to;
       const next = /^[ \t]*(\r?\n)+/.exec(text.slice(to))?.[0] ?? "";
-      if (to + next.length < text.length) to += next.length;
+      // At the page's start one line break stays: the editor's cursor goes there, not into what follows (a table)
+      if (to + next.length < text.length) to += from === 0 && next.length ? next.length - (next.endsWith("\r\n") ? 2 : 1) : next.length;
       else {
         to = text.length;
         const previous = /(\r?\n)+$/.exec(text.slice(0, from))?.[0] ?? "";
-        from -= Math.max(0, previous.length - 1);
+        from -= Math.max(0, previous.length - (previous.endsWith("\r\n") ? 2 : 1));
       }
       const updates = [{ from, to, markdown: "" }, ...[...others.values()].map((o) => ({ from: o.range.from, to: o.range.to, markdown: serialize(o.table) }))];
       let written = text;
       for (const update of [...updates].sort((a, b) => b.from - a.from)) written = written.slice(0, update.from) + update.markdown + written.slice(update.to);
       const replace = minimalEdit(text, written);
-      const spanFrom = Math.min(...updates.map((u) => u.from));
-      const spanTo = Math.max(...updates.map((u) => u.to));
+      // The span the features see: the tables written, the deleted one's own (not the blank line after it: what is
+      // placed after it, the history marker, would be in the next table)
+      const spans = [{ from: range.from, to: range.to }, ...[...others.values()].map((o) => o.range)];
+      const spanFrom = Math.min(...spans.map((s) => s.from));
+      const spanTo = Math.max(...spans.map((s) => s.to));
       const after: ((editFrom: number, lengthChange: number) => void)[] = [];
       for (const feature of this.features) {
         const then = await feature.beforeWrite?.(text, spanFrom, spanTo, replace);
@@ -1172,7 +1178,26 @@ export class Controller implements TableHost {
   }
 
   drag(start: MouseEvent | PointerEvent, options: DragOptions): () => void {
-    return followDrag(this.dragContext, start, options);
+    if (!options.escape) return followDrag(this.dragContext, start, options);
+    // A drag Esc cancels (its own listener): meanwhile Esc goes to no feature (a selection cleared, a board closed)
+    this.escapableDrags++;
+    let over = false;
+    const done = () => {
+      if (over) return;
+      over = true;
+      this.escapableDrags--;
+    };
+    const stop = followDrag(this.dragContext, start, {
+      ...options,
+      onEnd: (at, cancelled) => {
+        done();
+        options.onEnd(at, cancelled);
+      },
+    });
+    return () => {
+      done();
+      stop();
+    };
   }
 
   pageMark(mark: string, on: boolean): void {
@@ -1898,6 +1923,8 @@ export class Controller implements TableHost {
     if (this.settingsDialog?.isOpen && e.target instanceof Node && this.settingsDialog.contains(e.target)) return;
     // Keys may scroll (PageDown, a cell editor moving to the next cell): a table written is not held in place against them
     this.anchor.drop();
+    // Esc during a drag that Esc cancels is the drag's (its own listener)
+    if (e.key === "Escape" && this.escapableDrags > 0) return;
     // A name typed in a menu's title: its keys are the field's (Esc leaves the name, not the menu)
     if (e.target instanceof HTMLInputElement && e.target.closest(".swt-menu")) return;
     if (e.key === "Escape" && this.tableMenu.kind) {
@@ -1909,13 +1936,19 @@ export class Controller implements TableHost {
     // A menu's keys are its own (arrows go along it, Enter runs a button): not the selection's under it; Esc closes a feature's menu
     if (e.key !== "Escape" && e.target instanceof Element && e.target.closest(".swt-menu")) return;
     if (this.cellMenuKey(e)) return;
-    for (const feature of this.features) if (feature.keyDown?.(e)) return;
+    // A feature picking a place with the next press (Move table…) has the keys first
+    const picking = this.features.find((f) => f.pointerBusy?.() === "pick");
+    if (picking?.keyDown?.(e)) return;
+    for (const feature of this.features) if (feature !== picking && feature.keyDown?.(e)) return;
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
     if (e.key === "Control") this.cellEditor.setNavigating(false);
     if (e.key === "Shift") this.holdShift(false);
   };
+
+  // Drags going on that Esc cancels (host.drag with `escape`)
+  private escapableDrags = 0;
 
   // Where a hovering pointer was last
   private lastPointer: PointerAt | undefined;
@@ -2216,7 +2249,7 @@ export class Controller implements TableHost {
   }
 
   /** What holds the pointer, if anything (Feature.pointerBusy): a drag, a menu open */
-  private pointerBusy(): "drag" | "menu" | undefined {
+  private pointerBusy(): "drag" | "menu" | "pick" | undefined {
     return this.features.map((f) => f.pointerBusy?.()).find(Boolean);
   }
 

@@ -54,7 +54,7 @@ export type InsertContext = {
   readonly hoverAt: (widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement | undefined) => void;
   readonly pointer: () => PointerAt | undefined;
   /** Something holds the pointer (Feature.pointerBusy) */
-  readonly busy: () => "drag" | "menu" | undefined;
+  readonly busy: () => "drag" | "menu" | "pick" | undefined;
   /** The toolbar's or a cell's menu is open */
   readonly menuOpen: () => boolean;
   readonly floatingButton: (className: string, title: string, icon: string) => HTMLButtonElement;

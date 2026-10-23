@@ -609,8 +609,9 @@ export class Sheet implements AdapterFeature {
         this.queuePlace();
       },
       setColumnWidth: (column, width) => this.setColumnWidth(board, mine.at.column + column, width),
+      movable: !!board.sheet,
       origin: mine.at,
-      cellAt: (point) => this.cellAtPoint(point.x, point.y),
+      cellAt: (point) => this.cellNear(point.x, point.y),
       placeProblem: (at) => this.placeProblemOf(info.key, at),
       previewPlace: (at) => this.previewPlace(info.key, at),
       moveTo: (at) => this.moveTable(info.key, at),
@@ -626,10 +627,11 @@ export class Sheet implements AdapterFeature {
     if (!board || !placed) return undefined;
     if (!board.sheet) return "the table is on no sheet: put it on one first (the sheet's name in its ⋯ menu)";
     if (at.row < 0 || at.column < 0) return "the sheet starts at A1";
+    // By its rows in the markdown, not as shown: a filter's hidden rows keep their room
     const laidOut = [...board.tables.values()].map((p) => {
-      const e = this.extent(p);
-      const name = metaName(parseTable(p.range.text));
-      return { id: p.range.from, at: p.at, rows: e.bottom - e.top + 1, columns: e.right - e.left + 1, ...(name ? { name } : {}) };
+      const model = parseTable(p.range.text);
+      const name = metaName(model);
+      return { id: p.range.from, at: p.at, rows: model.rows.length, columns: model.align.length, ...(name ? { name } : {}) };
     });
     const problem = placeProblem(laidOut, placed.range.from, at);
     return problem && `${problem} is there`;
@@ -650,14 +652,14 @@ export class Sheet implements AdapterFeature {
       board.content.append(preview);
       this.preview = preview;
     }
-    const e = this.extent(placed);
+    const model = parseTable(placed.range.text);
     const left = this.leftOf(at.column);
     const problem = this.placeProblemOf(key, at);
     Object.assign(preview.style, {
       left: `${left}px`,
       top: `${at.row * grid.rowHeight}px`,
-      width: `${this.leftOf(at.column + e.right - e.left + 1) - left}px`,
-      height: `${(e.bottom - e.top + 1) * grid.rowHeight}px`,
+      width: `${this.leftOf(at.column + model.align.length) - left}px`,
+      height: `${model.rows.length * grid.rowHeight}px`,
     });
     preview.classList.toggle("swt-invalid", !!problem);
     preview.firstElementChild!.textContent = problem ? `${formatAt(at)}: ${problem}` : formatAt(at);
@@ -705,8 +707,19 @@ export class Sheet implements AdapterFeature {
       return;
     }
     const rect = table.getBoundingClientRect();
+    const box = this.board!.box.getBoundingClientRect();
+    // Its corner scrolled out of the board's view (past the letters' and numbers' room): none
+    if (rect.left < box.left + NUMBERS_ROOM - 1 || rect.top < box.top + LETTERS_ROOM - 1 || rect.left > box.right || rect.top > box.bottom) {
+      this.grab.classList.remove("swt-visible");
+      return;
+    }
     const size = this.grab.offsetWidth || 18;
     this.host.place(this.grab, rect.left - size - 2, rect.top - size - 2);
+  }
+
+  /** A drag of the handle, a place being picked: the hover controls stay, Esc is this module's first */
+  pointerBusy(): "drag" | "pick" | undefined {
+    return this.dragging ? "drag" : this.picking ? "pick" : undefined;
   }
 
   cellHovered(_widget: HTMLElement, info: WidgetInfo): void {

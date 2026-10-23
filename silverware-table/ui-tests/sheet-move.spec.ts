@@ -76,6 +76,35 @@ test.describe("Moving a table on the sheet", () => {
     await expect.poll(() => markdown(page)).toContain("<meta name='a' sheet='Plan' at='A3'>");
   });
 
+  test("Esc while the handle is dragged cancels the drag only: the sheet stays, the table where it was", async ({ page }) => {
+    const rowHeight = await openPlan(page);
+    await drawn(page, "Pear").locator("tr[data-swt-row='1'] > td").first().hover();
+    const from = await center(grab(page));
+    await drag(page, grab(page), { x: from.x, y: from.y + 3 * rowHeight }, { release: false });
+    await expect(preview(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(preview(page)).toHaveCount(0);
+    await page.mouse.up();
+    await expect(page.locator(".swt-sheet-board")).toHaveCount(1);
+    expect(await markdown(page)).toContain("<meta name='a' sheet='Plan' at='A1'>");
+  });
+
+  test("Move table… from a cell's menu: one Esc ends it, the cell staying selected", async ({ page }) => {
+    const rowHeight = await openPlan(page);
+    const first = drawn(page, "Pear").locator("tr[data-swt-row='1'] > td").first();
+    await first.click({ button: "right" });
+    await page.locator(".swt-menu .swt-menu-item", { hasText: "Move table…" }).click();
+    const f6 = await sheetPoint(page, "F", 6, rowHeight);
+    await page.mouse.move(f6.x, f6.y);
+    await expect(preview(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(preview(page)).toHaveCount(0);
+    await expect(drawn(page, "Pear").locator(".swt-selected")).toHaveCount(1);
+    // Ended: a click on the sheet moves nothing
+    await page.mouse.click(f6.x, f6.y);
+    expect(await markdown(page)).toContain("<meta name='a' sheet='Plan' at='A1'>");
+  });
+
   test("Move table… in the ⋯ menu: the next click on the sheet places its top left corner; Esc cancels", async ({ page }) => {
     const rowHeight = await openPlan(page);
     const pick = async () => {

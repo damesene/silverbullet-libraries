@@ -768,7 +768,7 @@ export class Selection implements Feature {
     if (!area || area.left !== 0 || area.right !== area.info.columns - 1) return undefined;
     if (area.rows.length !== this.host.shownOrder(area.info).length) return undefined;
     const frame = this.host.addressFrame(area.info);
-    return frame && { info: area.info, frame };
+    return frame?.movable ? { info: area.info, frame } : undefined;
   }
 
   /**
