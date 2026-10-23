@@ -1,5 +1,5 @@
 // A formula's tokens: numbers, text, names, [columns], operators, tables.
-import { CELL_RE } from "../names.ts";
+import { CELL_RE } from "../namerules.ts";
 import { FormulaError } from "./values.ts";
 
 export type Token =

@@ -35,10 +35,8 @@ import {
   columnRefText,
   cycleFixed,
   filledFormula,
-  type CellNameAt,
   type FormulaCells,
   formulaCount,
-  type RowName,
   formulaErrors,
   formulaHelp,
   type Fixed,
@@ -77,12 +75,10 @@ import { el } from "../elements.ts";
 import { ICONS } from "../icons.ts";
 import { escapeCell, locateBySource, type OtherPages, type PageTable, pageTablesOf, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
-import { metaName, sameTableName } from "../meta.ts";
-import { cellNameOf, rowNameIn } from "../names.ts";
+import { sameTableName } from "../namerules.ts";
 import { insertColumn, setCell } from "../ops.ts";
 import { insertColumnAt } from "../pins.ts";
 import { cellTags, withoutTags } from "../tags.ts";
-import { tagValue, withTagValue } from "../tagvalues.ts";
 import type { TableKey } from "../core/feature.ts";
 
 // New formulas are stored in the table (a <meta f> tag), as other metadata
@@ -193,17 +189,21 @@ export class Formulas implements Feature {
   private noRange: { readonly editor: CellEditor; readonly text: string } | undefined;
 
   // The cells as the formulas read and write them (a formula's tag, the names of rows and cells): what the domain is given
-  private readonly cells: FormulaCells = formulaCellsOf({ get: tagValue, with: withTagValue });
+  private readonly cells: FormulaCells;
 
   constructor(private readonly host: ModelHost) {
     this.formulaHint = host.panel("swt-formula-hint");
     this.functions = new FunctionDialog(host);
+    this.cells = formulaCellsOf(
+      { get: (cell, key) => host.getCellTag(cell, key), with: (cell, key, value) => host.withCellTag(cell, key, value) },
+      { rowNames: (table) => host.rowNames(table), cellNames: (table) => host.cellNames(table) },
+    );
     host.offer({ cells: this.cells } satisfies FormulasOffer);
   }
 
   /** A table's name, by which formulas refer to it */
   private nameOf(table: Table): string | undefined {
-    return metaName(table);
+    return this.host.tableName(table);
   }
 
   /** The page's tables with their names, as the domain takes them */
@@ -1246,7 +1246,7 @@ export type CellTagAccess = {
 };
 
 /** The cells as the formulas read and write them: a formula in the tag `f`, the names of rows and cells as given */
-export function formulaCellsOf(tags: CellTagAccess, names: Pick<FormulaCells, "rowNames" | "cellNames"> = { rowNames, cellNames }): FormulaCells {
+export function formulaCellsOf(tags: CellTagAccess, names: Pick<FormulaCells, "rowNames" | "cellNames">): FormulaCells {
   return {
     formulaOf: (cell) => {
       const formula = tags.get(cell, "f")?.trim();
@@ -1258,24 +1258,4 @@ export function formulaCellsOf(tags: CellTagAccess, names: Pick<FormulaCells, "r
     withoutFormula: (cell) => tags.with(cell, "f", undefined),
     ...names,
   };
-}
-
-/** A table's named rows, as names.ts reads them */
-function rowNames(table: Table): RowName[] {
-  return table.rows.flatMap((r, row) => {
-    const name = row === 0 ? undefined : rowNameIn(r.cells)?.name;
-    return name ? [{ name, row }] : [];
-  });
-}
-
-/** A table's named body cells, as names.ts reads them */
-function cellNames(table: Table): CellNameAt[] {
-  return table.rows.flatMap((r, row) =>
-    row === 0
-      ? []
-      : r.cells.flatMap((cell, column) => {
-          const name = cellNameOf(cell);
-          return name ? [{ name, row, column }] : [];
-        }),
-  );
 }

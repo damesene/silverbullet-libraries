@@ -9,25 +9,18 @@
 // it out of the column's key in its index (verified), so queries see the
 // header as before.
 import { metaAttribute, type Table, unescapeMetaValue } from "./markdown.ts";
+import { cellTagName } from "./metanames.ts";
 import { setCell } from "./ops.ts";
 
-// A tag of names only: n and cn, in any order (a formula's <meta f> is another tag)
-const NAMES_TAG_RE = /\s*<meta((?:\s+c?n\s*=\s*(?:"[^"]*"|'[^']*'))+)\s*\/?>/gi;
-const NAMES_ATTRIBUTE_RE = /(c?n)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+// The names' attributes: the core's (meta.ts makes their names)
+export const LINE_NAME = cellTagName("core", "n");
+export const CELL_NAME = cellTagName("core", "cn");
 
-// A cell's A1 name in formulas: column letters, then the row from 1
-export const CELL_RE = /^([A-Za-z]{1,3})([1-9]\d*)$/;
-
-// A name formulas can write: letters, digits and _, not starting with a digit
-const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/** Why a text cannot be a name (of a table, a column, a cell); undefined when it can */
-export function nameProblem(name: string, what: string): string | undefined {
-  if (!NAME_RE.test(name)) return `"${name}" is not a ${what} name: letters, digits and _, not starting with a digit`;
-  // Formulas would read it as a cell (A1, AB12) or a logical value
-  if (CELL_RE.test(name) || /^(true|false)$/i.test(name)) return `"${name}" would read as a cell or a value`;
-  return undefined;
-}
+const escaped = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const NAME_ATTRIBUTES = `(?:${escaped(LINE_NAME)}|${escaped(CELL_NAME)})`;
+// A tag of names only: both, in any order (a formula's tag is another)
+const NAMES_TAG_RE = new RegExp(String.raw`\s*<meta((?:\s+${NAME_ATTRIBUTES}\s*=\s*(?:"[^"]*"|'[^']*'))+)\s*\/?>`, "gi");
+const NAMES_ATTRIBUTE_RE = new RegExp(String.raw`(${NAME_ATTRIBUTES})\s*=\s*(?:"([^"]*)"|'([^']*)')`, "gi");
 
 type Names = { readonly n?: string; readonly cn?: string };
 
@@ -37,7 +30,7 @@ function namesOf(cell: string): Names {
   const names: { n?: string; cn?: string } = {};
   for (const match of tag?.[1]?.matchAll(NAMES_ATTRIBUTE_RE) ?? []) {
     const value = unescapeMetaValue(match[2] ?? match[3] ?? "").trim();
-    names[match[1]!.toLowerCase() as "n" | "cn"] = value || undefined;
+    names[match[1]!.toLowerCase() === CELL_NAME.toLowerCase() ? "cn" : "n"] = value || undefined;
   }
   return names;
 }
@@ -59,7 +52,7 @@ export function withoutName(cell: string): string {
 
 /** The cell's text with these names after it, in one tag */
 function named(text: string, { n, cn }: Names): string {
-  const attributes = [...(n ? [metaAttribute("n", n)] : []), ...(cn ? [metaAttribute("cn", cn)] : [])];
+  const attributes = [...(n ? [metaAttribute(LINE_NAME, n)] : []), ...(cn ? [metaAttribute(CELL_NAME, cn)] : [])];
   return [text, ...(attributes.length ? [`<meta ${attributes.join(" ")}>`] : [])].filter((part) => part !== "").join(" ");
 }
 
@@ -123,4 +116,52 @@ export function withoutNames(table: Table): Table {
     }),
   );
   return result;
+}
+
+/** A named row: its name as written, its row of the markdown (header 0), the column of the cell holding the name */
+export type RowName = { readonly name: string; readonly row: number; readonly column: number };
+
+/** A named body cell: its name as written, its row of the markdown (header 0) and column */
+export type CellNameAt = { readonly name: string; readonly row: number; readonly column: number };
+
+/** A table's named rows, in their order */
+export function rowNamesIn(table: Table): RowName[] {
+  return table.rows.flatMap((r, row) => {
+    const named = row === 0 ? undefined : rowNameIn(r.cells);
+    return named ? [{ ...named, row }] : [];
+  });
+}
+
+/** A table's named body cells, in their order */
+export function cellNamesIn(table: Table): CellNameAt[] {
+  return table.rows.flatMap((r, row) =>
+    row === 0
+      ? []
+      : r.cells.flatMap((cell, column) => {
+          const name = cellNameOf(cell);
+          return name ? [{ name, row, column }] : [];
+        }),
+  );
+}
+
+/** A column's fixed name (its header's), if it has one */
+export function columnNameIn(table: Table, column: number): string | undefined {
+  return nameOf(table.rows[0]?.cells[column] ?? "");
+}
+
+/** The table with the column named so (undefined: unnamed), its header's text kept */
+export function withColumnNameIn(table: Table, column: number, name: string | undefined): Table {
+  return setCell(table, 0, column, withName(table.rows[0]?.cells[column] ?? "", name));
+}
+
+/** The table with the row (of the markdown) named so (undefined: unnamed), where its name is written, else in its first cell */
+export function withRowNameIn(table: Table, row: number, name: string | undefined): Table {
+  const cells = table.rows[row]?.cells ?? [];
+  const column = rowNameIn(cells)?.column ?? 0;
+  return setCell(table, row, column, withName(cells[column] ?? "", name));
+}
+
+/** The table with the body cell named so (undefined: unnamed), its text kept */
+export function withCellNameIn(table: Table, row: number, column: number, name: string | undefined): Table {
+  return setCell(table, row, column, withCellName(table.rows[row]?.cells[column] ?? "", name));
 }

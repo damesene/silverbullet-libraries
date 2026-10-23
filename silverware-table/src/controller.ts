@@ -60,7 +60,9 @@ import {
 } from "./markdown.ts";
 import type { MenuBack, MenuEntry, MenuNaming } from "./menu.ts";
 import { floatingMenu, focusMenu } from "./core/menu.ts";
-import { metadataAfterEdit, metaName, metaPins, metaSort, withMetaSort } from "./meta.ts";
+import { CORE, cellTagName, metadataAfterEdit, metaName, metaPins, metaSort, withMetaName, withMetaSort, writtenName } from "./meta.ts";
+import { CELL_NAME, type CellNameAt, cellNameOf, cellNamesIn, LINE_NAME, columnNameIn, type RowName, rowNameIn, rowNamesIn, withCellNameIn, withColumnNameIn, withRowNameIn } from "./names.ts";
+import { ownMeta } from "./core/metaaccess.ts";
 import { keepTags } from "./tags.ts";
 import { nameEmptyHeaders, reorderRows } from "./ops.ts";
 import {
@@ -102,6 +104,11 @@ const NOT_SAVED = "Silverware Table: the table changed in the meantime, nothing 
 // The element under the pointer while Ctrl is held in a cell editor (the move cursor, CSS)
 const NAVIGATING_CLASS = "swt-navigating-here";
 
+/** A table of its metadata only (read from a rendering, before the table is): what features read of it as a whole */
+function metadataOnly(meta: TableMeta | undefined): Table {
+  return { indent: "", align: [], rows: [], padded: false, ...(meta ? { meta } : {}) };
+}
+
 export class Controller implements TableHost {
   private readonly infos = new WeakMap<HTMLElement, WidgetInfo>();
   // The page's text as last read
@@ -121,6 +128,10 @@ export class Controller implements TableHost {
   private metadataOn = false;
   // What modules offer others (TableHost.offer), by the module's name
   private readonly offers = new Map<FeatureName, object>();
+  // What the core keeps in tables, as its host gives it (a module's host gives the module's)
+  private readonly coreMeta = ownMeta(CORE);
+  // Whose each module's data is: its name (lowercase)
+  private readonly owners = new Map<Feature, string>();
   // The toolbarNames setting: the table's names in its toolbar too, not only in its ⋯ menu (always, or while Shift
   // alone is held: `shiftHeld`)
   private namesShown: "never" | "always" | "shift" = "shift";
@@ -347,9 +358,15 @@ export class Controller implements TableHost {
     // A module with parts for tables as one feature: its hooks about a table go to that table's part
     // Each module with a host of its own (one per name: the sheet's two parts share theirs)
     const hosts = new Map<FeatureName, TableHost>();
-    const own = (name: FeatureName) => ({ offer: (api: object) => void this.offers.set(name, api) });
+    const own = (name: FeatureName) => ({ offer: (api: object) => void this.offers.set(name, api), ...ownMeta(name.toLowerCase()) });
     const hostOf = (name: FeatureName) => hosts.get(name) ?? hosts.set(name, moduleHost<TableHost>(this, own(name))).get(name)!;
-    const features = all.filter((_, i) => enabled[i]).map(({ name, create }) => this.parts.routed(create(name ? hostOf(name) : this)));
+    const features = all
+      .filter((_, i) => enabled[i])
+      .map(({ name, create }) => {
+        const feature = this.parts.routed(create(name ? hostOf(name) : this));
+        if (name) this.owners.set(feature, name.toLowerCase());
+        return feature;
+      });
     this.features.push(...features);
     for (const feature of features) feature.start?.();
   }
@@ -513,6 +530,80 @@ export class Controller implements TableHost {
     return this.offers.get(name) as T | undefined;
   }
 
+  // ---- what tables keep: the core's own, and the names every part reads --------------
+
+  getMeta(table: Table, key: string, at?: { readonly column: number }): string | undefined {
+    return this.coreMeta.getMeta(table, key, at);
+  }
+
+  setMeta(table: Table, key: string, value: string | undefined, at?: { readonly column: number }): Table {
+    return this.coreMeta.setMeta(table, key, value, at);
+  }
+
+  metaOf(table: Table): ReadonlyMap<string, string> {
+    return this.coreMeta.metaOf(table);
+  }
+
+  columnsMeta(table: Table, key: string): Map<number, string> {
+    return this.coreMeta.columnsMeta(table, key);
+  }
+
+  setColumnsMeta(table: Table, key: string, values: ReadonlyMap<number, string>): Table {
+    return this.coreMeta.setColumnsMeta(table, key, values);
+  }
+
+  getCellTag(cell: string, key: string): string | undefined {
+    return this.coreMeta.getCellTag(cell, key);
+  }
+
+  withCellTag(cell: string, key: string, value: string | undefined): string {
+    return this.coreMeta.withCellTag(cell, key, value);
+  }
+
+  tableName(table: Table): string | undefined {
+    return metaName(table);
+  }
+
+  writtenTableName(table: Table): string | undefined {
+    return writtenName(table);
+  }
+
+  withTableName(table: Table, name: string | undefined): Table {
+    return withMetaName(table, name);
+  }
+
+  columnName(table: Table, column: number): string | undefined {
+    return columnNameIn(table, column);
+  }
+
+  withColumnName(table: Table, column: number, name: string | undefined): Table {
+    return withColumnNameIn(table, column, name);
+  }
+
+  rowName(table: Table, row: number): string | undefined {
+    return row === 0 ? undefined : rowNameIn(table.rows[row]?.cells ?? [])?.name;
+  }
+
+  withRowName(table: Table, row: number, name: string | undefined): Table {
+    return withRowNameIn(table, row, name);
+  }
+
+  cellName(table: Table, row: number, column: number): string | undefined {
+    return row === 0 ? undefined : cellNameOf(table.rows[row]?.cells[column] ?? "");
+  }
+
+  withCellName(table: Table, row: number, column: number, name: string | undefined): Table {
+    return withCellNameIn(table, row, column, name);
+  }
+
+  rowNames(table: Table): readonly RowName[] {
+    return rowNamesIn(table);
+  }
+
+  cellNames(table: Table): readonly CellNameAt[] {
+    return cellNamesIn(table);
+  }
+
   tablesChanged(): void {
     for (const feature of this.features) feature.tablesChanged?.();
   }
@@ -602,12 +693,26 @@ export class Controller implements TableHost {
     return this.features.flatMap((f) => f.columnDeleteWarning?.(info, column) ?? []);
   }
 
+  /** Attributes of cells' hidden tags a copy of a row leaves out: the names of rows and cells, one row's, one cell's */
   uniqueTags(): ReadonlySet<string> {
-    return new Set(this.features.flatMap((f) => f.uniqueTags?.() ?? []));
+    return new Set([LINE_NAME.toLowerCase(), CELL_NAME.toLowerCase()]);
   }
 
+  /** What the core and the modules keep in these tables, their attributes in cells by their whole names */
   metadataParts(tables: readonly Table[]): MetadataPart[] {
-    return this.features.flatMap((f) => f.metadataPart?.(tables) ?? []);
+    const names = tables.reduce((n, table) => n + table.rows[0]!.cells.filter((_, c) => this.columnName(table, c)).length + rowNamesIn(table).length + cellNamesIn(table).length, 0);
+    return [
+      ...this.features.flatMap((f) => {
+        const part = f.metadataPart?.(tables);
+        return part ? [{ ...part, tags: part.tags.map((key) => cellTagName(this.ownerOf(f), key)) }] : [];
+      }),
+      ...(names ? [{ count: names, what: "name", tags: [LINE_NAME, CELL_NAME] }] : []),
+    ];
+  }
+
+  /** Whose a feature's data is: its module's (by the module's name), else the core's */
+  private ownerOf(feature: Feature): string {
+    return this.owners.get(feature) ?? CORE;
   }
 
   tableResized(info: WidgetInfo): void {
@@ -718,7 +823,7 @@ export class Controller implements TableHost {
           if (!widget || this.rows.knows(table) || this.ownTable(widget)) continue;
           const rows = this.rows.renderedRows(table);
           // How it looks as a whole, from its metadata as rendered, before the browser lays it out
-          markTable(widget, this.tableLook(renderedMeta(rows)));
+          markTable(widget, this.tableLook(metadataOnly(renderedMeta(rows))));
           for (const feature of this.features) feature.tableAdded?.(widget, table, rows);
         }
       }
@@ -962,7 +1067,7 @@ export class Controller implements TableHost {
       cell.append(button);
     });
     for (const feature of this.features) feature.decorate?.(widget, info);
-    this.adapter.applyTableLook(info, this.tableLook(parseTable(info.source).meta));
+    this.adapter.applyTableLook(info, this.tableLook(parseTable(info.source)));
     this.applyLooks(info);
     this.marksAgain(info);
     // Last: the header's name on one line with the icons the features added
@@ -976,7 +1081,7 @@ export class Controller implements TableHost {
   }
 
   keepTags(value: string, from: string): string {
-    return keepTags(value, from, new Set(this.features.flatMap((f) => f.takesTags?.() ?? [])));
+    return keepTags(value, from, new Set(this.features.flatMap((f) => (f.takesTags?.() ?? []).map((key) => cellTagName(this.ownerOf(f), key).toLowerCase()))));
   }
 
   clickSelects(): boolean {
@@ -1154,12 +1259,12 @@ export class Controller implements TableHost {
   }
 
   /** How a table looks as a whole: the features' (Feature.tableLook), a later one's attribute winning */
-  private tableLook(meta: TableMeta | undefined): TableLook {
-    return Object.assign({}, ...this.features.map((f) => f.tableLook?.(meta) ?? {})) as TableLook;
+  private tableLook(table: Table): TableLook {
+    return Object.assign({}, ...this.features.map((f) => f.tableLook?.(table) ?? {})) as TableLook;
   }
 
   tableLooksChanged(): void {
-    for (const info of this.shownTables()) this.adapter.applyTableLook(info, this.tableLook(parseTable(info.source).meta));
+    for (const info of this.shownTables()) this.adapter.applyTableLook(info, this.tableLook(parseTable(info.source)));
   }
 
   previewTable(header: readonly string[], rows: readonly (readonly string[])[], look: TableLook): TablePreview {

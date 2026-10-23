@@ -19,7 +19,7 @@ import {
   toNumber,
   toText,
 } from "./values.ts";
-import { CELL_RE } from "../names.ts";
+import { CELL_RE } from "../namerules.ts";
 import { FUNCTION_CATEGORIES, type FormulaFunction, type FunctionCategory } from "./function.ts";
 
 /** The conversions the built-in functions use, for custom functions (a definitions function gets them) */

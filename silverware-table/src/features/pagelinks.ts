@@ -9,7 +9,6 @@
 import type { Feature, ModelHost, TableTarget, TableInfo, WritePage } from "../core/feature.ts";
 import { type FormulaCells, type FormulasOffer, referredPages } from "../formulas/index.ts";
 import { tablesWritten } from "../formulas/page.ts";
-import { metaName } from "../meta.ts";
 import { type OtherPages, type PageTable, pageTablesOf, parseTable, type Table } from "../markdown.ts";
 
 // At most this many other pages are read for one page's formulas (pages that refer on and on)
@@ -43,7 +42,7 @@ export class PageLinks implements Feature {
   async prepareWrite(info: TableTarget): Promise<void> {
     const cells = this.cells();
     if (!cells) return;
-    const tables = pageTablesOf(this.host.pageText).map((t) => ({ ...t, name: metaName(t.table) }));
+    const tables = pageTablesOf(this.host.pageText).map((t) => ({ ...t, name: this.host.tableName(t.table) }));
     await this.load(tablesWritten(cells, tables, info.source), true);
   }
 

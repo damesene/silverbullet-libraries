@@ -3,10 +3,15 @@
 // on it (`<meta name='costs' sheet='Budget' at='B3'>`). A page has as many
 // sheets as names its tables give (compared ignoring case, the first spelling
 // kept); a sheet's own data (its columns' widths, `sheet.width.E='120'`) is in
-// its first table's metadata row, the first in the page's order.
+// its first table's metadata row, the first in the page's order. What the
+// metadata says is read through the sheet modules' host (SheetMeta), by the
+// sheet's keys: the core makes the attributes' names.
+import type { ModelHost } from "../core/feature.ts";
 import { columnLetters } from "../formulas/index.ts";
 import { findTables, type PageTable, pageTablesOf, parseTable, type Table, type TableRange } from "../markdown.ts";
-import { metaName } from "../meta.ts";
+
+/** How the sheet modules read what tables keep for the sheet (their host) */
+export type SheetMeta = Pick<ModelHost, "getMeta" | "metaOf" | "tableName">;
 
 /** A cell of a sheet, from 0: row 0 is the sheet's first row (1), column 0 its column A */
 export type SheetCell = { readonly row: number; readonly column: number };
@@ -22,10 +27,11 @@ export type SheetTable = {
   readonly columns: number;
 };
 
-// The metadata row's attributes the sheet keeps
-export const SHEET_ATTRIBUTE = "sheet";
-export const AT_ATTRIBUTE = "at";
-export const SHEET_WIDTH_PREFIX = "sheet.width.";
+// The keys of what a table keeps for the sheet: its sheet's name, its place,
+// and (the sheet's first table) the sheet's columns' widths, width.<letters>
+export const SHEET_KEY = "name";
+export const AT_KEY = "at";
+export const WIDTH_PREFIX = "width.";
 
 // B3: a column's letters, a row's number
 const AT_RE = /^([A-Za-z]{1,3})([1-9]\d{0,6})$/;
@@ -57,18 +63,24 @@ export function sheetNameProblem(name: string): string | undefined {
 }
 
 /** The tables of a page that are on a sheet (with a sheet's name and a place), in the page's order */
-export function sheetTables(text: string): SheetTable[] {
-  return sheetTablesOf(pageTablesOf(text));
+export function sheetTables(meta: SheetMeta, text: string): SheetTable[] {
+  return sheetTablesOf(meta, pageTablesOf(text));
+}
+
+/** The sheet a table is on: its sheet's name, with a place on it; none: it is on no sheet */
+export function sheetOfTable(meta: SheetMeta, table: Table): string | undefined {
+  const sheet = meta.getMeta(table, SHEET_KEY)?.trim();
+  return sheet && parseAt(meta.getMeta(table, AT_KEY)) ? sheet : undefined;
 }
 
 /** As sheetTables, of the page's tables parsed */
-export function sheetTablesOf(tables: readonly PageTable[]): SheetTable[] {
+export function sheetTablesOf(meta: SheetMeta, tables: readonly PageTable[]): SheetTable[] {
   const result: SheetTable[] = [];
   for (const { range, table } of tables) {
-    const sheet = table.meta?.[SHEET_ATTRIBUTE]?.trim();
-    const at = parseAt(table.meta?.[AT_ATTRIBUTE]);
+    const sheet = meta.getMeta(table, SHEET_KEY)?.trim();
+    const at = parseAt(meta.getMeta(table, AT_KEY));
     if (!sheet || !at) continue;
-    result.push({ range, table, sheet, at, name: metaName(table), rows: table.rows.length, columns: table.align.length });
+    result.push({ range, table, sheet, at, name: meta.tableName(table), rows: table.rows.length, columns: table.align.length });
   }
   return result;
 }
@@ -84,9 +96,9 @@ export function sheetsOf(tables: readonly SheetTable[]): { readonly name: string
   return sheets;
 }
 
-/** The sheet's own data a table keeps in its metadata row (as the sheet's first table): its columns' widths */
-export function sheetData(table: Table): [string, string][] {
-  return Object.entries(table.meta ?? {}).filter(([name]) => name.startsWith(SHEET_WIDTH_PREFIX));
+/** The sheet's own data a table keeps in its metadata row (as the sheet's first table), by key: its columns' widths */
+export function sheetData(meta: SheetMeta, table: Table): [string, string][] {
+  return [...meta.metaOf(table)].filter(([key]) => key.startsWith(WIDTH_PREFIX));
 }
 
 /**
@@ -94,11 +106,10 @@ export function sheetData(table: Table): [string, string][] {
  * pixels): a sheet's first table for the sheet, a table alone for its own
  * sheet view
  */
-export function sheetWidths(table: Table | undefined): ReadonlyMap<number, number> {
+export function sheetWidths(meta: SheetMeta, table: Table | undefined): ReadonlyMap<number, number> {
   const widths = new Map<number, number>();
-  for (const [name, value] of Object.entries(table?.meta ?? {})) {
-    if (!name.startsWith(SHEET_WIDTH_PREFIX)) continue;
-    const at = parseAt(`${name.slice(SHEET_WIDTH_PREFIX.length)}1`);
+  for (const [key, value] of table ? sheetData(meta, table) : []) {
+    const at = parseAt(`${key.slice(WIDTH_PREFIX.length)}1`);
     const width = Number(value);
     if (at && Number.isFinite(width) && width > 0) widths.set(at.column, width);
   }
@@ -112,16 +123,16 @@ export function placeBelow(tables: readonly SheetTable[]): SheetCell {
 }
 
 /** A name no table of the page has (nor one of `taken`): table1, table2, … (what a table put on a sheet is offered, a new one gets) */
-export function freeName(text: string, taken: readonly string[] = []): string {
-  const names = [...findTables(text).map((range) => metaName(parseTable(range.text))?.toLowerCase()), ...taken.map((name) => name.toLowerCase())];
+export function freeName(meta: SheetMeta, text: string, taken: readonly string[] = []): string {
+  const names = [...findTables(text).map((range) => meta.tableName(parseTable(range.text))?.toLowerCase()), ...taken.map((name) => name.toLowerCase())];
   let n = 1;
   while (names.includes(`table${n}`)) n++;
   return `table${n}`;
 }
 
 /** A name no sheet of the page has: Sheet1, Sheet2, … (a table alone's sheet view made a sheet) */
-export function freeSheetName(text: string, taken: readonly string[] = []): string {
-  const names = [...sheetsOf(sheetTables(text)).map((sheet) => sheet.name), ...taken];
+export function freeSheetName(meta: SheetMeta, text: string, taken: readonly string[] = []): string {
+  const names = [...sheetsOf(sheetTables(meta, text)).map((sheet) => sheet.name), ...taken];
   let n = 1;
   while (names.some((name) => sameSheet(name, `Sheet${n}`))) n++;
   return `Sheet${n}`;

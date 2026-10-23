@@ -16,14 +16,15 @@
 // cannot).
 import type { Feature, ModelHost, TableInfo, ToolbarButton, WriteEdit } from "../core/feature.ts";
 import { locateBySource, type PageTable, parseTable, type Table } from "../markdown.ts";
-import { metaName, withMeta, withMetaName } from "../meta.ts";
 import { type Room, roomFor } from "../sheet/layout.ts";
 import {
-  AT_ATTRIBUTE,
+  AT_KEY,
   formatAt,
   parseAt,
   placeBelow,
-  SHEET_ATTRIBUTE,
+  SHEET_KEY,
+  type SheetMeta,
+  sheetOfTable,
   sameSheet,
   sheetData,
   sheetNameProblem,
@@ -38,9 +39,9 @@ export class Sheets implements Feature {
 
   /** Deleting the sheet's last table: the sheet goes with it */
   tableDeleteWarning(info: TableInfo): string | undefined {
-    const sheet = sheetOf(info.source);
+    const sheet = sheetOfTable(this.host, parseTable(info.source));
     if (!sheet) return undefined;
-    const others = sheetTables(this.host.pageText).filter((t) => sameSheet(t.sheet, sheet) && t.range.text !== info.source);
+    const others = sheetTables(this.host, this.host.pageText).filter((t) => sameSheet(t.sheet, sheet) && t.range.text !== info.source);
     return others.length ? undefined : `the sheet ${sheet} goes with it, as it is its only table`;
   }
 
@@ -51,7 +52,7 @@ export class Sheets implements Feature {
    * empty, it comes off its sheet.
    */
   toolbarButtons(info: TableInfo): ToolbarButton[] {
-    const sheet = sheetOf(info.source);
+    const sheet = sheetOfTable(this.host, parseTable(info.source));
     // Shown as a sheet (laid out on a grid: the sheet view) but on none: said so, in the toolbar whatever its setting
     const missing = !sheet && !!this.host.addressFrame(info);
     const title = sheet
@@ -88,7 +89,7 @@ export class Sheets implements Feature {
    */
   private async moveTo(shown: TableInfo, typed: string): Promise<string | undefined> {
     const info = this.host.tableFor(shown.key) ?? shown;
-    const current = sheetOf(info.source);
+    const current = sheetOfTable(this.host, parseTable(info.source));
     const name = typed.trim();
     if (name === "") {
       if (current) await this.remove(info);
@@ -103,7 +104,7 @@ export class Sheets implements Feature {
     if (problem) return problem;
     const text = await this.host.bridge.getText();
     const self = locateBySource(text, info.hint, info.source);
-    const tables = sheetTables(text);
+    const tables = sheetTables(this.host, text);
     const target = sheetsOf(tables).find((s) => sameSheet(s.name, name));
     const others = (target?.tables ?? []).filter((t) => t.range.from !== self?.from);
     const mine = tables.find((t) => t.range.from === self?.from);
@@ -113,10 +114,10 @@ export class Sheets implements Feature {
     const free = (at: { row: number; column: number }) =>
       others.every((o) => at.column + columns - 1 < o.at.column || o.at.column + o.columns - 1 < at.column || at.row + rows - 1 < o.at.row || o.at.row + o.rows - 1 < at.row);
     const at = mine && free(mine.at) ? mine.at : placeBelow(others);
-    const own = metaName(table);
-    const tableName = own ?? freeName(text);
+    const own = this.host.tableName(table);
+    const tableName = own ?? freeName(this.host, text);
     const result = await this.host.writeTable(info, (t: Table) =>
-      withMeta(withMeta(withMetaName(t, tableName), SHEET_ATTRIBUTE, target?.name ?? name), AT_ATTRIBUTE, formatAt(at)),
+      this.host.setMeta(this.host.setMeta(this.host.withTableName(t, tableName), SHEET_KEY, target?.name ?? name), AT_KEY, formatAt(at)),
     );
     if (result === "written" && !own) void this.host.bridge.flash(`Silverware Table: the table is named ${tableName}, as the sheet's other tables refer to its cells by it (${tableName}!B2)`, "info");
     return undefined;
@@ -124,22 +125,22 @@ export class Sheets implements Feature {
 
   /** Off the sheet: its `sheet` and `at` go, its name stays (the sheet's own data, if it kept it, goes on: writeStep) */
   private async remove(shown: TableInfo): Promise<void> {
-    await this.host.writeTable(this.host.tableFor(shown.key) ?? shown, (t: Table) => withMeta(withMeta(t, SHEET_ATTRIBUTE, undefined), AT_ATTRIBUTE, undefined));
+    await this.host.writeTable(this.host.tableFor(shown.key) ?? shown, (t: Table) => this.host.setMeta(this.host.setMeta(t, SHEET_KEY, undefined), AT_KEY, undefined));
   }
 
   /** The table written: the sheet's own data taken, or handed on, where the write makes it the sheet's first table, or no longer */
   writeStep(before: Table, after: Table, edit: WriteEdit): Table {
     let out = after;
-    for (const move of handovers(before, after, edit)) {
-      if (move.from === edit.page.from) out = move.data.reduce((t, [name]) => withMeta(t, name, undefined), out);
-      if (move.to === edit.page.from) out = move.data.reduce((t, [name, value]) => withMeta(t, name, value), out);
+    for (const move of handovers(this.host, before, after, edit)) {
+      if (move.from === edit.page.from) out = move.data.reduce((t, [name]) => this.host.setMeta(t, name, undefined), out);
+      if (move.to === edit.page.from) out = move.data.reduce((t, [name, value]) => this.host.setMeta(t, name, value), out);
     }
     return out;
   }
 
   /** A table of a sheet that would grow into another it overlaps already (sheet/layout.ts): not written */
   refusesWrite(before: Table, after: Table, edit: WriteEdit): string | undefined {
-    const room = roomOnSheet(before, after, edit);
+    const room = roomOnSheet(this.host, before, after, edit);
     return room && "refused" in room ? `the table cannot grow into ${room.refused}, which overlaps it on the sheet already: check their places (at)` : undefined;
   }
 
@@ -155,12 +156,12 @@ export class Sheets implements Feature {
       const other = from === undefined || from === edit.page.from ? undefined : (written.get(from) ?? page.get(from));
       if (other) written.set(from!, { range: other.range, table: f(other.table) });
     };
-    for (const move of handovers(before, after, edit)) {
-      change(move.from, (t) => move.data.reduce((out, [name]) => withMeta(out, name, undefined), t));
-      change(move.to, (t) => move.data.reduce((out, [name, value]) => withMeta(out, name, value), t));
+    for (const move of handovers(this.host, before, after, edit)) {
+      change(move.from, (t) => move.data.reduce((out, [name]) => this.host.setMeta(out, name, undefined), t));
+      change(move.to, (t) => move.data.reduce((out, [name, value]) => this.host.setMeta(out, name, value), t));
     }
-    const room = after && roomOnSheet(before, after, edit);
-    if (room && "moved" in room) for (const [from, at] of room.moved) change(from, (t) => withMeta(t, AT_ATTRIBUTE, formatAt(at)));
+    const room = after && roomOnSheet(this.host, before, after, edit);
+    if (room && "moved" in room) for (const [from, at] of room.moved) change(from, (t) => this.host.setMeta(t, AT_KEY, formatAt(at)));
     return [...written.values()];
   }
 }
@@ -169,13 +170,13 @@ export class Sheets implements Feature {
  * The room a table of a sheet that grows in the write makes on it (it stays
  * on its sheet, at its place); undefined: it is on none, or does not grow there
  */
-function roomOnSheet(before: Table, after: Table, edit: WriteEdit): Room | undefined {
+function roomOnSheet(meta: SheetMeta, before: Table, after: Table, edit: WriteEdit): Room | undefined {
   const at = edit.page.from;
-  const tables = sheetTablesOf(edit.page.tables.map((t) => (t.range.from === at ? { range: t.range, table: before } : t)));
+  const tables = sheetTablesOf(meta, edit.page.tables.map((t) => (t.range.from === at ? { range: t.range, table: before } : t)));
   const mine = tables.find((t) => t.range.from === at);
   // After the write still on its sheet, at its place
-  const sheetAfter = after.meta?.[SHEET_ATTRIBUTE]?.trim();
-  const atAfter = parseAt(after.meta?.[AT_ATTRIBUTE]);
+  const sheetAfter = meta.getMeta(after, SHEET_KEY)?.trim();
+  const atAfter = parseAt(meta.getMeta(after, AT_KEY));
   if (!mine || !sheetAfter || !sameSheet(sheetAfter, mine.sheet) || atAfter?.row !== mine.at.row || atAfter.column !== mine.at.column) return undefined;
   const rows = after.rows.length;
   const columns = after.align.length;
@@ -193,17 +194,17 @@ function roomOnSheet(before: Table, after: Table, edit: WriteEdit): Room | undef
  * after it, where they differ (by where they are in the page); none to go
  * to: the sheet is gone with its data
  */
-function handovers(before: Table, after: Table | undefined, edit: WriteEdit): { data: [string, string][]; from: number; to: number | undefined }[] {
+function handovers(meta: SheetMeta, before: Table, after: Table | undefined, edit: WriteEdit): { data: [string, string][]; from: number; to: number | undefined }[] {
   const at = edit.page.from;
   // (No table: it is deleted)
   const withEdited = (table: Table | undefined) =>
     edit.page.tables.flatMap((t) => (t.range.from !== at ? [t] : table ? [{ range: t.range, table }] : []));
-  const sheetsBefore = sheetsOf(sheetTablesOf(withEdited(before)));
-  const sheetsAfter = sheetsOf(sheetTablesOf(withEdited(after)));
+  const sheetsBefore = sheetsOf(sheetTablesOf(meta, withEdited(before)));
+  const sheetsAfter = sheetsOf(sheetTablesOf(meta, withEdited(after)));
   const moves: { data: [string, string][]; from: number; to: number | undefined }[] = [];
   for (const sheet of sheetsBefore) {
     const first = sheet.tables[0]!;
-    const data = sheetData(first.table);
+    const data = sheetData(meta, first.table);
     const next = sheetsAfter.find((s) => sameSheet(s.name, sheet.name))?.tables[0];
     if (!data.length || next?.range.from === first.range.from) continue;
     // Its only table gone to a sheet no table was on, which it heads (the sheet renamed): its data goes with it
@@ -214,9 +215,4 @@ function handovers(before: Table, after: Table | undefined, edit: WriteEdit): { 
   return moves;
 }
 
-/** The sheet a table is on: its `sheet`, with a place on it (`at`) */
-function sheetOf(source: string): string | undefined {
-  const meta = parseTable(source).meta;
-  const sheet = meta?.[SHEET_ATTRIBUTE]?.trim();
-  return sheet && parseAt(meta?.[AT_ATTRIBUTE]) ? sheet : undefined;
-}
+

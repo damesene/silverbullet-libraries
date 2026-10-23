@@ -2,7 +2,7 @@
 // function's syntax (the argument typed marked) and description, where a
 // pointed reference goes; and the functions found by what they are or do
 // (the Functions dialog).
-import { CELL_RE } from "../names.ts";
+import { CELL_RE } from "../namerules.ts";
 import type { FormulaFunction, FunctionCategory } from "./function.ts";
 import { functionNamed, functionNames } from "./registry.ts";
 import { cellName, references } from "./references.ts";

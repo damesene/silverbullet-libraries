@@ -36,8 +36,8 @@ import { el } from "../../../elements.ts";
 import { columnLetters, isFormulaInput } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 import { escapeCell, findTables, parseTable, type Table, type TableRange } from "../../../markdown.ts";
-import { metaName, sameTableName, withMeta, withMetaName } from "../../../meta.ts";
-import { AT_ATTRIBUTE, formatAt, freeName, freeSheetName, parseAt, SHEET_ATTRIBUTE, SHEET_WIDTH_PREFIX, sameSheet, type SheetCell, sheetNameProblem, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { sameTableName } from "../../../namerules.ts";
+import { AT_KEY, formatAt, freeName, freeSheetName, SHEET_KEY, WIDTH_PREFIX, sameSheet, type SheetCell, sheetNameProblem, sheetOfTable, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
 import { nameEmptyHeaders } from "../../../ops.ts";
 import { parseClipboardCells } from "../../../paste.ts";
 import { placeProblem, roomFor } from "../../../sheet/layout.ts";
@@ -208,7 +208,7 @@ export class Sheet implements AdapterFeature {
 
   toolbarButtons(info: WidgetInfo): ToolbarButton[] {
     const on = !!this.board?.tables.has(info.key);
-    const sheet = sheetOf(info.source);
+    const sheet = sheetOfTable(this.host, parseTable(info.source));
     return [
       {
         label: on ? "Exit sheet view" : "Sheet view",
@@ -257,7 +257,7 @@ export class Sheet implements AdapterFeature {
     content.className = "swt-sheet-content";
     content.append(this.columnLines);
     box.append(content);
-    const board: Board = { sheet: sheetOf(info.source), fresh: false, alone: info.key, box, content, tables: new Map(), widths: new Map(), preview: new Map(), reach: { width: 0, height: 0 } };
+    const board: Board = { sheet: sheetOfTable(this.host, parseTable(info.source)), fresh: false, alone: info.key, box, content, tables: new Map(), widths: new Map(), preview: new Map(), reach: { width: 0, height: 0 } };
     this.board = board;
     claimWindow(this.host, this);
     box.addEventListener("scroll", () => {
@@ -330,7 +330,7 @@ export class Sheet implements AdapterFeature {
     if (this.board !== board) return;
     // A table of the board put on another sheet (its name typed in the toolbar), or the table alone put on one: the
     // board shows that sheet from now on
-    const onSheets = sheetTables(text);
+    const onSheets = sheetTables(this.host, text);
     const keys = this.host.tableKeys(this.host.currentPage, text);
     const keyOf = (range: TableRange) => keys[range.ordinal]!;
     const moved = board.sheet
@@ -339,14 +339,14 @@ export class Sheet implements AdapterFeature {
     if (moved) board.sheet = moved.sheet;
     const wanted = new Map<TableKey, { range: TableRange; at: SheetCell }>();
     if (board.sheet) {
-      const mine = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables ?? [];
+      const mine = sheetsOf(sheetTables(this.host, text)).find((s) => sameSheet(s.name, board.sheet!))?.tables ?? [];
       for (const t of mine) wanted.set(keyOf(t.range), { range: t.range, at: t.at });
-      board.widths = sheetWidths(mine[0]?.table);
+      board.widths = sheetWidths(this.host, mine[0]?.table);
     } else {
       const range = findTables(text)[keys.indexOf(board.alone)];
       if (range) wanted.set(board.alone, { range, at: { row: 0, column: 0 } });
       // A table alone: its grid's widths are kept in it, as a sheet's are in its first table
-      board.widths = sheetWidths(range && parseTable(range.text));
+      board.widths = sheetWidths(this.host, range && parseTable(range.text));
     }
     // A width dragged and stored: shown as stored from now on
     for (const [column, width] of board.preview) if (board.widths.get(column) === width) board.preview.delete(column);
@@ -430,7 +430,7 @@ export class Sheet implements AdapterFeature {
   private sheetNames(text: string): (string | undefined)[] {
     const board = this.board;
     if (!board) return [];
-    const names: (string | undefined)[] = sheetsOf(sheetTables(text)).map((s) => s.name);
+    const names: (string | undefined)[] = sheetsOf(sheetTables(this.host, text)).map((s) => s.name);
     if (this.aloneOnNoSheet(text)) names.unshift(undefined);
     else if (board.fresh && !names.some((n) => n !== undefined && sameSheet(n, board.sheet!))) names.push(board.sheet);
     return names;
@@ -441,7 +441,7 @@ export class Sheet implements AdapterFeature {
     const board = this.board;
     if (!board) return false;
     const range = findTables(text)[this.host.tableKeys(this.host.currentPage, text).indexOf(board.alone)];
-    return !!range && !sheetTables(text).some((s) => s.range.from === range.from);
+    return !!range && !sheetTables(this.host, text).some((s) => s.range.from === range.from);
   }
 
   /** The tabs as the page's text has the sheets: the one shown selected; a click on it its menu, on another goes there */
@@ -522,7 +522,7 @@ export class Sheet implements AdapterFeature {
   private async newSheet(): Promise<void> {
     const board = this.board;
     if (!board) return;
-    await this.switchTo(freeSheetName(await this.host.bridge.getText()), true);
+    await this.switchTo(freeSheetName(this.host, await this.host.bridge.getText()), true);
   }
 
   /** A tab's menu, above it: its name in the title (the pencil renames the sheet), Remove sheet */
@@ -573,7 +573,7 @@ export class Sheet implements AdapterFeature {
   /** The tables of a sheet of the page, in the page's order */
   private tablesOfSheet(text: string, sheet: string): { target: TableTarget; table: Table }[] {
     const keys = this.host.tableKeys(this.host.currentPage, text);
-    const tables = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, sheet))?.tables ?? [];
+    const tables = sheetsOf(sheetTables(this.host, text)).find((s) => sameSheet(s.name, sheet))?.tables ?? [];
     return tables.map((t) => ({ target: { key: keys[t.range.ordinal]!, source: t.range.text, hint: t.range.from }, table: t.table }));
   }
 
@@ -591,7 +591,7 @@ export class Sheet implements AdapterFeature {
     const text = await this.host.bridge.getText();
     const shown = !!board.sheet && sameSheet(board.sheet, sheet);
     // (Its own name in another case: renamed)
-    const taken = sheetsOf(sheetTables(text)).some((s) => sameSheet(s.name, name) && !sameSheet(s.name, sheet)) || (board.fresh && !shown && !!board.sheet && sameSheet(board.sheet, name));
+    const taken = sheetsOf(sheetTables(this.host, text)).some((s) => sameSheet(s.name, name) && !sameSheet(s.name, sheet)) || (board.fresh && !shown && !!board.sheet && sameSheet(board.sheet, name));
     if (taken) return `another sheet of this page is named ${name}`;
     if (board.fresh && shown) {
       board.sheet = name;
@@ -601,7 +601,7 @@ export class Sheet implements AdapterFeature {
     const tables = this.tablesOfSheet(text, sheet);
     const last = tables[tables.length - 1];
     if (!last) return undefined;
-    const renamed = (t: Table) => withMeta(t, SHEET_ATTRIBUTE, name);
+    const renamed = (t: Table) => this.host.setMeta(t, SHEET_KEY, name);
     const result = await this.host.writeTable(last.target, renamed, { also: tables.slice(0, -1).map((t) => ({ target: t.target, change: renamed })) });
     if (result === "written" && shown && this.board === board) board.sheet = name;
     return undefined;
@@ -629,8 +629,8 @@ export class Sheet implements AdapterFeature {
       const tables = this.tablesOfSheet(text, sheet);
       const last = tables[tables.length - 1];
       if (!last) return;
-      const off = (t: Table) => withMeta(withMeta(t, SHEET_ATTRIBUTE, undefined), AT_ATTRIBUTE, undefined);
-      const bare = (t: Table) => Object.keys(t.meta ?? {}).filter((k) => k.startsWith(SHEET_WIDTH_PREFIX)).reduce((out, k) => withMeta(out, k, undefined), off(t));
+      const off = (t: Table) => this.host.setMeta(this.host.setMeta(t, SHEET_KEY, undefined), AT_KEY, undefined);
+      const bare = (t: Table) => [...this.host.metaOf(t).keys()].filter((k) => k.startsWith(WIDTH_PREFIX)).reduce((out, k) => this.host.setMeta(out, k, undefined), off(t));
       await this.host.writeTable(last.target, off, { also: tables.slice(0, -1).map((t) => ({ target: t.target, change: bare })) });
     }
     if (ends && this.board === board) this.end();
@@ -659,7 +659,7 @@ export class Sheet implements AdapterFeature {
     const widget = this.host.widgetOf(info);
     if (!widget.classList.contains(DRAWN_CLASS)) {
       // SilverBullet's table rendered anew (an edit, by another client too): the board follows the page
-      if (board.tables.has(info.key) || (board.sheet && parseTable(info.source).meta?.[SHEET_ATTRIBUTE])) this.queueRefresh();
+      if (board.tables.has(info.key) || (board.sheet && this.host.getMeta(parseTable(info.source), SHEET_KEY))) this.queueRefresh();
       return;
     }
     const placed = board.tables.get(info.key);
@@ -941,7 +941,7 @@ export class Sheet implements AdapterFeature {
       tables: [...board.tables.keys()],
       outward: (table, area) => {
         const entry = this.shown().find(({ placed }) =>
-          table === undefined ? placed === mine : sameTableName(metaName(parseTable(placed.range.text)) ?? "", table),
+          table === undefined ? placed === mine : sameTableName(this.host.tableName(parseTable(placed.range.text)) ?? "", table),
         );
         if (!entry) return undefined;
         const { placed, info: shown, order } = entry;
@@ -988,7 +988,7 @@ export class Sheet implements AdapterFeature {
     // By its rows in the markdown, not as shown: a filter's hidden rows keep their room
     const laidOut = [...board.tables.values()].map((p) => {
       const model = parseTable(p.range.text);
-      const name = metaName(model);
+      const name = this.host.tableName(model);
       return { id: p.range.from, at: p.at, rows: model.rows.length, columns: model.align.length, ...(name ? { name } : {}) };
     });
     const problem = placeProblem(laidOut, placed.range.from, at);
@@ -1041,7 +1041,7 @@ export class Sheet implements AdapterFeature {
       void this.host.bridge.flash(`Silverware Table: the table cannot go to ${formatAt(at)}: ${problem}`, "info");
       return "failed";
     }
-    return this.host.writeTable(info, (t) => withMeta(t, AT_ATTRIBUTE, formatAt(at)));
+    return this.host.writeTable(info, (t) => this.host.setMeta(t, AT_KEY, formatAt(at)));
   }
 
   /** The board scrolls what is on it, its tables and empty cells (middle-button autoscroll) */
@@ -1170,10 +1170,10 @@ export class Sheet implements AdapterFeature {
       const key = keys[i]!;
       if (board.tables.has(key) || key === board.alone) return [];
       const model = parseTable(range.text);
-      const sheet = model.meta?.[SHEET_ATTRIBUTE];
+      const sheet = this.host.getMeta(model, SHEET_KEY);
       if (board.sheet && sheet && sameSheet(sheet, board.sheet)) return [];
       const header = (model.rows[0]?.cells ?? []).map((cell) => withoutTags(cell).trim()).filter(Boolean).join(", ");
-      const label = metaName(model) ?? (header.length > 40 ? `${header.slice(0, 39)}…` : header || "Table");
+      const label = this.host.tableName(model) ?? (header.length > 40 ? `${header.slice(0, 39)}…` : header || "Table");
       return [{ key, label, sheet, rows: model.rows.length, columns: model.align.length }];
     });
   }
@@ -1184,7 +1184,7 @@ export class Sheet implements AdapterFeature {
     if (!board) return undefined;
     const laidOut = [...board.tables.values()].map((p) => {
       const model = parseTable(p.range.text);
-      const name = metaName(model);
+      const name = this.host.tableName(model);
       return { id: p.range.from, at: p.at, rows: model.rows.length, columns: model.align.length, ...(name ? { name } : {}) };
     });
     return placeProblem([...laidOut, { id: -1, at, rows: table.rows, columns: table.columns }], -1, at);
@@ -1210,15 +1210,15 @@ export class Sheet implements AdapterFeature {
       void this.host.bridge.flash(`Silverware Table: the table cannot go to ${formatAt(at)}: it would cover ${problem}`, "info");
       return;
     }
-    const from = model.meta?.[SHEET_ATTRIBUTE];
-    if (from && sheetTables(text).filter((t) => sameSheet(t.sheet, from)).length === 1) {
+    const from = this.host.getMeta(model, SHEET_KEY);
+    if (from && sheetTables(this.host, text).filter((t) => sameSheet(t.sheet, from)).length === 1) {
       if (!(await this.host.ask(`Move this table here from the sheet ${from}? It is that sheet's only table: the sheet goes with it.`))) return;
     }
     const { sheet, taken, also } = this.sheetFor(board, text);
-    const name = metaName(model) ?? freeName(text, taken);
+    const name = this.host.tableName(model) ?? freeName(this.host, text, taken);
     const result = await this.host.writeTable(
       { key, source: range.text, hint: range.from },
-      (t) => withMeta(withMeta(withMetaName(t, name), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, formatAt(at)),
+      (t) => this.host.setMeta(this.host.setMeta(this.host.withTableName(t, name), SHEET_KEY, sheet), AT_KEY, formatAt(at)),
       also ? { also: [also] } : {},
     );
     if (result !== "written" || this.board !== board) return;
@@ -1398,7 +1398,7 @@ export class Sheet implements AdapterFeature {
       const text = await this.host.bridge.getText();
       const keys = this.host.tableKeys(this.host.currentPage, text);
       const range = board.sheet
-        ? sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables[0]?.range
+        ? sheetsOf(sheetTables(this.host, text)).find((s) => sameSheet(s.name, board.sheet!))?.tables[0]?.range
         : findTables(text)[keys.indexOf(board.alone)];
       // Without a metadata row and the setting (a table alone): for the view only, as the widths module keeps them
       if (range && !parseTable(range.text).meta && !this.host.metadataEnabled) {
@@ -1408,7 +1408,7 @@ export class Sheet implements AdapterFeature {
         return;
       }
       const target = range && { key: keys[range.ordinal]!, source: range.text, hint: range.from };
-      const result = target && (await this.host.writeTable(target, (t) => withMeta(t, `${SHEET_WIDTH_PREFIX}${columnLetters(column)}`, width === undefined ? undefined : String(width))));
+      const result = target && (await this.host.writeTable(target, (t) => this.host.setMeta(t, `${WIDTH_PREFIX}${columnLetters(column)}`, width === undefined ? undefined : String(width))));
       if (result === "written") return;
     } catch (e) {
       console.error("Silverware Table: could not store the column's width", e);
@@ -1430,7 +1430,7 @@ export class Sheet implements AdapterFeature {
     }
     // One area of the table: rows one after another in the markdown, as on the sheet
     if (rows.some((row, i) => row !== rows[0]! + i)) return undefined;
-    const name = first.info.key === key ? undefined : metaName(parseTable(first.info.source));
+    const name = first.info.key === key ? undefined : this.host.tableName(parseTable(first.info.source));
     if (first.info.key !== key && !name) return undefined;
     const left = first.ref.column;
     return { table: name, area: { top: rows[0]! - 1, left, bottom: rows[rows.length - 1]! - 1, right: left + area.right - area.left } };
@@ -1524,7 +1524,7 @@ export class Sheet implements AdapterFeature {
     if (!board || !placed || !info) return undefined;
     const laidOut = [...board.tables.values()].map((p) => {
       const model = parseTable(p.range.text);
-      const name = metaName(model);
+      const name = this.host.tableName(model);
       return { id: p.range.from, at: p.at, rows: model.rows.length, columns: model.align.length, ...(name ? { name } : {}) };
     });
     const room = roomFor(laidOut, { id: placed.range.from, rows: Math.max(info.rows, cell.row + 1), columns: Math.max(info.columns, cell.column + 1), claims: true });
@@ -1693,7 +1693,7 @@ export class Sheet implements AdapterFeature {
     const last = ranges[ranges.length - 1];
     if (!last) return "failed";
     const { sheet, taken, also } = this.sheetFor(board, text);
-    const table = withMeta(withMeta(withMetaName(made, freeName(text, taken)), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, formatAt(at));
+    const table = this.host.setMeta(this.host.setMeta(this.host.withTableName(made, freeName(this.host, text, taken)), SHEET_KEY, sheet), AT_KEY, formatAt(at));
     const result = await this.host.insertTable(table, { key: keys[last.ordinal]!, source: last.text, hint: last.from }, also, key);
     if (result === "written") this.becameSheet(board, sheet, also, "the new one");
     return result;
@@ -1709,15 +1709,15 @@ export class Sheet implements AdapterFeature {
     if (board.sheet) return { sheet: board.sheet, taken: [], also: undefined };
     const keys = this.host.tableKeys(this.host.currentPage, text);
     const alone = findTables(text)[keys.indexOf(board.alone)];
-    const sheet = freeSheetName(text);
+    const sheet = freeSheetName(this.host, text);
     if (!alone) return { sheet, taken: [], also: undefined };
-    const name = metaName(parseTable(alone.text)) ?? freeName(text);
+    const name = this.host.tableName(parseTable(alone.text)) ?? freeName(this.host, text);
     return {
       sheet,
       taken: [name],
       also: {
         target: { key: board.alone, source: alone.text, hint: alone.from },
-        change: (t: Table) => withMeta(withMeta(withMetaName(t, name), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, "A1"),
+        change: (t: Table) => this.host.setMeta(this.host.setMeta(this.host.withTableName(t, name), SHEET_KEY, sheet), AT_KEY, "A1"),
       },
     };
   }
@@ -1766,7 +1766,7 @@ export class Sheet implements AdapterFeature {
     if (inWay) {
       // (The cell stays selected)
       this.go(at, false);
-      const name = metaName(parseTable(inWay.range.text));
+      const name = this.host.tableName(parseTable(inWay.range.text));
       const what = `${data.length} row${data.length === 1 ? "" : "s"} and ${columns} column${columns === 1 ? "" : "s"}`;
       void this.host.bridge.flash(`Silverware Table: there is no room here for the ${what} pasted: they would cover ${name ?? `the table at ${formatAt(inWay.at)}`}`, "info");
       return;
@@ -2038,12 +2038,7 @@ export class Sheet implements AdapterFeature {
   }
 }
 
-/** The sheet a table is on: its `sheet`, with a place on it (`at`); none: it shows alone */
-function sheetOf(source: string): string | undefined {
-  const meta = parseTable(source).meta;
-  const sheet = meta?.[SHEET_ATTRIBUTE]?.trim();
-  return sheet && parseAt(meta?.[AT_ATTRIBUTE]) ? sheet : undefined;
-}
+
 
 /** Whether two sheet's cells are the same */
 function same(a: SheetCell, b: SheetCell): boolean {

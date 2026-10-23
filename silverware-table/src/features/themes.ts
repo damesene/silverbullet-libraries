@@ -15,11 +15,10 @@
 // look for a moment; once its markdown is read, again from it.
 import type { Feature, ModelHost, TableLook, TablePreview, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
-import { parseTable, type Table, type TableMeta } from "../markdown.ts";
+import { parseTable, type Table } from "../markdown.ts";
 import type { MenuDetail, MenuEntry } from "../menu.ts";
 
 type MenuItem = Extract<MenuEntry, { readonly kind: "item" }>;
-import { withMeta } from "../meta.ts";
 import { allThemes, NATIVE_THEME, STRIPES, type Stripes, stripesName, themeLabel, themeName } from "../themes.ts";
 
 // The stripes' icons and what they do, in the Theme list
@@ -29,16 +28,6 @@ const STRIPES_TITLES: Readonly<Record<Stripes, string>> = {
   rows: "Striped rows: every other row tinted",
   columns: "Striped columns: every other column tinted",
 };
-
-/** A table's own theme, from its metadata row (theme="…"), if it chose one */
-export function metaTheme(table: Table): string | undefined {
-  return themeName(table.meta?.theme);
-}
-
-/** A table's own stripes, from its metadata row (stripes="none" / "rows" / "columns"), if it chose them */
-export function metaStripes(table: Table): Stripes | undefined {
-  return stripesName(table.meta?.stripes);
-}
 
 export class Themes implements Feature {
   // The settings, read when Silverware Table starts and again as tables are enhanced
@@ -51,10 +40,20 @@ export class Themes implements Feature {
     void this.readSettings();
   }
 
+  /** A table's own theme, from its metadata row, if it chose one */
+  private ownTheme(table: Table): string | undefined {
+    return themeName(this.host.getMeta(table, "name"));
+  }
+
+  /** A table's own stripes (none, rows, columns), from its metadata row, if it chose them */
+  private ownStripes(table: Table): Stripes | undefined {
+    return stripesName(this.host.getMeta(table, "stripes"));
+  }
+
   /** The table's own theme and stripes (its metadata row), else the settings'; native and rows are SilverBullet's own look: no attribute */
-  tableLook(meta: TableMeta | undefined): TableLook {
-    const theme = themeName(meta?.theme) ?? this.theme;
-    const stripes = stripesName(meta?.stripes) ?? this.stripes;
+  tableLook(table: Table): TableLook {
+    const theme = this.ownTheme(table) ?? this.theme;
+    const stripes = this.ownStripes(table) ?? this.stripes;
     return { theme: theme === NATIVE_THEME ? undefined : theme, stripes: stripes === "rows" ? undefined : stripes };
   }
 
@@ -81,8 +80,8 @@ export class Themes implements Feature {
   toolbarButtons(info: TableInfo): ToolbarButton[] {
     if (!info.metaRow && !this.host.metadataEnabled) return [];
     const table = parseTable(info.source);
-    const own = metaTheme(table);
-    const ownStripes = metaStripes(table);
+    const own = this.ownTheme(table);
+    const ownStripes = this.ownStripes(table);
     const set = (choices: Readonly<Record<string, string | undefined>>) => () => void this.choose(info, choices);
     const item = (label: string, checked: boolean, run: () => void, detail?: MenuDetail): MenuItem => ({ kind: "item", label, icon: "", checked, run, ...(detail ? { detail } : {}) });
     // Made as the list opens: finding the themes reads every style rule of the page
@@ -98,7 +97,7 @@ export class Themes implements Feature {
       return [
       // First the global theme (as "No type" leads the column types): the table's own theme and stripes go, it follows the settings
       // The settings' theme after it, no preview (it is listed below, marked default)
-      { ...item("Global theme", own === undefined && ownStripes === undefined, set({ theme: undefined, stripes: undefined })), value: { text: themeLabel(this.theme) } },
+      { ...item("Global theme", own === undefined && ownStripes === undefined, set({ name: undefined, stripes: undefined })), value: { text: themeLabel(this.theme) } },
       { kind: "separator" },
       stripesRow,
       { kind: "separator" },
@@ -107,7 +106,7 @@ export class Themes implements Feature {
         item(
           `${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`,
           own === theme,
-          set({ theme }),
+          set({ name: theme }),
           detail(theme),
         ),
       ),
@@ -142,7 +141,7 @@ export class Themes implements Feature {
   /** The table's own choices written into its metadata row, as one edit (undefined: the setting's again) */
   private async choose(shownInfo: TableInfo, choices: Readonly<Record<string, string | undefined>>): Promise<void> {
     const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
-    await this.host.writeTable(info, (table) => Object.entries(choices).reduce((t, [name, value]) => withMeta(t, name, value), table));
+    await this.host.writeTable(info, (table) => Object.entries(choices).reduce((t, [key, value]) => this.host.setMeta(t, key, value), table));
     this.host.focusPage();
   }
 }

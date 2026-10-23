@@ -1,21 +1,29 @@
-// What Silverware Table keeps in a table's metadata row (`<meta …>`):
-// - pin-top="2", pin-bottom, pin-left, pin-right: how many rows (columns) at
-//   each edge of the table are pinned
-// - name="prices": the table's name, by which formulas refer to it (prices!B2)
-// - attributes of a column, `<what>.<column>`: the column named as columns.ts
-//   names columns (its key or fixed name), with the occurrence after a colon
-//   when several columns share it (`qty:2`), so it survives moves and
-//   renames, which every edit follows here whatever the attribute is for:
-//   sort.qty="desc" (the sorting), filter.status="=open|blocked" (the filters
-//   module's)
+// What tables keep, by whose it is: the core's (its name, pins, sorting, the
+// names of columns, rows and cells) and each module's. The core makes every
+// attribute's name from its owner and key (and, for a column's, the column),
+// so a module gives only its key and value through its host, never a whole
+// name, and cannot write another's. In the metadata row (`<meta …>`, the
+// table's last row):
+// - an attribute of the table, the owner's key
+// - an attribute of a column, the column named as columns.ts names columns
+//   (its key or fixed name), with the occurrence after a colon when several
+//   columns share it (`qty:2`), so it survives moves and renames, which every
+//   edit follows here whatever the attribute is for
+// and in hidden tags in cells (tags.ts), an attribute of the owner's key.
+//
+// The names as tables have them so far: what each owner's key is written as.
 import { type ColumnId, columnIdOf, findColumn } from "./columns.ts";
 import type { Row, Table } from "./markdown.ts";
-import { nameProblem } from "./names.ts";
+import { columnWhat, CORE, type Owner, tableAttributeName, TABLE_NAMES } from "./metanames.ts";
+import { tableNameProblem } from "./namerules.ts";
 import { NO_PINS, type Pins, type SortDirection } from "./view.ts";
+
+export { CORE, cellTagName, type Owner, tableAttributeName } from "./metanames.ts";
 
 export type MetaSort = { readonly column: number; readonly direction: SortDirection };
 
-/** Sets or (with undefined) removes a metadata attribute; unchanged: the same table */
+
+/** Sets or (with undefined) removes a metadata attribute by its whole name; unchanged: the same table */
 export function withMeta(table: Table, name: string, value: string | undefined): Table {
   const current = table.meta ?? {};
   if (current[name] === value) return table;
@@ -23,6 +31,27 @@ export function withMeta(table: Table, name: string, value: string | undefined):
   if (value === undefined) delete meta[name];
   else meta[name] = value;
   return { ...table, meta };
+}
+
+/** An owner's attribute of the table */
+export function metaValue(table: Table, owner: Owner, key: string): string | undefined {
+  return table.meta?.[tableAttributeName(owner, key)];
+}
+
+/** The table with an owner's attribute set (undefined: removed) */
+export function withMetaValue(table: Table, owner: Owner, key: string, value: string | undefined): Table {
+  return withMeta(table, tableAttributeName(owner, key), value);
+}
+
+/** An owner's attributes of the table (not of its columns), by key */
+export function metaValuesOf(table: Table, owner: Owner): Map<string, string> {
+  const values = new Map<string, string>();
+  const known = new Map(Object.entries(TABLE_NAMES).map(([full, written]) => [written, full]));
+  for (const [name, value] of Object.entries(table.meta ?? {})) {
+    const full = known.get(name) ?? name;
+    if (full.startsWith(`${owner}.`) && !parseColumnAttribute(name)) values.set(full.slice(owner.length + 1), value);
+  }
+  return values;
 }
 
 // ---- attributes of columns ------------------------------------------------------
@@ -42,8 +71,9 @@ function columnAttributeName(headers: readonly string[], what: string, column: n
   return id && `${what}.${id.name}${id.shared ? `:${id.nth}` : ""}`;
 }
 
-/** The attribute `what` of each column that has it, by the column, in the order they are written */
-export function columnMeta(table: Table, what: string): Map<number, string> {
+/** An owner's attribute of each column that has it, by the column, in the order they are written */
+export function columnValues(table: Table, owner: Owner, key: string): Map<number, string> {
+  const what = columnWhat(owner, key);
   const headers = table.rows[0]?.cells ?? [];
   const values = new Map<number, string>();
   for (const [name, value] of Object.entries(table.meta ?? {})) {
@@ -54,8 +84,9 @@ export function columnMeta(table: Table, what: string): Map<number, string> {
   return values;
 }
 
-/** The table with the attribute `what` of the columns as `values` (by column), and of no other */
-export function withColumnMeta(table: Table, what: string, values: ReadonlyMap<number, string>): Table {
+/** The table with an owner's attribute of the columns as `values` (by column), and of no other */
+export function withColumnValues(table: Table, owner: Owner, key: string, values: ReadonlyMap<number, string>): Table {
+  const what = columnWhat(owner, key);
   const headers = table.rows[0]?.cells ?? [];
   const meta: Record<string, string> = {};
   for (const [name, value] of Object.entries(table.meta ?? {})) {
@@ -68,6 +99,11 @@ export function withColumnMeta(table: Table, what: string, values: ReadonlyMap<n
   const current = table.meta ?? {};
   const same = Object.keys(meta).length === Object.keys(current).length && Object.entries(meta).every(([n, v]) => current[n] === v);
   return same ? table : { ...table, meta };
+}
+
+/** The whole name of an owner's attribute of one column, as the headers name it (undefined: no such column) */
+export function columnAttributeOf(table: Table, owner: Owner, key: string, column: number): string | undefined {
+  return columnAttributeName(table.rows[0]?.cells ?? [], columnWhat(owner, key), column);
 }
 
 /**
@@ -101,9 +137,9 @@ export function followColumnMeta(before: Table, after: Table, map: (column: numb
 
 // ---- sorting ------------------------------------------------------------------
 
-/** The sorting stored in the table (sort.qty="desc"), if its column still exists */
+/** The sorting stored in the table, if its column still exists */
 export function metaSort(table: Table): MetaSort | undefined {
-  for (const [column, direction] of columnMeta(table, "sort")) {
+  for (const [column, direction] of columnValues(table, CORE, "sort")) {
     if (direction === "asc" || direction === "desc") return { column, direction };
   }
   return undefined;
@@ -111,28 +147,28 @@ export function metaSort(table: Table): MetaSort | undefined {
 
 /** Stores (or, with undefined, removes) the sorting */
 export function withMetaSort(table: Table, sort: MetaSort | undefined): Table {
-  return withColumnMeta(table, "sort", new Map(sort ? [[sort.column, sort.direction]] : []));
+  return withColumnValues(table, CORE, "sort", new Map(sort ? [[sort.column, sort.direction]] : []));
 }
 
 // ---- pins -----------------------------------------------------------------------
 
-const PIN_ATTRIBUTES = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" } as const;
+const PIN_KEYS = { top: "pin-top", bottom: "pin-bottom", left: "pin-left", right: "pin-right" } as const;
 
 /** The pins stored in the table, limited to what it has room for */
 export function metaPins(table: Table): Pins {
-  const count = (name: string) => {
-    const n = Number(table.meta?.[name]);
+  const count = (key: string) => {
+    const n = Number(metaValue(table, CORE, key));
     return Number.isInteger(n) && n > 0 ? n : 0;
   };
   const bodyRows = Math.max(0, table.rows.length - 1);
   const columns = table.align.length;
-  const top = Math.min(count(PIN_ATTRIBUTES.top), bodyRows);
-  const left = Math.min(count(PIN_ATTRIBUTES.left), columns);
+  const top = Math.min(count(PIN_KEYS.top), bodyRows);
+  const left = Math.min(count(PIN_KEYS.left), columns);
   return {
     top,
-    bottom: Math.min(count(PIN_ATTRIBUTES.bottom), bodyRows - top),
+    bottom: Math.min(count(PIN_KEYS.bottom), bodyRows - top),
     left,
-    right: Math.min(count(PIN_ATTRIBUTES.right), columns - left),
+    right: Math.min(count(PIN_KEYS.right), columns - left),
   };
 }
 
@@ -140,36 +176,31 @@ export function metaPins(table: Table): Pins {
 export function withMetaPins(table: Table, pins: Pins): Table {
   let result = table;
   for (const edge of ["top", "bottom", "left", "right"] as const) {
-    result = withMeta(result, PIN_ATTRIBUTES[edge], pins[edge] > 0 ? String(pins[edge]) : undefined);
+    result = withMetaValue(result, CORE, PIN_KEYS[edge], pins[edge] > 0 ? String(pins[edge]) : undefined);
   }
   return result;
 }
 
 export function hasMetaPins(table: Table): boolean {
-  return Object.values(PIN_ATTRIBUTES).some((name) => table.meta?.[name] !== undefined);
+  return Object.values(PIN_KEYS).some((key) => metaValue(table, CORE, key) !== undefined);
 }
 
 // ---- the table's name ---------------------------------------------------------------
 
-/** Why a text cannot be a table's name (written before "!" in formulas); undefined when it can */
-export function tableNameProblem(name: string): string | undefined {
-  return nameProblem(name, "table");
-}
-
 /** The table's name, if it has a valid one */
 export function metaName(table: Table): string | undefined {
-  const name = table.meta?.name?.trim();
+  const name = metaValue(table, CORE, "name")?.trim();
   return name && !tableNameProblem(name) ? name : undefined;
+}
+
+/** The table's name as written, valid or not */
+export function writtenName(table: Table): string | undefined {
+  return metaValue(table, CORE, "name");
 }
 
 /** Names (or, with undefined, unnames) the table */
 export function withMetaName(table: Table, name: string | undefined): Table {
-  return withMeta(table, "name", name);
-}
-
-/** Whether two table names are the same: names are compared ignoring case */
-export function sameTableName(a: string, b: string): boolean {
-  return a.toLowerCase() === b.toLowerCase();
+  return withMetaValue(table, CORE, "name", name);
 }
 
 // ---- keeping the metadata through edits ------------------------------------------

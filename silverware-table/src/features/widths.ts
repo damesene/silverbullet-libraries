@@ -18,7 +18,6 @@ import { type Feature, type HandleLayer, type ModelHost, type PartTable, type Ta
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
-import { columnMeta, withColumnMeta } from "../meta.ts";
 
 // The narrowest a column can be dragged to, in pixels
 const MIN_WIDTH = 40;
@@ -52,7 +51,7 @@ class TableWidths {
   widthsOf(info: TableInfo): Map<number, number> {
     if (this.stored?.source !== info.source) {
       const read = new Map<number, number>();
-      for (const [column, value] of columnMeta(parseTable(info.source), "width")) {
+      for (const [column, value] of this.host.columnsMeta(parseTable(info.source), "size")) {
         const n = Number(value);
         if (Number.isFinite(n) && n > 0) read.set(column, Math.max(MIN_WIDTH, Math.round(n)));
       }
@@ -104,12 +103,12 @@ class TableWidths {
     this.host.toolbarChanged();
     if (!(info.metaRow || this.host.metadataEnabled)) return;
     const result = await this.host.writeTable(info, (t) => {
-      const widths = columnMeta(t, "width");
+      const widths = this.host.columnsMeta(t, "size");
       for (const [column, width] of set) {
         if (width === undefined) widths.delete(column);
         else widths.set(column, String(width));
       }
-      return withColumnMeta(t, "width", widths);
+      return this.host.setColumnsMeta(t, "size", widths);
     });
     // Stored (or already so): the table's metadata has them now
     if (result !== "failed") for (const column of set.keys()) this.viewed.delete(column);

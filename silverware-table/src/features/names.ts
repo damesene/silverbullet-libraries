@@ -15,13 +15,11 @@
 // such table's name shows in the danger color in the toolbar, whatever the
 // setting, and it is said once (again once it was not shared meanwhile).
 import { columnIdOf } from "../columns.ts";
-import type { CellLook, CellRef, Feature, HeaderLook, MetadataPart, NamingTarget, ModelHost, TableLooks, ToolbarButton, TableInfo } from "../core/feature.ts";
+import type { CellLook, CellRef, Feature, HeaderLook, NamingTarget, ModelHost, TableLooks, ToolbarButton, TableInfo } from "../core/feature.ts";
 import { functionNamed } from "../formulas/registry.ts";
 import { findTables, locateBySource, parseTable, type Table } from "../markdown.ts";
-import { metaName, sameTableName, tableNameProblem, withMetaName } from "../meta.ts";
 import type { MenuNaming } from "../menu.ts";
-import { cellNameOf, namedRows, nameOf, nameProblem, rowNameIn, withCellName, withName } from "../names.ts";
-import { setCell } from "../ops.ts";
+import { nameProblem, sameTableName, tableNameProblem } from "../namerules.ts";
 
 /** Names, as a sentence lists them: "pear, fig and 3 more" */
 function listed(names: readonly string[]): string {
@@ -44,7 +42,7 @@ export class Names implements Feature {
     if (this.shared?.text !== text) {
       const counts = new Map<string, number>();
       for (const range of findTables(text)) {
-        const name = metaName(parseTable(range.text))?.toLowerCase();
+        const name = this.host.tableName(parseTable(range.text))?.toLowerCase();
         if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
       }
       this.shared = { text, names: new Map([...counts].filter(([, n]) => n > 1)) };
@@ -54,7 +52,7 @@ export class Names implements Feature {
 
   /** The table's name, if another table of the page has it too */
   private sharedName(info: TableInfo): string | undefined {
-    const name = metaName(parseTable(info.source));
+    const name = this.host.tableName(parseTable(info.source));
     return name && this.sharedNames().has(name.toLowerCase()) ? name : undefined;
   }
 
@@ -68,7 +66,7 @@ export class Names implements Feature {
     // (The page's text as last read without this table as rendered: read before it, nothing to tell by)
     if (!this.host.pageText.includes(info.source)) return;
     const shared = this.sharedNames();
-    const own = metaName(parseTable(info.source))?.toLowerCase();
+    const own = this.host.tableName(parseTable(info.source))?.toLowerCase();
     // No longer shared (renamed): said again should it be shared again
     if (own && !shared.has(own)) this.told.delete(own);
     const name = this.sharedName(info);
@@ -83,22 +81,11 @@ export class Names implements Feature {
     );
   }
 
-  /** A name is one cell's, one row's: a copy of a row takes none */
-  uniqueTags(): readonly string[] {
-    return ["n", "cn"];
-  }
-
   /** Deleting a column removes the names of the rows and cells it holds, and the formulas using them break */
   columnDeleteWarning(info: TableInfo, column: number): string | undefined {
-    const body = parseTable(info.source).rows.slice(1);
-    const rows = body.flatMap((r) => {
-      const named = rowNameIn(r.cells);
-      return named && named.column === column ? [named.name] : [];
-    });
-    const cells = body.flatMap((r) => {
-      const name = cellNameOf(r.cells[column] ?? "");
-      return name ? [name] : [];
-    });
+    const table = parseTable(info.source);
+    const rows = this.host.rowNames(table).flatMap((named) => (named.column === column ? [named.name] : []));
+    const cells = this.host.cellNames(table).flatMap((named) => (named.column === column ? [named.name] : []));
     if (!rows.length && !cells.length) return undefined;
     const lost = [
       ...(rows.length ? [`the name${rows.length === 1 ? "" : "s"} of ${rows.length === 1 ? "the row" : `${rows.length} rows`} ${listed(rows)}`] : []),
@@ -107,40 +94,24 @@ export class Names implements Feature {
     return `${lost.join(" and ")}: formulas that use ${rows.length + cells.length === 1 ? "it" : "them"} show #REF! or #NAME?`;
   }
 
-  /** Remove metadata removes the names of columns, rows and cells */
-  metadataPart(tables: readonly Table[]): MetadataPart | undefined {
-    const count = tables.reduce(
-      (n, table) => n + table.rows.reduce((m, row) => m + row.cells.filter((cell) => nameOf(cell) !== undefined || cellNameOf(cell) !== undefined).length, 0),
-      0,
-    );
-    return count ? { count, what: "name", tags: ["n", "cn"] } : undefined;
-  }
-
   /** Named cells show a mark in their corner, and their name on hover */
   looks(_info: TableInfo, table: Table): TableLooks | undefined {
     const headers: ({ column: number } & HeaderLook)[] = [];
     const cells: (CellRef & CellLook)[] = [];
     // A column's name: the same mark in its header
-    table.rows[0]?.cells.forEach((raw, column) => {
-      const name = nameOf(raw);
+    table.rows[0]?.cells.forEach((_, column) => {
+      const name = this.host.columnName(table, column);
       if (name) headers.push({ column, marks: ["named"], title: `Column name: ${name}` });
     });
-    table.rows.forEach((r, row) => {
-      if (row === 0) return;
-      r.cells.forEach((raw, column) => {
-        const name = cellNameOf(raw);
-        if (name) cells.push({ row, column, marks: ["named"], title: `Name: ${name}` });
-      });
-      // A named row: a mark at its first cell's edge
-      const name = rowNameIn(r.cells)?.name;
-      if (name) cells.push({ row, column: 0, marks: ["row-named"], title: `Row name: ${name}` });
-    });
+    for (const { name, row, column } of this.host.cellNames(table)) cells.push({ row, column, marks: ["named"], title: `Name: ${name}` });
+    // A named row: a mark at its first cell's edge
+    for (const { name, row } of this.host.rowNames(table)) cells.push({ row, column: 0, marks: ["row-named"], title: `Row name: ${name}` });
     return headers.length || cells.length ? { headers, cells } : undefined;
   }
 
   /** The table's name in the toolbar's row of names, Table (muted) without one: a click on it its field */
   toolbarButtons(info: TableInfo): ToolbarButton[] {
-    const name = metaName(parseTable(info.source));
+    const name = this.host.tableName(parseTable(info.source));
     const shared = this.sharedName(info) !== undefined;
     const title = shared
       ? `Another table on this page is named ${name} too: formulas in other tables use the first of them (${name}!A1). Click to rename this one`
@@ -162,7 +133,7 @@ export class Names implements Feature {
     const table = parseTable(info.source);
     const needs = "Needs the Store table metadata setting";
     if (target.kind === "table") {
-      const name = metaName(table);
+      const name = this.host.tableName(table);
       return {
         ...(name ? { name } : {}),
         label: name ? `Rename this table (formulas elsewhere refer to it as ${name}!A1)` : "Name this table, so formulas in other tables can refer to it (name!A1)",
@@ -171,7 +142,7 @@ export class Names implements Feature {
       };
     }
     if (target.kind === "row") {
-      const name = rowNameIn(table.rows[target.row]?.cells ?? [])?.name;
+      const name = this.host.rowName(table, target.row);
       return {
         ...(name ? { name } : {}),
         label: name ? `Rename this row (formulas use its cells as ${name}[column])` : "Name this row, so formulas use its cells as name[column], wherever it is moved",
@@ -180,7 +151,7 @@ export class Names implements Feature {
       };
     }
     if (target.kind === "cell") {
-      const name = cellNameOf(table.rows[target.row]?.cells[target.column] ?? "");
+      const name = this.host.cellName(table, target.row, target.column);
       return {
         ...(name ? { name } : {}),
         label: name ? `Rename this cell (formulas use it as ${name})` : "Name this cell, so formulas use it by its name, wherever it is moved",
@@ -188,7 +159,7 @@ export class Names implements Feature {
         save: (next) => this.nameCell(info, target.row, target.column, next),
       };
     }
-    const name = nameOf(table.rows[0]?.cells[target.column] ?? "");
+    const name = this.host.columnName(table, target.column);
     return {
       ...(name ? { name } : {}),
       label: name ? `Rename this column (formulas refer to it as [${name}])` : "Name this column, so formulas refer to it as [name] whatever its header says",
@@ -210,7 +181,7 @@ export class Names implements Feature {
   private async renameTable(shownInfo: TableInfo, name: string): Promise<string | undefined> {
     const shown = parseTable(shownInfo.source);
     // Against the name as stored, so an empty answer also clears a name that is not valid
-    if (name === (shown.meta?.name?.trim() ?? "")) return this.unchanged();
+    if (name === (this.host.writtenTableName(shown)?.trim() ?? "")) return this.unchanged();
     const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
     const problem = name === "" ? undefined : tableNameProblem(name);
     if (problem) return problem;
@@ -220,12 +191,12 @@ export class Names implements Feature {
       const self = locateBySource(text, info.hint, info.source);
       const taken = findTables(text).some((range) => {
         if (range.from === self?.from) return false;
-        const other = metaName(parseTable(range.text));
+        const other = this.host.tableName(parseTable(range.text));
         return other !== undefined && sameTableName(other, name);
       });
       if (taken) return `another table on this page is named ${name}`;
     }
-    await this.host.writeTable(info, (t) => withMetaName(t, name === "" ? undefined : name));
+    await this.host.writeTable(info, (t) => this.host.withTableName(t, name === "" ? undefined : name));
     this.host.focusPage();
     return undefined;
   }
@@ -233,19 +204,16 @@ export class Names implements Feature {
   /** Names a row (empty: unnames it); refused, with why, when not valid or another row of the table has it */
   private async nameRow(shownInfo: TableInfo, row: number, name: string): Promise<string | undefined> {
     const table = parseTable(shownInfo.source);
-    const current = rowNameIn(table.rows[row]?.cells ?? [])?.name ?? "";
+    const current = this.host.rowName(table, row) ?? "";
     if (name === current) return this.unchanged();
     let problem = name === "" ? undefined : nameProblem(name, "row");
     // The name is the table's: no other row of it may have it
-    const other = name ? namedRows(table).get(name.toLowerCase()) : undefined;
+    const other = name ? this.host.rowNames(table).find((named) => named.name.toLowerCase() === name.toLowerCase())?.row : undefined;
     if (!problem && other !== undefined && other !== row) problem = `another row of this table is named ${name}`;
     if (problem) return problem;
     const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
     // Renamed where the name is (a column inserted or moved may have taken it out of the first cell)
-    await this.host.writeTable(info, (t) => {
-      const column = rowNameIn(t.rows[row]?.cells ?? [])?.column ?? 0;
-      return setCell(t, row, column, withName(t.rows[row]?.cells[column] ?? "", name || undefined));
-    });
+    await this.host.writeTable(info, (t) => this.host.withRowName(t, row, name || undefined));
     this.host.focusPage();
     return undefined;
   }
@@ -257,34 +225,35 @@ export class Names implements Feature {
    */
   private async nameCell(shownInfo: TableInfo, row: number, column: number, name: string): Promise<string | undefined> {
     const table = this.host.tableOf(shownInfo);
-    const current = cellNameOf(table.rows[row]?.cells[column] ?? "") ?? "";
+    const current = this.host.cellName(table, row, column) ?? "";
     if (name === current) return this.unchanged();
     let problem = name === "" ? undefined : nameProblem(name, "cell");
     if (!problem && name && functionNamed(name.toUpperCase())) problem = `${name} is a function's name`;
     if (!problem && name) {
-      const taken = table.rows.some((r, ri) => ri > 0 && r.cells.some((cell, ci) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase() && !(ri === row && ci === column)));
+      const taken = this.host.cellNames(table).some((named) => named.name.toLowerCase() === name.toLowerCase() && !(named.row === row && named.column === column));
       if (taken) problem = `another cell of this table is named ${name}`;
     }
     if (problem) return problem;
     const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
-    await this.host.writeTable(info, (t) => setCell(t, row, column, withCellName(t.rows[row]?.cells[column] ?? "", name || undefined)));
+    await this.host.writeTable(info, (t) => this.host.withCellName(t, row, column, name || undefined));
     this.host.focusPage();
     return undefined;
   }
 
   /** Names a column (empty: unnames it); refused, with why, when not valid or another column answers to it */
   private async rename(shownInfo: TableInfo, column: number, name: string): Promise<string | undefined> {
-    const headers = parseTable(shownInfo.source).rows[0]?.cells ?? [];
-    const current = nameOf(headers[column] ?? "") ?? "";
+    const table = parseTable(shownInfo.source);
+    const headers = table.rows[0]?.cells ?? [];
+    const current = this.host.columnName(table, column) ?? "";
     if (name === current) return this.unchanged();
     const problem = name === "" ? undefined : nameProblem(name, "column");
     // Another column already answers to it: [name] would be ambiguous
     const taken =
       name !== "" &&
-      headers.some((header, c) => c !== column && (nameOf(header)?.toLowerCase() === name.toLowerCase() || columnIdOf(headers, c)?.name === name.toLowerCase()));
+      headers.some((_, c) => c !== column && (this.host.columnName(table, c)?.toLowerCase() === name.toLowerCase() || columnIdOf(headers, c)?.name === name.toLowerCase()));
     if (problem || taken) return problem ?? `another column of this table is named ${name}`;
     const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
-    await this.host.writeTable(info, (t) => setCell(t, 0, column, withName(t.rows[0]?.cells[column] ?? "", name || undefined)));
+    await this.host.writeTable(info, (t) => this.host.withColumnName(t, column, name || undefined));
     this.host.focusPage();
     return undefined;
   }

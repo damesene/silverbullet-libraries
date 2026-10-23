@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { findTables, locateByShape, parseMetaRow, parseTable, serializeTable } from "./markdown.ts";
-import { columnMeta, followColumnMeta, metaName, metaSort, sameTableName, tableNameProblem, withColumnMeta, withMeta, withMetaName, withMetaSort } from "./meta.ts";
+import { columnValues, followColumnMeta, metaName, metaSort, withColumnValues, withMeta, withMetaName, withMetaSort } from "./meta.ts";
+import { sameTableName, tableNameProblem } from "./namerules.ts";
 import { columnAfterMove, deleteColumn, insertRow, moveColumn, setCell } from "./ops.ts";
 
 const md = (t: ReturnType<typeof parseTable>) => serializeTable(t);
@@ -101,19 +102,19 @@ describe("stored sorting", () => {
 
 describe("attributes of columns", () => {
   const base = parseTable("| Name | Qty | Qty |\n|---|---|---|\n| a | 1 | 2 |");
-  const filtered = withColumnMeta(base, "filter", new Map([[0, "=a|b"], [2, ">1"]]));
+  const filtered = withColumnValues(base, "filters", "condition", new Map([[0, "=a|b"], [2, ">1"]]));
 
   it("are read and written by column, others left as they are", () => {
     expect(filtered.meta).toEqual({ "filter.name": "=a|b", "filter.qty:2": ">1" });
-    expect(columnMeta(filtered, "filter")).toEqual(new Map([[0, "=a|b"], [2, ">1"]]));
+    expect(columnValues(filtered, "filters", "condition")).toEqual(new Map([[0, "=a|b"], [2, ">1"]]));
     const named = withMeta(filtered, "name", "fruit");
-    expect(withColumnMeta(named, "filter", new Map([[1, "x"]])).meta).toEqual({ name: "fruit", "filter.qty:1": "x" });
+    expect(withColumnValues(named, "filters", "condition", new Map([[1, "x"]])).meta).toEqual({ name: "fruit", "filter.qty:1": "x" });
     // Unchanged: the same table
-    expect(withColumnMeta(filtered, "filter", new Map([[0, "=a|b"], [2, ">1"]]))).toBe(filtered);
+    expect(withColumnValues(filtered, "filters", "condition", new Map([[0, "=a|b"], [2, ">1"]]))).toBe(filtered);
     // Written in the metadata row, the | escaped, and read back
     const text = md(filtered);
     expect(text).toContain(`<meta filter.name='=a\\|b' filter.qty:2='&gt;1'>`);
-    expect(columnMeta(parseTable(text), "filter")).toEqual(new Map([[0, "=a|b"], [2, ">1"]]));
+    expect(columnValues(parseTable(text), "filters", "condition")).toEqual(new Map([[0, "=a|b"], [2, ">1"]]));
   });
 
   it("follow their columns through rename, move and delete, whatever they are for", () => {

@@ -10,7 +10,6 @@
 import type { AdapterFeature, TableHost, WidgetInfo } from "../../feature.ts";
 import type { Rect } from "../../geometry.ts";
 import { underWindow } from "../../overwindow.ts";
-import { metaName } from "../../../meta.ts";
 import { parseTable } from "../../../markdown.ts";
 
 // A tab's height, kept in step with the CSS (.swt-table-label): measured, a tab not shown yet has none
@@ -46,7 +45,7 @@ export class TableLabels implements AdapterFeature {
     const kept = new Set<HTMLElement>();
     for (const info of this.host.shownTables()) {
       const widget = this.host.widgetOf(info);
-      const name = metaName(parseTable(info.source));
+      const name = this.host.tableName(parseTable(info.source));
       // (Under what is over the window, a full screen table or the sheet's board: out of sight)
       if (!name || widget === this.underPointer || !widget.isConnected || underWindow(widget)) continue;
       if (this.place(widget, info, name)) kept.add(widget);

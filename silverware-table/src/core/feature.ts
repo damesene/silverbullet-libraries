@@ -13,8 +13,9 @@ import type { Rect } from "./geometry.ts";
 export type { Dialog, DialogOptions } from "./dialog.ts";
 export type { Rect } from "./geometry.ts";
 import type { IndexMap } from "../ops.ts";
-import type { OtherPages, PageTable, Table, TableMeta } from "../markdown.ts";
+import type { OtherPages, PageTable, Table } from "../markdown.ts";
 import type { MenuBack, MenuEntry, MenuNaming } from "../menu.ts";
+import type { CellNameAt, RowName } from "../names.ts";
 import type { Pins, ViewState } from "../view.ts";
 
 /** A table shown, in model terms (what modules get): where it is in the page, its shape, its pins */
@@ -463,6 +464,7 @@ export type CellMenuGroup = { readonly order: number; readonly entries: readonly
  * What a feature says it keeps in tables, for Remove metadata: "2 formulas:
  * those cells keep …"; `tags`: the attributes of its hidden tags in cells
  */
+/** What a module keeps in tables, for Remove metadata: how many, of what; `tags`: the keys of its attributes in cells */
 export type MetadataPart = { readonly count: number; readonly what: string; readonly note?: string; readonly tags: readonly string[] };
 
 /** What the controller offers features */
@@ -687,6 +689,46 @@ export interface ModelHost {
   offer(api: object): void;
   /** What the module of that name offers (`offer`): undefined while it is off or offers nothing */
   offered<T extends object>(name: FeatureName): T | undefined;
+
+  // What a module keeps in tables, its own only: the core makes each
+  // attribute's name from the module's and its key (meta.ts), of a column
+  // when `column` is given (it follows its column through edits). A module's
+  // own host has them for that module; the core's for the core.
+  /** The module's attribute of the table (of one column: `column`) */
+  getMeta(table: Table, key: string, at?: { readonly column: number }): string | undefined;
+  /** The table with the module's attribute set (undefined: removed) */
+  setMeta(table: Table, key: string, value: string | undefined, at?: { readonly column: number }): Table;
+  /** The module's attributes of the table (not of its columns), by key */
+  metaOf(table: Table): ReadonlyMap<string, string>;
+  /** The module's attribute of the key for each column that has it, by column */
+  columnsMeta(table: Table, key: string): Map<number, string>;
+  /** The table with the module's attribute of the key on these columns (by column), and on no other */
+  setColumnsMeta(table: Table, key: string, values: ReadonlyMap<number, string>): Table;
+  /** The module's attribute of the key in a cell's hidden tags */
+  getCellTag(cell: string, key: string): string | undefined;
+  /** The cell with the module's attribute of the key set (undefined: removed), its text and other tags kept */
+  withCellTag(cell: string, key: string, value: string | undefined): string;
+
+  // What every part reads and the core keeps: the names of tables, columns, rows and cells
+  /** A table's name, if it has a valid one */
+  tableName(table: Table): string | undefined;
+  /** A table's name as written, valid or not */
+  writtenTableName(table: Table): string | undefined;
+  /** The table named so (undefined: unnamed) */
+  withTableName(table: Table, name: string | undefined): Table;
+  /** A column's fixed name, its header's (apart from the header's text) */
+  columnName(table: Table, column: number): string | undefined;
+  withColumnName(table: Table, column: number, name: string | undefined): Table;
+  /** A body row's name (of the markdown: header 0) */
+  rowName(table: Table, row: number): string | undefined;
+  withRowName(table: Table, row: number, name: string | undefined): Table;
+  /** A body cell's name */
+  cellName(table: Table, row: number, column: number): string | undefined;
+  withCellName(table: Table, row: number, column: number, name: string | undefined): Table;
+  /** A table's named rows, in their order */
+  rowNames(table: Table): readonly RowName[];
+  /** A table's named body cells, in their order */
+  cellNames(table: Table): readonly CellNameAt[];
   /** Tables changed outside the page (another page read anew): features check them again */
   tablesChanged(): void;
   /** What deleting a column also removes, by the features (names of rows and cells in it) */
@@ -904,7 +946,7 @@ export interface Feature {
    * asked as soon as the table is rendered (before it is laid out: the
    * metadata as rendered) and once its markdown is read
    */
-  tableLook?(meta: TableMeta | undefined): TableLook | undefined;
+  tableLook?(table: Table): TableLook | undefined;
   /**
    * Entries for a column's menu, after its sorting; `open` shows other
    * entries in the menu's place (they close the menu when run)
@@ -985,8 +1027,6 @@ export interface Feature {
   columnDeleteWarning?(info: TableInfo, column: number): string | undefined;
   /** What deleting the whole table (Delete table) also affects, asked first: "the formulas of 2 tables that refer to it show #REF!" */
   tableDeleteWarning?(info: TableInfo): string | undefined;
-  /** Attributes of the feature's hidden tags a copy of a row leaves out (a name is one cell's, one row's) */
-  uniqueTags?(): readonly string[];
   /** What the feature keeps in these tables, for Remove metadata (which removes it) */
   metadataPart?(tables: readonly Table[]): MetadataPart | undefined;
   /**
@@ -1059,9 +1099,10 @@ export interface Feature {
   /** A header given a new name other than by its editor (a paste): what it becomes (the column type's hashtag kept); undefined: as given */
   headerRenamed?(name: string, original: string): string | undefined;
   /**
-   * Attributes of the hidden tags in cells (tags.ts) the feature manages: when
-   * a cell's text is edited, pasted over or cleared, its tags with them are not
-   * kept but what the feature wrote (formulas: f). Others' tags are kept.
+   * Keys of the module's attributes in hidden tags in cells (tags.ts) it
+   * manages: when a cell's text is edited, pasted over or cleared, its tags
+   * with them are not kept but what the module wrote (formulas: f). Others'
+   * tags are kept.
    */
   takesTags?(): readonly string[];
   /**

@@ -5,7 +5,8 @@ import {
 } from "./formulas/index.ts";
 import { formulaCell, formulaOf, recalculate } from "./testing/formulas.ts";
 import { parseMetaRow, parseTable } from "./markdown.ts";
-import { nameOf, nameProblem, withCellName, withName, withoutName } from "./names.ts";
+import { nameProblem } from "./namerules.ts";
+import { nameOf, withCellName, withName, withoutName } from "./names.ts";
 
 describe("names in cells", () => {
   it("reads, writes and removes a cell's name, keeping its text", () => {

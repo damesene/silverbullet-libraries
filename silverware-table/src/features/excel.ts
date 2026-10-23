@@ -23,7 +23,6 @@ import { columnWidth, xlsxFile, type XlsxCell } from "../excel/xlsx.ts";
 import { currentTable, type ExportedTable, exportedTable } from "../export/table.ts";
 import type { FormulasOffer } from "../formulas/index.ts";
 import { ICONS } from "../icons.ts";
-import { metaName } from "../meta.ts";
 
 const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 export const FUNCTIONS_PATH = "silverware.table.modules.excel.functions";
@@ -275,7 +274,7 @@ export class Excel implements Feature {
     const skipped: Skipped[] = [];
     let formulas = 0;
     const cells = this.host.offered<FormulasOffer>("formulas")?.cells;
-    const own = cells && { table: model, name: metaName(model), cells };
+    const own = cells && { table: model, name: this.host.tableName(model), cells };
     // Each markdown row in its place: Excel's row 2 is the first under the header, as formulas count them
     const rows: XlsxCell[][] = Array.from({ length: Math.max(0, model.rows.length - 1) }, () => []);
     for (const { row, values } of exported.rows) {
@@ -294,7 +293,7 @@ export class Excel implements Feature {
       });
     }
     const page = await this.host.bridge.getCurrentPage();
-    const name = metaName(model) ?? page.split("/").pop() ?? "Table";
+    const name = this.host.tableName(model) ?? page.split("/").pop() ?? "Table";
     const widths = exported.header.map((h, c) => columnWidth([h, ...exported.rows.map((r) => r.values[c] ?? "")]));
     return { name, make: () => xlsxFile({ name, header: exported.header, rows, widths }), formulas, skipped };
   }

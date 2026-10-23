@@ -36,7 +36,6 @@ import { type FilterOptions, normalizeForFilter, parseFilter } from "../filter.t
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
-import { columnMeta, withColumnMeta } from "../meta.ts";
 import { asNumber } from "../view.ts";
 import type { TableKey } from "../core/feature.ts";
 
@@ -127,7 +126,7 @@ class FilterTable {
   private storedFilters(info: TableInfo): readonly string[] {
     if (this.stored?.source === info.source) return this.stored.filters;
     const filters: string[] = [];
-    for (const [column, value] of columnMeta(parseTable(info.source), "filter")) {
+    for (const [column, value] of this.host.columnsMeta(parseTable(info.source), "condition")) {
       while (filters.length < column) filters.push("");
       filters[column] = value;
     }
@@ -379,7 +378,7 @@ class FilterTable {
     written.forEach((filter, column) => {
       if (filter.trim() !== "") filters.set(column, filter.trim());
     });
-    const result = await this.host.writeTable(info, (t) => withColumnMeta(t, "filter", filters));
+    const result = await this.host.writeTable(info, (t) => this.host.setColumnsMeta(t, "condition", filters));
     // Stored: the table's markdown has them now
     if (result !== "failed" && sameFilters(this.typed ?? [], written)) this.typed = undefined;
   }
