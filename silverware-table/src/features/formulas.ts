@@ -1175,7 +1175,12 @@ export class Formulas implements Feature {
       if (ref.kind === "column") {
         const column = clamp(startArea.left + dColumn, lastColumn);
         if (ref.last === undefined) return columnRefText(columnIdOf(headers, column), ref.thisRow);
-        // A row's range moved as one: as wide as it was, within the table
+        // A row's range resized: from its first column to the one under the pointer
+        if (mode === "resize") {
+          const to = clamp(cell.column, lastColumn);
+          return columnRangeText(columnIdOf(headers, Math.min(startArea.left, to)), columnIdOf(headers, Math.max(startArea.left, to)));
+        }
+        // Moved as one: as wide as it was, within the table
         const width = startArea.right - startArea.left;
         const left = Math.min(column, lastColumn - width);
         return columnRangeText(columnIdOf(headers, left), columnIdOf(headers, left + width));

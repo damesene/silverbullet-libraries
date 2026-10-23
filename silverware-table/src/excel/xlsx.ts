@@ -180,7 +180,8 @@ function tableXml(sheet: XlsxSheet, table: XlsxTable): string {
   const tableColumns = sheet.header
     .map((name, c) => {
       const total = totals?.[c];
-      const label = total && !total.formula && total.value.kind !== "empty" ? ` totalsRowLabel="${xmlText(excelText(total))}"` : "";
+      // A label is text: a number, a date or a logical value there stays the cell's value only
+      const label = total && !total.formula && total.value.kind === "text" ? ` totalsRowLabel="${xmlText(total.value.value)}"` : "";
       const fn = total?.formula ? ' totalsRowFunction="custom"' : "";
       const calculated = table.calculated[c];
       const inner = (calculated ? formula("calculatedColumnFormula", calculated) : "") + (total?.formula ? formula("totalsRowFormula", total.formula) : "");
@@ -197,11 +198,6 @@ function tableXml(sheet: XlsxSheet, table: XlsxTable): string {
   );
 }
 
-/** A totals row's label: the cell's text as written */
-function excelText(cell: XlsxCell): string {
-  const v = cell.value;
-  return v.kind === "text" ? v.value : v.kind === "number" ? String(v.value) : "";
-}
 
 /** The parts of the file, by their paths in the zip */
 export function xlsxParts(sheet: XlsxSheet): [string, string][] {

@@ -44,6 +44,8 @@ describe("columns by name", () => {
     expect(findColumn(czech, { name: "price_", nth: 1 })).toBe(2);
     expect(findColumn(czech, { name: "n_zev", nth: 1 })).toBe(0);
     expect(findColumn(["a b"], { name: "a__b", nth: 1 })).toBe(0);
+    // Not a key: as a header names it, its emphasis dropped
+    expect(findColumn(["_Draft_"], { name: "_Draft_", nth: 1 })).toBe(0);
     // What the key of a column with such a header is, as metadata and formulas write it
     expect(findColumn(czech, columnIdOf(czech, 1)!)).toBe(1);
   });

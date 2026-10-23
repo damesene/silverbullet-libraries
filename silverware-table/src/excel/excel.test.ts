@@ -141,6 +141,8 @@ describe("as an Excel table", () => {
     expect(excelFormula("=SUM([jan])", table, 2, 1, {}, structured)).toEqual({ text: "SUM(T[Jan])", array: false });
     expect(excelFormula("=[@jan]*2", table, 0, 3, {}, structured)).toEqual({ text: "T[[#This Row],[Jan]]*2", array: false });
     expect(excelFormula("=SUM([@[feb]:[jan]])", table, 0, 3, {}, structured)).toEqual({ text: "SUM(T[[#This Row],[Jan]:[Feb]])", array: false });
+    // In the totals row, which has no This Row of the table's: cells
+    expect(excelFormula("=[@jan]*2", table, 2, 3, {}, structured)).toEqual({ text: "B4*2", array: false });
     // Its total row not its last one (no totals row): the column's cells as before
     expect(excelFormula("=SUM([jan])", table, 2, 1, {}, { ...structured, totalsRow: false })).toEqual({ text: "SUM(B2:B3)", array: false });
   });
@@ -209,6 +211,19 @@ describe("the .xlsx file", () => {
     ],
     widths: [10, 8, 12],
   };
+
+  it("has a table part as the sheet's table: its totals row's label only where that cell is text", () => {
+    const totals = [{ value: excelValue("2025-11-06") }, { value: excelValue("3"), formula: { text: "SUM(T[Qty])", array: false } }, { value: excelValue("Sum") }];
+    const parts = new Map(xlsxParts({ ...sheet, rows: [sheet.rows[0]!, totals], table: { name: "T", totalsRow: true, calculated: [undefined, undefined, undefined] } }));
+    const table = parts.get("xl/tables/table1.xml")!;
+    expect(table).toContain('ref="A1:C3" totalsRowCount="1"><autoFilter ref="A1:C2"/>');
+    expect(table).toContain('<tableColumn id="1" name="Fruit"/>');
+    expect(table).toContain('<tableColumn id="2" name="Qty" totalsRowFunction="custom"><totalsRowFormula>SUM(T[Qty])</totalsRowFormula></tableColumn>');
+    expect(table).toContain('<tableColumn id="3" name="Due" totalsRowLabel="Sum"/>');
+    expect(parts.get("[Content_Types].xml")).toContain("/xl/tables/table1.xml");
+    // Without a table: no part of it
+    expect(new Map(xlsxParts(sheet)).has("xl/tables/table1.xml")).toBe(false);
+  });
 
   it("is a zip of well-formed parts", () => {
     expect(crc32(new TextEncoder().encode("hello"))).toBe(0x3610a686);

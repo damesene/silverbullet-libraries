@@ -281,7 +281,7 @@ export class Excel implements Feature {
     const totals = cells ? totalRows(cells, model) : new Set<number>();
     const totalsRow = bodyRows >= 2 && totals.size === 1 && totals.has(bodyRows - 1);
     const tableName = excelTableName(this.host.tableName(model));
-    const own = cells && { table: model, name: this.host.tableName(model), cells, structured: { name: tableName, columns, totalsRow } };
+    const own = cells && { table: model, name: this.host.tableName(model), cells, totals, structured: { name: tableName, columns, totalsRow } };
     // Each markdown row in its place: Excel's row 2 is the first under the header, as formulas count them
     const rows: XlsxCell[][] = Array.from({ length: bodyRows }, () => []);
     for (const { row, values } of exported.rows) {
@@ -308,8 +308,9 @@ export class Excel implements Feature {
       const first = dataRows[0]?.[c]?.formula;
       return first && dataRows.every((r) => r[c]?.formula?.text === first.text && r[c]?.formula?.array === first.array) ? first : undefined;
     });
-    const table = { name: tableName, totalsRow, calculated };
-    return { name, make: () => xlsxFile({ name, header: columns, rows, widths, table }), formulas, skipped };
+    // (An Excel table needs a row under its header)
+    const table = bodyRows > 0 ? { table: { name: tableName, totalsRow, calculated } } : {};
+    return { name, make: () => xlsxFile({ name, header: columns, rows, widths, ...table }), formulas, skipped };
   }
 
   /** The file made and given to the browser to download */
