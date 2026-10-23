@@ -29,8 +29,8 @@ describe("Column types", () => {
 
   it("shows cells as their column's type, hiding the type's hashtag", async () => {
     await setup(PAGE);
-    expect([cell(1, 1).textContent, cell(1, 2).textContent, cell(1, 3).textContent]).toEqual([usd(12.99), "★★★★☆", "✅"]);
-    expect(cell(2, 3).textContent).toBe("❌");
+    expect([cell(1, 1).textContent, cell(1, 2).textContent, cell(1, 3).textContent]).toEqual([usd(12.99), "★★★★☆", "☑"]);
+    expect(cell(2, 3).textContent).toBe("☐");
     expect(cell(0, 1).querySelector(".swt-hidden-tag")!.textContent).toBe("#currency-usd");
     // The type's icon goes after the column's name, before the filter mark and the sort button, and is not part of the name
     const icon = cell(0, 1).querySelector(".swt-type-icon")!;
@@ -117,7 +117,7 @@ describe("Column types", () => {
     // Saved as Enter saves: what hears Enter in the editor (the sheet view going on to the next cell) hears it
     const keys: string[] = [];
     field().addEventListener("keydown", (e) => keys.push(e.key));
-    options().find((o) => o.textContent === "❌ no")!.click();
+    options().find((o) => o.textContent === "☐ no")!.click();
     expect(keys).toEqual(["Enter"]);
     await flush();
     expect(text).toContain("| Pear | 12.99 | 4 | no |");
@@ -136,7 +136,7 @@ describe("Column types", () => {
 
     // A value not of the type: all the values to pick one, until something is typed
     clickOn(cell(3, 3)); // Done: maybe
-    expect(options().map((o) => o.textContent)).toEqual(["✅ yes", "❌ no"]);
+    expect(options().map((o) => o.textContent)).toEqual(["☑ yes", "☐ no"]);
     field().value = "mayb";
     field().dispatchEvent(new Event("input"));
     expect(document.querySelector(".swt-choices")!.classList.contains("swt-visible")).toBe(false);

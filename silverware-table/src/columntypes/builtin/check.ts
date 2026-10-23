@@ -2,8 +2,8 @@ import { lineIcon } from "../../icons.ts";
 import { numberOf } from "../format.ts";
 import { columnType } from "../type.ts";
 
-const YES = new Set(["yes", "y", "true", "x", "✓", "✔", "✅", "done", "ok"]);
-const NO = new Set(["no", "n", "false", "✗", "❌", "-"]);
+const YES = new Set(["yes", "y", "true", "x", "✓", "✔", "☑", "✅", "done", "ok"]);
+const NO = new Set(["no", "n", "false", "✗", "☐", "❌", "-"]);
 
 /** Yes or no for a cell's text: a word or mark, or a number (above 0: yes); undefined: neither */
 function yesOrNo(text: string): boolean | undefined {
@@ -17,14 +17,14 @@ function yesOrNo(text: string): boolean | undefined {
 export default columnType({
   name: "check",
   syntax: "#check",
-  description: "Yes or no as a check mark: yes, true, x, ✅ or a number above 0 shows ✅; no, false, ❌, 0 or a number below it shows ❌.",
+  description: "Yes or no as a check box: yes, true, x, ☑ or a number above 0 shows ☑; no, false, ☐, 0 or a number below it shows ☐.",
   icon: lineIcon('<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/>'),
   aliases: { logical: "" },
   check: (text) => (yesOrNo(text) === undefined ? `"${text}" is not yes, no or a number` : undefined),
-  format: (text) => (yesOrNo(text) ? "✅" : "❌"),
+  format: (text) => (yesOrNo(text) ? "☑" : "☐"),
   sortValue: (text) => (yesOrNo(text) ? "1" : "0"),
   choices: () => [
-    { value: "yes", label: "✅ yes" },
-    { value: "no", label: "❌ no" },
+    { value: "yes", label: "☑ yes" },
+    { value: "no", label: "☐ no" },
   ],
 });

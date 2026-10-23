@@ -98,7 +98,9 @@ describe("the types", () => {
     expect(show("stars", "2", "3")).toBe("★★☆");
     expect(check("stars", "6")).toBe('"6" is not a whole number from 0 to 5');
     expect(check("stars", "2.5")).toBeDefined();
-    expect([show("check", "yes"), show("check", "X"), show("check", "0")]).toEqual(["✅", "✅", "❌"]);
+    expect([show("check", "yes"), show("check", "X"), show("check", "0")]).toEqual(["☑", "☑", "☐"]);
+    // The marks shown read as yes and no too, and those of tables written before (✅, ❌)
+    expect([show("check", "☑"), show("check", "☐"), show("check", "✅"), show("check", "❌")]).toEqual(["☑", "☐", "☑", "☐"]);
     expect(check("check", "maybe")).toBe('"maybe" is not yes, no or a number');
     expect(type("check").sortValue!("yes", paramsOf("check"))).toBe("1");
     expect([show("trend", "+"), show("trend", "-"), show("trend", "=")]).toEqual(["🔼", "🔽", "➡️"]);
@@ -108,11 +110,11 @@ describe("the types", () => {
     expect(type("trend").choices!(paramsOf("trend")).map((c) => c.value)).toEqual(["+", "-", "="]);
     // #check: a number above 0 is yes, 0 or below no; not in its list either
     expect([show("check", "1"), show("check", "42"), show("check", "0,5"), show("check", "0"), show("check", "-3")]).toEqual([
-      "✅",
-      "✅",
-      "✅",
-      "❌",
-      "❌",
+      "☑",
+      "☑",
+      "☑",
+      "☐",
+      "☐",
     ]);
     expect(type("check").sortValue!("7", paramsOf("check"))).toBe("1");
     expect(type("check").choices!(paramsOf("check")).map((c) => c.value)).toEqual(["yes", "no"]);
@@ -150,8 +152,8 @@ describe("the types", () => {
   it("offers values for the editor", () => {
     expect(type("stars").choices!(paramsOf("stars", "3")).map((c) => c.value)).toEqual(["0", "1", "2", "3"]);
     expect(type("check").choices!(paramsOf("check"))).toEqual([
-      { value: "yes", label: "✅ yes" },
-      { value: "no", label: "❌ no" },
+      { value: "yes", label: "☑ yes" },
+      { value: "no", label: "☐ no" },
     ]);
   });
 });

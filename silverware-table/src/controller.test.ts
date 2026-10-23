@@ -62,7 +62,7 @@ describe("Controller", () => {
     controller.stop();
     document.body.replaceChildren();
     await setup(TYPED);
-    expect(cell(1, 1).textContent).toBe("✅");
+    expect(cell(1, 1).textContent).toBe("☑");
   });
 
   it("recalculates nothing with the formulas module off: results stay as written", async () => {
