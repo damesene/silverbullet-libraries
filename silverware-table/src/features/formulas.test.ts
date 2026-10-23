@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buttonLabel, cell, cellMenuItem, clickOn, controller, cursorMoves, editor, flashes, flush, key, menuButtons, nameInMenu, pointInsert, press, renderPage, setup as setupPage, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { buttonLabel, cell, cellMenuItem, clickOn, controller, cursorMoves, editor, flashes, flush, key, menuButtons, nameInMenu, pointInsert, press, renderPage, setup as setupPage, text, toolbarName, useTablePage } from "../testing/page.ts";
 import { FORMULAS_NEED_METADATA } from "./formulas.ts";
 import { clearCustomFunctions, defineCustomFunctions, functionNamed } from "../formulas/registry.ts";
 import { toNumber, type Value } from "../formulas/values.ts";
@@ -383,8 +383,8 @@ describe("Formulas", () => {
     expect(text).toBe(stale);
     const recalc = () => document.querySelector<HTMLElement>('.swt-bar button[aria-label="Recalculate"]');
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    // An icon, first in the toolbar, highlighted while results are out of date
-    expect(document.querySelector(".swt-bar")!.firstElementChild).toBe(recalc());
+    // An icon, first in the toolbar's row under the names, highlighted while results are out of date
+    expect(document.querySelector(".swt-bar .swt-bar-main button")).toBe(recalc());
     expect(recalc()!.querySelector("svg")).not.toBeNull();
     expect(recalc()!.classList.contains("swt-attention")).toBe(true);
     recalc()!.click();
@@ -538,8 +538,8 @@ describe("Formulas", () => {
       await flush();
       await controller.scan();
       expect(text).toContain(`| Fig | 3 <meta f='=prices!B3'> |`);
-      // Renamed in the ⋯ menu's title
-      tableMenuItem(/^Edit markdown$/);
+      // Renamed by its name in the toolbar
+      toolbarName("table");
       expect(await nameInMenu("costs")).toBeUndefined();
       expect(text).toContain(`<meta name='costs'>`);
       expect(text).toContain(`| Fig | 3 <meta f='=costs!B3'> |`);

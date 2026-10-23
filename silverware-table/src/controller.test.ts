@@ -106,14 +106,21 @@ describe("Controller", () => {
     await setup(`| A |\n|---|\n| 1 |\n| <meta name='prices'> |\n`, { "silverware.table.metadata": true });
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
     const bar = document.querySelector(".swt-bar")!;
-    expect(Array.from(bar.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["prices", "Filter", "Edit mode", "Lazy saving", "Sheet view", "Full screen", "More"]);
+    expect(Array.from(bar.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Filter", "Edit mode", "Lazy saving", "More"]);
     tableMenuItem(/^Edit markdown$/);
     const menu = document.querySelector(".swt-menu")!;
+    // Its title the table's name after the table's icon (full screen), a pencil naming it; first, the sheet's name
+    // (none: muted) after its icon
+    expect(menu.querySelector(".swt-menu-title-text")!.textContent).toBe("prices");
+    expect(menu.querySelector(".swt-menu-title .swt-menu-title-icon")!.getAttribute("aria-label")).toBe("Full screen");
+    expect(menu.querySelector(".swt-menu-rename")).not.toBeNull();
+    expect(Array.from(menu.querySelectorAll(".swt-menu-names button"), (b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Sheet view", "No sheet"]);
+    expect(menu.querySelector(".swt-menu-name-button.swt-muted")!.textContent).toBe("No sheet");
     expect(Array.from(menu.querySelectorAll(".swt-menu-item, .swt-menu-separator")).map((e) => e.textContent || "—")).toEqual([
+      "—",
       "Theme: Native (global)",
       "Copy as CSV",
       "Export to Excel…",
-      "Add to sheet…",
       "Format table",
       "Edit markdown",
       "Silverware Table settings…",
@@ -127,6 +134,30 @@ describe("Controller", () => {
     tableMenuItem(/^Edit markdown$/);
     press(editor, "mousedown");
     expect(document.querySelector(".swt-menu")).toBeNull();
+  });
+
+  it("with the toolbarNames setting, shows the table's names in its toolbar too, their icons there", async () => {
+    await setup(`| A |\n|---|\n| 1 |\n| <meta name='prices'> |\n`, { "silverware.table.metadata": true, "silverware.table.toolbarNames": "always" });
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const bar = document.querySelector(".swt-bar")!;
+    expect(Array.from(bar.querySelectorAll(".swt-bar-names button"), (b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["Sheet view", "No sheet", "Full screen", "prices"]);
+    expect(Array.from(bar.querySelectorAll(".swt-bar-main button"), (b) => b.getAttribute("aria-label"))).toEqual(["Filter", "Edit mode", "Lazy saving", "More"]);
+    expect(bar.querySelector(".swt-bar-name.swt-muted")!.textContent).toBe("No sheet");
+  });
+
+  it("by default shows the table's names in its toolbar while Shift alone is held", async () => {
+    await setup(`| A |\n|---|\n| 1 |\n| <meta name='prices'> |\n`, { "silverware.table.metadata": true });
+    cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    const names = () => document.querySelector(".swt-bar .swt-bar-names");
+    expect(names()).toBeNull();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", shiftKey: true }));
+    expect(names()).not.toBeNull();
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: "Shift" }));
+    expect(names()).toBeNull();
+    // Shift with another key (a capital letter typed) is no Shift held alone
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", shiftKey: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "A", shiftKey: true }));
+    expect(names()).toBeNull();
   });
 
   describe("a row being edited stays where it is shown until the editor leaves it", () => {

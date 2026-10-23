@@ -21,7 +21,8 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Paste from a spreadsheet**: copy cells in Excel or Google Sheets, click a cell, Ctrl+V; Ctrl+Shift+V adds them as new rows. See [[#Pasting from a spreadsheet]].
 * **Column types**: `| Price #currency |` shows `12.99` as `€12.99`, `#stars` a rating as stars, `#check` yes / no as ✅ / ❌. See [[#Column types]].
 * **Formulas**: type `=SUM(B1:B3)` or `=SUM([qty])` into a cell; the result is written into the markdown. See [[#Formulas]].
-* **Sheet view**: the sheet icon in the toolbar shows the table like a spreadsheet over the whole window, with empty rows and columns around it; type into one to grow the table. See [[#Sheet view]].
+* **The table's names**: the title of a table's ⋯ menu is its name (the pencil after it names it), and its first row the sheet it is on (muted *No sheet* on none: click it to type a sheet's name), the sheet icon before it showing the sheet, the table icon after it the table full screen. Hold Shift and the toolbar shows both names too, left of its icons (above them where both do not fit); the *Names in the toolbar* setting shows them always, or never.
+* **Sheet view**: the sheet icon (in the first row of a table's ⋯ menu) shows the table like a spreadsheet over the whole window, with empty rows and columns around it; type into one to grow the table. See [[#Sheet view]].
 * **Pin rows and columns** to the edges, where they stay in view (needs *Store table metadata*). See [[#Pinning]].
 * **Themes**: how tables look (header, lines, stripes, spacing), for all tables in the settings or for one in its ⋯ menu; your own in a `space-style` block. See [[#Themes]].
 * **Change how Enter or filters work**: *Configuration: Open*, category *Silverware Table*. See [[#Settings]].
@@ -717,7 +718,7 @@ The header's background and its text color go together: SilverBullet's header is
 
 ## Sheet view
 
-The sheet icon (a grid) in a table's toolbar shows the table like a spreadsheet, over the whole window: the columns' letters above, the rows' numbers beside them (as formulas refer to cells, `B3`), and empty rows and columns past the table's last row and column. More appear as you scroll on.
+The sheet icon (a grid, before the sheet's name in the first row of a table's ⋯ menu, or in its toolbar while you hold Shift) shows the table like a spreadsheet, over the whole window: the columns' letters above, the rows' numbers beside them (as formulas refer to cells, `B3`), and empty rows and columns past the table's last row and column. More appear as you scroll on.
 
 * **Select an empty cell** as a table's cell: a click selects it (in *Edit mode* it edits it at once); typing, a second click, Enter or F2 edits it; Esc unselects it, a second Esc closes the view. Arrows go on from the table's last row or column into the empty cells and back.
 * **Grow the table**: click the empty cell right under its last row, or right next to its last column, and type. Enter or Tab saves it, and the table grows by that row or column, in one edit (one Ctrl+Z), as a spreadsheet's table grows; a new column is named *Column 5* (rename it like any header). Typing into the header's line right next to the table adds a column with that name. A value typed farther from the table makes a table of its own there (see *Sheets of several tables*). As in the table, Enter then edits the cell below, Tab the next one (Shift the other way), Esc leaves the cell selected.
@@ -728,7 +729,7 @@ The sheet icon (a grid) in a table's toolbar shows the table like a spreadsheet,
 
 ### Sheets of several tables
 
-A page's tables can share a sheet, as a spreadsheet's sheet holds several tables. *Add to sheet…* in a table's ⋯ menu puts it on one of the page's sheets or on a new one, and names it (the sheet's other tables refer to its cells by its name: `costs!B2`); it goes in column A, one empty row under the sheet's lowest table. The table keeps its place in the page, which shows it as before; its metadata row says which sheet it is on and where (`<meta name='costs' sheet='Budget' at='B3'>`). *Remove from sheet* takes it off again, its name kept. Both need the *Store table metadata* setting (or a metadata row the table has already).
+A page's tables can share a sheet, as a spreadsheet's sheet holds several tables. The first row of the table's ⋯ menu shows the sheet it is on (*No sheet*, muted, on none); click the sheet's name and type another to put the table on that sheet: one of the page's, or a new one. It keeps its place there where nothing is in its way, else it goes in column A, one empty row under the sheet's lowest table; the sheet's other tables stay where they are. A table without a name is named for it (`table1`): the sheet's other tables refer to its cells by its name (`costs!B2`). An empty name takes the table off its sheet, its name kept. The table keeps its place in the page, which shows it as before; its metadata row says which sheet it is on and where (`<meta name='costs' sheet='Budget' at='B3'>`). It needs the *Store table metadata* setting (or a metadata row the table has already). A sheet view showing the table goes to its new sheet.
 
 The sheet view of a table on a sheet shows all the sheet's tables, each at its place (its `at` cell), however far apart they are in the page. The sheet's rows have one height, and each column is as wide as the widest of the tables' columns in it. The empty cell right next to a table's last column (in its rows) or right under its last row (in its columns) grows that table, as for a table alone (the one left of it, where a cell is both).
 
@@ -837,17 +838,16 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("silverwa
 | `widths` | A column's width set by dragging the right edge of its header, *Auto width* in the column's menu, *Reset column widths* in the table's ⋯ menu; with *Store table metadata* stored in the table. Off: columns are as wide as their text; widths stored in tables are kept but not used. |
 | `sticky` | A table's header stays in view while the page scrolls past the table, and rows pinned to the bottom stay at the bottom of the view. |
 | `autoscroll` | The middle mouse button over a table scrolls it. |
-| `fullScreen` | The toolbar's full screen icon shows the table over the whole window (not the browser's full screen), with its toolbar, menus and editing as in the page, the columns' letters above the header and the rows' numbers left of them, as formulas refer to them (`B3`); the same icon (*Exit full screen*) or Esc closes it. |
-| `sheet` | The toolbar's sheet icon shows the table as a spreadsheet over the whole window, as `fullScreen` does, with empty rows and columns past its last row and column (more as you scroll on), their letters and numbers too. Click an empty cell and type: Enter or Tab saves it, and the table grows to hold it, the rows and columns between added empty, a new column named *Column 4*. A cell left empty adds nothing; Esc drops it. The same icon (*Exit sheet view*) or Esc closes it. See [[#Sheet view]]. |
+| `fullScreen` | The table's icon (in the first row of its ⋯ menu, or in its toolbar while you hold Shift) shows the table over the whole window (not the browser's full screen), with its toolbar, menus and editing as in the page, the columns' letters above the header and the rows' numbers left of them, as formulas refer to them (`B3`); the same icon (*Exit full screen*) or Esc closes it. |
+| `sheet` | The sheet's name in the table's ⋯ menu (a table is put on a sheet, moved and taken off it there) and the sheet icon, which shows the table's sheet as a spreadsheet over the whole window, as `fullScreen` does, with empty rows and columns around its tables (more as you scroll on), their letters and numbers too. Type into the empty cell right under or next to a table: Enter or Tab saves it, and the table grows by that row or column, a new column named *Column 4*; farther from the tables, a value makes a table of its own. A cell left empty adds nothing; Esc drops it. The same icon (*Exit sheet view*) or Esc closes it. See [[#Sheet view]]. |
 | `largeTables` | Off by default. A table with many rows (setting `minRows`, default `200`) scrolls in a box of its own: as tall as *Maximum table height*, else the window. Only the rows in and around the box's view are in the page, so editing, sorting and filtering a table of thousands of rows stays quick. The browser's find (Ctrl+F) finds only those rows. Off: every row is in the page, the table as tall as its rows (unless *Maximum table height* is set). |
 
 ## Table names
 
-A table can have a name, so formulas in other tables can refer to it. Open the ⋯ menu of the table's toolbar, click the pencil after its title, type the name and press Enter; an empty name removes it. Named, the menu's title is *Table: name*, and the name shows at the toolbar's left: a click on it opens the menu with the name to type. The name is stored in the table's metadata row (`<meta name='prices'>`), so it needs the *Store table metadata* setting, or a table that has a metadata row already.
+A table can have a name, so formulas in other tables can refer to it. The title of the table's ⋯ menu is its name (*Table* while it has none): click the pencil after it, type the name and press Enter; an empty name removes it. While you hold Shift the toolbar shows the name too: a click on it names it as well. The name is stored in the table's metadata row (`<meta name='prices'>`), so it needs the *Store table metadata* setting, or a table that has a metadata row already.
 
 * A name is letters, digits and `_`, not starting with a digit, e.g. `prices` or `price_list`. Names that read as a cell (`A1`, `AB12`) or as `TRUE` / `FALSE` are refused.
 * Names are compared ignoring case, and two tables on a page cannot have the same name.
-* The toolbar shows the name at its left; click it to rename the table.
 * Renaming a table renames the references to it in the formulas on the page; removing the name (or the table's metadata) leaves them as they are, showing `#REF!`.
 
 ## Table metadata
@@ -1001,6 +1001,13 @@ config.define("silverware.table", {
       default = true,
       description = "Write tables edited with Silverware Table with aligned pipes. Off: each table keeps its own style (aligned or compact).",
       ui = { category = "Silverware Table", label = "Format tables", priority = 4 },
+    },
+    toolbarNames = {
+      type = "string",
+      enum = { "never", "always", "shift" },
+      default = "shift",
+      description = "A table's toolbar shows the sheet it is on and its name (each after its icon: the sheet view, the full screen), as its ⋯ menu does: always, or (shift) while you hold Shift alone. never: they are in the menu only.",
+      ui = { category = "Silverware Table", label = "Names in the toolbar", priority = 3.5 },
     },
     editor = {
       type = "object",
@@ -1536,7 +1543,7 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 .sb-table-widget.swt-sticky-native thead,
 .sb-table-widget.swt-sticky-native thead.swt-stuck {
   position: sticky;
-  top: 42px;
+  top: 66px;
   z-index: 3;
 }
 .sb-table-widget.swt-sticky-native tfoot,
@@ -1552,7 +1559,7 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 .sb-table-widget.swt-sticky-box thead,
 .sb-table-widget.swt-sticky-box thead.swt-stuck {
   position: sticky;
-  top: 42px;
+  top: 66px;
   z-index: 3;
 }
 .sb-table-widget.swt-sticky-box tfoot,
@@ -1573,7 +1580,7 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
     var(--root-background-color, #fff);
 }
 .sb-table-widget.swt-sticky-box :where(thead tr:first-child > td) {
-  box-shadow: 0 -42px 0 0 var(--root-background-color, #fff);
+  box-shadow: 0 -66px 0 0 var(--root-background-color, #fff);
 }
 
 /* Header held at the top of the view while the table scrolls past (moved by
@@ -1596,18 +1603,18 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 }
 /* Only the top row casts it: from the filter row it would cover the header row */
 .sb-table-widget thead.swt-stuck tr:first-child td {
-  box-shadow: 0 -42px 0 0 var(--root-background-color, #fff);
+  box-shadow: 0 -66px 0 0 var(--root-background-color, #fff);
 }
 /* With the tint of a selected or edited cell, or of a hovered grip's line (inset shadows too) */
 .sb-table-widget.swt-table thead.swt-stuck tr:first-child td:is(.swt-selected, .swt-editing) {
   box-shadow:
-    0 -42px 0 0 var(--root-background-color, #fff),
+    0 -66px 0 0 var(--root-background-color, #fff),
     inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent),
     inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
 }
 .sb-table-widget.swt-table thead.swt-stuck tr:first-child td.swt-handle-hover {
   box-shadow:
-    0 -42px 0 0 var(--root-background-color, #fff),
+    0 -66px 0 0 var(--root-background-color, #fff),
     inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 10%, transparent);
 }
 
@@ -1772,7 +1779,7 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   background: var(--root-background-color, #fff);
 }
 .sb-table-widget.swt-over-window > table {
-  margin-top: 42px;
+  margin-top: 66px;
 }
 /* A table Silverware Table draws itself (the sheet: core/silverbullet/drawn.ts),
    outside SilverBullet's editor: SilverBullet's own rules for its tables
@@ -1893,7 +1900,7 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   z-index: 45;
   box-sizing: border-box;
   border-left: 28px solid var(--root-background-color, #fff);
-  border-top: 42px solid var(--root-background-color, #fff);
+  border-top: 66px solid var(--root-background-color, #fff);
   overflow: auto;
   background: var(--root-background-color, #fff);
   color: var(--root-color, #333);
@@ -2470,47 +2477,6 @@ body.swt-resizing * {
   opacity: 0.45;
   cursor: default;
 }
-/* The sheet module's Add to sheet… dialog */
-.swt-sheet-add {
-  display: grid;
-  gap: 10px;
-  min-width: min(360px, 80vw);
-}
-.swt-sheet-add-field {
-  display: grid;
-  gap: 4px;
-}
-.swt-sheet-add-field[hidden] {
-  display: none;
-}
-.swt-sheet-add-label {
-  font-size: 12px;
-  opacity: 0.75;
-}
-.swt-sheet-add-hint {
-  font-size: 12px;
-  opacity: 0.6;
-}
-.swt-sheet-add-select,
-.swt-sheet-add-input {
-  padding: 5px 8px;
-  font: inherit;
-  color: inherit;
-  background: var(--root-background-color);
-  border: 1px solid var(--swt-dialog-line);
-  border-radius: 6px;
-}
-.swt-sheet-add-problem {
-  margin: 0;
-  min-height: 1em;
-  font-size: 12px;
-  color: var(--swt-invalid, #c62828);
-}
-.swt-sheet-add-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
 .swt-dialog-note {
   flex: 1;
   font-size: 12px;
@@ -3070,12 +3036,27 @@ html[data-theme="dark"] .swt-excel-error {
 .swt-floating.swt-visible {
   display: flex !important;
 }
+/* Two boxes, each as wide as what it holds, at the toolbar's right edge: the
+   names left of how the table is shown and the icons where both fit in the
+   table's width (the toolbar's max-width, set as it is placed), else above
+   them (both kept in the room above a held header, STICKY_GAP) */
 .swt-bar {
+  flex-flow: row wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
+  gap: 2px 4px;
   font-size: 12px;
+  white-space: nowrap;
   color: var(--root-color);
+}
+/* Each of one height whatever it holds (a chip is taller than an icon): the
+   two rows fit the room above a held header (STICKY_GAP) */
+.swt-bar-names,
+.swt-bar-main {
+  flex: none;
+  box-sizing: border-box;
+  height: 24px;
+  padding: 1px 2px;
   background: var(--root-background-color);
   border: 1px solid var(--button-border-color, rgba(128, 128, 128, 0.4));
   border-radius: 6px;
@@ -3092,6 +3073,107 @@ html[data-theme="dark"] .swt-excel-error {
 }
 .swt-bar button:hover,
 .swt-bar button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--ui-accent-color) 16%, transparent);
+}
+/* The toolbar's rows: the names (what holds the table, the table), then how it
+   is shown and the icons */
+.swt-bar-names,
+.swt-bar-main {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.swt-bar-names {
+  gap: 10px;
+}
+/* Between how the table is shown (at the left) and the icons (at the right) */
+.swt-bar-gap {
+  flex: 1;
+}
+.swt-bar-name-slot {
+  display: inline-flex;
+  align-items: center;
+}
+/* A name: the accent's, set; a stand-in for none (Table, No sheet) muted */
+.swt-bar button.swt-bar-name {
+  padding: 2px 4px;
+  font-weight: 600;
+  color: var(--ui-accent-color);
+}
+.swt-bar button.swt-bar-name.swt-muted {
+  font-weight: normal;
+  color: inherit;
+  opacity: 0.55;
+}
+/* The first row of a table's ⋯ menu: its names, each after its icon (as the toolbar's row of names) */
+.swt-menu-names {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px;
+}
+.swt-menu-name-slot {
+  display: inline-flex;
+  align-items: center;
+}
+.swt-menu-names button {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 5px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.swt-menu-title-icon {
+  display: inline-flex;
+  align-items: center;
+  /* Where the first row's icons are: the title is 4px further in than the row */
+  margin: -3px 0 -3px -4px;
+  padding: 3px 5px;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.swt-menu .swt-menu-title-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.swt-menu-title-icon:hover,
+.swt-menu-title-icon:focus-visible,
+.swt-menu-title-icon[aria-pressed="true"],
+.swt-menu-names button:hover,
+.swt-menu-names button:focus-visible,
+.swt-menu-names button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--ui-accent-color) 16%, transparent);
+}
+.swt-menu-names .swt-menu-name-icon svg {
+  width: 14px;
+  height: 14px;
+}
+/* A long name cut, whole in its tooltip (as in the toolbar's row of names) */
+.swt-menu-names .swt-menu-name-button,
+.swt-bar button.swt-bar-name {
+  display: block;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.swt-menu-names .swt-menu-name-button {
+  font-weight: 600;
+  color: var(--ui-accent-color);
+}
+.swt-menu-names .swt-menu-name-button.swt-muted {
+  font-weight: normal;
+  color: inherit;
+  opacity: 0.55;
+}
+.swt-bar button.swt-bar-name.swt-active {
   background: color-mix(in srgb, var(--ui-accent-color) 16%, transparent);
 }
 /* At the left, what the table is and how it is shown: its name, its sorting,
@@ -3259,6 +3341,8 @@ html[data-theme="dark"] .swt-excel-error {
 }
 /* The title centered; a submenu's back arrow at the left */
 .swt-menu-title {
+  /* No say in the menu's width: as wide as its items, a long title cut */
+  contain: inline-size;
   display: grid;
   /* The back arrow | the title | its pencil | the ×: the sides keep room for the arrow and the ×, the title is cut first */
   grid-template-columns: minmax(22px, 1fr) minmax(0, max-content) auto minmax(22px, 1fr);
@@ -3269,6 +3353,14 @@ html[data-theme="dark"] .swt-excel-error {
   font-weight: 600;
 }
 .swt-menu-back {
+  justify-self: start;
+}
+/* With an icon before the title (the table's ⋯ menu): the title starts at it, the icon where the first row's are */
+.swt-menu-title.swt-menu-title-start {
+  grid-template-columns: auto minmax(0, max-content) auto minmax(22px, 1fr);
+}
+.swt-menu-title-icon {
+  grid-column: 1;
   justify-self: start;
 }
 .swt-menu-title-text {

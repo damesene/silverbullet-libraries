@@ -1,6 +1,6 @@
 // The sheet view: the table over the window with empty cells past it, which grow it
 import type { Page } from "@playwright/test";
-import { cell, expect, hoverCell, markdown, rendersAnew, table, test } from "./playground.ts";
+import { cell, expect, hoverCell, markdown, rendersAnew, table, tableIcon, test } from "./playground.ts";
 
 /** The table the sheet shows: the one it drew itself (in SilverBullet's form), standing for the page's */
 const sheetTable = (page: Page) => page.locator(".sb-table-widget.swt-table.swt-drawn");
@@ -19,7 +19,7 @@ async function sheetRendersAnew(page: Page, action: () => Promise<unknown>, inde
 /** Shows the first table as a sheet, from its toolbar */
 async function openSheet(page: Page): Promise<void> {
   await hoverCell(page, cell(page, 1, 0));
-  await page.locator('.swt-bar button[aria-label="Sheet view"]').click();
+  await (await tableIcon(page, "Sheet view")).click();
   await expect(sheetTable(page).first()).toHaveClass(/swt-sheet/);
 }
 
@@ -177,23 +177,28 @@ test.describe("Sheet view", () => {
   });
 
   test("full screen and the sheet view: one table over the window at a time", async ({ page }) => {
-    const icon = (label: string) => page.locator(`.swt-bar button[aria-label="${label}"]`);
+    const icon = (label: string) => tableIcon(page, label);
     await hoverCell(page, cell(page, 1, 0));
-    await icon("Full screen").click();
+    await (await icon("Full screen")).click();
     await expect(table(page)).toHaveClass(/swt-fullscreen/);
     await hoverCell(page, cell(page, 1, 0));
-    await icon("Sheet view").click();
+    await (await icon("Sheet view")).click();
     await expect(sheetTable(page)).toHaveClass(/swt-sheet/);
     await expect(table(page)).not.toHaveClass(/swt-fullscreen/);
     await hoverCell(page, sheetCell(page, 1, 0));
-    await expect(icon("Full screen")).toHaveAttribute("aria-pressed", "false");
-    await expect(icon("Exit sheet view")).toHaveAttribute("aria-pressed", "true");
+    await expect(await icon("Full screen")).toHaveAttribute("aria-pressed", "false");
+    await expect(await icon("Exit sheet view")).toHaveAttribute("aria-pressed", "true");
+    // Esc closes the ⋯ menu the icons are in (without the toolbarNames setting), then the view
+    if (await page.locator(".swt-menu").count()) {
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".swt-menu")).toHaveCount(0);
+    }
     await page.keyboard.press("Escape");
     await expect(sheetTable(page)).toHaveCount(0);
     await expect(table(page)).not.toHaveClass(/swt-over-window/);
     // Full screen as before: over the window, no empty cells
     await hoverCell(page, cell(page, 1, 0));
-    await icon("Full screen").click();
+    await (await icon("Full screen")).click();
     await expect(table(page)).toHaveClass(/swt-fullscreen/);
     await expect(page.locator(".swt-sheet-grid")).toHaveCount(0);
   });
@@ -201,7 +206,7 @@ test.describe("Sheet view", () => {
   test("full screen from the sheet's toolbar: the sheet ends, the page's table shows over the window", async ({ page }) => {
     await openSheet(page);
     await hoverCell(page, sheetCell(page, 1, 0));
-    await page.locator('.swt-bar button[aria-label="Full screen"]').click();
+    await (await tableIcon(page, "Full screen")).click();
     await expect(sheetTable(page)).toHaveCount(0);
     await expect(table(page)).toHaveClass(/swt-fullscreen/);
     await expect(table(page)).toBeVisible();
@@ -209,7 +214,7 @@ test.describe("Sheet view", () => {
 
   test("full screen keeps room right of the table: the + of a new column there, clear of the toolbar, the rows numbered on both sides", async ({ page }) => {
     await hoverCell(page, cell(page, 1, 0));
-    await page.locator('.swt-bar button[aria-label="Full screen"]').click();
+    await (await tableIcon(page, "Full screen")).click();
     await expect(table(page)).toHaveClass(/swt-fullscreen/);
     const columns = await table(page).locator("table tr").first().locator("th, td").count();
     await hoverCell(page, cell(page, 1, columns - 1));
@@ -239,7 +244,7 @@ test.describe("Sheet view", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("table tr")).toHaveCount(3);
     await hoverCell(page, cell(page, 1, 0, 1));
-    await page.locator('.swt-bar button[aria-label="Full screen"]').click();
+    await (await tableIcon(page, "Full screen")).click();
     await expect(table(page, 1)).toHaveClass(/swt-fullscreen/);
     // Select mode: a click selects, typing replaces the text, a click elsewhere saves
     await cell(page, 1, 1, 1).click();
@@ -775,7 +780,8 @@ test.describe("Sheet view", () => {
     await page.locator(".swt-menu.swt-visible").getByText("Filter: = Fig").first().click();
     await expect(drawn.nth(0).locator("tbody tr:visible")).toHaveCount(1);
     await expect(drawn.nth(1).locator("tbody tr:visible")).toHaveCount(2);
-    await expect.poll(async () => (await drawn.nth(1).boundingBox())!.y).toBe(bTop);
+    // (Drawn anew while a write of the filter is read: no box for a moment)
+    await expect.poll(async () => (await drawn.nth(1).boundingBox())?.y).toBe(bTop);
   });
 
   test("a row pinned to the bottom stays last on the sheet, sorted or not", async ({ page }) => {

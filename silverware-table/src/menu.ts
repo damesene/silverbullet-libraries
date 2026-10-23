@@ -47,6 +47,21 @@ export type MenuEntry =
       }[];
     }
   | {
+      // Names side by side (the table's: its sheet's, its own), each after its icon button; a click on a name names it
+      readonly kind: "names";
+      readonly names: readonly {
+        // What it names (a class of its own: swt-menu-name-<key>)
+        readonly key?: string;
+        readonly icon?: { readonly icon: string; readonly label: string; readonly title: string; readonly pressed?: boolean; readonly run: () => void };
+        // None: the icon alone (what it names is named elsewhere: the table in the menu's title)
+        readonly name?: string;
+        readonly title?: string;
+        // A stand-in for none (No sheet): muted
+        readonly muted?: boolean;
+        readonly run?: () => void;
+      }[];
+    }
+  | {
       // Actions side by side, a caption under each icon (Copy, Cut, Paste)
       readonly kind: "actions";
       readonly options: readonly {
@@ -66,9 +81,14 @@ export function wrapRuns(entries: readonly MenuEntry[], wrap: (run: () => void) 
       ? { ...entry, run: wrap(entry.run) }
       : entry.kind === "segmented" || entry.kind === "actions"
         ? ({ ...entry, options: entry.options.map((option) => ({ ...option, run: wrap(option.run) })) } as MenuEntry)
-        : entry,
+        : entry.kind === "names"
+          ? { ...entry, names: entry.names.map((n) => ({ ...n, ...(n.run ? { run: wrap(n.run) } : {}), ...(n.icon ? { icon: { ...n.icon, run: wrap(n.icon.run) } } : {}) })) }
+          : entry,
   );
 }
+
+/** An icon button before a menu's title, which it acts on (the table's: full screen); the title then starts at it */
+export type MenuTitleIcon = { readonly icon: string; readonly label: string; readonly title: string; readonly pressed?: boolean; readonly run: () => void };
 
 /** A submenu's way back to the menu it replaced: an arrow before its title (and the Left key) */
 export type MenuBack = { readonly icon: string; readonly run: () => void };

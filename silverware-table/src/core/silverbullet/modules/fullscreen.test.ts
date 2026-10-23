@@ -6,9 +6,11 @@ describe("Full screen", () => {
   useTablePage();
 
   const widget = () => editor.querySelector<HTMLElement>(".sb-table-widget")!;
+  // In the table's ⋯ menu, before its title (the toolbar shows it only with the toolbarNames setting)
   const icon = (label: string) => {
     cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    return document.querySelector<HTMLButtonElement>(`.swt-bar button[aria-label="${label}"]`);
+    if (!document.querySelector(".swt-menu .swt-menu-names")) document.querySelector<HTMLElement>(".swt-bar .swt-bar-more")!.click();
+    return document.querySelector<HTMLButtonElement>(`.swt-menu button[aria-label="${label}"]`);
   };
 
   it("shows the table over the whole window from its toolbar icon, the same icon closes it", async () => {

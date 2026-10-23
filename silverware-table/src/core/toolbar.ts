@@ -1,14 +1,16 @@
-// The toolbar above the table hovered: at its left what the table is (its
-// name) and how it is shown (chips: its sorting, the features' filters, each
-// with a × ending it); at its right the features' icons and the ⋯ menu (the
-// table's actions not used all the time, the destructive ones last). Built at
-// once on each change, placed above the header (or over its right end) in the
-// next frame after a change: placing it measures the table.
+// The toolbar above the table hovered: a row of names above the rest (what
+// holds the table, the table itself: TOOLBAR_NAME_ORDER, each with a feature's
+// icon button before it, a click on a name its field), then at its left how the
+// table is shown (chips: its sorting, the features' filters, each with a ×
+// ending it); at its right the features' icons and the ⋯ menu (the table's
+// actions not used all the time, the destructive ones last). Built at once on
+// each change, placed above the header (or over its right end) in the next
+// frame after a change: placing it measures the table.
 import { cellText, renderedTable } from "../dom.ts";
 import { ICONS } from "../icons.ts";
 import type { MenuEntry } from "../menu.ts";
 import { hasPins, NO_PINS, withoutSort } from "../view.ts";
-import type { TableHost, ToolbarButton, WidgetInfo } from "./feature.ts";
+import { TOOLBAR_NAME_ORDER, type TableHost, type ToolbarButton, type ToolbarNameSlot, type WidgetInfo } from "./feature.ts";
 import { oncePerFrame } from "./frame.ts";
 import type { TableMenu } from "./tablemenu.ts";
 
@@ -33,12 +35,16 @@ export type ToolbarContext = {
   readonly applySort: (widget: HTMLElement, info: WidgetInfo) => void;
   readonly showMarkdown: (info: WidgetInfo) => void;
   readonly openSettings: () => void;
+  /** The names in the toolbar too (the toolbarNames setting), not only in the ⋯ menu */
+  readonly namesShown: () => boolean;
 };
 
 export class Toolbar {
   private readonly bar: HTMLElement;
   // The ⋯ menu of the toolbar shown last, for a feature to open (TableHost.openTableMenu)
   private openMore: { readonly widget: HTMLElement; readonly open: (naming: boolean) => void } | undefined;
+  // The name whose field is open (its menu), so the toolbar made anew keeps it at its name
+  private openName: ToolbarNameSlot | undefined;
   private readonly queuePlace: () => void;
 
   constructor(private readonly context: ToolbarContext) {
@@ -81,6 +87,15 @@ export class Toolbar {
     const view = host.viewOf(info);
     const bar = this.bar;
     bar.replaceChildren();
+    const featureButtons = this.context.buttons(widget, info);
+    // The row of names (each slot's icon button, then its name), with the setting; else the names and their icons are
+    // in the ⋯ menu only (its first row, as always)
+    const namesShown = this.context.namesShown();
+    const names = namesShown ? this.namesRow(widget, featureButtons) : undefined;
+    if (names) bar.append(names.row);
+    const main = doc.createElement("div");
+    main.className = "swt-bar-main";
+    bar.append(main);
     // A button with its label, or (with an icon) the icon alone, the label its accessible name
     const button = (item: ToolbarButton, className?: string): HTMLButtonElement => {
       const b = doc.createElement("button");
@@ -99,10 +114,9 @@ export class Toolbar {
         e.preventDefault();
         item.run();
       });
-      bar.append(b);
+      main.append(b);
       return b;
     };
-    const featureButtons = this.context.buttons(widget, info);
     // At the left, what the table is and how it is shown: its name, its sorting, its rows filtered
     for (const item of featureButtons.filter((b) => b.place === "label")) button(item, "swt-bar-label");
     // How the table is shown, each a chip whose × ends it: the sorting, the features' (filters)
@@ -143,28 +157,106 @@ export class Toolbar {
       };
       for (const action of item.actions ?? []) chip.append(small("swt-chip-apply", action.title, action.icon, action.run));
       chip.append(small("swt-chip-clear", item.title, ICONS.clear, item.run));
-      bar.append(chip);
+      main.append(chip);
     }
     // At the right, icons always in the same places: the features' (Recalculate, Filter), and the menu
+    const gap = doc.createElement("span");
+    gap.className = "swt-bar-gap";
+    main.append(gap);
     for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
     const menuItems = [...featureButtons.filter((b) => (b.place ?? "menu") === "menu"), ...this.coreMenuItems(widget, info)];
+    const named = bySlot(featureButtons.filter((b) => b.place === "name" || b.place === "name-icon"));
     const more = button(
       {
         label: "More",
         title: "More for this table",
         place: "icon",
         icon: ICONS.more,
-        run: () => (menu.kind === "table" ? menu.close(true) : this.showMenu(widget, more, menuItems)),
+        run: () => (menu.kind === "table" ? menu.close(true) : this.showMenu(widget, more, menuItems, named)),
       },
       "swt-bar-more",
     );
-    // A feature opens it too (the table's name at the toolbar's left: its name to type)
-    this.openMore = { widget, open: (naming) => this.showMenu(widget, more, menuItems, naming) };
-    // Shown again (a write, a change of the table's state): the open menu stays, at the new button
-    menu.reanchor(more);
+    // A feature opens it too; with `naming`, the table's name's field (in the row of names) rather than the menu
+    this.openMore = {
+      widget,
+      open: (naming) => {
+        const name = names?.names.get("table");
+        if (naming && name) name.click();
+        else this.showMenu(widget, more, menuItems, named, naming);
+      },
+    };
+    // Shown again (a write, a change of the table's state): the open menu stays, at the new button (a name's at its name)
+    const openName = this.openName && menu.kind === "table" ? names?.names.get(this.openName) : undefined;
+    menu.reanchor(openName ?? more);
     // Shown already: it stays where it is until placed
     if (placeNow || !this.shown) this.place(widget, info);
     else this.queuePlace();
+  }
+
+  /**
+   * The row of names: for each slot (TOOLBAR_NAME_ORDER) a feature's icon
+   * button, then the name (muted as a stand-in for none), a click on it its
+   * field (a menu whose title it is); none without names nor their icons
+   */
+  private namesRow(widget: HTMLElement, buttons: readonly ToolbarButton[]): { row: HTMLElement; names: Map<ToolbarNameSlot, HTMLElement> } | undefined {
+    const { host, menu } = this.context;
+    const doc = host.doc;
+    const named = buttons.filter((b) => (b.place === "name" || b.place === "name-icon") && b.slot);
+    if (!named.length) return undefined;
+    const row = doc.createElement("div");
+    row.className = "swt-bar-names";
+    const names = new Map<ToolbarNameSlot, HTMLElement>();
+    const slots = (Object.keys(TOOLBAR_NAME_ORDER) as ToolbarNameSlot[]).sort((a, b) => TOOLBAR_NAME_ORDER[a] - TOOLBAR_NAME_ORDER[b]);
+    for (const slot of slots) {
+      const icon = named.find((b) => b.place === "name-icon" && b.slot === slot);
+      const name = named.find((b) => b.place === "name" && b.slot === slot);
+      if (!icon && !name) continue;
+      const group = doc.createElement("span");
+      group.className = `swt-bar-name-slot swt-bar-name-${slot}`;
+      if (icon?.icon) {
+        const b = doc.createElement("button");
+        b.type = "button";
+        b.tabIndex = -1;
+        b.className = "swt-bar-icon swt-bar-name-icon";
+        b.title = icon.title;
+        b.setAttribute("aria-label", icon.label);
+        b.innerHTML = icon.icon;
+        if (icon.pressed !== undefined) b.setAttribute("aria-pressed", String(icon.pressed));
+        b.addEventListener("click", (e) => {
+          e.preventDefault();
+          icon.run();
+        });
+        group.append(b);
+      }
+      if (name) {
+        const b = doc.createElement("button");
+        b.type = "button";
+        b.tabIndex = -1;
+        b.className = `swt-bar-name${name.muted ? " swt-muted" : ""}`;
+        b.textContent = name.label;
+        b.title = name.title;
+        b.addEventListener("click", (e) => {
+          e.preventDefault();
+          if (menu.kind === "table" && this.openName === slot) {
+            menu.close(true);
+            return;
+          }
+          this.showNaming(widget, b, name);
+        });
+        group.append(b);
+        names.set(slot, b);
+      }
+      row.append(group);
+    }
+    return { row, names };
+  }
+
+  /** A name's field: a menu that is its title, nothing else in it, at `anchor` (the name, or the ⋯ button) */
+  private showNaming(widget: HTMLElement, anchor: HTMLElement, name: ToolbarButton): void {
+    const { menu } = this.context;
+    this.openName = anchor.classList.contains("swt-bar-name") ? name.slot : undefined;
+    menu.show(widget, name.label, [], { kind: "table", anchor }, undefined, name.naming);
+    menu.startNaming();
   }
 
   /** The core's items of the ⋯ menu, after the features' */
@@ -229,7 +321,14 @@ export class Toolbar {
     const headerRect = info.table.rows[0]!.getBoundingClientRect();
     // The page's view: below SilverBullet's top bar, also on a page too short to scroll
     const shown = host.viewBounds(widget);
+    // As wide as the table in view at most: the names go above the icons where both do not fit side by side; but
+    // never narrower than its widest row, which keeps its width (a table narrower than that has it stick out)
+    const right = Math.min(rect.right, tableRect.right, shown.right) - BAR_CLEAR;
+    const left = Math.max(rect.left, tableRect.left, shown.left);
+    bar.style.maxWidth = "";
     bar.classList.add("swt-visible");
+    const widest = Math.max(0, ...Array.from(bar.children, (row) => (row as HTMLElement).offsetWidth));
+    bar.style.maxWidth = `${Math.ceil(Math.max(widest, right - left))}px`;
     const above = headerRect.top - bar.offsetHeight - BAR_GAP;
     // No room above the header: over the header's right end instead. A header
     // held at the top of the view has the room (STICKY_GAP): the toolbar goes
@@ -241,7 +340,8 @@ export class Toolbar {
     // as far as it is in view: the page around a wide table may scroll
     // sideways too, taking the box's edge along. A box wider than its table
     // (a renderer's block) does not take the toolbar past the table.
-    host.place(bar, Math.min(rect.right, tableRect.right, shown.right) - bar.offsetWidth - (fits ? BAR_CLEAR : 6), top);
+    // Within the view: wider than the table, it goes out left of it, not out of the view
+    host.place(bar, Math.max(shown.left + 2, Math.min(rect.right, tableRect.right, shown.right) - bar.offsetWidth - (fits ? BAR_CLEAR : 6)), top);
     this.context.menu.position();
   }
 
@@ -249,11 +349,12 @@ export class Toolbar {
    * The toolbar's ⋯ menu: the table's actions that are not used all the time,
    * the destructive ones last, after a separator
    */
-  private showMenu(widget: HTMLElement, anchor: HTMLElement, items: readonly ToolbarButton[], startNamed = false): void {
+  private showMenu(widget: HTMLElement, anchor: HTMLElement, items: readonly ToolbarButton[], named: readonly ToolbarButton[] = [], startNamed = false): void {
     const { host, menu } = this.context;
+    this.openName = undefined;
     const place = { kind: "table" as const, anchor };
     // An item with choices shows them in the menu's place, the back arrow (or ArrowLeft) the menu again
-    const back = { icon: ICONS.arrowLeft, run: () => this.showMenu(widget, anchor, items) };
+    const back = { icon: ICONS.arrowLeft, run: () => this.showMenu(widget, anchor, items, named) };
     const entry = (item: ToolbarButton): MenuEntry => ({
       kind: "item",
       label: item.label,
@@ -265,11 +366,43 @@ export class Toolbar {
     });
     const safe = items.filter((item) => !item.danger).map(entry);
     const danger = items.filter((item) => item.danger).map(entry);
-    // The table's name in the title, a pencil to change it (the names module's)
+    // The table's name as the title (Table without one), a pencil to change it (as every menu of what can be named)
     const info = host.infoOf(widget);
     const naming = info && host.menuNaming(info, { kind: "table" });
-    const title = naming?.name ? `Table: ${naming.name}` : "Table";
-    menu.show(widget, title, [...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], place, undefined, naming);
+    const title = naming?.name ?? "Table";
+    // The table's icon before the title (its name); first, what holds the table: its sheet's name after its icon (a
+    // click on the name its field, in the menu's place)
+    const tableIcon = named.find((b) => b.place === "name-icon" && b.slot === "table");
+    const slots = [...new Set(named.map((b) => b.slot))].filter((slot) => slot !== "table");
+    const names: MenuEntry[] = slots.length
+      ? [
+          {
+            kind: "names",
+            names: slots.flatMap((slot) => {
+              const n = named.find((b) => b.place === "name" && b.slot === slot);
+              const icon = named.find((b) => b.place === "name-icon" && b.slot === slot);
+              if (!n && !icon?.icon) return [];
+              return [
+                {
+                  ...(icon?.icon ? { icon: { icon: icon.icon, label: icon.label, title: icon.title, ...(icon.pressed !== undefined ? { pressed: icon.pressed } : {}), run: icon.run } } : {}),
+                  key: slot!,
+                  ...(n ? { name: n.label, title: n.title, ...(n.muted ? { muted: true } : {}), run: () => this.showNaming(widget, anchor, n) } : {}),
+                },
+              ];
+            }),
+          },
+          { kind: "separator" },
+        ]
+      : [];
+    const titleIcon = tableIcon?.icon
+      ? { icon: tableIcon.icon, label: tableIcon.label, title: tableIcon.title, ...(tableIcon.pressed !== undefined ? { pressed: tableIcon.pressed } : {}), run: tableIcon.run }
+      : undefined;
+    menu.show(widget, title, [...names, ...safe, ...(safe.length && danger.length ? [{ kind: "separator" as const }] : []), ...danger], place, undefined, naming, titleIcon);
     if (startNamed) menu.startNaming();
   }
+}
+
+/** Names and their icons in the order of their slots (TOOLBAR_NAME_ORDER) */
+function bySlot(buttons: readonly ToolbarButton[]): ToolbarButton[] {
+  return [...buttons].sort((a, b) => TOOLBAR_NAME_ORDER[a.slot ?? "table"] - TOOLBAR_NAME_ORDER[b.slot ?? "table"]);
 }

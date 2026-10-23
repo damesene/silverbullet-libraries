@@ -47,7 +47,7 @@ const COLUMN_WIDTH = 100;
 const ROW_HEIGHT = 36;
 // The room for the rows' numbers (left) and the columns' letters (above): as the full screen's
 const NUMBERS_ROOM = 28;
-const LETTERS_ROOM = 42;
+const LETTERS_ROOM = 66;
 // Empty columns and rows beyond the view's edge: the box scrolls on into them, and more come
 const COLUMNS_BEYOND = 4;
 const ROWS_BEYOND = 10;
@@ -154,7 +154,9 @@ export class Sheet implements AdapterFeature {
           : sheet
             ? `Show the sheet ${sheet} with its other tables, as a spreadsheet over the whole window`
             : "Show the table as a spreadsheet over the whole window: type into an empty cell past it to grow it",
-        place: "icon",
+        // Before the sheet's name: the sheet, shown whole
+        place: "name-icon",
+        slot: "container",
         icon: ICONS.sheet,
         pressed: on,
         run: () => (on ? this.end() : void this.open(info)),
@@ -234,6 +236,14 @@ export class Sheet implements AdapterFeature {
     const text = await this.host.bridge.getText();
     if (this.board !== board) return;
     const page = this.host.currentPage;
+    // A table of the board put on another sheet (its name typed in the toolbar), or the table alone put on one: the
+    // board shows that sheet from now on
+    const onSheets = sheetTables(text);
+    const keyOf = (range: TableRange) => `${page}#${range.ordinal}`;
+    const moved = board.sheet
+      ? onSheets.find((t) => board.tables.has(keyOf(t.range)) && !sameSheet(t.sheet, board.sheet!))
+      : onSheets.find((t) => keyOf(t.range) === board.alone);
+    if (moved) board.sheet = moved.sheet;
     const wanted = new Map<string, { range: TableRange; at: SheetCell }>();
     if (board.sheet) {
       const mine = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables ?? [];

@@ -195,6 +195,17 @@ export const SETTINGS = {
     default: true,
     parse: (v) => (typeof v === "boolean" ? v : undefined),
   } satisfies Setting<boolean>,
+  // The table's names (its sheet's, its own) in its toolbar too, not only in its ⋯ menu: never, always, or while Shift
+  // alone is held
+  toolbarNames: {
+    path: "silverware.table.toolbarNames",
+    label: "Names in the toolbar",
+    hint: "A table's toolbar shows the sheet it is on and its name, as its ⋯ menu does: always, or while you hold Shift; never, they are in the menu only",
+    default: "shift",
+    choices: ["never", "always", "shift"],
+    choiceLabels: ["Never", "Always", "While Shift is held"],
+    parse: (v) => (v === "never" || v === "always" || v === "shift" ? v : undefined),
+  } satisfies Setting<"never" | "always" | "shift">,
   // Write edited tables with aligned pipes; off: keep each table's own style
   autoFormat: {
     path: "silverware.table.autoFormat",

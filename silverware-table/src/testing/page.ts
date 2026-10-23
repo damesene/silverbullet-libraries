@@ -160,6 +160,24 @@ export function tableMenuItem(label: RegExp, table = 0): HTMLElement | undefined
   return Array.from(document.querySelectorAll<HTMLElement>(".swt-menu .swt-menu-item")).find((b) => label.test(b.textContent!));
 }
 
+/**
+ * A name of a table (its own, or what holds it: its sheet) clicked: in the
+ * toolbar's row of names (the toolbarNames setting), else in the table's ⋯
+ * menu (the table's: the pencil in its title; its sheet's: its first row);
+ * its field open
+ */
+export function toolbarName(slot: "table" | "container", table = 0): HTMLElement {
+  if (document.querySelector(".swt-menu")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  editor.querySelectorAll("table")[table]!.rows[1]!.cells[0]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+  let name = document.querySelector<HTMLElement>(`.swt-bar .swt-bar-name-${slot} .swt-bar-name`);
+  if (!name) {
+    document.querySelector<HTMLElement>(".swt-bar .swt-bar-more")!.click();
+    name = document.querySelector<HTMLElement>(slot === "table" ? ".swt-menu .swt-menu-rename" : `.swt-menu .swt-menu-name-${slot} .swt-menu-name-button`)!;
+  }
+  name.click();
+  return name;
+}
+
 /** An item of the menu of a cell (or of the cells selected), by its label, the menu opened with a right click on it */
 export function cellMenuItem(target: Element, label: RegExp): HTMLElement | undefined {
   if (document.querySelector(".swt-menu")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));

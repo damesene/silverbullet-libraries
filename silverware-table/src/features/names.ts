@@ -85,12 +85,14 @@ export class Names implements Feature {
     return headers.length || cells.length ? { headers, cells } : undefined;
   }
 
-  /** The table's name at the toolbar's left: a click opens its ⋯ menu, the name to type in its title */
+  /** The table's name in the toolbar's row of names, Table (muted) without one: a click on it its field */
   toolbarButtons(info: TableInfo): ToolbarButton[] {
     const name = metaName(parseTable(info.source));
-    if (!name) return [];
-    const title = `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`;
-    return [{ label: name, title, place: "label", run: () => this.host.openTableMenu(info, true) }];
+    const title = name
+      ? `This table is named ${name}: formulas in other tables refer to it as ${name}!A1. Click to rename it`
+      : "This table has no name: click to name it, so formulas in other tables can refer to it (name!A1)";
+    const naming = this.menuNaming(info, { kind: "table" });
+    return [{ label: name ?? "Table", title, place: "name", slot: "table", ...(name ? {} : { muted: true }), ...(naming ? { naming } : {}), run: () => {} }];
   }
 
   /**

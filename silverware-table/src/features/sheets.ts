@@ -1,11 +1,13 @@
-// The sheets module's part in a table's ⋯ menu (the sheet module's model
-// side; the sheet view itself is the SilverBullet adapter's: core/silverbullet/
-// modules/sheet.ts): Add to sheet… puts the table on one of the page's sheets,
-// or on a new one, Remove from sheet takes it off. A table on a sheet says so
-// in its metadata row (`<meta name='costs' sheet='Budget' at='B3'>`, sheet/page.ts)
-// and has a name: the sheet's other tables refer to its cells by it
-// (`costs!B2`). Added, it goes in column A, one empty row under the sheet's
-// lowest table; removed, its name stays (formulas may refer to it). The
+// The sheets module, the sheet module's model side (the sheet view itself is
+// the SilverBullet adapter's: core/silverbullet/modules/sheet.ts): the sheet's
+// name in the toolbar's row of names, a click on it its field: typed there,
+// the table goes to that sheet (a new one, or one of the page's), left empty,
+// off it. A table on a sheet says so in its metadata row (`<meta name='costs'
+// sheet='Budget' at='B3'>`, sheet/page.ts) and has a name: the sheet's other
+// tables refer to its cells by it (`costs!B2`). Moved, it keeps its place where
+// nothing of the sheet is in its way, else goes in column A, one empty row
+// under the sheet's lowest table; off a sheet, its name stays (formulas may
+// refer to it). The
 // sheet's own data (its columns' widths) is its first table's in the page:
 // any write that makes another table the first (adding one before it,
 // removing it) hands it over in the same edit (writeStep, otherTablesWritten).
@@ -13,9 +15,8 @@
 // tables' places (`at`) as sheet/layout.ts has them (refusesWrite where it
 // cannot).
 import type { Feature, ModelHost, TableInfo, ToolbarButton, WriteEdit } from "../core/feature.ts";
-import { ICONS } from "../icons.ts";
-import { findTables, locateBySource, type PageTable, parseTable, type Table } from "../markdown.ts";
-import { metaName, sameTableName, tableNameProblem, withMeta, withMetaName } from "../meta.ts";
+import { locateBySource, type PageTable, parseTable, type Table } from "../markdown.ts";
+import { metaName, withMeta, withMetaName } from "../meta.ts";
 import { type Room, roomFor } from "../sheet/layout.ts";
 import {
   AT_ATTRIBUTE,
@@ -32,123 +33,79 @@ import {
   freeName,
 } from "../sheet/page.ts";
 
-// The choice of a new sheet in the dialog's list
-const NEW_SHEET = "";
-
 export class Sheets implements Feature {
   constructor(private readonly host: ModelHost) {}
 
+  /**
+   * The sheet's name in the toolbar's row of names, No sheet (muted) on none: a
+   * click on it its field. Typed there, the table goes to that sheet (a new
+   * one, or one of the page's joined), the others stay where they are; left
+   * empty, it comes off its sheet.
+   */
   toolbarButtons(info: TableInfo): ToolbarButton[] {
-    const sheet = parseTable(info.source).meta?.[SHEET_ATTRIBUTE]?.trim();
-    if (sheet) {
-      return [
-        {
-          label: "Remove from sheet",
-          value: sheet,
-          title: `Take the table off the sheet ${sheet}: in the page it stays as it is, its name too`,
-          icon: ICONS.sheet,
-          run: () => void this.remove(info),
-        },
-      ];
-    }
+    const sheet = sheetOf(info.source);
+    const title = sheet
+      ? `This table is on the sheet ${sheet}: click to move it to another sheet (type its name: a new one, or one of the page's), or off it (empty)`
+      : "This table is on no sheet: click to put it on one (type its name: a new one, or one of the page's), to show it with other tables as a spreadsheet's sheet";
     return [
       {
-        label: "Add to sheet…",
-        title: "Show the table on a sheet with other tables of the page (a spreadsheet's sheet); in the page it stays as it is",
-        icon: ICONS.sheet,
-        run: () => void this.add(info),
+        label: sheet ?? "No sheet",
+        title,
+        place: "name",
+        slot: "container",
+        ...(sheet ? {} : { muted: true }),
+        naming: {
+          ...(sheet ? { name: sheet } : {}),
+          label: sheet ? "Move this table to another sheet (empty: off the sheet)" : "Put this table on a sheet",
+          ...(info.metaRow || this.host.metadataEnabled ? {} : { disabled: "A sheet is kept in the table's metadata: turn on Store table metadata in the settings" }),
+          save: (name) => this.moveTo(info, name),
+        },
+        run: () => {},
       },
     ];
   }
 
-  /** The dialog: a sheet of the page (or a new one's name) and the table's name */
-  private async add(info: TableInfo): Promise<void> {
-    if (!info.metaRow && !this.host.metadataEnabled) {
-      void this.host.bridge.flash("Silverware Table: a sheet is kept in the table's metadata: turn on Store table metadata in the settings first", "info");
-      return;
+  /**
+   * The table to the sheet named (a new one, or one of the page's joined): at
+   * its place where none of that sheet's tables is in its way, else in column
+   * A one empty row under its lowest one; named if it has no name (the
+   * sheet's other tables refer to its cells by it). Empty: off its sheet.
+   * Refused, with why, for a name that cannot be a sheet's.
+   */
+  private async moveTo(shown: TableInfo, typed: string): Promise<string | undefined> {
+    const info = this.host.tableFor(shown.key) ?? shown;
+    const current = sheetOf(info.source);
+    const name = typed.trim();
+    if (name === "") {
+      if (current) await this.remove(info);
+      else this.host.focusPage();
+      return undefined;
     }
+    if (current && sameSheet(current, name)) {
+      this.host.focusPage();
+      return undefined;
+    }
+    const problem = sheetNameProblem(name);
+    if (problem) return problem;
     const text = await this.host.bridge.getText();
-    const sheets = sheetsOf(sheetTables(text));
-    const own = metaName(parseTable(info.source));
-    const { doc } = this.host;
-    const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, label?: string) => {
-      const e = doc.createElement(tag);
-      e.className = className;
-      if (label !== undefined) e.textContent = label;
-      return e;
-    };
-    const sheetSelect = el("select", "swt-sheet-add-select");
-    for (const sheet of sheets) sheetSelect.append(new Option(`${sheet.name} (${sheet.tables.length} ${sheet.tables.length === 1 ? "table" : "tables"})`, sheet.name));
-    sheetSelect.append(new Option("New sheet…", NEW_SHEET));
-    const newName = el("input", "swt-sheet-add-input");
-    newName.placeholder = "The new sheet's name";
-    newName.value = sheets.length ? "" : "Sheet1";
-    const tableName = el("input", "swt-sheet-add-input");
-    tableName.value = own ?? freeName(text);
-    const problem = el("p", "swt-sheet-add-problem");
-    const field = (label: string, input: HTMLElement, hint?: string) => {
-      const row = el("label", "swt-sheet-add-field");
-      row.append(el("span", "swt-sheet-add-label", label), input);
-      if (hint) row.append(el("span", "swt-sheet-add-hint", hint));
-      return row;
-    };
-    const newField = field("New sheet", newName);
-    const content = el("div", "swt-sheet-add");
-    content.append(field("Sheet", sheetSelect), newField, field("Table's name", tableName, "The sheet's other tables refer to its cells by it: name!B2"), problem);
-    const showNew = () => {
-      newField.hidden = sheetSelect.value !== NEW_SHEET;
-    };
-    sheetSelect.addEventListener("change", showNew);
-    showNew();
-    const add = el("button", "swt-dialog-primary", "Add to sheet");
-    add.type = "button";
-    const cancel = el("button", "swt-dialog-button", "Cancel");
-    cancel.type = "button";
-    const footer = el("div", "swt-sheet-add-foot");
-    footer.append(cancel, add);
-    const dialog = this.host.openDialog({
-      title: "Add to sheet",
-      subtitle: "The table shows on the sheet with the sheet's other tables; in the page it stays as it is",
-      content,
-      footer,
-      focus: sheets.length ? sheetSelect : newName,
-    });
-    cancel.addEventListener("click", () => dialog.close());
-    // One submit at a time: Enter twice does not write twice
-    let submitting = false;
-    const submit = async () => {
-      if (submitting) return;
-      submitting = true;
-      try {
-        const sheet = sheetSelect.value === NEW_SHEET ? newName.value.trim() : sheetSelect.value;
-        const name = tableName.value.trim();
-        const now = await this.host.bridge.getText();
-        const why =
-          sheetNameProblem(sheet) ??
-          (sheetSelect.value === NEW_SHEET && sheets.some((s) => sameSheet(s.name, sheet)) ? `the page has a sheet ${sheet} already: pick it` : undefined) ??
-          tableNameProblem(name) ??
-          nameTaken(now, info, name);
-        if (why) {
-          problem.textContent = why;
-          return;
-        }
-        const target = sheetsOf(sheetTables(now)).find((s) => sameSheet(s.name, sheet));
-        const at = formatAt(placeBelow(target?.tables ?? []));
-        dialog.close();
-        await this.host.writeTable(this.host.tableFor(info.key) ?? info, (t: Table) =>
-          withMeta(withMeta(withMetaName(t, name), SHEET_ATTRIBUTE, target?.name ?? sheet), AT_ATTRIBUTE, at),
-        );
-      } finally {
-        submitting = false;
-      }
-    };
-    add.addEventListener("click", () => void submit());
-    content.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !(e.target instanceof HTMLSelectElement)) {
-        e.preventDefault();
-        void submit();
-      }
-    });
+    const self = locateBySource(text, info.hint, info.source);
+    const tables = sheetTables(text);
+    const target = sheetsOf(tables).find((s) => sameSheet(s.name, name));
+    const others = (target?.tables ?? []).filter((t) => t.range.from !== self?.from);
+    const mine = tables.find((t) => t.range.from === self?.from);
+    const table = parseTable(info.source);
+    const rows = table.rows.length;
+    const columns = table.align.length;
+    const free = (at: { row: number; column: number }) =>
+      others.every((o) => at.column + columns - 1 < o.at.column || o.at.column + o.columns - 1 < at.column || at.row + rows - 1 < o.at.row || o.at.row + o.rows - 1 < at.row);
+    const at = mine && free(mine.at) ? mine.at : placeBelow(others);
+    const own = metaName(table);
+    const tableName = own ?? freeName(text);
+    const result = await this.host.writeTable(info, (t: Table) =>
+      withMeta(withMeta(withMetaName(t, tableName), SHEET_ATTRIBUTE, target?.name ?? name), AT_ATTRIBUTE, formatAt(at)),
+    );
+    if (result === "written" && !own) void this.host.bridge.flash(`Silverware Table: the table is named ${tableName}, as the sheet's other tables refer to its cells by it (${tableName}!B2)`, "info");
+    return undefined;
   }
 
   /** Off the sheet: its `sheet` and `at` go, its name stays (the sheet's own data, if it kept it, goes on: writeStep) */
@@ -233,14 +190,9 @@ function handovers(before: Table, after: Table, edit: WriteEdit): { data: [strin
   return moves;
 }
 
-/** Why another table of the page has the name already, if it does */
-function nameTaken(text: string, info: TableInfo, name: string): string | undefined {
-  const self = locateBySource(text, info.hint, info.source);
-  const taken = findTables(text).some((range) => {
-    if (range.from === self?.from) return false;
-    const other = metaName(parseTable(range.text));
-    return other !== undefined && sameTableName(other, name);
-  });
-  return taken ? `another table on this page is named ${name}` : undefined;
+/** The sheet a table is on: its `sheet`, with a place on it (`at`) */
+function sheetOf(source: string): string | undefined {
+  const meta = parseTable(source).meta;
+  const sheet = meta?.[SHEET_ATTRIBUTE]?.trim();
+  return sheet && parseAt(meta?.[AT_ATTRIBUTE]) ? sheet : undefined;
 }
-

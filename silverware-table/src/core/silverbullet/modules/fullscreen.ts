@@ -25,8 +25,10 @@ export class FullScreen implements AdapterFeature {
       {
         label: on ? "Exit full screen" : "Full screen",
         title: on ? "Show the table in the page again (Esc)" : "Show the table over the whole window",
-        place: "icon",
-        icon: on ? ICONS.exitFullScreen : ICONS.fullScreen,
+        // Before the table's name: the table, shown whole
+        place: "name-icon",
+        slot: "table",
+        icon: ICONS.table,
         pressed: on,
         run: () => (on ? this.over.end() : this.over.begin(widget, info)),
       },

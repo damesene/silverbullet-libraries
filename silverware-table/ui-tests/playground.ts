@@ -94,6 +94,18 @@ export async function drag(page: Page, from: Locator, to: Locator | { x: number;
 }
 
 /** The pointer on a cell, and the grips there (the grips follow the cell hovered) */
+/**
+ * A table's icon by its name (Sheet view, Full screen), its toolbar shown:
+ * in the toolbar's row of names (the toolbarNames setting), else in its ⋯
+ * menu (the table's before its title, the sheet's in its first row), opened for it
+ */
+export async function tableIcon(page: Page, label: string): Promise<Locator> {
+  const inBar = page.locator(`.swt-bar.swt-visible button[aria-label="${label}"]`);
+  if (await inBar.count()) return inBar;
+  if (!(await page.locator(".swt-menu .swt-menu-names").count())) await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
+  return page.locator(`.swt-menu button[aria-label="${label}"]`);
+}
+
 export async function hoverCell(page: Page, target: Locator): Promise<void> {
   await target.hover();
   await expect(page.locator(".swt-grip.swt-visible").first()).toBeVisible();

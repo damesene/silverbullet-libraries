@@ -3,7 +3,7 @@
 // a caption under each icon (the clipboard's), operable with the mouse or the
 // keyboard (arrows, Home/End, Enter). The core's: modules give its entries
 // (src/menu.ts) and get it through TableHost.floatingMenu.
-import type { MenuBack, MenuDetail, MenuEntry, MenuNaming } from "../menu.ts";
+import type { MenuBack, MenuDetail, MenuEntry, MenuNaming, MenuTitleIcon } from "../menu.ts";
 
 /** A press in a menu keeps the focus where it is (on its button, in the page), but in its field (a name typed) */
 export function keepFocus(menu: HTMLElement): void {
@@ -34,16 +34,16 @@ export function floatingMenu(
   doc: Document,
   title: string,
   entries: readonly MenuEntry[],
-  options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void },
+  options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly titleIcon?: MenuTitleIcon },
 ): HTMLElement {
-  const menu = renderMenu(doc, title, entries, options.back, options.naming);
+  const menu = renderMenu(doc, title, entries, options.back, options.naming, options.titleIcon);
   menu.classList.add("swt-floating", "swt-menu", "swt-visible");
   keepFocus(menu);
   onMenuClose(menu, options.close);
   return menu;
 }
 
-export function renderMenu(doc: Document, title: string, entries: readonly MenuEntry[], back?: MenuBack, naming?: MenuNaming): HTMLElement {
+export function renderMenu(doc: Document, title: string, entries: readonly MenuEntry[], back?: MenuBack, naming?: MenuNaming, titleIcon?: MenuTitleIcon): HTMLElement {
   const menu = doc.createElement("div");
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", title);
@@ -65,9 +65,27 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
     });
     heading.append(arrow);
   }
+  // An icon before the title, which it acts on: the title starts at it
+  if (titleIcon) {
+    heading.classList.add("swt-menu-title-start");
+    const b = doc.createElement("button");
+    b.type = "button";
+    b.className = "swt-menu-name-icon swt-menu-title-icon";
+    b.setAttribute("aria-label", titleIcon.label);
+    b.title = titleIcon.title;
+    if (titleIcon.pressed !== undefined) b.setAttribute("aria-pressed", String(titleIcon.pressed));
+    b.innerHTML = titleIcon.icon;
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      titleIcon.run();
+    });
+    heading.append(b);
+  }
   const titleText = doc.createElement("span");
   titleText.className = "swt-menu-title-text";
   titleText.textContent = title;
+  // Cut where long: whole in its tooltip
+  titleText.title = title;
   heading.append(titleText);
   menu.append(heading);
   if (naming) addNaming(doc, menu, heading, naming);
@@ -182,6 +200,32 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
       }
       item.append(label);
       menu.append(item);
+    } else if (entry.kind === "names") {
+      const row = doc.createElement("div");
+      row.className = "swt-menu-names";
+      row.setAttribute("role", "group");
+      for (const n of entry.names) {
+        const slot = doc.createElement("span");
+        slot.className = `swt-menu-name-slot${n.key ? ` swt-menu-name-${n.key}` : ""}`;
+        if (n.icon) {
+          const b = button("swt-menu-name-icon", n.icon.run);
+          b.setAttribute("role", "menuitem");
+          b.setAttribute("aria-label", n.icon.label);
+          b.title = n.icon.title;
+          if (n.icon.pressed !== undefined) b.setAttribute("aria-pressed", String(n.icon.pressed));
+          b.innerHTML = n.icon.icon;
+          slot.append(b);
+        }
+        if (n.name !== undefined && n.run) {
+          const b = button(`swt-menu-name-button${n.muted ? " swt-muted" : ""}`, n.run);
+          b.setAttribute("role", "menuitem");
+          b.title = n.title ?? n.name;
+          b.textContent = n.name;
+          slot.append(b);
+        }
+        row.append(slot);
+      }
+      menu.append(row);
     } else if (entry.kind === "actions") {
       const bar = doc.createElement("div");
       bar.className = "swt-menu-actions";
@@ -240,7 +284,9 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
     const focus = (i: number) =>
       buttons[(i + buttons.length) % buttons.length]?.focus({ preventScroll: true });
     // Left and right go along a row of buttons too
-    const inRow = index >= 0 && (buttons[index]!.classList.contains("swt-segment") || buttons[index]!.classList.contains("swt-action"));
+    const inRow =
+      index >= 0 &&
+      ["swt-segment", "swt-action", "swt-menu-name-icon", "swt-menu-name-button"].some((c) => buttons[index]!.classList.contains(c));
     if (e.key === "ArrowDown" || (e.key === "ArrowRight" && inRow)) {
       e.preventDefault();
       focus(index + 1);

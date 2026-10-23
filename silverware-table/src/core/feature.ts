@@ -9,7 +9,7 @@ export type { Dialog, DialogOptions } from "./dialog.ts";
 export type { Rect } from "./geometry.ts";
 import type { IndexMap } from "../ops.ts";
 import type { OtherPages, PageTable, Table, TableMeta } from "../markdown.ts";
-import type { MenuBack, MenuEntry, MenuNaming } from "../menu.ts";
+import type { MenuBack, MenuEntry, MenuNaming, MenuTitleIcon } from "../menu.ts";
 import type { Pins, ViewState } from "../view.ts";
 
 /** A table shown, in model terms (what modules get): where it is in the page, its shape, its pins */
@@ -341,8 +341,17 @@ export type ToolbarButton = {
   // its accessible name), "label" its label at the toolbar's left (what the
   // table is), "chip" at the left too, how the table is shown (its label, its
   // icon before it, a × that runs it: ends that, its title saying so),
-  // "menu" (the default) an item of the toolbar's ⋯ menu
-  readonly place?: "icon" | "label" | "chip" | "menu";
+  // "menu" (the default) an item of the toolbar's ⋯ menu. In the toolbar's row
+  // of names, above the rest, by `slot` (TOOLBAR_NAME_ORDER): "name" a name
+  // (its label; a click opens its `naming`, `run` unused), "name-icon" an icon
+  // button before the name of its slot (a feature's, apart from the name's)
+  readonly place?: "icon" | "label" | "chip" | "menu" | "name" | "name-icon";
+  // A name's or a name's icon's place in the row of names
+  readonly slot?: ToolbarNameSlot;
+  // A name: a stand-in for none (Table, No sheet), shown muted
+  readonly muted?: boolean;
+  // A name: what a click on it names (the title of a menu that is its field)
+  readonly naming?: MenuNaming;
   readonly icon?: string;
   // Asks to be used: highlighted
   readonly attention?: boolean;
@@ -395,6 +404,14 @@ export type WritePage = { readonly text: string; readonly tables: readonly PageT
 
 /** An edit as features' write steps see it: how rows and columns moved, and the page */
 export type WriteEdit = WriteOptions & { readonly page: WritePage };
+
+/**
+ * The places in the toolbar's row of names, in their order, by what they name:
+ * what holds the table (a sheet), then the table itself. A module picks one by
+ * meaning, never by another module's names.
+ */
+export const TOOLBAR_NAME_ORDER = { container: 0, table: 1 } as const;
+export type ToolbarNameSlot = keyof typeof TOOLBAR_NAME_ORDER;
 
 /**
  * Where a group goes in the cell menu, by what its entries do
@@ -557,7 +574,7 @@ export interface ModelHost {
   /** Opens the cell menu at a point, as a right click on the cell would; false when no feature offers anything */
   openCellMenu(info: TableInfo, at: CellRef, point: { x: number; y: number }): boolean;
   /** A menu floating over the page (core/menu.ts) made of the entries, one of the core's floating elements, in the page: to place and focus (focusMenu) */
-  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object }): HTMLElement;
+  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object; readonly titleIcon?: MenuTitleIcon }): HTMLElement;
   /** A file given to the browser to download (made in the page: nothing is sent anywhere) */
   download(file: string, data: Uint8Array, type: string): void;
   /** The keyboard into a menu made by floatingMenu, once it is placed (its entry checked, if it is a list) */

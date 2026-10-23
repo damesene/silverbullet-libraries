@@ -55,7 +55,7 @@ import {
   type TableMeta,
   type TableRange,
 } from "./markdown.ts";
-import type { MenuBack, MenuEntry, MenuNaming } from "./menu.ts";
+import type { MenuBack, MenuEntry, MenuNaming, MenuTitleIcon } from "./menu.ts";
 import { floatingMenu, focusMenu } from "./core/menu.ts";
 import { metadataAfterEdit, metaPins, metaSort, withMetaSort } from "./meta.ts";
 import { keepTags } from "./tags.ts";
@@ -110,6 +110,10 @@ export class Controller implements TableHost {
   private maxHeight = 0;
   // The metadata setting, for menus that offer pinning
   private metadataOn = false;
+  // The toolbarNames setting: the table's names in its toolbar too, not only in its ⋯ menu (always, or while Shift
+  // alone is held: `shiftHeld`)
+  private namesShown: "never" | "always" | "shift" = "shift";
+  private shiftHeld = false;
   // Sideways scroll of each wide table, carried over to its next rendering
   private readonly scrollLefts = new Map<string, number>();
   // The same for tables taller than the maximum height setting, scrolled inside
@@ -256,6 +260,7 @@ export class Controller implements TableHost {
       applySort: (widget, info) => void this.applySort(widget, info),
       showMarkdown: (info) => void this.showMarkdown(info),
       openSettings: () => void this.openSettings(),
+      namesShown: () => this.namesShown === "always" || (this.namesShown === "shift" && this.shiftHeld),
     });
     this.insert = new InsertControls({
       host: this,
@@ -380,7 +385,20 @@ export class Controller implements TableHost {
     this.adapter.stop();
   }
 
-  private onBlur = (): void => this.cellEditor.setNavigating(false);
+  private onBlur = (): void => {
+    this.cellEditor.setNavigating(false);
+    this.holdShift(false);
+  };
+
+  /**
+   * Shift held alone, or no longer (another key with it: Shift+A typed, Shift+click's arrows; let go; the window
+   * left): with the toolbarNames setting "shift", the toolbar shows the table's names while it is
+   */
+  private holdShift(held: boolean): void {
+    if (held === this.shiftHeld) return;
+    this.shiftHeld = held;
+    if (this.namesShown === "shift") this.toolbar.changed();
+  }
 
   /**
    * A cell editor opened: the grips go to the edited cell and stay there while
@@ -556,6 +574,11 @@ export class Controller implements TableHost {
     const maxHeight = await this.setting("maxHeight");
     this.metadataOn = await this.setting("metadata");
     this.cellEditor.selectOnClick = await this.setting("selectOnClick");
+    const namesShown = await this.setting("toolbarNames");
+    if (namesShown !== this.namesShown) {
+      this.namesShown = namesShown;
+      this.toolbar.changed();
+    }
     if (this.stopped || maxHeight === this.maxHeight) return;
     this.maxHeight = maxHeight;
     for (const widget of Array.from(this.doc.querySelectorAll<HTMLElement>(`${WIDGET_SELECTOR}.swt-table`))) {
@@ -1778,6 +1801,7 @@ export class Controller implements TableHost {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    this.holdShift(e.key === "Shift" && !e.ctrlKey && !e.altKey && !e.metaKey);
     // The settings dialog's keys are its own (not a selected cell's, not the table menu's), a feature's dialog's too
     if (e.target instanceof Node && this.dialogs.contains(e.target)) return;
     if (this.settingsDialog?.isOpen && e.target instanceof Node && this.settingsDialog.contains(e.target)) return;
@@ -1799,6 +1823,7 @@ export class Controller implements TableHost {
 
   private onKeyUp = (e: KeyboardEvent): void => {
     if (e.key === "Control") this.cellEditor.setNavigating(false);
+    if (e.key === "Shift") this.holdShift(false);
   };
 
   // Where a hovering pointer was last
@@ -2156,7 +2181,7 @@ export class Controller implements TableHost {
     return this.dialogs.open(options);
   }
 
-  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object }): HTMLElement {
+  floatingMenu(title: string, entries: readonly MenuEntry[], options: { readonly back?: MenuBack; readonly naming?: MenuNaming; readonly close: () => void; readonly owner?: object; readonly titleIcon?: MenuTitleIcon }): HTMLElement {
     // One menu at a time: another's open (a grip's while the ⋯ menu opens) is closed as its × would close it; an
     // owner's menu replacing its own (a submenu) is its own to close
     for (const [open, made] of this.openMenus) {

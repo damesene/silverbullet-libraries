@@ -29,7 +29,7 @@ const TABS: readonly { readonly id: string; readonly title: string; readonly gro
     id: "general",
     title: "General",
     groups: [
-      { title: "Tables", keys: ["metadata", "autoFormat", "maxHeight"] },
+      { title: "Tables", keys: ["metadata", "autoFormat", "maxHeight", "toolbarNames"] },
       { title: "Cell editor", keys: ["enterKey", "selectOnClick", "ctrlEnterAddsRow"] },
       { title: "Cells with Lua expressions", keys: ["expressionsDelay"] },
     ],

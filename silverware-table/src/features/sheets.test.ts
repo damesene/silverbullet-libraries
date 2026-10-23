@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { insertRow } from "../ops.ts";
-import { controller, edits, flush, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { controller, edits, flashes, flush, nameInMenu, setup, tableMenuItem, text, toolbarName, useTablePage } from "../testing/page.ts";
 
 const PAGE = [
   "| Item | Qty |",
@@ -21,65 +21,70 @@ const PAGE = [
   "",
 ].join("\n");
 
-describe("Sheets: a table added to a sheet and removed from it", () => {
+describe("Sheets: a table put on a sheet, moved and taken off it by its sheet's name in the toolbar", () => {
   useTablePage();
 
-  const dialog = () => document.querySelector<HTMLElement>(".swt-sheet-add")!;
-  const inputs = () => Array.from(dialog().querySelectorAll<HTMLInputElement>("input"));
-  const button = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === label)!;
-
-  it("adds a table to a sheet of the page: named, in column A one empty row under the sheet's lowest table", async () => {
+  it("shows the sheet's name in the row of names, No sheet muted on none", async () => {
     await setup(PAGE, { "silverware.table.metadata": true });
-    tableMenuItem(/Add to sheet/, 1)!.click();
-    await flush();
-    const select = dialog().querySelector<HTMLSelectElement>("select")!;
-    expect(Array.from(select.options, (o) => o.value)).toEqual(["Budget", ""]);
-    // A free name offered: table1
-    expect(inputs()[1]!.value).toBe("table1");
-    inputs()[1]!.value = "income";
-    button("Add to sheet").click();
-    // Enter as well: one write, not two
-    dialog()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    await flush();
-    await flush();
-    // costs: A1 to A3 (rows 0 to 2), notes: D1 to D2: one empty row, then A5
-    expect(text).toContain("| <meta name='income' sheet='Budget' at='A5'> |");
-    expect(text.match(/name='income'/g)).toHaveLength(1);
+    expect(toolbarName("container", 0).textContent).toBe("Budget");
+    expect(toolbarName("container", 0).classList.contains("swt-muted")).toBe(false);
+    const none = toolbarName("container", 1);
+    expect(none.textContent).toBe("No sheet");
+    expect(none.classList.contains("swt-muted")).toBe(true);
+    // Nothing of it is in the ⋯ menu any more
+    expect(tableMenuItem(/sheet/i, 1)).toBeUndefined();
   });
 
-  it("refuses a name another table of the page has", async () => {
+  it("puts a table on a sheet of the page by its name: named, in column A one empty row under the sheet's lowest table", async () => {
     await setup(PAGE, { "silverware.table.metadata": true });
-    tableMenuItem(/Add to sheet/, 1)!.click();
-    await flush();
-    inputs()[1]!.value = "Costs";
-    button("Add to sheet").click();
-    await flush();
-    expect(dialog().querySelector(".swt-sheet-add-problem")!.textContent).toBe("another table on this page is named Costs");
-    expect(text).toBe(PAGE);
-  });
-
-  it("hands the sheet's widths to a table added before its first, in the same edit", async () => {
-    await setup(`| X |\n|---|\n| 1 |\n\n${PAGE}`, { "silverware.table.metadata": true });
-    tableMenuItem(/Add to sheet/, 0)!.click();
-    await flush();
-    inputs()[1]!.value = "first";
-    button("Add to sheet").click();
-    await flush();
-    await flush();
-    expect(text).toContain("| <meta name='first' sheet='Budget' at='A5' sheet.width.B='140'> |");
-    expect(text).toContain("| <meta name='costs' sheet='Budget' at='A1'> |");
+    toolbarName("container", 1);
+    expect(await nameInMenu("budget")).toBeUndefined();
+    // costs: A1 to A3 (rows 0 to 2), notes: D1 to D2: one empty row, then A5; the sheet's name as the page has it
+    expect(text).toContain("| <meta name='table1' sheet='Budget' at='A5'> |");
+    expect(flashes.some((f) => f.includes("named table1"))).toBe(true);
     expect(edits).toBe(1);
   });
 
-  it("removes a table from its sheet, its name kept, the sheet's widths handed on to the next table", async () => {
+  it("moves a table to a new sheet by a new name: its place kept, the sheet's widths handed on to the next table, one edit", async () => {
     await setup(PAGE, { "silverware.table.metadata": true });
-    expect(tableMenuItem(/Add to sheet/, 0)).toBeUndefined();
-    tableMenuItem(/Remove from sheet/, 0)!.click();
-    await flush();
-    await flush();
+    toolbarName("container", 0);
+    expect(await nameInMenu("Other")).toBeUndefined();
+    expect(text).toContain("| <meta name='costs' sheet='Other' at='A1'> |");
+    expect(text).toContain("| <meta name='notes' sheet='Budget' at='D1' sheet.width.B='140'> |");
+    expect(edits).toBe(1);
+  });
+
+  it("moved where its place is taken on that sheet: under that sheet's lowest table", async () => {
+    const page = `${PAGE}\n| City |\n|---|\n| Brno |\n| <meta name='cities' sheet='Other' at='A1'> |\n`;
+    await setup(page, { "silverware.table.metadata": true });
+    toolbarName("container", 0);
+    expect(await nameInMenu("Other")).toBeUndefined();
+    // cities: A1 to A2: one empty row, then A4
+    expect(text).toContain("| <meta name='costs' sheet='Other' at='A4'> |");
+  });
+
+  it("refuses a name that cannot be a sheet's", async () => {
+    await setup(PAGE, { "silverware.table.metadata": true });
+    toolbarName("container", 1);
+    expect(await nameInMenu("x".repeat(61))).toBe("a sheet's name is at most 60 characters");
+    expect(text).toBe(PAGE);
+  });
+
+  it("takes a table off its sheet with an empty name: its name kept, the sheet's widths handed on, one edit", async () => {
+    await setup(PAGE, { "silverware.table.metadata": true });
+    toolbarName("container", 0);
+    expect(await nameInMenu("")).toBeUndefined();
     expect(text).toContain("| <meta name='costs'> |");
     expect(text).toContain("| <meta name='notes' sheet='Budget' at='D1' sheet.width.B='140'> |");
-    // One edit: one Ctrl+Z undoes it all
+    expect(edits).toBe(1);
+  });
+
+  it("hands the sheet's widths to a table put on it before its first, in the same edit", async () => {
+    await setup(`| X |\n|---|\n| 1 |\n\n${PAGE}`, { "silverware.table.metadata": true });
+    toolbarName("container", 0);
+    expect(await nameInMenu("Budget")).toBeUndefined();
+    expect(text).toContain("| <meta name='table1' sheet='Budget' at='A5' sheet.width.B='140'> |");
+    expect(text).toContain("| <meta name='costs' sheet='Budget' at='A1'> |");
     expect(edits).toBe(1);
   });
 });

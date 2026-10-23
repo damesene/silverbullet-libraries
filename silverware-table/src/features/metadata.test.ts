@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { PAGE, bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, nameInMenu, setup, tableMenuItem, text, useTablePage } from "../testing/page.ts";
+import { PAGE, bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, nameInMenu, setup, tableMenuItem, text, toolbarName, useTablePage } from "../testing/page.ts";
 
 describe("Table metadata", () => {
   useTablePage();
@@ -12,8 +12,10 @@ describe("Table metadata", () => {
     const TWO = `| A |\n|---|\n| 1 |\n\n| B |\n|---|\n| 2 |\n| <meta name='prices'> |\n`;
     await setup(TWO, { "silverware.table.metadata": true });
     const title = () => document.querySelector(".swt-menu-title")!.textContent;
+    // No name: the ⋯ menu's title is Table, its pencil the name's field
     tableMenuItem(/^Edit markdown$/);
     expect(title()).toBe("Table");
+    toolbarName("table");
     // Taken by the other table (ignoring case)
     expect(await nameInMenu("Prices")).toBe("another table on this page is named Prices");
     expect(text).toBe(TWO);
@@ -26,14 +28,10 @@ describe("Table metadata", () => {
     expect(document.querySelector(".swt-menu")).toBeNull();
     await controller.scan();
     tableMenuItem(/^Edit markdown$/);
-    expect(title()).toBe("Table: fruit");
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    // Its name at the toolbar's left opens the menu with the name to type
-    document.querySelector<HTMLElement>(".swt-bar .swt-bar-label")!.click();
+    expect(title()).toBe("fruit");
+    toolbarName("table");
     expect(document.querySelector<HTMLInputElement>(".swt-menu .swt-menu-name")!.value).toBe("fruit");
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     // An empty name removes it
-    tableMenuItem(/^Edit markdown$/);
     expect(await nameInMenu("")).toBeUndefined();
     expect(text).toBe(TWO);
   });
@@ -43,11 +41,13 @@ describe("Table metadata", () => {
     tableMenuItem(/^Edit markdown$/);
     const menu = document.querySelector<HTMLElement>(".swt-menu")!;
     menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-    expect(document.activeElement?.classList.contains("swt-menu-item")).toBe(true);
-    // The cell selected, then its menu's field: a copy there is the field's
+    // The first of its buttons, not the pencil: the table's icon before the title
+    expect(document.activeElement?.classList.contains("swt-menu-rename")).toBe(false);
+    expect(document.activeElement?.classList.contains("swt-menu-title-icon")).toBe(true);
+    // The cell selected, then the name's field: a copy there is the field's
     clickOn(cell(1, 0));
     key(document.activeElement ?? editor, "Escape");
-    document.querySelector<HTMLElement>(".swt-bar .swt-bar-label")!.click();
+    toolbarName("table");
     const field = document.querySelector<HTMLInputElement>(".swt-menu .swt-menu-name")!;
     expect(document.activeElement).toBe(field);
     field.setSelectionRange(5, 5);
@@ -63,14 +63,15 @@ describe("Table metadata", () => {
   it("offers a name only with the setting on, or to a table with a metadata row", async () => {
     const pencil = () => document.querySelector<HTMLElement>(".swt-menu .swt-menu-rename")!;
     await setup(PAGE);
-    tableMenuItem(/^Edit markdown$/);
+    toolbarName("table");
     expect(pencil().getAttribute("aria-disabled")).toBe("true");
     // A table with a metadata row gets one with the setting off too
     controller.stop();
     document.body.replaceChildren();
     await setup(`| A |\n|---|\n| 1 |\n| 2 |\n| <meta pin-top='1'> |\n`);
-    tableMenuItem(/^Edit markdown$/);
-    expect(pencil().hasAttribute("aria-disabled")).toBe(false);
+    // (Allowed: the name's field opens at once)
+    toolbarName("table");
+    expect(document.querySelector(".swt-menu .swt-menu-name")).not.toBeNull();
   });
 
   it("does not change the table when sorting with the setting off", async () => {
