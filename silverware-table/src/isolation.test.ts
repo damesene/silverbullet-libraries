@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 // (Vite reads the options as written: a literal each time)
 const features = import.meta.glob(["./features/*.ts", "!./features/*.test.ts"], { query: "?raw", import: "default", eager: true });
 const core = import.meta.glob(["./controller.ts", "./core/**/*.ts", "!./core/**/*.test.ts"], { query: "?raw", import: "default", eager: true });
+// The domains the modules hand data to: their own pure code
+const domains = import.meta.glob(["./formulas/**/*.ts", "./sheet/**/*.ts", "./excel/**/*.ts", "./export/**/*.ts", "!./**/*.test.ts"], { query: "?raw", import: "default", eager: true });
 
 /** The lines of each file that match, as `file:line: text` */
 function matches(files: Record<string, string>, pattern: RegExp): string[] {
@@ -44,6 +46,17 @@ describe("isolation", () => {
       Object.entries({ ...features, ...core }).filter(([path]) => (path.startsWith("./features/") || path.startsWith("./core/silverbullet/modules/")) && !path.endsWith("/sheet.ts")),
     );
     expect(matches(modules, /\b(Map|Set|WeakMap)<TableKey\b/)).toEqual([]);
+  });
+
+  it("what tables keep is read and written through the host: no module nor domain names an attribute or reads the metadata itself", () => {
+    // (Remove metadata is the core's: it names whose each attribute is)
+    const modules = Object.fromEntries(
+      Object.entries({ ...features, ...core }).filter(([path]) => (path.startsWith("./features/") && path !== "./features/metadata.ts") || path.startsWith("./core/silverbullet/modules/")),
+    );
+    // A guard against calling them by mistake: a module could keep its data elsewhere, which nothing here prevents
+    expect(matches(modules, /from "[./]*(meta|metanames|names|tagvalues)\.ts"/)).toEqual([]);
+    expect(matches(modules, /\bmetaAttribute\b/)).toEqual([]);
+    expect(matches(domains, /from "[./]*(meta|metanames|names|tagvalues)\.ts"|\bmetaAttribute\b|[\w)\]?]\.meta\b/)).toEqual([]);
   });
 
   it("the core and the adapter name no module", () => {
