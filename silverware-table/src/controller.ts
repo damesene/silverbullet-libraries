@@ -2252,6 +2252,14 @@ export class Controller implements TableHost {
       await before;
       const now = this.tableFor(key);
       if (now) {
+        // Pins the caller set from the table as it was (a row inserted into a zone): what the write before changed in
+        // them is kept, as they are set whole
+        const was = "pins" in given ? (given as WidgetInfo).pins : undefined;
+        if (options.pins && was) {
+          const set = options.pins;
+          const moved = (side: keyof typeof set) => Math.max(0, set[side] + now.pins[side] - was[side]);
+          options = { ...options, pins: { top: moved("top"), bottom: moved("bottom"), left: moved("left"), right: moved("right") } };
+        }
         info = now;
         widget = this.widgetForKey(key) ?? widget;
       }

@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { STICKY_GAP } from "./core/layout.ts";
 import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, edits, flashes, flush, inInsertBand, key, pointInsert, press, renderPage, setText, setup, tableMenuItem, text, useTablePage, tableKey } from "./testing/page.ts";
+import { insertRowWith, pinRowAt } from "./core/structure.ts";
 
 describe("Controller", () => {
   useTablePage();
@@ -656,6 +657,23 @@ describe("Controller", () => {
     expect(flashes).toEqual([]);
     // The last rendering waited for, so none comes into the next test's page
     await vi.waitFor(() => expect(editor.querySelector("table")!.rows.length).toBe(before + 1));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
+
+  it("keeps a pin written before a write that waited for it, set from the table as it was", async () => {
+    await setup(PAGE, { "silverware.table.metadata": true }, {
+      replaceRange: (from, to, insert) => {
+        setText(text.slice(0, from) + insert + text.slice(to));
+        setTimeout(() => renderPage(text, editor, cursorMoves), 40);
+      },
+    });
+    const info = controller.shownTables()[0]!;
+    await pinRowAt(controller, info, 1, "top");
+    // The table not rendered anew yet: the row inserted from what was rendered
+    await insertRowWith(controller, info, 3, 0);
+    expect(text).toContain("pin-top='1'");
+    expect(flashes).toEqual([]);
+    await vi.waitFor(() => expect(editor.querySelector("table")!.rows.length).toBe(5));
     await new Promise((resolve) => setTimeout(resolve, 60));
   });
 
