@@ -380,14 +380,23 @@ export class Sheet implements AdapterFeature {
     if (!placed || placed.widget !== widget) return;
     // Its columns and rows as drawn, before the sheet's widths and height are applied
     // (As wide as its content: SilverBullet's tables are as wide as their box, which would spread the columns)
+    // Without a cell editor opened in it meanwhile (the cell to edit next): its field, and the width its cell was held
+    // to as it opened, which was the table's before the sheet laid it out (the grid's columns size it from now on)
     const table = info.table;
     const { tableLayout, width } = table.style;
+    const fields = Array.from(table.querySelectorAll<HTMLElement>(".swt-cell-editor"), (field) => ({ field, display: field.style.display }));
+    for (const { field } of fields) {
+      field.style.display = "none";
+      const cell = field.closest<HTMLElement>("td, th");
+      if (cell) Object.assign(cell.style, { width: "", minWidth: "", maxWidth: "" });
+    }
     table.style.tableLayout = "auto";
     table.style.width = "max-content";
     placed.natural = Array.from(table.rows[0]?.cells ?? [], (cell) => cell.getBoundingClientRect().width);
     placed.rowHeight = this.host.bodyRows(info).find((tr) => tr.isConnected)?.getBoundingClientRect().height ?? 0;
     table.style.tableLayout = tableLayout;
     table.style.width = width;
+    for (const { field, display } of fields) field.style.display = display;
     this.shownIndex = undefined;
     if (this.after?.grown?.key === info.key) this.after.ready = true;
     this.queuePlace();

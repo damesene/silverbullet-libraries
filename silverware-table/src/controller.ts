@@ -2277,7 +2277,8 @@ export class Controller implements TableHost {
         const then = await feature.beforeWrite?.(text, spanFrom, spanTo, replace);
         if (then) after.push(then);
       }
-      if (widget) this.anchor.set(widget, info.key);
+      // (A table Silverware Table draws is its feature's to place, in a box whose scroll the write does not move)
+      if (widget && !widget.classList.contains(DRAWN_CLASS)) this.anchor.set(widget, info.key);
       await this.bridge.replaceRange(replace.from, replace.to, replace.insert);
       this.pageText = written;
       for (const pending of held) pending.written();

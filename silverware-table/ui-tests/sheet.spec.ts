@@ -899,6 +899,35 @@ test("the sheet's scrollbars stay as they are through writes that widen a column
   }
 });
 
+test("editing a table placed lower on the sheet scrolls nothing, its column as wide as before (the cell edited next does not widen it)", async ({ page }) => {
+  await page
+    .locator("#source")
+    .fill(
+      "# Test\n\n| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 |\n| <meta sheet='Plan' at='A1' name='fruit'> |\n\n| Column 1 | Column 2 |\n|---|---|\n| a | sdf |\n| fdsddda | |\n| <meta sheet='Plan' at='G4' name='table1'> |\n",
+    );
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(2);
+  await hoverCell(page, cell(page, 1, 0));
+  await (await tableIcon(page, "Sheet view")).click();
+  const second = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table", { hasText: "Column 1" });
+  await expect(second).toBeVisible();
+  const board = page.locator(".swt-sheet-board");
+  const header = second.locator("tr").first().locator("th, td").first();
+  const width = (await header.boundingBox())!.width;
+  for (const [row, value] of [
+    [1, "edited"],
+    [2, "edited2"],
+  ] as const) {
+    await second.locator(`tr[data-swt-row='${row}'] > td`).first().dblclick();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type(value);
+    await sheetRendersAnew(page, () => page.keyboard.press("Enter"), 1);
+    await expect(second).toContainText(value);
+    expect(await board.evaluate((b) => b.scrollTop)).toBe(0);
+    expect(Math.abs((await header.boundingBox())!.width - width)).toBeLessThan(30);
+  }
+});
+
 test.describe("Pins on the sheet", () => {
   // A table on a sheet, at B2, its first row pinned to the top, its last (Total) to the bottom, its first column left
   const rows = Array.from({ length: 30 }, (_, i) => `| item ${i} | ${i} | ${i * 2} |`).join("\n");
