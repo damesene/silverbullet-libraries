@@ -2213,7 +2213,7 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: 8em;
+  width: 6em;
   max-width: 100%;
   height: 1em;
   vertical-align: middle;
