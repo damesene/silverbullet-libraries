@@ -219,3 +219,18 @@ other pages on a sheet.
   named, one edit: `insertTable`'s `also`). Fixed on the way: a paste into a
   far cell's editor pasted cells into the table the editor belongs to
   (`CellEditor.placed`), Esc there selected a cell past that table.
+- 2026-10-23, branch `toolbar-names` (agreed with the user): the toolbar shows
+  a row of names: the sheet's (No sheet, muted, on none) after the sheet view's
+  icon, the table's (Table, muted, without one) after a table's icon, which is
+  the full screen's; a click on a name types it (a sheet's typed: the table
+  moved there, its place kept where free, else under that sheet's lowest
+  table, named if it has none; empty: off its sheet), a sheet view showing the
+  table going to its new sheet. *Add to sheet…*, *Remove from sheet* and the
+  pencil in the ⋯ menu's title went. The names are left of the icons where
+  both fit in the table's width, else above them; the room above a held header
+  (STICKY_GAP, the board's top border) went from 42 to 66px for the two rows.
+  Then (agreed): the names are the first row of the ⋯ menu always, in the
+  toolbar only by the setting *Names in the toolbar* (`toolbarNames`: never,
+  always, or while Shift alone is held, the default: names in every toolbar
+  were too much for tables nobody names); without them in the toolbar, their
+  icons are in the ⋯ menu only.
