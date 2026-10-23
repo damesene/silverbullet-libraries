@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type LaidOut, roomFor } from "./layout.ts";
+import { type LaidOut, placeProblem, roomFor } from "./layout.ts";
 
 // A at A1 (3 rows: header and two, 2 columns), C beside it at D1 (5 rows), B under A at A6
 const A: LaidOut = { id: 1, at: { row: 0, column: 0 }, rows: 3, columns: 2, name: "a" };
@@ -53,5 +53,24 @@ describe("roomFor", () => {
     // Down: in A's columns as they were nothing is reached; right: C (rows 0 to 4) is reached by 2 columns, and
     // everything right of A moves as far, G too, so C and G stay in line
     expect(moved(room)).toEqual({ 2: { row: 0, column: 5 }, 7: { row: 6, column: 5 } });
+  });
+});
+
+describe("placeProblem", () => {
+  const tables: LaidOut[] = [
+    { id: 1, at: { row: 0, column: 0 }, rows: 3, columns: 2, name: "prices" },
+    { id: 2, at: { row: 0, column: 4 }, rows: 2, columns: 1 },
+  ];
+
+  it("lets a table go where no other table is, also right next to one", () => {
+    expect(placeProblem(tables, 2, { row: 0, column: 2 })).toBeUndefined();
+    expect(placeProblem(tables, 2, { row: 3, column: 0 })).toBeUndefined();
+    // Over its own old place: no other table there
+    expect(placeProblem(tables, 1, { row: 1, column: 1 })).toBeUndefined();
+  });
+
+  it("names the table it would overlap", () => {
+    expect(placeProblem(tables, 2, { row: 2, column: 1 })).toBe("prices");
+    expect(placeProblem(tables, 1, { row: 0, column: 3 })).toBe("the table at E1");
   });
 });

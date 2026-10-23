@@ -69,3 +69,20 @@ export function roomFor(tables: readonly LaidOut[], growth: Growth): Room {
   }
   return { moved };
 }
+
+/**
+ * Why a table moved to lie with its top left at `at` cannot be there: the
+ * table it would overlap (a table is never put over another, nor pushes one
+ * aside); undefined: it can
+ */
+export function placeProblem(tables: readonly LaidOut[], id: number, at: SheetCell): string | undefined {
+  const moved = tables.find((t) => t.id === id);
+  if (!moved) return undefined;
+  const there = box(at, moved.rows, moved.columns);
+  for (const t of tables) {
+    if (t.id === id) continue;
+    const b = box(t.at, t.rows, t.columns);
+    if (overlap(there.top, there.bottom, b.top, b.bottom) && overlap(there.left, there.right, b.left, b.right)) return t.name ?? `the table at ${formatAt(t.at)}`;
+  }
+  return undefined;
+}

@@ -17,6 +17,7 @@
 // on their edge are the core's (handleLayer, outlineLayer), drags are the
 // core's (drag), what a pointer is on too (targetOf).
 import {
+  type AddressFrame,
   CELL_MENU_ORDER,
   type CellMenuGroup,
   type CellRef,
@@ -175,7 +176,11 @@ export class Selection implements Feature {
     if (!edge && !(target.kind === "handle" && target.layer === HANDLE_LAYER)) return false;
     e.preventDefault();
     e.stopPropagation();
-    if (e.button === 0 && edge) this.dragCells(e, target);
+    if (e.button === 0 && edge) {
+      const whole = this.wholeTable();
+      if (whole) this.dragTable(e, whole.info, whole.frame);
+      else this.dragCells(e, target);
+    }
     return true;
   }
 
@@ -747,8 +752,52 @@ export class Selection implements Feature {
    */
   private placeEdges(key: TableKey): void {
     const block = this.block();
+    const whole = !block ? this.wholeTable() : undefined;
     if (block) this.edges.show(key, block.rows, [block.left, block.right]);
+    else if (whole) this.edges.show(key, this.host.shownOrder(whole.info), [0, whole.info.columns - 1]);
     else this.edges.hide();
+  }
+
+  /**
+   * The whole table selected (its header, every row shown, every column) where
+   * a feature lays it out on a grid that moves tables (the sheet's frame): its
+   * edge drags the table on the grid, not its cells within it
+   */
+  private wholeTable(): { info: TableInfo; frame: AddressFrame } | undefined {
+    const area = this.area();
+    if (!area || area.left !== 0 || area.right !== area.info.columns - 1) return undefined;
+    if (area.rows.length !== this.host.shownOrder(area.info).length) return undefined;
+    const frame = this.host.addressFrame(area.info);
+    return frame && { info: area.info, frame };
+  }
+
+  /**
+   * The whole table dragged by its edge on the frame's grid: its outline where
+   * it would go (the cell under the pointer takes the place of the one
+   * pressed), let go it moves there (the frame's rule: never over another
+   * table); Esc cancels
+   */
+  private dragTable(e: MouseEvent, info: TableInfo, frame: AddressFrame): void {
+    const { origin } = frame;
+    const pressed = frame.cellAt({ x: e.clientX, y: e.clientY }) ?? origin;
+    let at: CellRef | undefined;
+    this.host.drag(e, {
+      key: info.key,
+      events: "mouse",
+      byPoint: true,
+      escape: true,
+      autoscroll: true,
+      pageMark: "moving-table",
+      onMove: (point) => {
+        const cell = frame.cellAt(point);
+        if (cell) at = { row: Math.max(0, origin.row + cell.row - pressed.row), column: Math.max(0, origin.column + cell.column - pressed.column) };
+        frame.previewPlace(at && (at.row !== origin.row || at.column !== origin.column) ? at : undefined);
+      },
+      onEnd: (_point, cancelled) => {
+        frame.previewPlace(undefined);
+        if (!cancelled && at && (at.row !== origin.row || at.column !== origin.column)) void frame.moveTo(at);
+      },
+    });
   }
 
   /** Where the block goes with its first cell at the row (as shown) and column given, kept within the table's body */

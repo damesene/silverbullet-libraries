@@ -63,6 +63,16 @@ export type AddressFrame = {
   previewColumnWidth(column: number, width: number | undefined): void;
   /** That width stored (undefined: automatic), for every table in the grid's column */
   setColumnWidth(column: number, width: number | undefined): Promise<void>;
+  /** Where the table lies in the frame: its header's first cell (row and column as the frame counts them, from 0) */
+  readonly origin: CellRef;
+  /** The frame's cell at a point of the window (the grid past the tables too), if the point is on the grid */
+  cellAt(point: { readonly x: number; readonly y: number }): CellRef | undefined;
+  /** Why the table cannot lie with its header's first cell at `at` (another table there); undefined: it can */
+  placeProblem(at: CellRef): string | undefined;
+  /** The table shown where it would lie with its header's first cell at `at` (an outline with its address, marked where it cannot go); undefined: not */
+  previewPlace(at: CellRef | undefined): void;
+  /** The table put with its header's first cell at `at`, in one edit; where it cannot go, nothing written and said why */
+  moveTo(at: CellRef): Promise<WriteResult>;
 };
 
 /** What a cell shows in place of what its markdown renders to: a text, or a link (opened in a new tab) */

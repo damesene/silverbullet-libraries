@@ -28,16 +28,18 @@
 // SilverBullet's navigation. Formulas of the board's tables read in the
 // sheet's addresses (addressFrame): a reference is to a record, so sorting a
 // table changes the address shown, not the value.
-import type { AdapterFeature, AddressFrame, CellArea, CellRef, RenderedEditor, TableHost, TableInfo, ToolbarButton, WidgetInfo } from "../../feature.ts";
+import { CELL_MENU_ORDER, type AdapterFeature, type AddressFrame, type CellArea, type CellMenuGroup, type CellRef, type RenderedEditor, type TableHost, type TableInfo, type ToolbarButton, type WidgetInfo, type WriteResult } from "../../feature.ts";
 import { oncePerFrame } from "../../frame.ts";
 import { claimWindow, releaseWindow } from "../../overwindow.ts";
 import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
+import { el } from "../../../elements.ts";
 import { columnLetters, isFormulaInput } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 import { escapeCell, findTables, parseTable, type Table, type TableRange } from "../../../markdown.ts";
 import { metaName, sameTableName, withMeta, withMetaName } from "../../../meta.ts";
 import { AT_ATTRIBUTE, formatAt, freeName, freeSheetName, parseAt, SHEET_ATTRIBUTE, SHEET_WIDTH_PREFIX, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
-import { roomFor } from "../../../sheet/layout.ts";
+import { placeProblem, roomFor } from "../../../sheet/layout.ts";
+import { watchPress } from "../../press.ts";
 import { growTo } from "../../structure.ts";
 import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
 import { drawTable } from "../drawn.ts";
@@ -119,6 +121,16 @@ export class Sheet implements AdapterFeature {
   private readonly drawing = new Map<TableKey, number>();
   // A drawing put off while a cell of a table drawn is edited (swapping it would take the editor's cell away)
   private putOff = false;
+  // Moving a table: the handle at the top left corner of the table hovered (a touch: with a cell selected), the
+  // outline of where it would go, and the table Move table… places with the next press
+  private readonly grab: HTMLButtonElement;
+  private grabFor: TableKey | undefined;
+  private overGrab = false;
+  private hovering = false;
+  private dragging = false;
+  private preview: HTMLElement | undefined;
+  private picking: TableKey | undefined;
+  private stopTap: (() => void) | undefined;
   // The page watched while the board shows: a change no table's rendering follows (a table removed, undone) is read
   private watching: MutationObserver | undefined;
 
@@ -135,12 +147,24 @@ export class Sheet implements AdapterFeature {
     this.numbers.setAttribute("aria-hidden", "true");
     this.columnLines = doc.createElement("div");
     this.columnLines.className = `${UI_CLASS} swt-sheet-column-lines`;
+    this.grab = host.floating("button", "swt-sheet-grab");
+    this.grab.type = "button";
+    this.grab.title = "Drag to move the table on the sheet; click to select it whole";
+    this.grab.setAttribute("aria-label", "Move table");
+    this.grab.innerHTML = ICONS.move;
+    this.grab.addEventListener("pointerenter", () => (this.overGrab = true));
+    this.grab.addEventListener("pointerleave", () => {
+      this.overGrab = false;
+      if (!this.dragging && !this.hovering) this.hideGrab();
+    });
+    this.grab.addEventListener("pointerdown", (e) => this.grabbed(e));
   }
 
   stop(): void {
     this.end();
     this.letters.remove();
     this.numbers.remove();
+    this.grab.remove();
   }
 
   // ---- the toolbar, opening and ending ------------------------------------------
@@ -163,7 +187,25 @@ export class Sheet implements AdapterFeature {
         pressed: on,
         run: () => (on ? this.end() : void this.open(info)),
       },
+      // On a sheet only: a table alone's board has nowhere else to put it
+      ...(on && this.board?.sheet ? [this.moveItem(info)] : []),
     ];
+  }
+
+  /** Move table… (the ⋯ menu, a cell's menu on the sheet): the next press or tap places the table's top left corner */
+  private moveItem(info: WidgetInfo): ToolbarButton {
+    return {
+      label: "Move table…",
+      title: "Move the table on the sheet: click or tap the cell where its top left corner goes (Esc cancels)",
+      icon: ICONS.move,
+      run: () => this.startPicking(info.key),
+    };
+  }
+
+  cellMenuEntries(info: TableInfo): CellMenuGroup | undefined {
+    if (!this.board?.sheet || !this.board.tables.has(info.key)) return undefined;
+    const item = this.moveItem(info as WidgetInfo);
+    return { order: CELL_MENU_ORDER.editing, entries: [{ kind: "item", label: item.label, icon: item.icon!, hint: item.title, run: item.run }] };
   }
 
   /** The board of the table's sheet (or of the table alone), its tables drawn */
@@ -216,6 +258,9 @@ export class Sheet implements AdapterFeature {
     this.after = undefined;
     if (this.cell && this.host.editing?.cell === this.cell.element) this.host.cancelEditing();
     this.dropCell();
+    this.endPicking();
+    this.hideGrab();
+    this.preview = undefined;
     board.box.remove();
     this.letters.classList.remove("swt-visible");
     this.numbers.classList.remove("swt-visible");
@@ -389,6 +434,12 @@ export class Sheet implements AdapterFeature {
    */
   keyDown(e: KeyboardEvent): boolean {
     if (!this.board) return false;
+    if (this.picking && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.endPicking();
+      return true;
+    }
     const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     const at = this.chosen;
     if (at && !this.host.editing && !inField) {
@@ -483,8 +534,16 @@ export class Sheet implements AdapterFeature {
     this.press(e.clientX, e.clientY);
   }
 
-  /** A table's selection ends the empty cell's */
+  /** A table's selection ends the empty cell's; after a touch, the table with cells selected has the move handle */
   selectionChanged(): void {
+    if (this.board?.sheet && this.host.pressedWith === "touch") {
+      const key = [...this.board.tables.keys()].find((k) => {
+        const info = this.infoOfKey(k);
+        return info && this.host.selectedCells(info).length > 0;
+      });
+      if (key) this.showGrab(key);
+      else if (!this.dragging) this.hideGrab();
+    }
     if (!this.chosen || !this.board) return;
     for (const key of this.board.tables.keys()) {
       const info = this.infoOfKey(key);
@@ -550,7 +609,224 @@ export class Sheet implements AdapterFeature {
         this.queuePlace();
       },
       setColumnWidth: (column, width) => this.setColumnWidth(board, mine.at.column + column, width),
+      origin: mine.at,
+      cellAt: (point) => this.cellAtPoint(point.x, point.y),
+      placeProblem: (at) => this.placeProblemOf(info.key, at),
+      previewPlace: (at) => this.previewPlace(info.key, at),
+      moveTo: (at) => this.moveTable(info.key, at),
     };
+  }
+
+  // ---- moving a table ----------------------------------------------------------------------
+
+  /** Why a table of the board cannot lie with its top left at `at` (sheet/layout.ts) */
+  private placeProblemOf(key: TableKey, at: SheetCell): string | undefined {
+    const board = this.board;
+    const placed = board?.tables.get(key);
+    if (!board || !placed) return undefined;
+    if (!board.sheet) return "the table is on no sheet: put it on one first (the sheet's name in its ⋯ menu)";
+    if (at.row < 0 || at.column < 0) return "the sheet starts at A1";
+    const laidOut = [...board.tables.values()].map((p) => {
+      const e = this.extent(p);
+      const name = metaName(parseTable(p.range.text));
+      return { id: p.range.from, at: p.at, rows: e.bottom - e.top + 1, columns: e.right - e.left + 1, ...(name ? { name } : {}) };
+    });
+    const problem = placeProblem(laidOut, placed.range.from, at);
+    return problem && `${problem} is there`;
+  }
+
+  /** The outline of where a table would go (its address by it; marked where it cannot), or none */
+  private previewPlace(key: TableKey, at: SheetCell | undefined): void {
+    const board = this.board;
+    const placed = board?.tables.get(key);
+    const grid = this.grid;
+    if (!board || !placed || !grid || !at) {
+      if (this.preview) this.preview.hidden = true;
+      return;
+    }
+    let preview = this.preview;
+    if (!preview || !preview.isConnected) {
+      preview = el(this.host.doc, "div", { class: `${UI_CLASS} swt-sheet-move`, attrs: { "aria-hidden": "true" } }, el(this.host.doc, "span", "swt-sheet-move-tip"));
+      board.content.append(preview);
+      this.preview = preview;
+    }
+    const e = this.extent(placed);
+    const left = this.leftOf(at.column);
+    const problem = this.placeProblemOf(key, at);
+    Object.assign(preview.style, {
+      left: `${left}px`,
+      top: `${at.row * grid.rowHeight}px`,
+      width: `${this.leftOf(at.column + e.right - e.left + 1) - left}px`,
+      height: `${(e.bottom - e.top + 1) * grid.rowHeight}px`,
+    });
+    preview.classList.toggle("swt-invalid", !!problem);
+    preview.firstElementChild!.textContent = problem ? `${formatAt(at)}: ${problem}` : formatAt(at);
+    preview.hidden = false;
+  }
+
+  /** The table put with its top left at `at`: its `at` written, nothing else; refused, said why, where it cannot go */
+  private async moveTable(key: TableKey, at: SheetCell): Promise<WriteResult> {
+    this.previewPlace(key, undefined);
+    const placed = this.board?.tables.get(key);
+    const info = this.infoOfKey(key);
+    if (!placed || !info) return "failed";
+    if (placed.at.row === at.row && placed.at.column === at.column) return "unchanged";
+    const problem = this.placeProblemOf(key, at);
+    if (problem) {
+      void this.host.bridge.flash(`Silverware Table: the table cannot go to ${formatAt(at)}: ${problem}`, "info");
+      return "failed";
+    }
+    return this.host.writeTable(info, (t) => withMeta(t, AT_ATTRIBUTE, formatAt(at)));
+  }
+
+  /** The sheet's cell at a point, the point kept on the grid (left of it or above it: its first column or row) */
+  private cellNear(x: number, y: number): SheetCell | undefined {
+    const content = this.board?.content.getBoundingClientRect();
+    return content && this.cellAtPoint(Math.max(x, content.left), Math.max(y, content.top));
+  }
+
+  /** The move handle at a table's top left corner, over the corner where its row and column grips meet */
+  private showGrab(key: TableKey): void {
+    this.grabFor = key;
+    this.placeGrab();
+  }
+
+  private hideGrab(): void {
+    this.grabFor = undefined;
+    this.overGrab = false;
+    this.grab.classList.remove("swt-visible");
+  }
+
+  private placeGrab(): void {
+    const placed = this.grabFor && this.board?.tables.get(this.grabFor);
+    const table = placed && placed.widget.querySelector("table");
+    if (!table) {
+      this.grab.classList.remove("swt-visible");
+      return;
+    }
+    const rect = table.getBoundingClientRect();
+    const size = this.grab.offsetWidth || 18;
+    this.host.place(this.grab, rect.left - size - 2, rect.top - size - 2);
+  }
+
+  cellHovered(_widget: HTMLElement, info: WidgetInfo): void {
+    this.hovering = true;
+    if (this.board?.sheet && this.board.tables.has(info.key) && !this.dragging) this.showGrab(info.key);
+  }
+
+  hoverEnded(): void {
+    this.hovering = false;
+    if (!this.overGrab && !this.dragging && this.host.pressedWith !== "touch") this.hideGrab();
+  }
+
+  /**
+   * A press on the move handle: dragged, the table's outline follows the
+   * pointer on the grid (its top left corner where the handle's bottom right
+   * is), let go it moves there; Esc cancels; a click or tap without moving
+   * selects the whole table
+   */
+  private grabbed(e: PointerEvent): void {
+    const key = this.grabFor;
+    const placed = key && this.board?.tables.get(key);
+    const table = placed && placed.widget.querySelector("table");
+    if (!key || !table || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = table.getBoundingClientRect();
+    const dx = rect.left - e.clientX;
+    const dy = rect.top - e.clientY;
+    const start = { x: e.clientX, y: e.clientY };
+    let moved = false;
+    let at: SheetCell | undefined;
+    this.dragging = true;
+    this.host.drag(e, {
+      key,
+      events: "pointer",
+      byPoint: true,
+      escape: true,
+      autoscroll: true,
+      pageMark: "moving-table",
+      onMove: (point) => {
+        moved ||= Math.abs(point.x - start.x) + Math.abs(point.y - start.y) > 4;
+        if (!moved) return;
+        at = this.cellNear(point.x + dx + 1, point.y + dy + 1);
+        this.previewPlace(key, at);
+      },
+      onEnd: (_point, cancelled) => {
+        this.dragging = false;
+        this.previewPlace(key, undefined);
+        if (cancelled) return;
+        if (!moved) this.selectWhole(key);
+        else if (at) void this.moveTable(key, at);
+        this.placeGrab();
+      },
+    });
+  }
+
+  /** The whole table selected: its header and rows, every column */
+  private selectWhole(key: TableKey): void {
+    const info = this.infoOfKey(key);
+    if (info) this.host.selectCells(info, { row: 0, column: 0 }, { row: info.rows - 1, column: info.columns - 1 });
+  }
+
+  /** Move table…: the next press (a click, a tap) on the grid places the table's top left corner there; Esc cancels */
+  private startPicking(key: TableKey): void {
+    this.endPicking();
+    this.picking = key;
+    this.host.pageMark("table-picking", true);
+    const win = this.host.doc.defaultView!;
+    win.addEventListener("mousemove", this.showPicked, true);
+    win.addEventListener("pointerdown", this.pickPress, true);
+    const press = this.host.pressedWith === "touch" ? "tap the cell where its top left corner goes" : "click the cell where its top left corner goes; Esc cancels";
+    void this.host.bridge.flash(`Silverware Table: ${press}`, "info");
+  }
+
+  private endPicking(): void {
+    if (this.picking) this.previewPlace(this.picking, undefined);
+    this.picking = undefined;
+    this.stopTap?.();
+    this.stopTap = undefined;
+    this.host.pageMark("table-picking", false);
+    const win = this.host.doc.defaultView;
+    win?.removeEventListener("mousemove", this.showPicked, true);
+    win?.removeEventListener("pointerdown", this.pickPress, true);
+  }
+
+  private showPicked = (e: MouseEvent): void => {
+    if (this.picking) this.previewPlace(this.picking, this.cellAtPoint(e.clientX, e.clientY));
+  };
+
+  /** A press while Move table… waits: on the grid the table goes there (a touch: once it is told a tap); elsewhere it ends */
+  private pickPress = (e: PointerEvent): void => {
+    const key = this.picking;
+    if (!key) return;
+    const at = this.inBoard(e.target) ? this.cellAtPoint(e.clientX, e.clientY) : undefined;
+    if (!at || e.button !== 0) {
+      this.endPicking();
+      return;
+    }
+    // The press is the move's: no cell selected, no editor opened, no link followed
+    e.preventDefault();
+    e.stopPropagation();
+    this.host.takePress();
+    if (e.pointerType === "touch") {
+      // A touch that moves scrolls the sheet: Move table… goes on
+      this.stopTap?.();
+      this.stopTap = watchPress(this.host.doc.defaultView!, e, {
+        tap: () => {
+          this.endPicking();
+          void this.moveTable(key, at);
+        },
+      });
+      return;
+    }
+    this.endPicking();
+    void this.moveTable(key, at);
+  };
+
+  /** Whether a node is on the board (its grid or a table of it) */
+  private inBoard(target: EventTarget | null): boolean {
+    return target instanceof Node && !!this.board?.box.contains(target);
   }
 
   /**
@@ -990,6 +1266,7 @@ export class Sheet implements AdapterFeature {
     for (let i = shown; i < this.columnLines.children.length; i++) (this.columnLines.children[i] as HTMLElement).hidden = true;
     this.placeLetters(box, content, lefts);
     this.placeNumbers(box, content, rowHeight);
+    if (this.grabFor) this.placeGrab();
     // The empty cell selected or edited follows the grid
     if (this.cell) this.showCell(this.cell.at);
     const pending = this.pendingPress;

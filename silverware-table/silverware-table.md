@@ -732,6 +732,14 @@ The sheet icon (a grid, before the sheet's name in the first row of a table's �
 
 A page's tables can share a sheet, as a spreadsheet's sheet holds several tables. The first row of the table's ⋯ menu shows the sheet it is on (*No sheet*, muted, on none); click the sheet's name and type another to put the table on that sheet: one of the page's, or a new one. It keeps its place there where nothing is in its way, else it goes in column A, one empty row under the sheet's lowest table; the sheet's other tables stay where they are. A table without a name is named for it (`table1`): the sheet's other tables refer to its cells by its name (`costs!B2`). An empty name takes the table off its sheet, its name kept. The table keeps its place in the page, which shows it as before; its metadata row says which sheet it is on and where (`<meta name='costs' sheet='Budget' at='B3'>`). It needs the *Store table metadata* setting (or a metadata row the table has already). A sheet view showing the table goes to its new sheet. *Delete table* in its ⋯ menu takes it off the sheet with the page; the sheet's column widths, kept in its first table, go to the next one.
 
+To move a table on its sheet:
+
+* Drag the handle at its top left corner (it shows while the pointer is over the table; on a touch screen, while a cell of it is selected). Its outline shows where it would go, with the address of its top left cell; red where another table is in the way, and there it does not go. Esc cancels.
+* Or select the whole table (a click on that handle) and drag the selection by its edge, as you move cells.
+* Or pick *Move table…* in its ⋯ menu or a cell's menu, then click or tap the cell where its top left corner goes; Esc cancels. This is the easy way on a phone.
+
+Moving changes only the table's place on the sheet (`at`); the page keeps the table where it is, and its formulas stay as they are. A table never goes over another one, nor pushes one aside. A table shown alone (on no sheet) is put on a sheet first: type a sheet's name in its ⋯ menu.
+
 The sheet view of a table on a sheet shows all the sheet's tables, each at its place (its `at` cell), however far apart they are in the page. The sheet's rows have one height, and each column is as wide as the widest of the tables' columns in it. The empty cell right next to a table's last column (in its rows) or right under its last row (in its columns) grows that table, as for a table alone (the one left of it, where a cell is both).
 
 **A value typed into an empty cell that no table grows to makes a new table there**: its header *Column 1* goes in the cell above, the value under it (on the sheet's first row the table starts there and the value goes one row lower, so the header fits), named like `table1` and placed after the page's last table; Enter then goes on under the value, which grows the new table. A formula typed there is saved as text, as its table does not exist yet: edit the cell in the sheet view and remove the `'` before the `=` to make it a formula. On a table that is on no sheet, its sheet view becomes a sheet so: the table goes on a new sheet (`Sheet1`) at A1, named if it has no name, with the new table, in the same edit (one Ctrl+Z undoes it all). Both need the *Store table metadata* setting.
@@ -3960,6 +3968,67 @@ body.swt-moving-cells * {
   cursor: move !important;
 }
 body.swt-move-picking .sb-table-widget.swt-table td {
+  cursor: crosshair !important;
+}
+/* Moving a table on the sheet: the handle at its top left corner (where its
+   row and column grips meet), the outline of where it would go with its
+   address, red where another table is; Move table… waits for a cell */
+.swt-floating.swt-sheet-grab {
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: inherit;
+  background: var(--root-background-color, #fff);
+  border: 1px solid var(--swt-line, rgba(127, 127, 127, 0.45));
+  border-radius: 4px;
+  cursor: move;
+}
+.swt-floating.swt-sheet-grab:hover {
+  color: var(--ui-accent-color, #3b6fd4);
+  border-color: var(--ui-accent-color, #3b6fd4);
+}
+.swt-sheet-grab svg {
+  width: 14px;
+  height: 14px;
+}
+.swt-sheet-move {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  border: 2px dashed var(--ui-accent-color, #3b6fd4);
+  pointer-events: none;
+}
+.swt-sheet-move[hidden] {
+  display: none;
+}
+.swt-sheet-move.swt-invalid {
+  border-color: var(--swt-invalid, #c62828);
+  background: color-mix(in srgb, var(--swt-invalid, #c62828) 8%, transparent);
+}
+.swt-sheet-move-tip {
+  position: absolute;
+  left: -2px;
+  bottom: 100%;
+  margin-bottom: 2px;
+  padding: 1px 6px;
+  font: 12px var(--ui-font, system-ui, sans-serif);
+  color: #fff;
+  background: var(--ui-accent-color, #3b6fd4);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.swt-sheet-move.swt-invalid .swt-sheet-move-tip {
+  background: var(--swt-invalid, #c62828);
+}
+body.swt-moving-table,
+body.swt-moving-table * {
+  cursor: move !important;
+}
+body.swt-table-picking .swt-sheet-board,
+body.swt-table-picking .swt-sheet-board * {
   cursor: crosshair !important;
 }
 

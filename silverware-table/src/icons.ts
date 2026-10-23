@@ -53,6 +53,8 @@ export const ICONS = {
   autofill: svg('<rect x="3" y="3" width="11" height="9" rx="1"/><rect x="12" y="10" width="4" height="4" fill="currentColor"/><path d="M14 16v5M11.5 18.5l2.5 2.5 2.5-2.5"/>'),
   arrowLeft: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
   arrowRight: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  // Four arrows out: what moves (a table on the sheet)
+  move: svg('<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>'),
   trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
   sortAsc: svg('<path d="M7 18V6M3 10l4-4 4 4M14 7h7M14 12h5M14 17h3"/>'),
   sortDesc: svg('<path d="M7 6v12M3 14l4 4 4-4M14 7h3M14 12h5M14 17h7"/>'),
