@@ -53,10 +53,17 @@ export class Sticky implements AdapterFeature {
       if (native || overWindow) {
         const table = info.table.getBoundingClientRect();
         head.style.transform = "";
-        head.classList.toggle("swt-stuck", head.getBoundingClientRect().top > table.top + 0.5);
+        const held = head.getBoundingClientRect();
+        head.classList.toggle("swt-stuck", held.top > table.top + 0.5);
         if (foot) {
           foot.style.transform = "";
-          foot.classList.toggle("swt-stuck", foot.rows.length > 0 && foot.getBoundingClientRect().bottom < table.bottom - 0.5);
+          const rows = foot.getBoundingClientRect();
+          foot.classList.toggle("swt-stuck", foot.rows.length > 0 && rows.bottom < table.bottom - 0.5);
+          // The browser keeps each within the table, not one off the other: the table's end going up past the view's
+          // top takes the bottom rows over the header held there. The header gives way to them, as it does when moved
+          // by script (never past the bottom rows)
+          const over = foot.rows.length > 0 ? held.bottom - rows.top : 0;
+          if (over > 0.5) head.style.transform = `translateY(${-over}px)`;
         }
         continue;
       }

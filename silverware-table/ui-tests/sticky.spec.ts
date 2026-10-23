@@ -20,6 +20,30 @@ test.describe("Rows pinned to the bottom", () => {
   });
 });
 
+test.describe("The held header and the rows pinned to the bottom", () => {
+  test("the table's end going up past the view's top: the header gives way to the bottom rows, never under them", async ({ page }) => {
+    const rows = Array.from({ length: 6 }, (_, i) => `| Row ${i + 1} | ${i} |`).join("\n");
+    const filler = Array.from({ length: 30 }, (_, i) => `Line ${i + 1}.`).join("\n\n");
+    await page.locator("#source").fill(`# T\n\n${filler}\n\n| Name | Qty |\n|---|---|\n${rows}\n| Total | 15 |\n| <meta pin-bottom='1'> |\n\n${filler}\n`);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(7);
+    // The table's top at the view's top, then up by steps until it is gone
+    const start = await table(page).evaluate((w) => {
+      const scroller = document.querySelector(".cm-scroller")!;
+      return scroller.scrollTop + w.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    });
+    for (let step = 0; step < 14; step++) {
+      await page.evaluate((top) => (document.querySelector(".cm-scroller")!.scrollTop = top), start + step * 25);
+      await page.waitForTimeout(80);
+      const at = await table(page).evaluate((w) => {
+        const t = w.querySelector("table")!;
+        return { head: t.tHead!.getBoundingClientRect().bottom, foot: t.tFoot!.getBoundingClientRect().top };
+      });
+      expect(at.head).toBeLessThanOrEqual(at.foot + 0.5);
+    }
+  });
+});
+
 test.describe("The held header", () => {
   test("a table near the page's top: its header where the table starts, the page not scrolled, its first row not covered", async ({ page }) => {
     await page.locator("#source").fill("Intro\n| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 2 |\n\nText under.\n");
