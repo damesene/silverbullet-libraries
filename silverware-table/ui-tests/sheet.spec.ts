@@ -1015,18 +1015,32 @@ test.describe("Pins on the sheet", () => {
     return drawn;
   };
 
-  test("pinned rows and columns scroll with the sheet, as its other cells do", async ({ page }) => {
+  test("pinned rows and columns are held at the board's edges while their table is in view, never past it", async ({ page }) => {
     const drawn = await open(page, PINNED, 31);
-    const pinned = drawn.locator("tr[data-swt-row='10'] > td").first();
-    const before = (await pinned.boundingBox())!;
-    await page.locator(".swt-sheet-board").evaluate((b) => {
-      b.scrollTop = 200;
-      b.scrollLeft = 60;
+    const board = page.locator(".swt-sheet-board");
+    await board.evaluate((b) => {
+      b.scrollTop = 400;
+      b.scrollLeft = 150;
     });
-    await expect.poll(async () => (await pinned.boundingBox())!.x).toBeCloseTo(before.x - 60, 0);
-    expect((await pinned.boundingBox())!.y).toBeCloseTo(before.y - 200, 0);
-    // The row pinned to the top went with the header, out of view
-    expect((await drawn.locator("tr[data-swt-row='1'] > td").first().boundingBox())!.y).toBeLessThan(before.y - 200);
+    await page.waitForTimeout(200);
+    const view = await board.evaluate((b) => {
+      const r = b.getBoundingClientRect();
+      const s = getComputedStyle(b);
+      return { top: r.top + parseFloat(s.borderTopWidth), left: r.left + parseFloat(s.borderLeftWidth), bottom: r.top + parseFloat(s.borderTopWidth) + b.clientHeight };
+    });
+    // The header (with the row pinned to the top) at the board's top, the Total row at its bottom, the pinned column at its left
+    expect((await drawn.locator("thead tr").first().boundingBox())!.y).toBeCloseTo(view.top, 0);
+    const total = (await drawn.locator("tr[data-swt-row='31'] > td").first().boundingBox())!;
+    expect(total.y + total.height).toBeCloseTo(view.bottom, 0);
+    expect((await drawn.locator("tr[data-swt-row='15'] > td").first().boundingBox())!.x).toBeCloseTo(view.left, 0);
+    // Scrolled to the end: the header held goes no farther than its table
+    await board.evaluate((b) => {
+      b.scrollTop = b.scrollHeight;
+    });
+    await page.waitForTimeout(200);
+    const table = (await drawn.boundingBox())!;
+    const head = (await drawn.locator("thead").boundingBox())!;
+    expect(head.y + head.height).toBeLessThanOrEqual(table.y + table.height + 1);
   });
 
   test("a value under the row pinned to the bottom goes in a row above it, which stays last", async ({ page }) => {

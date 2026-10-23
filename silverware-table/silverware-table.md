@@ -741,7 +741,7 @@ To move a table on its sheet:
 
 Moving changes only the table's place on the sheet (`at`); the page keeps the table where it is, and its formulas stay as they are. A table never goes over another one, nor pushes one aside. A table shown alone (on no sheet) is put on a sheet first: its toolbar says *No sheet* in red there, whatever the *Names in the toolbar* setting; click it and type a sheet's name.
 
-Rows and columns pinned in a table (see [[#Pinning]]) scroll with the sheet there, as its other cells do. A table still grows as in the page: a value typed under a row pinned to the bottom (a total) goes into a new row above it, and one typed right of a column pinned to the right into a new column left of it, so the pinned ones stay last.
+Rows and columns pinned in a table (see [[#Pinning]]) stay in view there while their table is: as the sheet scrolls, the header with the rows pinned to the top stays at the top of the view, the rows pinned to the bottom at its bottom and pinned columns at its sides, never past their table. A table still grows as in the page: a value typed under a row pinned to the bottom (a total) goes into a new row above it, and one typed right of a column pinned to the right into a new column left of it, so the pinned ones stay last.
 
 The sheet view of a table on a sheet shows all the sheet's tables, each at its place (its `at` cell), however far apart they are in the page. The sheet's rows have one height, and each column is as wide as the widest of the tables' columns in it. The empty cell right next to a table's last column (in its rows) or right under its last row (in its columns) grows that table, as for a table alone (the one left of it, where a cell is both).
 
@@ -755,7 +755,7 @@ The sheet view of a table on a sheet shows all the sheet's tables, each at its p
 * A table that gets smaller moves nothing back.
 * It is one edit: one Ctrl+Z puts everything back.
 
-In the sheet view a table's header and pinned rows and columns scroll with the sheet, as a spreadsheet's cells do. A column's width dragged there (the handle on a header's right edge) is the sheet's column's, for every table in that column, as a spreadsheet's columns are (kept in the sheet's first table, `sheet.width.B='140'`); a double-click makes it automatic again. A table's own widths still apply in the page. The sheet view of a table alone works the same: the width dragged is its sheet view's column's, kept in the table.
+In the sheet view a table's header and pinned rows and columns stay in view while the table is, as frozen rows and columns do in a spreadsheet, each table on its own. A column's width dragged there (the handle on a header's right edge) is the sheet's column's, for every table in that column, as a spreadsheet's columns are (kept in the sheet's first table, `sheet.width.B='140'`); a double-click makes it automatic again. A table's own widths still apply in the page. The sheet view of a table alone works the same: the width dragged is its sheet view's column's, kept in the table.
 
 In the sheet view formulas read in the sheet's addresses, as the letters and numbers show them: in a table at `D1`, whose own `A1` is the sheet's `D2`, `=prices!B1*2` reads `=B2*2` where `prices` is at `A1`, and a formula typed or pointed at there is stored in its tables' addresses again (`=B3*2` as `prices!B2*2`). A reference stays on its row: sorting a table changes the address shown, not the value. In a sorted or filtered table a range of several rows cannot be pointed at there, as its rows are not in the markdown's order (the hint under the cell says so); a click on a header gives the whole column (`[qty]`). While a formula waits for a reference, the sheet's other tables can be pointed at too: a cell gives its sheet's address (stored by the table's name, `prices!B2`), a header the table's column (`prices![price]`). A range is always within one table. A reference to a table on no sheet, or on another page, reads as stored; one to the sheet's empty cells is written as `#REF!`. Out of the sheet view a formula reads as stored.
 
@@ -1938,25 +1938,34 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   display: none;
 }
 /* A table on the board: at its place, as wide as the sheet's columns it takes;
-   it scrolls with the board, its header and pinned lines held by nothing (its
-   own box, clipped, takes their sticky positioning) */
+   it scrolls with the board. Its box is clipped, not scrolled (overflow: clip),
+   so it captures no sticky positioning: its header with the rows pinned to the
+   top, its rows pinned to the bottom and its pinned columns are held at the
+   board's edges while the table is in view, never past the table */
 .sb-table-widget.swt-table.swt-sheet-table {
   position: absolute;
   display: block;
-  overflow: hidden !important;
+  overflow: clip !important;
   max-height: none !important;
   cursor: auto;
   /* A light line round it, stronger than the grid's: where the table ends among the empty cells (a shadow: its box
      clips what is in it, not what is drawn round it) */
   box-shadow: 0 0 0 1px var(--swt-sheet-table-line, color-mix(in srgb, currentColor 40%, transparent));
 }
-/* On the sheet nothing of a table is held (its header, its pinned rows and
-   columns): the grid scrolls as one, as a spreadsheet's does */
-.sb-table-widget.swt-table.swt-sheet-table :is(thead, tfoot, thead.swt-stuck, tfoot.swt-stuck),
-.sb-table-widget.swt-table.swt-sheet-table td:is(.swt-pin-left, .swt-pin-right) {
-  position: static !important;
+/* Held by the browser against the board (its scrolling box, under the letters' room, right of the numbers'):
+   the header with the rows pinned to the top at its top (not STICKY_GAP below it: the toolbar has the room above),
+   the rows pinned to the bottom at its bottom, pinned columns at its sides (their offsets the core's) */
+.sb-table-widget.swt-table.swt-sheet-table :is(thead, thead.swt-stuck) {
+  position: sticky !important;
+  top: 0 !important;
   transform: none !important;
-  filter: none !important;
+  z-index: 3;
+}
+.sb-table-widget.swt-table.swt-sheet-table :is(tfoot, tfoot.swt-stuck) {
+  position: sticky !important;
+  bottom: 0 !important;
+  transform: none !important;
+  z-index: 3;
 }
 .sb-table-widget.swt-sheet-table table {
   border-spacing: 0;
