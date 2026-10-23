@@ -370,6 +370,8 @@ export class Toolbar {
                   ...(icon?.icon ? { icon: { icon: icon.icon, label: icon.label, title: icon.title, ...(icon.pressed !== undefined ? { pressed: icon.pressed } : {}), run: icon.run } } : {}),
                   key: slot!,
                   ...(n ? { name: n.label, title: n.title, ...(n.muted ? { muted: true } : {}), ...(n.attention ? { attention: true } : {}), run: () => this.showNaming(widget, anchor, n) } : {}),
+                  // The name's field's button taking it away (Remove from sheet), as a × after it
+                  ...(n?.naming?.clear && n.naming.name && !n.naming.disabled ? { clear: { title: n.naming.clear.label, run: () => void n.naming!.save("") } } : {}),
                 },
               ];
             }),

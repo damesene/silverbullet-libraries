@@ -231,3 +231,22 @@ test.describe("Removing a name", () => {
     await expect.poll(() => markdown(page)).not.toContain("<meta");
   });
 });
+
+test.describe("The sheet's × in the ⋯ menu", () => {
+  test("a × after the sheet's name takes the table off it; none on No sheet", async ({ page }) => {
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
+    await hoverCell(page, cell(page, 1, 0));
+    await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
+    const x = page.locator(".swt-menu .swt-menu-name-container .swt-menu-name-clear-x");
+    await expect(x).toHaveAttribute("aria-label", "Remove from sheet");
+    await x.click();
+    await expect.poll(() => markdown(page)).toContain("| <meta name='prices'> |");
+    await expect(page.locator(".swt-menu")).toHaveCount(0);
+    await hoverCell(page, cell(page, 1, 0));
+    await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
+    await expect(page.locator(".swt-menu .swt-menu-name-button", { hasText: "No sheet" })).toBeVisible();
+    await expect(page.locator(".swt-menu .swt-menu-name-clear-x")).toHaveCount(0);
+  });
+});

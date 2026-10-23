@@ -62,6 +62,8 @@ export type MenuEntry =
         readonly muted?: boolean;
         readonly attention?: boolean;
         readonly run?: () => void;
+        // A × after the name taking it away (Remove from sheet): what an empty name does
+        readonly clear?: { readonly title: string; readonly run: () => void };
       }[];
     }
   | {
@@ -85,7 +87,15 @@ export function wrapRuns(entries: readonly MenuEntry[], wrap: (run: () => void) 
       : entry.kind === "segmented" || entry.kind === "actions"
         ? ({ ...entry, options: entry.options.map((option) => ({ ...option, run: wrap(option.run) })) } as MenuEntry)
         : entry.kind === "names"
-          ? { ...entry, names: entry.names.map((n) => ({ ...n, ...(n.run ? { run: wrap(n.run) } : {}), ...(n.icon ? { icon: { ...n.icon, run: wrap(n.icon.run) } } : {}) })) }
+          ? {
+              ...entry,
+              names: entry.names.map((n) => ({
+                ...n,
+                ...(n.run ? { run: wrap(n.run) } : {}),
+                ...(n.icon ? { icon: { ...n.icon, run: wrap(n.icon.run) } } : {}),
+                ...(n.clear ? { clear: { ...n.clear, run: wrap(n.clear.run) } } : {}),
+              })),
+            }
           : entry,
   );
 }
