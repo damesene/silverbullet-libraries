@@ -73,7 +73,7 @@ import { FunctionDialog } from "./functiondialog.ts";
 import { ICONS } from "../icons.ts";
 import { escapeCell, type PageTable, pageTablesOf, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
-import { metaName } from "../meta.ts";
+import { metaName, sameTableName } from "../meta.ts";
 import { namedRows } from "../names.ts";
 import { insertColumn, setCell } from "../ops.ts";
 import { insertColumnAt } from "../pins.ts";
@@ -492,7 +492,7 @@ export class Formulas implements Feature {
     for (const key of frame.tables) {
       const info = this.host.tableFor(key);
       const own = info && metaName(parseTable(info.source));
-      if (info && own && own.toLowerCase() === name.toLowerCase()) return info;
+      if (info && own && sameTableName(own, name)) return info;
     }
     return undefined;
   }
@@ -522,7 +522,10 @@ export class Formulas implements Feature {
   private noRanged(info: TableInfo, active: CellEditor, column: number): void {
     if (this.noRange?.editor === active) return;
     const headers = parseTable(info.source).rows[0]?.cells ?? [];
-    const whole = columnRefText(columnIdOf(headers, column), false);
+    const named = columnRefText(columnIdOf(headers, column), false);
+    // Another table's (the frame's): by its name, as a click on its header inserts it
+    const other = info.key !== active.key ? metaName(parseTable(info.source)) : undefined;
+    const whole = named && (other ? `${other}!${named}` : named);
     const instead = whole ? `Use the whole column, ${whole} (a click on its header), or sort the rows in the markdown.` : "Sort the rows in the markdown first.";
     this.noRange = { editor: active, text: `A range cannot be pointed at in a sorted or filtered table here: its rows are not in the markdown's order. ${instead}` };
     this.updateFormulaUi();
