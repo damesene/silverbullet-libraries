@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { FEATURE_NAMES, SETTINGS } from "./bridge.ts";
 import { MANAGED_MARKER } from "./configpage.ts";
-import { dialogKeys } from "./settings.ts";
+import { dialogKeys, moduleTabs } from "./settings.ts";
 import { cell, controller, editor, flashes, flush, key, PAGE, setup, useTablePage } from "./testing/page.ts";
 
 describe("The settings dialog", () => {
@@ -57,6 +57,18 @@ describe("The settings dialog", () => {
     // Written as it is, the default too: the value shown may come from elsewhere, which the managed block overrides
     expect(saved).toEqual([{ "silverware.table.metadata": true, "silverware.table.maxHeight": 0 }]);
     expect(dialog()).toBeNull();
+  });
+
+  it("puts each module on the tab of the kind it declares, after General", async () => {
+    expect(moduleTabs().flatMap((tab) => tab.modules).sort()).toEqual([...FEATURE_NAMES].sort());
+    await setup(PAGE);
+    await controller.openSettings();
+    const tabs = [...dialog()!.querySelectorAll<HTMLElement>(".swt-settings-tab")].map((tab) => tab.textContent);
+    expect(tabs).toEqual(["General", "Editing", "Data", "Look", "View", "Export"]);
+    for (const tab of moduleTabs()) {
+      const panel = dialog()!.querySelector(`[data-swt-panel="${tab.id}"]`)!;
+      expect([...panel.querySelectorAll<HTMLInputElement>("input[data-swt-module]")].map((box) => box.dataset.swtModule)).toEqual(tab.modules);
+    }
   });
 
   it("lists the modules with what they do, their own settings under them while on; turning one off saves and reloads", async () => {

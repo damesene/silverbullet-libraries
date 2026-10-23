@@ -6,7 +6,7 @@
 // where SilverBullet keeps them (the CONFIG page's managed block,
 // configpage.ts) and the configuration is loaded again. Modules are created
 // when Silverware Table starts, so turning one on or off saves and reloads the page.
-import { type Bridge, FEATURE_NAMES, type FeatureName, MODULE_DESCRIPTIONS, MODULE_LABELS, moduleOnByDefault, settingChoices, SETTINGS } from "./bridge.ts";
+import { type Bridge, FEATURE_NAMES, type FeatureName, MODULE_CATEGORIES, MODULE_CATEGORY, MODULE_DESCRIPTIONS, MODULE_LABELS, type ModuleCategory, moduleOnByDefault, settingChoices, SETTINGS } from "./bridge.ts";
 import { UI_CLASS } from "./dom.ts";
 import { ICONS } from "./icons.ts";
 
@@ -35,6 +35,13 @@ const TABS: readonly { readonly id: string; readonly title: string; readonly gro
     ],
   },
 ];
+
+/** The modules' tabs after General: one per kind the modules declare (MODULE_CATEGORY), in the kinds' order, each module in FEATURE_NAMES' order */
+export function moduleTabs(): { id: ModuleCategory; title: string; modules: FeatureName[] }[] {
+  return (Object.keys(MODULE_CATEGORIES) as ModuleCategory[])
+    .map((id) => ({ id, title: MODULE_CATEGORIES[id], modules: FEATURE_NAMES.filter((name) => MODULE_CATEGORY[name] === id) }))
+    .filter((tab) => tab.modules.length > 0);
+}
 
 const moduleOf = (key: Key): FeatureName | undefined =>
   /^silverware\.table\.modules\.([^.]+)\./.exec(SETTINGS[key].path)?.[1] as FeatureName | undefined;
@@ -142,7 +149,7 @@ export class SettingsDialog {
     close.addEventListener("click", () => void this.dismiss());
     head.append(titles, close);
 
-    // Tabs: the settings, then the modules
+    // Tabs: the settings, then the modules by kind
     const tabs = el("div", "swt-settings-tabs");
     tabs.setAttribute("role", "tablist");
     const body = el("div", "swt-settings-body");
@@ -158,6 +165,8 @@ export class SettingsDialog {
       tab.addEventListener("click", () => {
         tabButtons.forEach((b) => b.setAttribute("aria-selected", String(b === tab)));
         panels.forEach((p) => (p.hidden = p !== panel));
+        // (The row of tabs scrolled sideways where it is wider than the dialog: the one picked wholly in it)
+        tab.scrollIntoView?.({ block: "nearest", inline: "nearest" });
       });
       tabButtons.push(tab);
       panels.push(panel);
@@ -174,11 +183,13 @@ export class SettingsDialog {
       }
       addTab(tab.id, tab.title, panel);
     }
-    const modules = el("div", "swt-settings-panel");
-    const card = el("div", "swt-settings-card");
-    for (const name of FEATURE_NAMES) card.append(this.moduleRow(name));
-    modules.append(card);
-    addTab("modules", "Modules", modules);
+    for (const tab of moduleTabs()) {
+      const panel = el("div", "swt-settings-panel");
+      const card = el("div", "swt-settings-card");
+      for (const name of tab.modules) card.append(this.moduleRow(name));
+      panel.append(card);
+      addTab(tab.id, tab.title, panel);
+    }
     tabButtons.forEach((b, i) => b.setAttribute("aria-selected", String(i === 0)));
     panels.forEach((p, i) => (p.hidden = i !== 0));
 

@@ -126,6 +126,35 @@ export const MODULE_LABELS: Readonly<Record<FeatureName, string>> = {
   tableLabels: "Table labels",
 };
 
+// The kinds of modules, in the order of their tabs in the settings dialog (after General)
+export const MODULE_CATEGORIES = { editing: "Editing", data: "Data", look: "Look", view: "View", export: "Export" } as const;
+export type ModuleCategory = keyof typeof MODULE_CATEGORIES;
+
+// Each module's kind: the settings dialog shows it on that tab
+export const MODULE_CATEGORY: Readonly<Record<FeatureName, ModuleCategory>> = {
+  formulas: "data",
+  names: "data",
+  pageLinks: "data",
+  filters: "data",
+  columnTypes: "data",
+  selection: "editing",
+  autofill: "editing",
+  lazy: "editing",
+  themes: "look",
+  export: "export",
+  excel: "export",
+  paste: "editing",
+  handles: "editing",
+  widths: "look",
+  longText: "look",
+  sticky: "look",
+  autoscroll: "view",
+  largeTables: "view",
+  fullScreen: "view",
+  sheet: "view",
+  tableLabels: "look",
+};
+
 // What each module does, in a few words (the settings dialog shows it beside the module's name)
 export const MODULE_DESCRIPTIONS: Readonly<Record<FeatureName, string>> = {
   formulas: "Formulas in cells (=SUM(B1:B3)), recalculated on every edit",

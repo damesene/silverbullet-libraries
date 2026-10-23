@@ -775,7 +775,7 @@ Everything else works as in the page: editing, selecting, menus, formulas. A tab
 
 These settings are for every table in the space (a table's own sorting, filters, widths and names are in its menus).
 
-**Silverware Table settings** (*Silverware Table settings…* in a table's ⋯ menu, or the *Silverware Table: Settings* command) shows them all in one dialog: *General*, and *Modules*, each with its switch and its own settings under it. Nothing changes until *Save*: then they are written into SilverBullet's configuration, where the Configuration Manager keeps its settings (the managed block of your [[CONFIG]] page), so both always show the same. Turning a module on or off saves and reloads the page (*Save and reload*), as modules start with Silverware Table. *Cancel* (or Esc) closes it unsaved.
+**Silverware Table settings** (*Silverware Table settings…* in a table's ⋯ menu, or the *Silverware Table: Settings* command) shows them all in one dialog: *General*, then the modules by kind (*Editing*, *Data*, *Look*, *View*, *Export*), each with its switch and its own settings under it. Nothing changes until *Save*: then they are written into SilverBullet's configuration, where the Configuration Manager keeps its settings (the managed block of your [[CONFIG]] page), so both always show the same. Turning a module on or off saves and reloads the page (*Save and reload*), as modules start with Silverware Table. *Cancel* (or Esc) closes it unsaved.
 
 You can also open *Configuration: Open* (Ctrl+, / Cmd+,) and find the *Silverware Table* and *Silverware Table: Modules* categories, or set them in your [[CONFIG]]. Settings of whole tables are `silverware.table.<setting>`, those of a part of Silverware Table `silverware.table.<part>.<setting>`, and those of a module (a part that can be turned off) `silverware.table.modules.<module>.<setting>`. A part is set in one go, with only what you change (the rest keeps its default):
 
@@ -2432,13 +2432,19 @@ body.swt-resizing * {
   width: 16px;
   height: 16px;
 }
+/* One row however many tabs: too wide for the dialog (a phone), it scrolls sideways */
 .swt-settings-tabs {
   display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
   gap: 2px;
   padding: 0 12px;
   border-bottom: 1px solid var(--swt-settings-line);
 }
 .swt-settings-tab {
+  flex: none;
+  white-space: nowrap;
   padding: 7px 10px;
   margin-bottom: -1px;
   background: none;
