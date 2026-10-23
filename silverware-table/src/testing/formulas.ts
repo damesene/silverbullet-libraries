@@ -8,14 +8,14 @@ import * as page from "../formulas/page.ts";
 import { excelFormula as excelFormulaOf } from "../excel/formulas.ts";
 import type { ExcelTemplates } from "../excel/functions.ts";
 import type { OtherPages, PageTable, Table } from "../markdown.ts";
-import { cellTagName, metaName } from "../meta.ts";
+import { attributeName, metaName } from "../meta.ts";
 import { cellNamesIn, rowNamesIn, withCellName } from "../names.ts";
 import { tagValue, withTagValue } from "../tagvalues.ts";
 
 type IndexMap = domain.IndexMap;
 type TableSource = domain.TableSource;
 
-export const CELLS: domain.FormulaCells = formulaCellsOf({ get: (cell, key) => tagValue(cell, cellTagName("formulas", key)), with: (cell, key, value) => withTagValue(cell, cellTagName("formulas", key), value) }, { rowNames: rowNamesIn, cellNames: cellNamesIn });
+export const CELLS: domain.FormulaCells = formulaCellsOf({ get: (cell, key) => tagValue(cell, attributeName("formulas", key)), with: (cell, key, value) => withTagValue(cell, attributeName("formulas", key), value) }, { rowNames: rowNamesIn, cellNames: cellNamesIn });
 
 const named = (tables: readonly PageTable[]) => tables.map((t) => ({ ...t, name: metaName(t.table) }));
 

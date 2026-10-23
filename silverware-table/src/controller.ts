@@ -60,7 +60,7 @@ import {
 } from "./markdown.ts";
 import type { MenuBack, MenuEntry, MenuNaming } from "./menu.ts";
 import { floatingMenu, focusMenu } from "./core/menu.ts";
-import { CORE, cellTagName, metadataAfterEdit, metaName, metaPins, metaSort, withMetaSort, writtenName } from "./meta.ts";
+import { CORE, attributeName, metadataAfterEdit, metaName, metaPins, metaSort, withMetaSort, writtenName } from "./meta.ts";
 import { CELL_NAME, type CellNameAt, cellNameOf, cellNamesIn, LINE_NAME, columnNameIn, type RowName, rowNameIn, rowNamesIn, withCellNameIn, withColumnNameIn, withRowNameIn } from "./names.ts";
 import { ownMeta } from "./core/metaaccess.ts";
 import { withoutNewTagValues } from "./tagvalues.ts";
@@ -133,8 +133,6 @@ export class Controller implements TableHost {
   private readonly coreMeta = ownMeta(CORE, () => this.metadataOn);
   // Whose each module's data is: its name (lowercase)
   private readonly owners = new Map<Feature, string>();
-  // How many hidden values the write being made took off cells (the metadata setting off), to say so once
-  private tagsTaken = 0;
   // The toolbarNames setting: the table's names in its toolbar too, not only in its ⋯ menu (always, or while Shift
   // alone is held: `shiftHeld`)
   private namesShown: "never" | "always" | "shift" = "shift";
@@ -214,11 +212,9 @@ export class Controller implements TableHost {
   // The tables marked (TableHost.tableMark), by mark
   private readonly tableMarks = new Map<string, Set<string>>();
   // Steps every write goes through after the edit, in this order
-  // The core's write steps: the columns' attributes follow their columns, pins are stored (as far as they may be);
-  // with the metadata setting off, the hidden values new to a table are taken off its cells
+  // The core's write steps: the columns' attributes follow their columns, pins are stored (as far as they may be)
   private readonly writeSteps: readonly WriteStep[] = [
     (before, after, options) => metadataAfterEdit(before, after, options, (edge) => this.canPin(before, edge)),
-    (before, after, options) => this.withoutNewTags(before, after, options),
   ];
 
   constructor(
@@ -590,15 +586,22 @@ export class Controller implements TableHost {
   }
 
   /**
-   * The write step of the metadata setting off: the hidden values a write
-   * would add to a table's cells (withoutNewTagValues) are taken off, and
-   * said, once for the write
+   * The last step of a write with the metadata setting off: the hidden values
+   * it would add to a table's cells (withoutNewTagValues) are taken off,
+   * counted in `taken` (the write's own: writes may run at once), said once
+   * the write is made
    */
-  private withoutNewTags(before: Table, after: Table, options: Pick<WriteOptions, "rowMap" | "columnMap">): Table {
+  private withoutNewTags(before: Table, after: Table, options: Pick<WriteOptions, "rowMap" | "columnMap">, taken: { n: number }): Table {
     if (this.metadataOn) return after;
-    const { table, taken } = withoutNewTagValues(before, after, options.rowMap, options.columnMap);
-    this.tagsTaken += taken;
-    return table;
+    const result = withoutNewTagValues(before, after, options.rowMap, options.columnMap);
+    taken.n += result.taken;
+    return result.table;
+  }
+
+  /** Says how many hidden values a write left out (the metadata setting off) */
+  private sayTaken(taken: { n: number }): void {
+    const { n } = taken;
+    if (n) void this.bridge.flash(`Silverware Table: ${n} new hidden value${n === 1 ? " (a formula, a name) was" : "s (formulas, names) were"} not stored: the Store table metadata setting is off`, "info");
   }
 
   withCellTag(cell: string, key: string, value: string | undefined): string {
@@ -1114,7 +1117,7 @@ export class Controller implements TableHost {
   }
 
   keepTags(value: string, from: string): string {
-    return keepTags(value, from, new Set(this.features.flatMap((f) => (f.takesTags?.() ?? []).map((key) => cellTagName(this.ownerOf(f), key).toLowerCase()))));
+    return keepTags(value, from, new Set(this.features.flatMap((f) => (f.takesTags?.() ?? []).map((key) => attributeName(this.ownerOf(f), key).toLowerCase()))));
   }
 
   clickSelects(): boolean {
@@ -2451,7 +2454,7 @@ export class Controller implements TableHost {
         return "failed";
       }
       const { info, range, options } = target;
-      this.tagsTaken = 0;
+      const taken = { n: 0 };
       const { focus, columnMap } = options;
       // The edits features hold for the table go into it first: the change applies to the table as shown
       const held = this.features.flatMap((f) => f.pendingEdits?.(info) ?? []);
@@ -2468,12 +2471,15 @@ export class Controller implements TableHost {
       let changed = edited;
       for (const feature of this.features) if (feature.writeStep) changed = feature.writeStep(before, changed, edit);
       changed = this.writeSteps.reduce((table, step) => step(before, table, options), changed);
+      changed = this.withoutNewTags(before, changed, options, taken);
       // With the autoFormat setting every edited table is written aligned
       const format = await this.setting("autoFormat");
       const serialize = (t: Table) => serializeTable(format ? { ...t, padded: true } : t);
       const markdown = serialize(changed);
       if (markdown === range.text) {
         for (const pending of held) pending.written();
+        // (What was left out may be all the write had: said all the same)
+        this.sayTaken(taken);
         return "unchanged";
       }
       for (const feature of this.features) {
@@ -2506,11 +2512,7 @@ export class Controller implements TableHost {
       }
       const updates: { readonly range: TableRange; readonly markdown: string }[] = [{ range, markdown }];
       for (const other of others.values()) {
-        updates.push({ range: other.range, markdown: serialize(this.withoutNewTags(parseTable(other.range.text), other.table, {})) });
-      }
-      if (this.tagsTaken) {
-        const n = this.tagsTaken;
-        void this.bridge.flash(`Silverware Table: ${n} new hidden value${n === 1 ? " (a formula, a name) was" : "s (formulas, names) were"} not stored: the Store table metadata setting is off`, "info");
+        updates.push({ range: other.range, markdown: serialize(this.withoutNewTags(parseTable(other.range.text), other.table, {}, taken)) });
       }
       if (columnMap) {
         this.views.set(info.key, remapColumns(this.viewOf(info), columnMap));
@@ -2547,6 +2549,7 @@ export class Controller implements TableHost {
       this.pageText = written;
       for (const pending of held) pending.written();
       for (const then of after) then(replace.from, written.length - text.length);
+      this.sayTaken(taken);
       return "written";
     } catch (e) {
       this.cellEditor.dropPending();

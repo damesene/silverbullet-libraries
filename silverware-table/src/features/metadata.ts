@@ -68,6 +68,11 @@ function listed(items: readonly string[]): string {
   return items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}` : (items[0] ?? "");
 }
 
+/** What a question says it removes: whose it is (none found: an empty metadata row) */
+function whose(owners: readonly string[], where: string): string {
+  return owners.length ? `, what ${listed(owners)} keep${owners.length === 1 ? "s" : ""} in ${where}` : "";
+}
+
 // What the question says of what stays
 const KEPT = "Cells keep their text, a formula's cell its result.";
 
@@ -95,7 +100,7 @@ export class Metadata implements Feature {
   private async removeFromTable(shownInfo: TableInfo): Promise<void> {
     const shown = parseTable(shownInfo.source);
     const owners = metadataOwners([shown]);
-    if (!(await this.host.ask(`Remove this table's metadata, what ${listed(owners)} keep${owners.length === 1 ? "s" : ""} in it? ${KEPT} Ctrl+Z brings it back.`))) return;
+    if (!(await this.host.ask(`Remove this table's metadata${whose(owners, "it")}? ${KEPT} Ctrl+Z brings it back.`))) return;
     // The table as rendered now: the dialog may have outlived the rendering it was asked from
     const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
     if (parseTable(info.source).meta) this.host.forgetStoredView(info.key);
@@ -121,8 +126,8 @@ export class Metadata implements Feature {
     const models = tables.map((range) => parseTable(range.text));
     const owners = metadataOwners(models);
     const question =
-      `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page, ` +
-      `what ${listed(owners)} keep${owners.length === 1 ? "s" : ""} in ${tables.length === 1 ? "it" : "them"}? ${KEPT} Ctrl+Z brings it back.`;
+      `Remove the metadata of ${tables.length === 1 ? "the 1 table" : `all ${tables.length} tables`} on this page` +
+      `${whose(owners, tables.length === 1 ? "it" : "them")}? ${KEPT} Ctrl+Z brings it back.`;
     if (!(await this.host.ask(question))) return;
     // One edit over the span of all those tables, so one Ctrl+Z undoes it
     const from = tables[tables.length - 1]!.from;

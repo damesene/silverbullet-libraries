@@ -11,7 +11,7 @@ import { columnLetters } from "../formulas/index.ts";
 import { findTables, type PageTable, pageTablesOf, parseTable, type Table, type TableRange } from "../markdown.ts";
 
 /** How the sheet modules read what tables keep for the sheet (their host) */
-export type SheetMeta = Pick<ModelHost, "getMeta" | "metaOf" | "canStoreMeta" | "tableName">;
+export type SheetMeta = Pick<ModelHost, "getMeta" | "metaOf" | "canStoreMeta" | "tableName" | "canName">;
 
 /** A cell of a sheet, from 0: row 0 is the sheet's first row (1), column 0 its column A */
 export type SheetCell = { readonly row: number; readonly column: number };
@@ -60,6 +60,15 @@ export function sheetNameProblem(name: string): string | undefined {
   if (name.trim() === "") return "a sheet needs a name";
   if (name.length > 60) return "a sheet's name is at most 60 characters";
   return undefined;
+}
+
+/**
+ * Whether a table may be put on a sheet, or moved to another: its sheet, its
+ * place and its name stored (the metadata setting off, only where it has them:
+ * a table on a sheet already, named)
+ */
+export function canPlace(meta: SheetMeta, table: Table): boolean {
+  return meta.canStoreMeta(table, SHEET_KEY) && meta.canStoreMeta(table, AT_KEY) && (meta.tableName(table) !== undefined || meta.canName(table, { kind: "table" }));
 }
 
 /** The tables of a page that are on a sheet (with a sheet's name and a place), in the page's order */

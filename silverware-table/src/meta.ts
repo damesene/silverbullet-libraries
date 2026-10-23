@@ -8,11 +8,11 @@
 // every edit follows here whatever the attribute is for.
 import { type ColumnId, columnIdOf, findColumn } from "./columns.ts";
 import type { Row, Table } from "./markdown.ts";
-import { COLUMN_MARK, columnWhat, CORE, type Owner, tableAttributeName } from "./metanames.ts";
+import { attributeName, COLUMN_MARK, CORE, type Owner } from "./metanames.ts";
 import { tableNameProblem } from "./namerules.ts";
 import { NO_PINS, type Pins, type SortDirection } from "./view.ts";
 
-export { CORE, cellTagName, type Owner, tableAttributeName } from "./metanames.ts";
+export { attributeName, CORE, type Owner } from "./metanames.ts";
 
 export type MetaSort = { readonly column: number; readonly direction: SortDirection };
 
@@ -29,12 +29,12 @@ export function withMeta(table: Table, name: string, value: string | undefined):
 
 /** An owner's attribute of the table */
 export function metaValue(table: Table, owner: Owner, key: string): string | undefined {
-  return table.meta?.[tableAttributeName(owner, key)];
+  return table.meta?.[attributeName(owner, key)];
 }
 
 /** The table with an owner's attribute set (undefined: removed) */
 export function withMetaValue(table: Table, owner: Owner, key: string, value: string | undefined): Table {
-  return withMeta(table, tableAttributeName(owner, key), value);
+  return withMeta(table, attributeName(owner, key), value);
 }
 
 /** An owner's attributes of the table (not of its columns), by key */
@@ -67,7 +67,7 @@ function columnAttributeName(headers: readonly string[], what: string, column: n
 
 /** An owner's attribute of each column that has it, by the column, in the order they are written */
 export function columnValues(table: Table, owner: Owner, key: string): Map<number, string> {
-  const what = columnWhat(owner, key);
+  const what = attributeName(owner, key);
   const headers = table.rows[0]?.cells ?? [];
   const values = new Map<number, string>();
   for (const [name, value] of Object.entries(table.meta ?? {})) {
@@ -80,7 +80,7 @@ export function columnValues(table: Table, owner: Owner, key: string): Map<numbe
 
 /** The table with an owner's attribute of the columns as `values` (by column), and of no other */
 export function withColumnValues(table: Table, owner: Owner, key: string, values: ReadonlyMap<number, string>): Table {
-  const what = columnWhat(owner, key);
+  const what = attributeName(owner, key);
   const headers = table.rows[0]?.cells ?? [];
   const meta: Record<string, string> = {};
   for (const [name, value] of Object.entries(table.meta ?? {})) {
@@ -97,7 +97,7 @@ export function withColumnValues(table: Table, owner: Owner, key: string, values
 
 /** The whole name of an owner's attribute of one column, as the headers name it (undefined: no such column) */
 export function columnAttributeOf(table: Table, owner: Owner, key: string, column: number): string | undefined {
-  return columnAttributeName(table.rows[0]?.cells ?? [], columnWhat(owner, key), column);
+  return columnAttributeName(table.rows[0]?.cells ?? [], attributeName(owner, key), column);
 }
 
 /**

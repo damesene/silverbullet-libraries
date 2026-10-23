@@ -10,15 +10,14 @@
 // and leaves it out of the column's key in its index (verified), so queries
 // see the header as before. Modules read and write names through the host.
 import { metaAttribute, type Table, unescapeMetaValue } from "./markdown.ts";
-import { cellTagName } from "./metanames.ts";
+import { attributeName, escapedForRegExp } from "./metanames.ts";
 import { setCell } from "./ops.ts";
 
 // The names' attributes: the core's (meta.ts makes their names)
-export const LINE_NAME = cellTagName("core", "n");
-export const CELL_NAME = cellTagName("core", "cn");
+export const LINE_NAME = attributeName("core", "n");
+export const CELL_NAME = attributeName("core", "cn");
 
-const escaped = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const NAME_ATTRIBUTES = `(?:${escaped(LINE_NAME)}|${escaped(CELL_NAME)})`;
+const NAME_ATTRIBUTES = `(?:${escapedForRegExp(LINE_NAME)}|${escapedForRegExp(CELL_NAME)})`;
 // A tag of names only: both, in any order (a formula's tag is another)
 const NAMES_TAG_RE = new RegExp(String.raw`\s*<meta((?:\s+${NAME_ATTRIBUTES}\s*=\s*(?:"[^"]*"|'[^']*'))+)\s*\/?>`, "gi");
 const NAMES_ATTRIBUTE_RE = new RegExp(String.raw`(${NAME_ATTRIBUTES})\s*=\s*(?:"([^"]*)"|'([^']*)')`, "gi");

@@ -24,6 +24,7 @@ import {
   parseAt,
   placeBelow,
   SHEET_KEY,
+  canPlace,
   sheetDataTable,
   type SheetMeta,
   sheetOfTable,
@@ -111,6 +112,8 @@ export class Sheets implements Feature {
     }
     const problem = sheetNameProblem(name);
     if (problem) return problem;
+    // (Taken off it above: that removes, which the setting off allows)
+    if (!canPlace(this.host, parseTable(info.source))) return "a table's sheet, place and name are kept in its metadata: turn on Store table metadata in the settings";
     const text = await this.host.bridge.getText();
     const self = locateBySource(text, info.hint, info.source);
     const tables = sheetTables(this.host, text);

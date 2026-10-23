@@ -5,4 +5,4 @@ import { metaName } from "../meta.ts";
 import type { SheetMeta } from "../sheet/page.ts";
 
 /** The sheet modules' host, as far as the sheet's domain reads it */
-export const SHEET_META: SheetMeta = { ...ownMeta("sheet", () => true), tableName: metaName };
+export const SHEET_META: SheetMeta = { ...ownMeta("sheet", () => true), tableName: metaName, canName: () => true };

@@ -5,7 +5,7 @@
 //
 // With the metadata setting off, nothing new is stored: an attribute the table
 // has may change or go, none is added (`enabled`: whether the setting is on).
-import { cellTagName, columnAttributeOf, columnValues, metaValue, metaValuesOf, type Owner, tableAttributeName, withColumnValues, withMetaValue } from "../meta.ts";
+import { attributeName, columnAttributeOf, columnValues, metaValue, metaValuesOf, type Owner, withColumnValues, withMetaValue } from "../meta.ts";
 import type { Table } from "../markdown.ts";
 import { tagValue, withTagValue } from "../tagvalues.ts";
 import type { ModelHost } from "./feature.ts";
@@ -18,7 +18,7 @@ export type OwnMeta = Pick<
 export function ownMeta(owner: Owner, enabled: () => boolean): OwnMeta {
   // Whether the table may have this attribute: the setting on, or it has it already
   const storable = (table: Table, name: string | undefined) => name !== undefined && (enabled() || name in (table.meta ?? {}));
-  const nameOf = (table: Table, key: string, at?: { readonly column: number }) => (at ? columnAttributeOf(table, owner, key, at.column) : tableAttributeName(owner, key));
+  const nameOf = (table: Table, key: string, at?: { readonly column: number }) => (at ? columnAttributeOf(table, owner, key, at.column) : attributeName(owner, key));
   return {
     getMeta: (table, key, at) => (at ? columnValues(table, owner, key).get(at.column) : metaValue(table, owner, key)),
     setMeta: (table, key, value, at) => {
@@ -36,8 +36,8 @@ export function ownMeta(owner: Owner, enabled: () => boolean): OwnMeta {
       return withColumnValues(table, owner, key, kept);
     },
     canStoreMeta: (table, key, at) => storable(table, nameOf(table, key, at)),
-    getCellTag: (cell, key) => tagValue(cell, cellTagName(owner, key)),
-    withCellTag: (cell, key, value) => withTagValue(cell, cellTagName(owner, key), value),
-    canStoreCellTag: (cell, key) => enabled() || tagValue(cell, cellTagName(owner, key)) !== undefined,
+    getCellTag: (cell, key) => tagValue(cell, attributeName(owner, key)),
+    withCellTag: (cell, key, value) => withTagValue(cell, attributeName(owner, key), value),
+    canStoreCellTag: (cell, key) => enabled() || tagValue(cell, attributeName(owner, key)) !== undefined,
   };
 }

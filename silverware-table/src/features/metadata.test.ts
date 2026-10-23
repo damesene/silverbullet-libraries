@@ -219,6 +219,18 @@ describe("Table metadata", () => {
     expect(text).toBe("| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 |\n");
   });
 
+  it("asks without naming anyone when the metadata row holds nothing", async () => {
+    await setup("| A |\n|---|\n| 1 |\n| <meta core.table> |\n");
+    const questions: string[] = [];
+    (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+      questions.push(message);
+      return true;
+    };
+    tableMenuItem(/^Remove metadata$/)!.click();
+    await flush();
+    expect(questions[0]).toBe("Remove this table's metadata? Cells keep their text, a formula's cell its result. Ctrl+Z brings it back.");
+  });
+
   it("removes formulas with the metadata, keeping their results, and says so", async () => {
     const page = `| Name | Qty |\n|---|---|\n| Pear | 3 |\n| Total | 3 <meta formulas.f='=SUM([Qty])'> |\n| <meta core.table core.-c-qty.sort='desc'> |\n`;
     await setup(page);

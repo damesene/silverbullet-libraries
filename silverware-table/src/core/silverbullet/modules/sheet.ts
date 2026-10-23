@@ -37,7 +37,7 @@ import { columnLetters, isFormulaInput } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 import { escapeCell, findTables, parseTable, type Table, type TableRange } from "../../../markdown.ts";
 import { sameTableName } from "../../../namerules.ts";
-import { AT_KEY, formatAt, freeName, freeSheetName, SHEET_KEY, WIDTH_PREFIX, sameSheet, type SheetCell, sheetDataTable, sheetNameProblem, sheetOfTable, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { AT_KEY, formatAt, freeName, freeSheetName, SHEET_KEY, WIDTH_PREFIX, sameSheet, type SheetCell, canPlace, sheetDataTable, sheetNameProblem, sheetOfTable, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
 import { nameEmptyHeaders } from "../../../ops.ts";
 import { parseClipboardCells } from "../../../paste.ts";
 import { placeProblem, roomFor } from "../../../sheet/layout.ts";
@@ -1168,7 +1168,11 @@ export class Sheet implements AdapterFeature {
     if (!board) return [];
     const text = this.host.pageText;
     const keys = this.host.tableKeys(this.host.currentPage, text);
-    return findTables(text).flatMap((range, i) => {
+    const ranges = findTables(text);
+    // A board of a table on no sheet makes that one a sheet's too, in the same edit: both must be placeable
+    const alone = board.sheet ? undefined : ranges[keys.indexOf(board.alone)];
+    const aloneFits = !alone || canPlace(this.host, parseTable(alone.text));
+    return ranges.flatMap((range, i) => {
       const key = keys[i]!;
       if (board.tables.has(key) || key === board.alone) return [];
       const model = parseTable(range.text);
@@ -1176,8 +1180,8 @@ export class Sheet implements AdapterFeature {
       if (board.sheet && sheet && sameSheet(sheet, board.sheet)) return [];
       const header = (model.rows[0]?.cells ?? []).map((cell) => withoutTags(cell).trim()).filter(Boolean).join(", ");
       const label = this.host.tableName(model) ?? (header.length > 40 ? `${header.slice(0, 39)}…` : header || "Table");
-      // (Its place is metadata: the setting off, only a table on a sheet already has one to change)
-      return [{ key, label, sheet, rows: model.rows.length, columns: model.align.length, storable: this.host.canStoreMeta(model, AT_KEY) }];
+      // (Its place is metadata: the setting off, only a table on a sheet already, named, has what to change)
+      return [{ key, label, sheet, rows: model.rows.length, columns: model.align.length, storable: aloneFits && canPlace(this.host, model) }];
     });
   }
 
@@ -1406,8 +1410,7 @@ export class Sheet implements AdapterFeature {
       // Where the table cannot take it (the setting off, no width of that column stored): for the view only, as the widths module keeps them
       const key = `${WIDTH_PREFIX}${columnLetters(column)}`;
       if (range && width !== undefined && !this.host.canStoreMeta(parseTable(range.text), key)) {
-        if (width === undefined) board.preview.delete(column);
-        else board.preview.set(column, width);
+        board.preview.set(column, width);
         this.queuePlace();
         return;
       }

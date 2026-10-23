@@ -112,6 +112,14 @@ describe("Sheets: a table put on a sheet, moved and taken off it by its sheet's 
     expect(text).toContain("| <meta core.table core.name='notes' sheet.name='Budget' sheet.at='D1'> |");
   });
 
+  it("with the metadata setting off, moves no table to another sheet that has no name to keep there", async () => {
+    const page = "| Note |\n|---|\n| ok |\n| <meta core.table sheet.name='Budget' sheet.at='D1'> |\n";
+    await setup(page);
+    toolbarName("container", 0);
+    expect(await nameInMenu("Plan")).toContain("turn on Store table metadata");
+    expect(text).toBe(page);
+  });
+
   it("hands the sheet's widths to a table put on it before its first, in the same edit", async () => {
     await setup(`| X |\n|---|\n| 1 |\n\n${PAGE}`, { "silverware.table.metadata": true });
     toolbarName("container", 0);

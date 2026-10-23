@@ -380,6 +380,8 @@ class FilterTable {
     // A filter the table cannot take (the metadata setting off, none stored for its column) stays typed: a view
     const table = parseTable(info.source);
     const storable = [...filters.keys()].every((column) => this.host.canStoreMeta(table, "condition", { column }));
+    // (Nothing it can take and nothing to change: no write, whose step would recalculate every formula for nothing)
+    if (this.host.setColumnsMeta(table, "condition", filters) === table) return;
     const result = await this.host.writeTable(info, (t) => this.host.setColumnsMeta(t, "condition", filters));
     // Stored: the table's markdown has them now
     if (result !== "failed" && storable && sameFilters(this.typed ?? [], written)) this.typed = undefined;

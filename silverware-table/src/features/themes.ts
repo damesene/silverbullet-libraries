@@ -102,21 +102,24 @@ export class Themes implements Feature {
       stripesRow,
       { kind: "separator" },
       // Then every theme, the setting's marked (default): one picked is the table's own, the setting's one too, whatever the setting becomes
-      ...allThemes(this.host.doc).map((theme) =>
-        item(
-          `${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`,
-          own === theme,
-          set({ name: theme }),
-          detail(theme),
-        ),
-      ),
+      // (The metadata setting off: only a table with a theme of its own may pick another)
+      ...allThemes(this.host.doc).map((theme): MenuEntry => {
+        const entry = item(`${themeLabel(theme)}${theme === this.theme ? " (default)" : ""}`, own === theme, set({ name: theme }), detail(theme));
+        return this.host.canStoreMeta(table, "name") ? entry : { ...entry, disabled: "Needs the Store table metadata setting" };
+      }),
       ];
     };
     const stripesRow: MenuEntry = {
       kind: "segmented",
       label: "Stripes",
       // The table's own marked, none while it follows the setting (as a theme picked is; Global theme: the setting's again)
-      options: STRIPES.map((s) => ({ icon: STRIPES_ICONS[s], title: STRIPES_TITLES[s], active: s === ownStripes, run: set({ stripes: s }) })),
+      options: STRIPES.map((s) => ({
+        icon: STRIPES_ICONS[s],
+        title: STRIPES_TITLES[s],
+        active: s === ownStripes,
+        run: set({ stripes: s }),
+        ...(this.host.canStoreMeta(table, "stripes") ? {} : { disabled: "Needs the Store table metadata setting" }),
+      })),
     };
     return [
       {

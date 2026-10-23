@@ -21,17 +21,15 @@ export const TABLE_MARKER = `${CORE}.table`;
 /** The segment before a column's name in an attribute of a column */
 export const COLUMN_MARK = "-c-";
 
-/** The name of an owner's attribute of a table */
-export function tableAttributeName(owner: Owner, key: string): string {
+/**
+ * The name of an owner's attribute: of a table, in a cell's hidden tags, and,
+ * with the column between them (meta.ts), of a column
+ */
+export function attributeName(owner: Owner, key: string): string {
   return `${owner}.${key}`;
 }
 
-/** The name of an owner's attribute in cells' hidden tags */
-export function cellTagName(owner: Owner, key: string): string {
-  return `${owner}.${key}`;
-}
-
-/** What an owner's attribute of columns is, its owner and key (`<owner>.<key>`): written with the column between them */
-export function columnWhat(owner: Owner, key: string): string {
-  return `${owner}.${key}`;
+/** A text to find as it is in a regular expression */
+export function escapedForRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

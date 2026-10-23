@@ -25,26 +25,35 @@ export function tagValue(cell: string, name: string): string | undefined {
   return value;
 }
 
+// A tag's attributes one by one, a value read whole (a name inside one is no attribute): its space, name and value as written
+const TAG_ATTRIBUTE_RE = /(\s+)([^\s=/>]+)(\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/g;
+
 /**
  * The cell with the attribute `name` set to `value` (undefined: removed), in
  * the tag that has it, else in a tag of its own after the cell's other tags; a
- * tag left without attributes goes. The cell's text and other attributes stay.
+ * tag left without attributes goes. The cell's text and the tags' other
+ * attributes stay as written (whoever's they are, with or without a value).
  */
 export function withTagValue(cell: string, name: string, value: string | undefined): string {
   const wanted = name.toLowerCase();
   let placed = value === undefined;
   const tags: string[] = [];
   for (const tag of cellTags(cell)) {
-    const found = attributes(tag);
-    if (!found.has(wanted)) {
+    if (!attributes(tag).has(wanted)) {
       tags.push(tag);
       continue;
     }
-    if (!placed) {
-      found.set(wanted, value!);
-      placed = true;
-    } else found.delete(wanted);
-    if (found.size > 0) tags.push(`<meta ${Array.from(found, ([n, v]) => metaAttribute(n, v)).join(" ")}>`);
+    // Every attribute but this one as written, this one in its place once (its first)
+    const body = tag.slice("<meta".length, tag.length - 1).replace(/\/$/, "");
+    let kept = "";
+    for (const [whole, , attribute] of body.matchAll(TAG_ATTRIBUTE_RE)) {
+      if (attribute!.toLowerCase() !== wanted) kept += whole;
+      else if (!placed) {
+        kept += ` ${metaAttribute(name, value!)}`;
+        placed = true;
+      }
+    }
+    if (kept.trim() !== "") tags.push(`<meta${kept}>`);
   }
   if (!placed) tags.push(`<meta ${metaAttribute(name, value!)}>`);
   return [withoutTags(cell), ...tags].filter((part) => part !== "").join(" ");

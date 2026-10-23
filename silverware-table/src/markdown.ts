@@ -1,6 +1,6 @@
 // Markdown table model: parse a GFM table from page text and write it back.
 // Rows that were not changed are written back byte for byte.
-import { TABLE_MARKER } from "./metanames.ts";
+import { escapedForRegExp, TABLE_MARKER } from "./metanames.ts";
 import { metaTagPattern, TAG_BODY } from "./tags.ts";
 
 export type Align = "" | "left" | "center" | "right";
@@ -233,7 +233,7 @@ const META_TAG_RE = new RegExp(String.raw`^<meta\b(${TAG_BODY}?)\/?>$`, "i");
 // An attribute's name may name a column: core.-c-qty.sort, filters.-c-qty:2.condition (meta.ts)
 const META_ATTRIBUTE_RE = /([\w.:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 // The mark, an attribute without a value
-const MARKER_RE = new RegExp(String.raw`(?:^|\s)${TABLE_MARKER.replace(".", "\\.")}(?=\s|\/|$)`, "i");
+const MARKER_RE = new RegExp(String.raw`(?:^|\s)${escapedForRegExp(TABLE_MARKER)}(?=\s|\/|$)`, "i");
 
 /**
  * The attributes of a metadata row (one cell holding only `<meta …>` with
