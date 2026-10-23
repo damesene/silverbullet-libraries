@@ -874,3 +874,58 @@ test("the controls of the table clicked do not stay over the sheet or the full s
   }
 });
 
+test.describe("Pins on the sheet", () => {
+  // A table on a sheet, at B2, its first row pinned to the top, its last (Total) to the bottom, its first column left
+  const rows = Array.from({ length: 30 }, (_, i) => `| item ${i} | ${i} | ${i * 2} |`).join("\n");
+  const PINNED = `# Test\n\n| Name | A | B |\n|---|---|---|\n${rows}\n| Total | 435 | 870 |\n| <meta name='t' sheet='Plan' at='B2' pin-top='1' pin-bottom='1' pin-left='1'> |\n`;
+
+  const open = async (page: Page, source: string, rows: number) => {
+    await page.locator("#source").fill(source);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(rows);
+    await hoverCell(page, cell(page, 1, 0));
+    await (await tableIcon(page, "Sheet view")).click();
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+    await expect(drawn).toBeVisible();
+    return drawn;
+  };
+
+  test("pinned rows and columns scroll with the sheet, as its other cells do", async ({ page }) => {
+    const drawn = await open(page, PINNED, 31);
+    const pinned = drawn.locator("tr[data-swt-row='10'] > td").first();
+    const before = (await pinned.boundingBox())!;
+    await page.locator(".swt-sheet-board").evaluate((b) => {
+      b.scrollTop = 200;
+      b.scrollLeft = 60;
+    });
+    await expect.poll(async () => (await pinned.boundingBox())!.x).toBeCloseTo(before.x - 60, 0);
+    expect((await pinned.boundingBox())!.y).toBeCloseTo(before.y - 200, 0);
+    // The row pinned to the top went with the header, out of view
+    expect((await drawn.locator("tr[data-swt-row='1'] > td").first().boundingBox())!.y).toBeLessThan(before.y - 200);
+  });
+
+  test("a value under the row pinned to the bottom goes in a row above it, which stays last", async ({ page }) => {
+    const drawn = await open(page, PINNED, 31);
+    await page.locator(".swt-sheet-board").evaluate((b) => {
+      b.scrollTop = 700;
+    });
+    const total = drawn.locator("tr[data-swt-row='31'] > td").nth(1);
+    await expect(total).toBeInViewport();
+    const box = (await total.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height * 1.5);
+    await page.keyboard.type("new");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => markdown(page)).toContain("| item 29 | 29  | 58  |\n|         | new |     |\n| Total   | 435 | 870 |");
+  });
+
+  test("a value right of the column pinned to the right goes in a column left of it, which stays last", async ({ page }) => {
+    const drawn = await open(page, "# Test\n\n| Name | A | Sum |\n|---|---|---|\n| x | 1 | 1 |\n| y | 2 | 2 |\n| <meta name='t' sheet='Plan' at='A1' pin-right='1'> |\n", 2);
+    const sum = drawn.locator("tr[data-swt-row='1'] > td").nth(2);
+    const box = (await sum.boundingBox())!;
+    await page.mouse.click(box.x + box.width * 1.5, box.y + box.height / 2);
+    await page.keyboard.type("note");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => markdown(page)).toContain("| Name | A   | Column 4 | Sum |");
+    expect(await markdown(page)).toContain("| x    | 1   | note     | 1   |");
+  });
+});
