@@ -3,6 +3,9 @@
 // state and listeners and works through the host.
 import type { TableKey } from "./tables.ts";
 export type { TableKey } from "./tables.ts";
+import type { TableParts } from "./parts.ts";
+export type { PartTable, TablePart, TableParts } from "./parts.ts";
+export { tablePartsOf } from "./parts.ts";
 import type { Bridge, FeatureName, SETTINGS, SettingValue } from "../bridge.ts";
 import type { Dialog, DialogOptions } from "./dialog.ts";
 import type { Rect } from "./geometry.ts";
@@ -496,6 +499,10 @@ export interface ModelHost {
    * only, never from a table's place
    */
   tableKeys(page: string, text: string): readonly TableKey[];
+  /** A module's part for a table (its tableParts), made the first time it is asked for */
+  tablePart<P extends object>(owner: Feature, key: TableKey): P | undefined;
+  /** A module's parts made so far: what it does for every table (flushing what each holds) */
+  tableParts<P extends object>(owner: Feature): readonly P[];
   /** The page a table's key is of */
   pageOf(key: TableKey): string | undefined;
   /** The tables shown on the page */
@@ -813,6 +820,12 @@ export interface TableHost extends ModelHost {
 export interface Feature {
   start?(): void;
   stop?(): void;
+  /**
+   * The module's part for each table (core/parts.ts: tablePartsOf): the hooks
+   * about one table go to that table's part, made and kept by the core; the
+   * module itself has the page's (it has none of the parts' hooks itself)
+   */
+  readonly tableParts?: TableParts<object>;
   /**
    * Something holds the pointer: a drag (the hover controls stay where they
    * are), an open menu (they stay in its table, cells hovered there still

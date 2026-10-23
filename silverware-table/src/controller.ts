@@ -2,7 +2,7 @@
 // inline cell editing and row/column editing. Every change to the markdown is
 // one `editor.replaceRange`, so undo works as for any other edit.
 import { type Bridge, type FeatureName, moduleOnByDefault, SETTINGS, type SettingValue } from "./bridge.ts";
-import { type AdapterFeature, type AddressFrame, type CellEditor, type RenderedEditor, type TableInfo, type CellHit, type CellRef, editorRect, type ClipboardData, type LineDrag, type DragOptions, type HandleLayer, type HandlePlace, type MarkLayer, type OutlineLayer, type Panel, type PanelAnchor, type PointerTarget, type Side, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
+import { type AdapterFeature, type AddressFrame, type Feature, type CellEditor, type RenderedEditor, type TableInfo, type CellHit, type CellRef, editorRect, type ClipboardData, type LineDrag, type DragOptions, type HandleLayer, type HandlePlace, type MarkLayer, type OutlineLayer, type Panel, type PanelAnchor, type PointerTarget, type Side, type RowHold, type TableHost, type TableLook, type TablePreview, type TableTarget, type WidgetInfo, type WriteOptions, type WritePage, type WriteResult, type WriteStep, type MetadataPart, type NamingTarget } from "./core/feature.ts";
 import { type Dialog, type DialogOptions, Dialogs } from "./core/dialog.ts";
 import { ViewAnchor } from "./core/anchor.ts";
 import { placeAtEnd, TableRows } from "./core/rows.ts";
@@ -72,6 +72,7 @@ import {
   withSort,
 } from "./view.ts";
 import { type TableKey, TableRegister } from "./core/tables.ts";
+import { Parts } from "./core/parts.ts";
 
 // The cell editor as features see it, and what it takes to put the cell back
 
@@ -109,6 +110,8 @@ export class Controller implements TableHost {
   private readonly enhancing = new WeakMap<HTMLElement, Promise<void>>();
   // Which table is which (keys for the session; core/tables.ts)
   private readonly register = new TableRegister();
+  // The modules' parts for each table (core/parts.ts)
+  private readonly parts = new Parts((key) => this.tableFor(key));
   private readonly views = new Map<TableKey, ViewState>();
   // The maximum table height setting, in pixels; 0: no limit
   private maxHeight = 0;
@@ -336,7 +339,8 @@ export class Controller implements TableHost {
     all.forEach(({ name }, i) => {
       if (name && enabled[i]) this.modulesOn.add(name);
     });
-    const features = all.filter((_, i) => enabled[i]).map(({ create }) => create());
+    // A module with parts for tables as one feature: its hooks about a table go to that table's part
+    const features = all.filter((_, i) => enabled[i]).map(({ create }) => this.parts.routed(create()));
     this.features.push(...features);
     for (const feature of features) feature.start?.();
   }
@@ -1014,6 +1018,14 @@ export class Controller implements TableHost {
 
   infoOf(widget: HTMLElement): WidgetInfo | undefined {
     return this.infos.get(widget);
+  }
+
+  tablePart<P extends object>(owner: Feature, key: TableKey): P | undefined {
+    return this.parts.of<P>(owner, key);
+  }
+
+  tableParts<P extends object>(owner: Feature): readonly P[] {
+    return this.parts.all<P>(owner);
   }
 
   tableKeys(page: string, text: string): readonly TableKey[] {

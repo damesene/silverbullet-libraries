@@ -33,8 +33,17 @@ describe("isolation", () => {
   });
 
   it("a table's key is made by the core's register only: no module builds one, from a table's place or otherwise", () => {
-    const outside = Object.fromEntries(Object.entries({ ...features, ...core }).filter(([path]) => path !== "./core/tables.ts"));
+    // (core/parts.ts makes none: it passes on the key a hook was given)
+    const outside = Object.fromEntries(Object.entries({ ...features, ...core }).filter(([path]) => path !== "./core/tables.ts" && path !== "./core/parts.ts"));
     expect(matches(outside, /as TableKey\b|`\$\{[^`]*\}#\$\{/)).toEqual([]);
+  });
+
+  it("a module keeps no collection of state by table: its part for each table holds it (core/parts.ts)", () => {
+    // (The sheet lays several tables out on one board: those are its own, the page's)
+    const modules = Object.fromEntries(
+      Object.entries({ ...features, ...core }).filter(([path]) => (path.startsWith("./features/") || path.startsWith("./core/silverbullet/modules/")) && !path.endsWith("/sheet.ts")),
+    );
+    expect(matches(modules, /\b(Map|Set|WeakMap)<TableKey\b/)).toEqual([]);
   });
 
   it("the core and the adapter name no module", () => {

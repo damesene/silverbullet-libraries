@@ -14,7 +14,7 @@
 // table moving as it gets narrower, cannot feed back into it. The widths are
 // the module's (columnWidths); the core shows them, and the handles (a handle
 // layer per table, as every table's headers have them).
-import type { Feature, HandleLayer, ModelHost, ToolbarButton, TableInfo } from "../core/feature.ts";
+import { type Feature, type HandleLayer, type ModelHost, type PartTable, type TableInfo, type TableKey, tablePartsOf, type ToolbarButton } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
@@ -28,29 +28,28 @@ const LAYER = "width:";
 const HANDLE_CLASS = "swt-col-resize";
 const HANDLE_TITLE = "Drag to set the column's width; double-click for automatic";
 
-export class Widths implements Feature {
-  // Widths set for the view only (no metadata stored), by table and column; undefined: automatic
-  private readonly viewed = new Map<string, Map<number, number | undefined>>();
-  private drag: { readonly key: string; readonly column: number } | undefined;
-  private stopDrag: (() => void) | undefined;
-  // The widths stored in the table last read (parsing a large table for its metadata row on every view is slow)
+/** One table's widths (the module's part for it, core/parts.ts): those set for the view, those stored, its handles */
+class TableWidths {
+  // Widths set for the view only (no metadata stored), by column; undefined: automatic
+  private viewed = new Map<number, number | undefined>();
+  // The widths stored in the table as last read (parsing a large table for its metadata row on every view is slow)
   private stored: { readonly source: string; readonly widths: ReadonlyMap<number, number> } | undefined;
-  // Each table's handles, by its key
-  private readonly handles = new Map<string, HandleLayer>();
+  // Its handles
+  private readonly handles: HandleLayer;
 
-  constructor(private readonly host: ModelHost) {}
+  constructor(
+    private readonly table: PartTable,
+    private readonly host: ModelHost,
+  ) {
+    this.handles = host.handleLayer(`${LAYER}${table.key}`);
+  }
 
   stop(): void {
-    this.stopDrag?.();
-    for (const layer of this.handles.values()) layer.hide();
+    this.handles.hide();
   }
 
-  pointerBusy(): "drag" | undefined {
-    return this.drag ? "drag" : undefined;
-  }
-
-  /** The widths of a table's columns: those set for the view, else those stored */
-  private widthsOf(info: TableInfo): Map<number, number> {
+  /** Its columns' widths: those set for the view, else those stored */
+  widthsOf(info: TableInfo): Map<number, number> {
     if (this.stored?.source !== info.source) {
       const read = new Map<number, number>();
       for (const [column, value] of columnMeta(parseTable(info.source), "width")) {
@@ -60,7 +59,7 @@ export class Widths implements Feature {
       this.stored = { source: info.source, widths: read };
     }
     const widths = new Map(this.stored.widths);
-    for (const [column, width] of this.viewed.get(info.key) ?? []) {
+    for (const [column, width] of this.viewed) {
       if (width === undefined) widths.delete(column);
       else widths.set(column, width);
     }
@@ -72,17 +71,13 @@ export class Widths implements Feature {
     return this.host.addressFrame(info) ? new Map() : this.widthsOf(info);
   }
 
-  // ---- the handles ----------------------------------------------------------------
-
   /** A handle on each header cell's right edge (shown by CSS while the header is hovered, selected or edited) */
   enhanced(info: TableInfo): void {
     this.placeHandles(info, undefined);
   }
 
-  private placeHandles(info: TableInfo, active: number | undefined): void {
-    let layer = this.handles.get(info.key);
-    if (!layer) this.handles.set(info.key, (layer = this.host.handleLayer(`${LAYER}${info.key}`)));
-    layer.place(
+  placeHandles(info: TableInfo, active: number | undefined): void {
+    this.handles.place(
       info.key,
       Array.from({ length: info.columns }, (_, column) => ({
         // One handle per column (a layer's handles are told apart by their classes), the one dragged lit
@@ -95,15 +90,101 @@ export class Widths implements Feature {
     );
   }
 
-  // ---- dragging -----------------------------------------------------------------
+  /** A column's width set (undefined: automatic): the grid's, where a feature lays the table out on one */
+  set(info: TableInfo, column: number, width: number | undefined): Promise<void> {
+    const grid = this.host.addressFrame(info);
+    return grid ? grid.setColumnWidth(column, width) : this.setAll(info, new Map([[column, width]]));
+  }
+
+  /** Columns' widths set (undefined: automatic): stored in the table where they can be, else for the view */
+  private async setAll(info: TableInfo, set: ReadonlyMap<number, number | undefined>): Promise<void> {
+    for (const [column, width] of set) this.viewed.set(column, width);
+    for (const column of set.keys()) this.host.showColumnWidth(info, column, undefined);
+    // Reset column widths offered or not
+    this.host.toolbarChanged();
+    if (!(info.metaRow || this.host.metadataEnabled)) return;
+    const result = await this.host.writeTable(info, (t) => {
+      const widths = columnMeta(t, "width");
+      for (const [column, width] of set) {
+        if (width === undefined) widths.delete(column);
+        else widths.set(column, String(width));
+      }
+      return withColumnMeta(t, "width", widths);
+    });
+    // Stored (or already so): the table's metadata has them now
+    if (result !== "failed") for (const column of set.keys()) this.viewed.delete(column);
+  }
+
+  /** Columns moved, inserted or deleted: the widths set for the view go with them */
+  columnsMoved(_key: TableKey, map: (column: number) => number | undefined): void {
+    const moved = new Map<number, number | undefined>();
+    for (const [column, width] of this.viewed) {
+      const target = map(column);
+      if (target !== undefined) moved.set(target, width);
+    }
+    this.viewed = moved;
+  }
+
+  // Before Remove metadata (the widths module comes before it), which would remove them too
+  toolbarButtons(info: TableInfo): ToolbarButton[] {
+    const widths = this.widthsOf(info);
+    // On a grid of a feature's the table's own widths do not show: nothing to reset there
+    if (!widths.size || this.host.addressFrame(info)) return [];
+    return [
+      {
+        label: "Reset column widths",
+        icon: ICONS.columnWidth,
+        danger: true,
+        title: widths.size === 1 ? "Make the column with a width set as wide as its text again" : `Make the ${widths.size} columns with a width set as wide as their text again`,
+        run: () => {
+          // As rendered now (the menu stays open across a write)
+          const now = this.table.current() ?? info;
+          void this.setAll(now, new Map(Array.from(this.widthsOf(now).keys(), (column) => [column, undefined])));
+        },
+      },
+    ];
+  }
+
+  columnMenuEntries(info: TableInfo, column: number): MenuEntry[] {
+    const grid = this.host.addressFrame(info);
+    const width = grid ? grid.columnWidth(column) : this.widthsOf(info).get(column);
+    if (width === undefined) return [];
+    return [
+      {
+        kind: "item",
+        label: "Auto width",
+        icon: ICONS.columnWidth,
+        hint: `The column is ${width}px wide: make it as wide as its text`,
+        run: () => void this.set(this.table.current() ?? info, column, undefined),
+      },
+    ];
+  }
+}
+
+/** The widths module: its parts are the tables' widths (TableWidths); itself, the one drag of a handle on the page */
+export class Widths implements Feature {
+  private drag: { readonly key: TableKey; readonly column: number } | undefined;
+  private stopDrag: (() => void) | undefined;
+  readonly tableParts = tablePartsOf(TableWidths, (table) => new TableWidths(table, this.host));
+
+  constructor(private readonly host: ModelHost) {}
+
+  stop(): void {
+    this.stopDrag?.();
+  }
+
+  pointerBusy(): "drag" | undefined {
+    return this.drag ? "drag" : undefined;
+  }
 
   mouseDown(e: MouseEvent): boolean {
     const target = this.host.targetOf(e.target);
     if (target.kind !== "handle" || !target.layer.startsWith(LAYER) || e.button !== 0) return false;
     const info = this.host.tableFor(target.key);
+    const widths = this.host.tablePart<TableWidths>(this, target.key);
     e.preventDefault();
     e.stopPropagation();
-    if (!info) return true;
+    if (!info || !widths) return true;
     // One drag at a time (a release outside the window may have left one)
     this.stopDrag?.();
     // A cell being edited is saved first, as a press elsewhere would (the press here keeps the focus)
@@ -117,7 +198,7 @@ export class Widths implements Feature {
     const double = e.detail >= 2;
     let width = startWidth;
     this.drag = { key: info.key, column };
-    this.placeHandles(info, column);
+    widths.placeHandles(info, column);
     const win = this.host.doc.defaultView!;
     // The width shown once per frame, however many moves came
     let frame = 0;
@@ -143,11 +224,11 @@ export class Widths implements Feature {
         const now = this.host.tableFor(info.key);
         if (!now) return;
         if (width !== startWidth) {
-          void this.set(now, column, width);
+          void widths.set(now, column, width);
           return;
         }
         // Not moved: a double-click makes the column automatic again; a click shows it as it was
-        if (double) void this.set(now, column, undefined);
+        if (double) void widths.set(now, column, undefined);
         else if (this.host.addressFrame(now)) this.host.addressFrame(now)!.previewColumnWidth(column, undefined);
         else this.host.showColumnWidth(now, column, undefined);
       },
@@ -157,84 +238,8 @@ export class Widths implements Feature {
       this.drag = undefined;
       this.stopDrag = undefined;
       const now = this.host.tableFor(info.key);
-      if (now) this.placeHandles(now, undefined);
+      if (now) widths.placeHandles(now, undefined);
     };
     return true;
-  }
-
-  /** A column's width set (undefined: automatic): the grid's, where a feature lays the table out on one */
-  private set(info: TableInfo, column: number, width: number | undefined): Promise<void> {
-    const grid = this.host.addressFrame(info);
-    return grid ? grid.setColumnWidth(column, width) : this.setAll(info, new Map([[column, width]]));
-  }
-
-  /** Columns' widths set (undefined: automatic): stored in the table where they can be, else for the view */
-  private async setAll(info: TableInfo, set: ReadonlyMap<number, number | undefined>): Promise<void> {
-    const view = this.viewed.get(info.key) ?? new Map<number, number | undefined>();
-    for (const [column, width] of set) view.set(column, width);
-    this.viewed.set(info.key, view);
-    for (const column of set.keys()) this.host.showColumnWidth(info, column, undefined);
-    // Reset column widths offered or not
-    this.host.toolbarChanged();
-    if (!(info.metaRow || this.host.metadataEnabled)) return;
-    const result = await this.host.writeTable(info, (t) => {
-      const widths = columnMeta(t, "width");
-      for (const [column, width] of set) {
-        if (width === undefined) widths.delete(column);
-        else widths.set(column, String(width));
-      }
-      return withColumnMeta(t, "width", widths);
-    });
-    // Stored (or already so): the table's metadata has them now
-    if (result !== "failed") for (const column of set.keys()) this.viewed.get(info.key)?.delete(column);
-  }
-
-  /** Columns moved, inserted or deleted: the widths set for the view go with them */
-  columnsMoved(key: string, map: (column: number) => number | undefined): void {
-    const view = this.viewed.get(key);
-    if (!view) return;
-    const moved = new Map<number, number | undefined>();
-    for (const [column, width] of view) {
-      const target = map(column);
-      if (target !== undefined) moved.set(target, width);
-    }
-    this.viewed.set(key, moved);
-  }
-
-  // ---- the menus --------------------------------------------------------------------
-
-  // Before Remove metadata (the widths module comes before it), which would remove them too
-  toolbarButtons(info: TableInfo): ToolbarButton[] {
-    const widths = this.widthsOf(info);
-    // On a grid of a feature's the table's own widths do not show: nothing to reset there
-    if (!widths.size || this.host.addressFrame(info)) return [];
-    return [
-      {
-        label: "Reset column widths",
-        icon: ICONS.columnWidth,
-        danger: true,
-        title: widths.size === 1 ? "Make the column with a width set as wide as its text again" : `Make the ${widths.size} columns with a width set as wide as their text again`,
-        run: () => {
-          // As rendered now (the menu stays open across a write)
-          const now = this.host.tableFor(info.key) ?? info;
-          void this.setAll(now, new Map(Array.from(this.widthsOf(now).keys(), (column) => [column, undefined])));
-        },
-      },
-    ];
-  }
-
-  columnMenuEntries(info: TableInfo, column: number): MenuEntry[] {
-    const grid = this.host.addressFrame(info);
-    const width = grid ? grid.columnWidth(column) : this.widthsOf(info).get(column);
-    if (width === undefined) return [];
-    return [
-      {
-        kind: "item",
-        label: "Auto width",
-        icon: ICONS.columnWidth,
-        hint: `The column is ${width}px wide: make it as wide as its text`,
-        run: () => void this.set(this.host.tableFor(info.key) ?? info, column, undefined),
-      },
-    ];
   }
 }

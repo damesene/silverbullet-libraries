@@ -25,9 +25,11 @@ import {
   type PanelAnchor,
   type PanelOptions,
   type ModelHost,
+  type PartTable,
   type TableLooks,
   type ToolbarButton,
   type TableInfo,
+  tablePartsOf,
 } from "../core/feature.ts";
 import { el } from "../elements.ts";
 import { type FilterOptions, normalizeForFilter, parseFilter } from "../filter.ts";
@@ -95,82 +97,54 @@ function sameFilters(a: readonly string[], b: readonly string[]): boolean {
   return true;
 }
 
-export class Filters implements Feature {
-  // By table key: filters typed that the table does not store (as typed, by column)
-  private readonly typed = new Map<string, string[]>();
-  // By table key: the filters stored in the table, read from its markdown (as of `source`)
-  private readonly stored = new Map<string, { readonly source: string; readonly filters: readonly string[] }>();
-  // Tables whose filter row is shown
-  private readonly shown = new Set<string>();
-  // By table key: the filter row's fields, one per column (made once, given to the core each time the view applies)
-  private readonly rows = new Map<string, readonly RowField[]>();
-  private readonly storeTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  // Tables whose filters are stored once the cell editor in them closes, or
-  // they are rendered again (a write renders a table anew)
-  private readonly storesWaiting = new Set<string>();
-  private options: FilterOptions = { smart: true };
-  // The headers of the columns filtering
-  private readonly filtering: MarkLayer;
-  // The bubble under the field being typed in, or (popover) a column's filter on its own
-  private readonly panel: Panel;
-  private bubble:
-    | {
-        readonly body: HTMLElement;
-        readonly input: HTMLInputElement;
-        readonly key: TableKey;
-        readonly column: number;
-        readonly anchor: PanelAnchor;
-        readonly popover: boolean;
-      }
-    | undefined;
+/**
+ * The filters of one table (the module's part for it, core/parts.ts): those
+ * typed, those stored in it, its filter row, storing them; the hooks about it
+ */
+class FilterTable {
+  // Filters typed that the table does not store (as typed, by column)
+  private typed: string[] | undefined;
+  // The filters stored in the table, read from its markdown (as of `source`)
+  private stored: { readonly source: string; readonly filters: readonly string[] } | undefined;
+  // Its filter row shown, and its fields, one per column (made once, given to the core each time the view applies)
+  private shown = false;
+  private rows: readonly RowField[] | undefined;
+  private storeTimer: ReturnType<typeof setTimeout> | undefined;
+  // Stored once the cell editor in it closes, or it is rendered again (a write renders a table anew)
+  private storeWaiting = false;
 
-  constructor(private readonly host: ModelHost) {
-    this.filtering = host.markLayer("filtered");
-    this.panel = host.panel("swt-filter-bubble");
-  }
-
-  start(): void {
-    void this.readOptions();
-  }
+  constructor(
+    private readonly table: PartTable,
+    private readonly module: Filters,
+    private readonly host: ModelHost,
+  ) {}
 
   stop(): void {
-    for (const timer of this.storeTimers.values()) clearTimeout(timer);
-    this.hideBubble();
-    this.panel.remove();
-    this.filtering.clear();
-  }
-
-  /** The smart filters setting; when it changed, every table shown is filtered anew */
-  private async readOptions(): Promise<void> {
-    const smart = (await this.host.setting("smartFilters")) === true;
-    if (smart === this.options.smart) return;
-    this.options = { smart };
-    for (const info of this.host.shownTables()) this.host.viewChangedFor(info.key);
+    clearTimeout(this.storeTimer);
   }
 
   /** The filters stored in the table (filter.*), by column */
   private storedFilters(info: TableInfo): readonly string[] {
-    const known = this.stored.get(info.key);
-    if (known?.source === info.source) return known.filters;
+    if (this.stored?.source === info.source) return this.stored.filters;
     const filters: string[] = [];
     for (const [column, value] of columnMeta(parseTable(info.source), "filter")) {
       while (filters.length < column) filters.push("");
       filters[column] = value;
     }
-    this.stored.set(info.key, { source: info.source, filters });
+    this.stored = { source: info.source, filters };
     return filters;
   }
 
   /** The table's filters, by column: those typed, else those stored */
-  private filtersOf(info: TableInfo): readonly string[] {
-    return this.typed.get(info.key) ?? this.storedFilters(info);
+  filtersOf(info: TableInfo): readonly string[] {
+    return this.typed ?? this.storedFilters(info);
   }
 
   /** The filters that filter, by column */
   private matchers(info: TableInfo): Map<number, (value: string) => boolean> {
     const matchers = new Map<number, (value: string) => boolean>();
     this.filtersOf(info).forEach((filter, column) => {
-      const match = parseFilter(filter, this.options).match;
+      const match = parseFilter(filter, this.module.options).match;
       if (match) matchers.set(column, match);
     });
     return matchers;
@@ -203,28 +177,28 @@ export class Filters implements Feature {
 
   // The headers of the columns filtering marked; a column's bubble follows its header, which a write renders anew
   viewApplied(info: TableInfo): void {
-    this.filtering.set(info.key, [...this.matchers(info).keys()].map((column) => ({ row: 0, column })));
-    if (this.bubble?.popover && this.bubble.key === info.key) this.panel.show(this.bubble.anchor, POPOVER_PLACE);
+    this.module.filtering.set(info.key, [...this.matchers(info).keys()].map((column) => ({ row: 0, column })));
+    this.module.headerShown(info.key);
   }
 
   /** The filter row while it is shown: a field per column, as the filters are */
   headerRow(info: TableInfo): HeaderRow | undefined {
-    if (!this.shown.has(info.key)) {
+    if (!this.shown) {
       // A field taken away with the row: its bubble goes too
-      if (this.bubble && !this.bubble.popover && this.bubble.key === info.key) this.hideBubble();
+      this.module.rowGone(info.key);
       return undefined;
     }
-    let fields = this.rows.get(info.key);
+    let fields = this.rows;
     if (fields?.length !== info.columns) {
-      fields = Array.from({ length: info.columns }, (_, column) => this.rowField(info.key, column));
-      this.rows.set(info.key, fields);
+      fields = Array.from({ length: info.columns }, (_, column) => this.rowField(column));
+      this.rows = fields;
     }
     const filters = this.filtersOf(info);
     for (const [column, { element, input }] of fields.entries()) {
       const value = filters[column] ?? "";
       if (input.value !== value && this.host.doc.activeElement !== input) input.value = value;
       // A filter that cannot be used filters nothing; the field says why
-      const { match, error } = parseFilter(input.value, this.options);
+      const { match, error } = parseFilter(input.value, this.module.options);
       input.classList.toggle("swt-invalid", !!error);
       input.title = error ?? "";
       element.classList.toggle("swt-filter-active", !!match);
@@ -235,7 +209,6 @@ export class Filters implements Feature {
 
   /** The filter icon at the toolbar's right; while filtered, "3 of 10 rows", its × clearing the filters */
   toolbarButtons(info: TableInfo): ToolbarButton[] {
-    const { key } = info;
     const buttons: ToolbarButton[] = [];
     if (this.hidesRows(info)) {
       const rows = info.rows - 1;
@@ -246,7 +219,7 @@ export class Filters implements Feature {
         title: "Clear the filters",
         place: "chip",
         icon: ICONS.filter,
-        run: () => this.clearAll(key),
+        run: () => this.clearAll(),
       });
     }
     buttons.push({
@@ -254,13 +227,12 @@ export class Filters implements Feature {
       title: "Show or hide the filter row (hidden, the filters still apply: the toolbar and the headers show them)",
       place: "icon",
       icon: ICONS.filter,
-      pressed: this.shown.has(key),
+      pressed: this.shown,
       run: () => {
-        if (this.shown.has(key)) this.shown.delete(key);
-        else this.shown.add(key);
-        this.host.viewChangedFor(key);
+        this.shown = !this.shown;
+        this.host.viewChangedFor(this.table.key);
         // A field taken away with the row loses its focus without a blur event
-        this.scheduleStore(key);
+        this.scheduleStore();
       },
     });
     return buttons;
@@ -282,12 +254,11 @@ export class Filters implements Feature {
     }
     // A value with a | cannot be listed
     if (values.some((v) => v.includes("|"))) return undefined;
-    const { key } = info;
     const apply = (prefix: "=" | "!=") => () => {
-      const now = this.host.tableFor(key);
+      const now = this.table.current();
       if (!now) return;
-      this.setFilter(key, column, withValues(this.filtersOf(now)[column] ?? "", prefix, values));
-      this.scheduleStore(key);
+      this.setFilter(column, withValues(this.filtersOf(now)[column] ?? "", prefix, values));
+      this.scheduleStore();
     };
     const label = valuesLabel(values);
     return {
@@ -307,11 +278,11 @@ export class Filters implements Feature {
         kind: "segmented",
         label: "Filter",
         options: [
-          { icon: ICONS.filter, title: "Filter this column", run: () => this.openFilter(info, column) },
+          { icon: ICONS.filter, title: "Filter this column", run: () => this.module.openFilter(info, column) },
           {
             icon: ICONS.clear,
             title: "Remove this column's filter",
-            run: () => this.clear(info, column),
+            run: () => this.clear(column),
             ...(filtered ? {} : { disabled: "This column is not filtered" }),
           },
         ],
@@ -321,15 +292,15 @@ export class Filters implements Feature {
 
   action(name: string, info: TableInfo, column: number | undefined): boolean {
     if (column === undefined) return false;
-    if (name === "filter") this.openFilter(info, column);
-    else if (name === "clear-filter") this.clear(info, column);
+    if (name === "filter") this.module.openFilter(info, column);
+    else if (name === "clear-filter") this.clear(column);
     else return false;
     return true;
   }
 
   /** Filters typed move with their columns; stored ones follow them in the markdown (meta.ts) */
-  columnsMoved(key: TableKey, map: (column: number) => number | undefined): void {
-    const typed = this.typed.get(key);
+  columnsMoved(_key: TableKey, map: (column: number) => number | undefined): void {
+    const typed = this.typed;
     if (!typed) return;
     const moved: string[] = [];
     typed.forEach((value, column) => {
@@ -338,67 +309,67 @@ export class Filters implements Feature {
       while (moved.length <= target) moved.push("");
       moved[target] = value;
     });
-    this.typed.set(key, moved);
+    this.typed = moved;
     // The fields are made anew for the columns where they are now
-    this.rows.delete(key);
+    this.rows = undefined;
   }
 
   /** Remove metadata: what is typed goes too, the table shows what its markdown has */
-  viewForgotten(key: TableKey): void {
-    this.typed.delete(key);
-    this.storesWaiting.delete(key);
+  viewForgotten(): void {
+    this.typed = undefined;
+    this.storeWaiting = false;
+  }
+
+  /** Rendered again: filters waiting for it are stored */
+  enhanced(): void {
+    if (this.storeWaiting) {
+      this.storeWaiting = false;
+      this.scheduleStore();
+    }
+  }
+
+  /** A cell editor in it closed: filters waiting for it are stored */
+  editorClosed(): void {
+    this.enhanced();
   }
 
   // ---- storing ------------------------------------------------------------------
 
-  /** Whether one of a table's filter fields (of its row, or its bubble) is typed in */
-  private typingIn(key: TableKey): boolean {
+  /** Whether one of its filter fields (of its row, or the bubble's) is typed in */
+  private typingIn(): boolean {
     const active = this.host.doc.activeElement;
     if (!(active instanceof HTMLInputElement)) return false;
-    if (this.bubble?.input === active) return this.bubble.key === key;
-    return (this.rows.get(key) ?? []).some((field) => field.input === active);
+    const typing = this.module.typingInBubble(active);
+    if (typing !== undefined) return typing === this.table.key;
+    return (this.rows ?? []).some((field) => field.input === active);
   }
 
   /**
-   * Stores a table's filters in its metadata row (the metadata setting, or a
-   * table that has the row) once none of its filter fields is typed in and no
-   * cell of it is edited: a write renders the table anew, which would take a
+   * Stores its filters in its metadata row (the metadata setting, or a table
+   * that has the row) once none of its filter fields is typed in and no cell
+   * of it is edited: a write renders the table anew, which would take a
    * field's focus or close the cell editor
    */
-  private scheduleStore(key: TableKey): void {
-    clearTimeout(this.storeTimers.get(key));
-    this.storeTimers.set(
-      key,
-      setTimeout(() => {
-        this.storeTimers.delete(key);
-        // Its blur stores again
-        if (this.typingIn(key)) return;
-        const editing = this.host.editing;
-        if (!this.host.tableFor(key) || editing?.key === key) {
-          this.storesWaiting.add(key);
-          return;
-        }
-        void this.store(key);
-      }, 0),
-    );
+  scheduleStore(): void {
+    clearTimeout(this.storeTimer);
+    this.storeTimer = setTimeout(() => {
+      this.storeTimer = undefined;
+      // Its blur stores again
+      if (this.typingIn()) return;
+      if (!this.table.current() || this.host.editing?.key === this.table.key) {
+        this.storeWaiting = true;
+        return;
+      }
+      void this.store();
+    }, 0);
   }
 
-  /** A cell editor closed: filters waiting for it are stored */
-  editorClosed(editor: CellEditor): void {
-    if (this.storesWaiting.delete(editor.key)) this.scheduleStore(editor.key);
-  }
-
-  /** A table rendered again: filters waiting for it are stored */
-  enhanced(info: TableInfo): void {
-    if (this.storesWaiting.delete(info.key)) this.scheduleStore(info.key);
-  }
-
-  private async store(key: TableKey): Promise<void> {
-    const info = this.host.tableFor(key);
-    const typed = this.typed.get(key);
+  private async store(): Promise<void> {
+    const info = this.table.current();
+    const typed = this.typed;
     if (!info || !typed) return;
     if (sameFilters(typed, this.storedFilters(info))) {
-      this.typed.delete(key);
+      this.typed = undefined;
       return;
     }
     if (!(info.metaRow || this.host.metadataEnabled)) return;
@@ -410,25 +381,153 @@ export class Filters implements Feature {
     });
     const result = await this.host.writeTable(info, (t) => withColumnMeta(t, "filter", filters));
     // Stored: the table's markdown has them now
-    if (result !== "failed" && sameFilters(this.typed.get(key) ?? [], written)) this.typed.delete(key);
+    if (result !== "failed" && sameFilters(this.typed ?? [], written)) this.typed = undefined;
   }
 
   // ---- typing ---------------------------------------------------------------------
 
   /** A column's field in the filter row: the filter icon, the field, its clear button */
-  private rowField(key: TableKey, column: number): RowField {
-    const { box, input } = this.filterBox(key, column);
+  private rowField(column: number): RowField {
+    const { box, input } = this.module.filterBox(this.table.key, column);
     const element = el(this.host.doc, "div", "swt-filter-field", box);
-    input.addEventListener("focus", () => {
-      void this.readOptions();
-      if (this.bubble?.input !== input) this.showBubble(key, column, input, { kind: "element", element: input });
-    });
-    input.addEventListener("blur", (e) => this.left(key, input, e));
+    input.addEventListener("focus", () => this.module.rowFieldFocused(this.table.key, column, input));
+    input.addEventListener("blur", (e) => this.module.left(this.table.key, input, e));
     return { element, input };
   }
 
+  /** A column's filter removed: a field's clear button in the filter row, the × in the column's menu */
+  clear(column: number): void {
+    const input = this.shown ? this.rows?.[column]?.input : undefined;
+    if (input) this.type(input, column, "");
+    else this.setFilter(column, "");
+    this.scheduleStore();
+  }
+
+  /** The toolbar chip's ×: no filter any more */
+  private clearAll(): void {
+    this.typed = [];
+    for (const field of this.rows ?? []) field.input.value = "";
+    this.module.tableCleared(this.table.key);
+    this.host.viewChangedFor(this.table.key);
+    this.scheduleStore();
+  }
+
+  setFilter(column: number, value: string): void {
+    const info = this.table.current();
+    if (info) {
+      const filters = [...this.filtersOf(info)];
+      while (filters.length <= column) filters.push("");
+      filters[column] = value;
+      this.typed = filters;
+      this.host.viewChangedFor(this.table.key);
+    }
+    this.module.filterTyped(this.table.key, column, value);
+  }
+
+  /** Puts `value` in the field as if typed */
+  type(input: HTMLInputElement, column: number, value: string): void {
+    input.value = value;
+    this.rows?.[column]?.element.classList.toggle("swt-filter-typed", value !== "");
+    this.setFilter(column, value);
+  }
+}
+
+/**
+ * The filters module: its parts are the tables' filters (FilterTable); itself,
+ * what is the page's: the smart filters setting, the one bubble under the
+ * field typed in (or a column's filter on its own), the marks on the headers
+ * of the columns filtering
+ */
+export class Filters implements Feature {
+  options: FilterOptions = { smart: true };
+  // The headers of the columns filtering
+  readonly filtering: MarkLayer;
+  // The bubble under the field being typed in, or (popover) a column's filter on its own
+  private readonly panel: Panel;
+  private bubble:
+    | {
+        readonly body: HTMLElement;
+        readonly input: HTMLInputElement;
+        readonly key: TableKey;
+        readonly column: number;
+        readonly anchor: PanelAnchor;
+        readonly popover: boolean;
+      }
+    | undefined;
+  readonly tableParts = tablePartsOf(FilterTable, (table) => new FilterTable(table, this, this.host));
+
+  constructor(private readonly host: ModelHost) {
+    this.filtering = host.markLayer("filtered");
+    this.panel = host.panel("swt-filter-bubble");
+  }
+
+  start(): void {
+    void this.readOptions();
+  }
+
+  stop(): void {
+    this.hideBubble();
+    this.panel.remove();
+    this.filtering.clear();
+  }
+
+  /** A table's filters (its part) */
+  private filtersFor(key: TableKey): FilterTable | undefined {
+    return this.host.tablePart<FilterTable>(this, key);
+  }
+
+  /** The smart filters setting; when it changed, every table shown is filtered anew */
+  private async readOptions(): Promise<void> {
+    const smart = (await this.host.setting("smartFilters")) === true;
+    if (smart === this.options.smart) return;
+    this.options = { smart };
+    for (const info of this.host.shownTables()) this.host.viewChangedFor(info.key);
+  }
+
+  /** A cell editor closed: its table's filters waiting for it are stored */
+  editorClosed(editor: CellEditor): void {
+    this.filtersFor(editor.key)?.editorClosed();
+  }
+
+  // ---- what the tables' filters ask of the page's ------------------------------------
+
+  /** A table's view applied: a column's filter on its own follows its header, which a write renders anew */
+  headerShown(key: TableKey): void {
+    if (this.bubble?.popover && this.bubble.key === key) this.panel.show(this.bubble.anchor, POPOVER_PLACE);
+  }
+
+  /** A table's filter row hidden: the bubble of one of its fields goes */
+  rowGone(key: TableKey): void {
+    if (this.bubble && !this.bubble.popover && this.bubble.key === key) this.hideBubble();
+  }
+
+  /** A table's filters cleared: its bubble goes */
+  tableCleared(key: TableKey): void {
+    if (this.bubble?.key === key) this.hideBubble();
+  }
+
+  /** A filter typed: the bubble of that column's field shows what it says now */
+  filterTyped(key: TableKey, column: number, value: string): void {
+    const bubble = this.bubble;
+    if (bubble && bubble.key === key && bubble.column === column) {
+      this.panel.element.classList.toggle("swt-filter-typed", value !== "");
+      this.renderBubble();
+    }
+  }
+
+  /** The table whose field is typed in, if the field is the bubble's; undefined: it is none of the bubble's */
+  typingInBubble(active: HTMLInputElement): TableKey | undefined {
+    return this.bubble?.input === active ? this.bubble.key : undefined;
+  }
+
+  /** A field of a filter row focused: the bubble under it */
+  rowFieldFocused(key: TableKey, column: number, input: HTMLInputElement): void {
+    void this.readOptions();
+    if (this.bubble?.input !== input) this.showBubble(key, column, input, { kind: "element", element: input });
+  }
+
   /** A filter field with the filter icon before it and its clear button after it */
-  private filterBox(key: TableKey, column: number): { box: HTMLElement; input: HTMLInputElement } {
+  filterBox(key: TableKey, column: number): { box: HTMLElement; input: HTMLInputElement } {
     const { doc } = this.host;
     const input = el(doc, "input", {
       class: "swt-filter",
@@ -436,7 +535,7 @@ export class Filters implements Feature {
       attrs: { type: "text", size: 1, placeholder: "Filter", spellcheck: "false", "data-swt-column": column },
     });
     this.host.isolate(input);
-    input.addEventListener("input", () => this.setFilter(key, column, input.value));
+    input.addEventListener("input", () => this.filtersFor(key)?.setFilter(column, input.value));
     input.addEventListener("keydown", (e) => {
       if (e.key === "Escape" || e.key === "Enter") {
         e.preventDefault();
@@ -452,50 +551,10 @@ export class Filters implements Feature {
       attrs: { tabindex: -1, "aria-label": "Clear this filter", "data-swt-action": "clear-filter", "data-swt-column": column },
       // The field keeps the focus (and its bubble) when it is cleared while typed in
       on: { mousedown: (e) => e.preventDefault() },
-      run: () => this.type(key, input, column, ""),
+      run: () => this.filtersFor(key)?.type(input, column, ""),
     });
     const box = el(doc, "div", "swt-filter-box", el(doc, "span", { class: "swt-filter-icon", html: ICONS.filter }), input, clear);
     return { box, input };
-  }
-
-  /** A column's filter removed: a field's clear button in the filter row, the × in the column's menu */
-  private clear(info: TableInfo, column: number): void {
-    const input = this.shown.has(info.key) ? this.rows.get(info.key)?.[column]?.input : undefined;
-    if (input) this.type(info.key, input, column, "");
-    else this.setFilter(info.key, column, "");
-    this.scheduleStore(info.key);
-  }
-
-  /** The toolbar chip's ×: no filter any more */
-  private clearAll(key: TableKey): void {
-    this.typed.set(key, []);
-    for (const field of this.rows.get(key) ?? []) field.input.value = "";
-    if (this.bubble?.key === key) this.hideBubble();
-    this.host.viewChangedFor(key);
-    this.scheduleStore(key);
-  }
-
-  private setFilter(key: TableKey, column: number, value: string): void {
-    const info = this.host.tableFor(key);
-    if (info) {
-      const filters = [...this.filtersOf(info)];
-      while (filters.length <= column) filters.push("");
-      filters[column] = value;
-      this.typed.set(key, filters);
-      this.host.viewChangedFor(key);
-    }
-    const bubble = this.bubble;
-    if (bubble && bubble.key === key && bubble.column === column) {
-      this.panel.element.classList.toggle("swt-filter-typed", value !== "");
-      this.renderBubble();
-    }
-  }
-
-  /** Puts `value` in the field as if typed */
-  private type(key: TableKey, input: HTMLInputElement, column: number, value: string): void {
-    input.value = value;
-    this.rows.get(key)?.[column]?.element.classList.toggle("swt-filter-typed", value !== "");
-    this.setFilter(key, column, value);
   }
 
   // ---- the bubble -------------------------------------------------------------
@@ -505,7 +564,7 @@ export class Filters implements Feature {
    * column menu's Filter): nothing in the table moves. Asked again for the same
    * column, it closes.
    */
-  private openFilter(info: TableInfo, column: number): void {
+  openFilter(info: TableInfo, column: number): void {
     const { key } = info;
     if (this.bubble?.popover && this.bubble.key === key && this.bubble.column === column) {
       this.hideBubble();
@@ -513,7 +572,7 @@ export class Filters implements Feature {
     }
     void this.readOptions();
     const { box, input } = this.filterBox(key, column);
-    input.value = this.filtersOf(info)[column] ?? "";
+    input.value = this.filtersFor(key)?.filtersOf(info)[column] ?? "";
     input.addEventListener("blur", (e) => this.left(key, input, e));
     // A × beside the field closes it, as Esc does (the field's own × clears the filter)
     const { doc } = this.host;
@@ -527,7 +586,7 @@ export class Filters implements Feature {
         input.blur();
         if (this.bubble?.input === input) {
           this.hideBubble();
-          this.scheduleStore(key);
+          this.filtersFor(key)?.scheduleStore();
         }
       },
     });
@@ -554,11 +613,11 @@ export class Filters implements Feature {
    * A field lost the focus: its bubble goes, unless the focus went into it (a
    * value ticked), and the filters are stored once no field has it
    */
-  private left(key: TableKey, input: HTMLInputElement, e: FocusEvent): void {
+  left(key: TableKey, input: HTMLInputElement, e: FocusEvent): void {
     const bubble = this.bubble;
     if (bubble?.input === input && e.relatedTarget instanceof Node && this.panel.element.contains(e.relatedTarget)) return;
     if (bubble?.input === input) this.hideBubble();
-    this.scheduleStore(key);
+    this.filtersFor(key)?.scheduleStore();
   }
 
   private hideBubble(): void {
@@ -589,7 +648,7 @@ export class Filters implements Feature {
             class: "swt-filter-hint",
             attrs: { tabindex: -1 },
             run: () => {
-              this.type(key, input, column, h.apply(input.value.trim()));
+              this.filtersFor(key)?.type(input, column, h.apply(input.value.trim()));
               input.focus({ preventScroll: true });
               input.setSelectionRange(input.value.length, input.value.length);
             },
@@ -635,7 +694,7 @@ export class Filters implements Feature {
         });
         // One empty value alone is "=|", which "=" alone (still being typed) is not
         const filter = chosen.length === 0 ? "" : chosen.length === 1 && chosen[0]!.value === "" ? "=|" : `=${chosen.map((v) => v.value).join("|")}`;
-        this.type(key, input, column, filter);
+        this.filtersFor(key)?.type(input, column, filter);
         input.focus({ preventScroll: true });
       });
       list.append(item);

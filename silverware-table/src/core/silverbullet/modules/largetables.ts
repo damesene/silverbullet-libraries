@@ -12,7 +12,7 @@
 // (placeRows), as the box scrolls, and put back when a row is needed
 // (rowNeeded: a cell edited or selected out of view).
 import { SETTINGS } from "../../../bridge.ts";
-import type { AdapterFeature, TableHost, WidgetInfo } from "../../feature.ts";
+import { type AdapterFeature, type TableHost, tablePartsOf, type WidgetInfo } from "../../feature.ts";
 import { UI_CLASS } from "../../../dom.ts";
 import type { TableKey } from "../../tables.ts";
 
@@ -41,18 +41,30 @@ type State = {
   widthsKept: boolean;
 };
 
+/**
+ * What a table keeps across its renderings (the module's part for it,
+ * core/parts.ts): where its box was scrolled to and its rows' height as
+ * measured, so the same scroll shows the same rows once it is rendered anew
+ */
+class LargeTable {
+  scrollTop: number | undefined;
+  rowHeight: number | undefined;
+}
+
 export class LargeTables implements AdapterFeature {
   private minRows: number = SETTINGS.largeTablesMinRows.default;
   private maxHeight = 0;
   private readonly states = new WeakMap<HTMLTableElement, State>();
-  // Where each table's box was scrolled to, and its rows' height as measured, by
-  // table, kept while it is rendered anew: the same scroll then shows the same rows
-  private readonly scrolls = new Map<string, number>();
-  private readonly heights = new Map<string, number>();
+  readonly tableParts = tablePartsOf(LargeTable, () => new LargeTable());
   // The height last measured, for a table not measured yet
   private lastHeight = ROW_HEIGHT;
 
   constructor(private readonly host: TableHost) {}
+
+  /** What a table keeps across its renderings */
+  private kept(key: TableKey): LargeTable | undefined {
+    return this.host.tablePart<LargeTable>(this, key);
+  }
 
   start(): void {
     void this.readSettings();
@@ -142,12 +154,13 @@ export class LargeTables implements AdapterFeature {
     const state = this.stateOf(widget, info.table);
     widget.classList.add(LARGE_CLASS);
     // Rendered anew: the rows' height measured before, so the scroll shows the same rows
-    if (state.key === undefined) state.rowHeight = this.heights.get(info.key) ?? state.rowHeight;
+    const kept = this.kept(info.key);
+    if (state.key === undefined) state.rowHeight = kept?.rowHeight ?? state.rowHeight;
     state.key = info.key;
     state.info = info;
     state.shown = shown;
     // Where the box was scrolled to before the table was rendered anew (the core scrolls it back there)
-    const top = this.scrolls.get(info.key) ?? widget.scrollTop;
+    const top = kept?.scrollTop ?? widget.scrollTop;
     this.windowAt(state, Math.floor(top / state.rowHeight));
     this.place(state, body);
     return true;
@@ -186,7 +199,8 @@ export class LargeTables implements AdapterFeature {
   }
 
   private scrolled(state: State): void {
-    if (state.key) this.scrolls.set(state.key, state.widget.scrollTop);
+    const kept = state.key && this.kept(state.key);
+    if (kept) kept.scrollTop = state.widget.scrollTop;
     if (state.queued) return;
     state.queued = true;
     const win = this.host.doc.defaultView!;
@@ -227,7 +241,8 @@ export class LargeTables implements AdapterFeature {
         }
         if (height > 0) {
           this.lastHeight = height;
-          if (state.key) this.heights.set(state.key, height);
+          const kept = state.key && this.kept(state.key);
+          if (kept) kept.rowHeight = height;
         }
       }
       if (!state.widthsKept) {
