@@ -398,3 +398,6 @@ other pages on a sheet.
   name *No sheet* in the danger color, the row of names shown whatever the
   setting (a name's `attention`), a click its field (agreed with the user: no
   label of its own on the board).
+  Tab / Shift+Tab move the cell selected (select mode) as in a cell editor;
+  Enter on the last row adds a row with *Save, edit the cell below* (agreed
+  with the user: only with that setting).
