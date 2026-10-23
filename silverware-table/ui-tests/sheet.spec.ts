@@ -35,6 +35,26 @@ async function emptyCell(page: Page, at: { right?: number; below?: number; row?:
   return { x, y };
 }
 
+test.describe("Long text on the sheet", () => {
+  test("a narrow column: its header and its cells stay within it, cut with an ellipsis", async ({ page }) => {
+    await page.evaluate(() => localStorage.setItem("silverwarePlayground.settings", JSON.stringify({ "silverware.table.metadata": true, "silverware.table.modules.longText.overflow": "ellipsis" })));
+    await page.reload();
+    await page.locator("#source").fill("# Test\n\n| Item with a long header name | Note |\n|---|---|\n| A very long value that does not fit | short |\n| <meta name='t' sheet='S' at='A1' sheet.width.A='90'> |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
+    await openSheet(page);
+    const t = sheetTable(page);
+    const fits = (selector: string) =>
+      t.locator(selector).first().evaluate((box) => {
+        const cell = box.closest("td")!.getBoundingClientRect();
+        const b = box.getBoundingClientRect();
+        return { inside: b.left >= cell.left - 0.5 && b.right <= cell.right + 0.5, cut: box.scrollWidth > box.clientWidth, ellipsis: getComputedStyle(box).textOverflow };
+      });
+    expect(await fits("thead .swt-head-name")).toEqual({ inside: true, cut: true, ellipsis: "ellipsis" });
+    expect(await fits("tr[data-swt-row='1'] > td > .swt-cell-content")).toEqual({ inside: true, cut: true, ellipsis: "ellipsis" });
+  });
+});
+
 test.describe("Column widths by the sheet's letters", () => {
   test("a column no table has: its letter's edge dragged sets its width in the first table's metadata; a double click takes it off", async ({ page }) => {
     await openSheet(page);

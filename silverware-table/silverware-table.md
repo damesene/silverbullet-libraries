@@ -757,7 +757,7 @@ The sheet view of a table on a sheet shows all the sheet's tables, each at its p
 * A table that gets smaller moves nothing back.
 * It is one edit: one Ctrl+Z puts everything back.
 
-In the sheet view a table's header and pinned rows and columns stay in view while the table is, as frozen rows and columns do in a spreadsheet, each table on its own. A column's width dragged there (the handle on a header's right edge, or the right edge of the column's letter above the sheet, also for a column no table has) is the sheet's column's, for every table in that column, as a spreadsheet's columns are (kept in the sheet's first table, `sheet.width.B='140'`); a double-click makes it automatic again. A table's own widths still apply in the page. The sheet view of a table alone works the same: the width dragged is its sheet view's column's, kept in the table.
+In the sheet view text longer than its column is cut there: a header's name with an ellipsis, a cell's as the longText module's setting says (wrapped within the row's height, or on one line with an ellipsis). A table's header and pinned rows and columns stay in view while the table is, as frozen rows and columns do in a spreadsheet, each table on its own. A column's width dragged there (the handle on a header's right edge, or the right edge of the column's letter above the sheet, also for a column no table has) is the sheet's column's, for every table in that column, as a spreadsheet's columns are (kept in the sheet's first table, `sheet.width.B='140'`); a double-click makes it automatic again. A table's own widths still apply in the page. The sheet view of a table alone works the same: the width dragged is its sheet view's column's, kept in the table.
 
 In the sheet view formulas read in the sheet's addresses, as the letters and numbers show them: in a table at `D1`, whose own `A1` is the sheet's `D2`, `=prices!B1*2` reads `=B2*2` where `prices` is at `A1`, and a formula typed or pointed at there is stored in its tables' addresses again (`=B3*2` as `prices!B2*2`). A reference stays on its row: sorting a table changes the address shown, not the value. In a sorted or filtered table a range of several rows cannot be pointed at there, as its rows are not in the markdown's order (the hint under the cell says so); a click on a header gives the whole column (`[qty]`). While a formula waits for a reference, the sheet's other tables can be pointed at too: a cell gives its sheet's address (stored by the table's name, `prices!B2`), a header the table's column (`prices![price]`). A range is always within one table. A reference to a table on no sheet, or on another page, reads as stored; one to the sheet's empty cells is written as `#REF!`. Out of the sheet view a formula reads as stored.
 
@@ -1987,11 +1987,15 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   padding-bottom: 0 !important;
 }
 /* The cell is not clipped itself (what sits on its edges stays reachable: the
-   fill handle, the pin mark, the selection's handles); its content is, on one
-   line cut at the cell's width, as the sheet's rows have one height */
+   fill handle, the pin mark, the selection's handles); its content is, at the
+   cell's width (not as wide as its text: the sheet's columns have theirs) and
+   the row's height: on one line cut with an ellipsis, or wrapped and cut at the
+   row's height (the longText module's wrap) */
 .sb-table-widget.swt-sheet-table tr > td > .swt-cell-content {
   display: block;
   box-sizing: border-box;
+  width: auto;
+  max-width: none;
   max-height: var(--swt-sheet-row);
   /* Room above and below the line, the same (the text stays in the row's middle): what is drawn under the text, a
      formula result's underline, is within the box its overflow clips to */
@@ -1999,6 +2003,19 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.sb-table-widget.swt-sheet-table.swt-cells-wrap tr > td > .swt-cell-content {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+/* A header at its cell's width: its name cut with an ellipsis, its icons after it */
+.sb-table-widget.swt-sheet-table .swt-head {
+  display: flex;
+  max-width: 100%;
+}
+.sb-table-widget.swt-sheet-table .swt-head-name {
+  text-overflow: ellipsis;
 }
 /* The sheet's rows have their height: no zero-width space keeps an empty one tall, which before a block (the content
    above) would be a line of its own and push the content to the row's bottom */
