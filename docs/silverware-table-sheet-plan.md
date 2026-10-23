@@ -154,6 +154,17 @@ Agreed with the user on 2026-10-23:
   past A1.
 - Review, tests (a Playwright scenario each), merge.
 
+## Phase 6: a module's part for one table (branch `table-parts`)
+
+Agreed with the user on 2026-10-23: a module should not know there are several
+tables. The core makes a module's part for each table, keeps it as long as the
+table's key and hands it the hooks about that table; the module keeps what is
+the page's. The modules about one table get parts (filters, widths, lazy
+saving, largeTables' memory of a table); those spanning tables (formulas, the
+sheet, selection, the clipboard, AutoFill, grips) keep keys as references
+only. The core's own state by table stays the core's (it is where several
+tables belong). Review, fixes, merge.
+
 ## Later (not in these phases)
 
 Large tables on the sheet, touch on a phone, the live renderer
@@ -349,3 +360,13 @@ other pages on a sheet.
   table finding its table by its key. Left: deleting the first of two tables of
   the same name moves references to the second (formulas take a name's first
   table).
+- 2026-10-23, phase 6 (branch `table-parts`): `core/parts.ts` (a part's class
+  declares its hooks; the core routes those hooks by the table they are about,
+  makes and keeps the parts, ends them with the module; `host.tablePart`,
+  `host.tableParts`); filters, widths, lazy saving and largeTables moved onto
+  parts, no change in behaviour; the isolation test keeps modules from
+  collections by key (the sheet aside).
+  Reviewed: no behaviour changed but one, fixed: switching one table's lazy
+  saving off cancels the delay again (every flush does, as before); the module
+  routed knows its parts as the module's own (no second set). Left: the sheet
+  keeps its board's tables by key (the board spans them).
