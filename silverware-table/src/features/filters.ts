@@ -29,6 +29,7 @@ import {
   type ToolbarButton,
   type TableInfo,
 } from "../core/feature.ts";
+import { el } from "../elements.ts";
 import { type FilterOptions, normalizeForFilter, parseFilter } from "../filter.ts";
 import { ICONS } from "../icons.ts";
 import { parseTable } from "../markdown.ts";
@@ -415,34 +416,24 @@ export class Filters implements Feature {
 
   /** A column's field in the filter row: the filter icon, the field, its clear button */
   private rowField(key: string, column: number): RowField {
-    const element = this.host.doc.createElement("div");
-    element.className = "swt-filter-field";
     const { box, input } = this.filterBox(key, column);
+    const element = el(this.host.doc, "div", "swt-filter-field", box);
     input.addEventListener("focus", () => {
       void this.readOptions();
       if (this.bubble?.input !== input) this.showBubble(key, column, input, { kind: "element", element: input });
     });
     input.addEventListener("blur", (e) => this.left(key, input, e));
-    element.append(box);
     return { element, input };
   }
 
   /** A filter field with the filter icon before it and its clear button after it */
   private filterBox(key: string, column: number): { box: HTMLElement; input: HTMLInputElement } {
     const { doc } = this.host;
-    const box = doc.createElement("div");
-    box.className = "swt-filter-box";
-    const icon = doc.createElement("span");
-    icon.className = "swt-filter-icon";
-    icon.innerHTML = ICONS.filter;
-    const input = doc.createElement("input");
-    input.type = "text";
-    input.className = "swt-filter";
-    // Its natural width (20 characters) would widen the column: it fills the cell instead (CSS)
-    input.size = 1;
-    input.placeholder = "Filter";
-    input.spellcheck = false;
-    input.dataset.swtColumn = String(column);
+    const input = el(doc, "input", {
+      class: "swt-filter",
+      // Its natural width (20 characters) would widen the column: it fills the cell instead (CSS)
+      attrs: { type: "text", size: 1, placeholder: "Filter", spellcheck: "false", "data-swt-column": column },
+    });
     this.host.isolate(input);
     input.addEventListener("input", () => this.setFilter(key, column, input.value));
     input.addEventListener("keydown", (e) => {
@@ -451,24 +442,18 @@ export class Filters implements Feature {
         input.blur();
       }
     });
-    const clear = doc.createElement("button");
-    clear.type = "button";
-    clear.tabIndex = -1;
-    clear.className = "swt-filter-clear";
-    clear.title = "Clear this filter";
-    clear.setAttribute("aria-label", clear.title);
-    clear.innerHTML = ICONS.clear;
-    // In the table, a click reaches the controller only, which hands its
-    // actions over (clear()); in the column's bubble, outside it, the button's own
-    clear.dataset.swtAction = "clear-filter";
-    clear.dataset.swtColumn = String(column);
-    // The field keeps the focus (and its bubble) when it is cleared while typed in
-    clear.addEventListener("mousedown", (e) => e.preventDefault());
-    clear.addEventListener("click", (e) => {
-      e.preventDefault();
-      this.type(key, input, column, "");
+    const clear = el(doc, "button", {
+      class: "swt-filter-clear",
+      title: "Clear this filter",
+      html: ICONS.clear,
+      // In the table, a click reaches the controller only, which hands its
+      // actions over (clear()); in the column's bubble, outside it, the button's own
+      attrs: { tabindex: -1, "aria-label": "Clear this filter", "data-swt-action": "clear-filter", "data-swt-column": column },
+      // The field keeps the focus (and its bubble) when it is cleared while typed in
+      on: { mousedown: (e) => e.preventDefault() },
+      run: () => this.type(key, input, column, ""),
     });
-    box.append(icon, input, clear);
+    const box = el(doc, "div", "swt-filter-box", el(doc, "span", { class: "swt-filter-icon", html: ICONS.filter }), input, clear);
     return { box, input };
   }
 
@@ -531,25 +516,21 @@ export class Filters implements Feature {
     input.addEventListener("blur", (e) => this.left(key, input, e));
     // A × beside the field closes it, as Esc does (the field's own × clears the filter)
     const { doc } = this.host;
-    const head = doc.createElement("div");
-    head.className = "swt-filter-popover-head";
-    const close = doc.createElement("button");
-    close.type = "button";
-    close.tabIndex = -1;
-    close.className = "swt-filter-close";
-    close.title = "Close";
-    close.setAttribute("aria-label", "Close");
-    close.innerHTML = ICONS.clear;
-    close.addEventListener("click", (e) => {
-      e.preventDefault();
-      // Leaving the field closes it and stores the filters
-      input.blur();
-      if (this.bubble?.input === input) {
-        this.hideBubble();
-        this.scheduleStore(key);
-      }
+    const close = el(doc, "button", {
+      class: "swt-filter-close",
+      title: "Close",
+      html: ICONS.clear,
+      attrs: { tabindex: -1, "aria-label": "Close" },
+      run: () => {
+        // Leaving the field closes it and stores the filters
+        input.blur();
+        if (this.bubble?.input === input) {
+          this.hideBubble();
+          this.scheduleStore(key);
+        }
+      },
     });
-    head.append(box, close);
+    const head = el(doc, "div", "swt-filter-popover-head", box, close);
     // Under the header (as rendered now: a write renders the table anew)
     this.showBubble(key, column, input, { kind: "cell", key, row: 0, column }, head);
     this.panel.element.classList.toggle("swt-filter-typed", input.value !== "");
@@ -562,8 +543,7 @@ export class Filters implements Feature {
     const element = this.panel.element;
     element.classList.toggle("swt-filter-popover", !!head);
     element.classList.remove("swt-filter-typed");
-    const body = this.host.doc.createElement("div");
-    body.className = "swt-filter-bubble-body";
+    const body = el(this.host.doc, "div", "swt-filter-bubble-body");
     element.replaceChildren(...(head ? [head] : []), body);
     this.bubble = { body, input, key, column, anchor, popover: !!head };
     this.renderBubble();
@@ -600,25 +580,23 @@ export class Filters implements Feature {
       const filled = values.filter((v) => v.value !== "");
       const numeric = filled.length > 0 && filled.filter((v) => asNumber(v.value) !== undefined).length * 2 >= filled.length;
       const hints = numeric ? [...NUMBER_HINTS, ...TEXT_HINTS.slice(0, 3)] : TEXT_HINTS;
-      const list = doc.createElement("div");
-      list.className = "swt-filter-hints";
-      for (const hint of hints) {
-        const b = doc.createElement("button");
-        b.type = "button";
-        b.tabIndex = -1;
-        b.className = "swt-filter-hint";
-        const code = doc.createElement("code");
-        code.textContent = hint.code;
-        b.append(code, ` ${hint.text}`);
-        b.addEventListener("click", (e) => {
-          e.preventDefault();
-          this.type(key, input, column, hint.apply(input.value.trim()));
-          input.focus({ preventScroll: true });
-          input.setSelectionRange(input.value.length, input.value.length);
-        });
-        list.append(b);
-      }
-      parts.push(list);
+      const hint = (h: (typeof hints)[number]) =>
+        el(
+          doc,
+          "button",
+          {
+            class: "swt-filter-hint",
+            attrs: { tabindex: -1 },
+            run: () => {
+              this.type(key, input, column, h.apply(input.value.trim()));
+              input.focus({ preventScroll: true });
+              input.setSelectionRange(input.value.length, input.value.length);
+            },
+          },
+          el(doc, "code", { text: h.code }),
+          ` ${h.text}`,
+        );
+      parts.push(el(doc, "div", "swt-filter-hints", ...hints.map(hint)));
       // A few values: ticked into an =a|b filter
       const pickable = values.filter((v) => !v.value.includes("|"));
       if (pickable.length > 0 && pickable.length <= MAX_VALUES && values.length <= MAX_VALUES) {
@@ -636,23 +614,19 @@ export class Filters implements Feature {
     const { doc } = this.host;
     const text = input.value.trim();
     const ticked = new Set(text.startsWith("=") ? text.slice(1).split("|").map((v) => normalizeForFilter(v.trim())) : []);
-    const list = doc.createElement("div");
-    list.className = "swt-filter-values";
+    const list = el(doc, "div", "swt-filter-values");
     for (const value of values) {
       const normalized = normalizeForFilter(value.value);
-      const item = doc.createElement("label");
-      item.className = "swt-filter-value";
-      const box = doc.createElement("input");
-      box.type = "checkbox";
-      box.tabIndex = -1;
+      const box = el(doc, "input", { attrs: { type: "checkbox", tabindex: -1 } });
       box.checked = ticked.has(normalized);
-      const label = doc.createElement("span");
-      label.className = "swt-filter-value-label";
-      label.textContent = value.label || "(empty)";
-      const count = doc.createElement("span");
-      count.className = "swt-filter-value-count";
-      count.textContent = String(value.count);
-      item.append(box, label, count);
+      const item = el(
+        doc,
+        "label",
+        "swt-filter-value",
+        box,
+        el(doc, "span", { class: "swt-filter-value-label", text: value.label || "(empty)" }),
+        el(doc, "span", { class: "swt-filter-value-count", text: String(value.count) }),
+      );
       box.addEventListener("change", () => {
         const chosen = values.filter((v) => {
           const n = normalizeForFilter(v.value);

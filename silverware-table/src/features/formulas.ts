@@ -70,6 +70,7 @@ import {
 import { addAffected, affectedBy, isAffected, ownNameChoices, pageNameChoices, pageTables, referredBy } from "../formulas/page.ts";
 import { functionNamed } from "../formulas/registry.ts";
 import { FunctionDialog } from "./functiondialog.ts";
+import { el } from "../elements.ts";
 import { ICONS } from "../icons.ts";
 import { escapeCell, type PageTable, pageTablesOf, parseTable, type Table, unescapeCell } from "../markdown.ts";
 import type { MenuEntry } from "../menu.ts";
@@ -668,9 +669,7 @@ export class Formulas implements Feature {
     if (!this.allowed(active)) {
       // No outlines, no pointing: only why the formula will be text
       this.hideFormulaUi();
-      this.formulaHint.element.replaceChildren(
-        Object.assign(this.host.doc.createElement("div"), { className: "swt-formula-help", textContent: FORMULAS_NEED_METADATA }),
-      );
+      this.formulaHint.element.replaceChildren(el(this.host.doc, "div", { class: "swt-formula-help", text: FORMULAS_NEED_METADATA }));
       this.formulaHint.show({ kind: "editor" }, { gap: 4 });
       return;
     }
@@ -702,19 +701,23 @@ export class Formulas implements Feature {
         // Another table's cells (a frame's): outlined, moved by pointing again rather than by their edges
         if (!ownTable) return;
         for (const side of ["top", "right", "bottom", "left"]) {
-          const edge = this.host.doc.createElement("div");
-          edge.className = `swt-ref-edge swt-ref-${side}`;
-          edge.title = "Drag to move the reference";
-          edge.addEventListener("pointerdown", (e) => this.dragReference(e, index, "move"));
-          mark.append(edge);
+          mark.append(
+            el(this.host.doc, "div", {
+              class: `swt-ref-edge swt-ref-${side}`,
+              title: "Drag to move the reference",
+              on: { pointerdown: (e) => this.dragReference(e, index, "move") },
+            }),
+          );
         }
         // The corner is the area's last cell: on the last box when sorting splits the area
         if (ref.kind === "area" && b === boxes.length - 1) {
-          const corner = this.host.doc.createElement("div");
-          corner.className = "swt-ref-corner";
-          corner.title = "Drag to resize the range";
-          corner.addEventListener("pointerdown", (e) => this.dragReference(e, index, "resize"));
-          mark.append(corner);
+          mark.append(
+            el(this.host.doc, "div", {
+              class: "swt-ref-corner",
+              title: "Drag to resize the range",
+              on: { pointerdown: (e) => this.dragReference(e, index, "resize") },
+            }),
+          );
         }
       });
     });
@@ -915,19 +918,15 @@ export class Formulas implements Feature {
     const { doc } = this.host;
     const hint = this.formulaHint.element;
     // fx at the hint's edge by the cell, the formula and its help beside it
-    const body = doc.createElement("div");
-    body.className = "swt-formula-hint-body";
+    const body = el(doc, "div", "swt-formula-hint-body");
     hint.replaceChildren(this.functionsButton(active), body);
     if (refs.length) {
-      const line = doc.createElement("div");
-      line.className = "swt-formula-preview";
+      const line = el(doc, "div", "swt-formula-preview");
       let at = 0;
       refs.forEach((ref, index) => {
-        line.append(formula.slice(at, ref.from));
-        const span = doc.createElement("span");
+        const span = el(doc, "span", { text: formula.slice(ref.from, ref.to) });
         span.style.color = REFERENCE_COLORS[index % REFERENCE_COLORS.length]!;
-        span.textContent = formula.slice(ref.from, ref.to);
-        line.append(span);
+        line.append(formula.slice(at, ref.from), span);
         at = ref.to;
       });
       line.append(formula.slice(at));
@@ -937,13 +936,13 @@ export class Formulas implements Feature {
     if (choices && this.choosing) {
       body.append(this.choiceList(active, choices, this.choosing.index));
       body.append(this.helpLine(choiceHelp(choices.choices[this.choosing.index]!)));
-      body.append(Object.assign(doc.createElement("div"), { className: "swt-formula-tab", textContent: "Tab: insert · ↑ ↓: pick · Enter: save as typed · Esc: close" }));
+      body.append(el(doc, "div", { class: "swt-formula-tab", text: "Tab: insert · ↑ ↓: pick · Enter: save as typed · Esc: close" }));
     } else {
       const help = formulaHelp(formula, active.selection[0]);
       if (help) body.append(this.helpLine(help));
     }
     if (this.noRange?.editor === active) {
-      body.append(Object.assign(doc.createElement("div"), { className: "swt-formula-help swt-formula-note", textContent: this.noRange.text }));
+      body.append(el(doc, "div", { class: "swt-formula-help swt-formula-note", text: this.noRange.text }));
     }
     // Under the cell, above it where it does not fit and there is more room (fx at its bottom, by the cell again);
     // its cell scrolled out of view (the field with it, or the popup cut so): none, as there is no help either
@@ -957,70 +956,69 @@ export class Formulas implements Feature {
   /** The functions and names a name typed may be, the one picked marked; a click inserts one */
   private choiceList(active: CellEditor, choices: FormulaChoices, index: number): HTMLElement {
     const { doc } = this.host;
-    const list = doc.createElement("div");
-    list.className = "swt-formula-choices";
-    list.setAttribute("role", "listbox");
-    choices.choices.forEach((choice, i) => {
-      const option = doc.createElement("div");
-      option.className = `swt-formula-choice swt-formula-choice-${choice.kind}`;
-      option.setAttribute("role", "option");
-      option.setAttribute("aria-selected", String(i === index));
-      const code = doc.createElement("code");
-      code.textContent = choiceText(choice).replace(/[([!]$/, "");
-      const description = doc.createElement("span");
-      // A function: its first sentence (the rest shows under the list for the one picked); a name: what it names
-      description.textContent =
-        choice.kind === "function"
-          ? (functionNamed(choice.name)?.description ?? "").split(/(?<=\.)\s/)[0]!
-          : choice.table
-            ? `Named cell of ${choice.table}`
-            : NAME_KINDS[choice.kind];
-      option.append(code, description);
-      // The field keeps the focus (the editor stays open)
-      option.addEventListener("mousedown", (e) => e.preventDefault());
-      option.addEventListener("click", () => {
-        if (this.host.editing === active) this.insertChoice(active, choices, i);
-      });
-      list.append(option);
-    });
-    return list;
+    return el(
+      doc,
+      "div",
+      { class: "swt-formula-choices", attrs: { role: "listbox" } },
+      ...choices.choices.map((choice, i) =>
+        el(
+          doc,
+          "div",
+          {
+            class: `swt-formula-choice swt-formula-choice-${choice.kind}`,
+            attrs: { role: "option", "aria-selected": String(i === index) },
+            // The field keeps the focus (the editor stays open)
+            on: { mousedown: (e) => e.preventDefault() },
+            run: () => {
+              if (this.host.editing === active) this.insertChoice(active, choices, i);
+            },
+          },
+          el(doc, "code", { text: choiceText(choice).replace(/[([!]$/, "") }),
+          // A function: its first sentence (the rest shows under the list for the one picked); a name: what it names
+          el(doc, "span", {
+            text:
+              choice.kind === "function"
+                ? (functionNamed(choice.name)?.description ?? "").split(/(?<=\.)\s/)[0]!
+                : choice.table
+                  ? `Named cell of ${choice.table}`
+                  : NAME_KINDS[choice.kind],
+          }),
+        ),
+      ),
+    );
   }
 
   /** fx: every function, in the Functions dialog */
   private functionsButton(active: CellEditor): HTMLElement {
-    const more = this.host.doc.createElement("button");
-    more.type = "button";
-    more.className = "swt-formula-functions";
-    more.title = "Functions: find one by its name or what it does (Shift+F3)";
-    more.setAttribute("aria-label", more.title);
-    more.innerHTML = ICONS.function;
-    // The field keeps the focus until the dialog takes it (the editor stays open)
-    more.addEventListener("mousedown", (e) => e.preventDefault());
-    more.addEventListener("click", () => {
-      if (this.host.editing === active) this.openFunctions(active);
+    const title = "Functions: find one by its name or what it does (Shift+F3)";
+    return el(this.host.doc, "button", {
+      class: "swt-formula-functions",
+      title,
+      attrs: { "aria-label": title },
+      html: ICONS.function,
+      // The field keeps the focus until the dialog takes it (the editor stays open)
+      on: { mousedown: (e) => e.preventDefault() },
+      run: () => {
+        if (this.host.editing === active) this.openFunctions(active);
+      },
     });
-    return more;
   }
 
   /** A function's syntax, the argument the caret is in marked, and what it does */
   private helpLine(help: FormulaHelp): HTMLElement {
     const { doc } = this.host;
-    const item = doc.createElement("div");
-    item.className = "swt-formula-help";
-    const syntax = doc.createElement("code");
     const { argument } = help;
-    if (argument) {
-      const current = doc.createElement("b");
-      current.className = "swt-formula-argument";
-      current.textContent = help.syntax.slice(argument.from, argument.to);
-      syntax.append(help.syntax.slice(0, argument.from), current, help.syntax.slice(argument.to));
-    } else {
-      syntax.textContent = help.syntax;
-    }
-    const description = doc.createElement("span");
-    description.textContent = help.description;
-    item.append(syntax, description);
-    return item;
+    const syntax = argument
+      ? el(
+          doc,
+          "code",
+          undefined,
+          help.syntax.slice(0, argument.from),
+          el(doc, "b", { class: "swt-formula-argument", text: help.syntax.slice(argument.from, argument.to) }),
+          help.syntax.slice(argument.to),
+        )
+      : el(doc, "code", { text: help.syntax });
+    return el(doc, "div", "swt-formula-help", syntax, el(doc, "span", { text: help.description }));
   }
 
   private hideFormulaUi(): void {

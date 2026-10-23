@@ -7,6 +7,7 @@
 // each change, placed above the header (or over its right end) in the next
 // frame after a change: placing it measures the table.
 import { cellText, renderedTable } from "../dom.ts";
+import { el, pressed } from "../elements.ts";
 import { ICONS } from "../icons.ts";
 import type { MenuEntry } from "../menu.ts";
 import { hasPins, NO_PINS, withoutSort } from "../view.ts";
@@ -93,26 +94,17 @@ export class Toolbar {
     const namesShown = this.context.namesShown();
     const names = namesShown ? this.namesRow(widget, featureButtons) : undefined;
     if (names) bar.append(names.row);
-    const main = doc.createElement("div");
-    main.className = "swt-bar-main";
+    const main = el(doc, "div", "swt-bar-main");
     bar.append(main);
     // A button with its label, or (with an icon) the icon alone, the label its accessible name
     const button = (item: ToolbarButton, className?: string): HTMLButtonElement => {
-      const b = doc.createElement("button");
-      b.type = "button";
-      b.tabIndex = -1;
-      b.title = item.title;
-      if (className) b.className = className;
-      if (item.place === "icon" && item.icon) {
-        b.classList.add("swt-bar-icon");
-        b.setAttribute("aria-label", item.label);
-        b.innerHTML = item.icon;
-      } else b.textContent = item.label;
-      if (item.attention) b.classList.add("swt-attention");
-      if (item.pressed !== undefined) b.setAttribute("aria-pressed", String(item.pressed));
-      b.addEventListener("click", (e) => {
-        e.preventDefault();
-        item.run();
+      const iconOnly = item.place === "icon" && item.icon;
+      const b = el(doc, "button", {
+        class: [className, iconOnly && "swt-bar-icon", item.attention && "swt-attention"].filter(Boolean).join(" "),
+        title: item.title,
+        attrs: { tabindex: -1, "aria-label": iconOnly ? item.label : undefined, "aria-pressed": pressed(item.pressed) },
+        ...(iconOnly ? { html: item.icon } : { text: item.label }),
+        run: item.run,
       });
       main.append(b);
       return b;
@@ -137,32 +129,21 @@ export class Toolbar {
       });
     }
     for (const item of [...chips, ...featureButtons.filter((b) => b.place === "chip")]) {
-      const chip = doc.createElement("span");
-      chip.className = "swt-status swt-chip";
-      if (item.icon) chip.innerHTML = item.icon;
-      chip.append(item.label);
-      const small = (className: string, title: string, icon: string, run: () => void) => {
-        const b = doc.createElement("button");
-        b.type = "button";
-        b.tabIndex = -1;
-        b.className = className;
-        b.title = title;
-        b.setAttribute("aria-label", title);
-        b.innerHTML = icon;
-        b.addEventListener("click", (e) => {
-          e.preventDefault();
-          run();
-        });
-        return b;
-      };
-      for (const action of item.actions ?? []) chip.append(small("swt-chip-apply", action.title, action.icon, action.run));
-      chip.append(small("swt-chip-clear", item.title, ICONS.clear, item.run));
-      main.append(chip);
+      const small = (className: string, title: string, icon: string, run: () => void) =>
+        el(doc, "button", { class: className, title, attrs: { tabindex: -1, "aria-label": title }, html: icon, run });
+      main.append(
+        el(
+          doc,
+          "span",
+          { class: "swt-status swt-chip", ...(item.icon ? { html: item.icon } : {}) },
+          item.label,
+          ...(item.actions ?? []).map((action) => small("swt-chip-apply", action.title, action.icon, action.run)),
+          small("swt-chip-clear", item.title, ICONS.clear, item.run),
+        ),
+      );
     }
     // At the right, icons always in the same places: the features' (Recalculate, Filter), and the menu
-    const gap = doc.createElement("span");
-    gap.className = "swt-bar-gap";
-    main.append(gap);
+    main.append(el(doc, "span", "swt-bar-gap"));
     for (const item of featureButtons.filter((b) => b.place === "icon")) button(item);
     const menuItems = [...featureButtons.filter((b) => (b.place ?? "menu") === "menu"), ...this.coreMenuItems(widget, info)];
     const named = bySlot(featureButtons.filter((b) => b.place === "name" || b.place === "name-icon"));
@@ -203,45 +184,33 @@ export class Toolbar {
     const doc = host.doc;
     const named = buttons.filter((b) => (b.place === "name" || b.place === "name-icon") && b.slot);
     if (!named.length) return undefined;
-    const row = doc.createElement("div");
-    row.className = "swt-bar-names";
+    const row = el(doc, "div", "swt-bar-names");
     const names = new Map<ToolbarNameSlot, HTMLElement>();
     const slots = (Object.keys(TOOLBAR_NAME_ORDER) as ToolbarNameSlot[]).sort((a, b) => TOOLBAR_NAME_ORDER[a] - TOOLBAR_NAME_ORDER[b]);
     for (const slot of slots) {
       const icon = named.find((b) => b.place === "name-icon" && b.slot === slot);
       const name = named.find((b) => b.place === "name" && b.slot === slot);
       if (!icon && !name) continue;
-      const group = doc.createElement("span");
-      group.className = `swt-bar-name-slot swt-bar-name-${slot}`;
-      if (icon?.icon) {
-        const b = doc.createElement("button");
-        b.type = "button";
-        b.tabIndex = -1;
-        b.className = "swt-bar-icon swt-bar-name-icon";
-        b.title = icon.title;
-        b.setAttribute("aria-label", icon.label);
-        b.innerHTML = icon.icon;
-        if (icon.pressed !== undefined) b.setAttribute("aria-pressed", String(icon.pressed));
-        b.addEventListener("click", (e) => {
-          e.preventDefault();
-          icon.run();
-        });
-        group.append(b);
-      }
+      const group = el(
+        doc,
+        "span",
+        `swt-bar-name-slot swt-bar-name-${slot}`,
+        icon?.icon &&
+          el(doc, "button", {
+            class: "swt-bar-icon swt-bar-name-icon",
+            title: icon.title,
+            attrs: { tabindex: -1, "aria-label": icon.label, "aria-pressed": pressed(icon.pressed) },
+            html: icon.icon,
+            run: icon.run,
+          }),
+      );
       if (name) {
-        const b = doc.createElement("button");
-        b.type = "button";
-        b.tabIndex = -1;
-        b.className = `swt-bar-name${name.muted ? " swt-muted" : ""}`;
-        b.textContent = name.label;
-        b.title = name.title;
-        b.addEventListener("click", (e) => {
-          e.preventDefault();
-          if (menu.kind === "table" && this.openName === slot) {
-            menu.close(true);
-            return;
-          }
-          this.showNaming(widget, b, name);
+        const b: HTMLButtonElement = el(doc, "button", {
+          class: `swt-bar-name${name.muted ? " swt-muted" : ""}`,
+          text: name.label,
+          title: name.title,
+          attrs: { tabindex: -1 },
+          run: () => (menu.kind === "table" && this.openName === slot ? menu.close(true) : this.showNaming(widget, b, name)),
         });
         group.append(b);
         names.set(slot, b);

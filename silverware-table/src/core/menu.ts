@@ -3,6 +3,7 @@
 // a caption under each icon (the clipboard's), operable with the mouse or the
 // keyboard (arrows, Home/End, Enter). The core's: modules give its entries
 // (src/menu.ts) and get it through TableHost.floatingMenu.
+import { el, pressed, type ElementChild, type ElementProps } from "../elements.ts";
 import type { MenuBack, MenuDetail, MenuEntry, MenuNaming, MenuTitleIcon } from "../menu.ts";
 
 /** A press in a menu keeps the focus where it is (on its button, in the page), but in its field (a name typed) */
@@ -44,100 +45,47 @@ export function floatingMenu(
 }
 
 export function renderMenu(doc: Document, title: string, entries: readonly MenuEntry[], back?: MenuBack, naming?: MenuNaming, titleIcon?: MenuTitleIcon): HTMLElement {
-  const menu = doc.createElement("div");
-  menu.setAttribute("role", "menu");
-  menu.setAttribute("aria-label", title);
-
   // A list to pick from (a submenu: Type, a table's Theme): focusMenu starts at its choice
-  if (back) menu.dataset.swtList = "";
-  const heading = doc.createElement("div");
-  heading.className = "swt-menu-title";
-  if (back) {
-    const arrow = doc.createElement("button");
-    arrow.type = "button";
-    arrow.className = "swt-menu-back";
-    arrow.title = "Back";
-    arrow.setAttribute("aria-label", "Back");
-    arrow.innerHTML = back.icon;
-    arrow.addEventListener("click", (e) => {
-      e.preventDefault();
-      back.run();
-    });
-    heading.append(arrow);
-  }
-  // An icon before the title, which it acts on: the title starts at it
-  if (titleIcon) {
-    heading.classList.add("swt-menu-title-start");
-    const b = doc.createElement("button");
-    b.type = "button";
-    b.className = "swt-menu-name-icon swt-menu-title-icon";
-    b.setAttribute("aria-label", titleIcon.label);
-    b.title = titleIcon.title;
-    if (titleIcon.pressed !== undefined) b.setAttribute("aria-pressed", String(titleIcon.pressed));
-    b.innerHTML = titleIcon.icon;
-    b.addEventListener("click", (e) => {
-      e.preventDefault();
-      titleIcon.run();
-    });
-    heading.append(b);
-  }
-  const titleText = doc.createElement("span");
-  titleText.className = "swt-menu-title-text";
-  titleText.textContent = title;
-  // Cut where long: whole in its tooltip
-  titleText.title = title;
-  heading.append(titleText);
+  const menu = el(doc, "div", { attrs: { role: "menu", "aria-label": title, "data-swt-list": back ? "" : undefined } });
+  const heading = el(
+    doc,
+    "div",
+    // An icon before the title, which it acts on: the title starts at it
+    titleIcon ? "swt-menu-title swt-menu-title-start" : "swt-menu-title",
+    back && el(doc, "button", { class: "swt-menu-back", title: "Back", attrs: { "aria-label": "Back" }, html: back.icon, run: back.run }),
+    titleIcon &&
+      el(doc, "button", {
+        class: "swt-menu-name-icon swt-menu-title-icon",
+        title: titleIcon.title,
+        attrs: { "aria-label": titleIcon.label, "aria-pressed": pressed(titleIcon.pressed) },
+        html: titleIcon.icon,
+        run: titleIcon.run,
+      }),
+    // Cut where long: whole in its tooltip
+    el(doc, "span", { class: "swt-menu-title-text", text: title, title }),
+  );
   menu.append(heading);
   if (naming) addNaming(doc, menu, heading, naming);
   // A × closing it, as Esc or a press beside it do (on a touch screen a tap beside it may land on something)
-  const close = doc.createElement("button");
-  close.type = "button";
-  close.className = "swt-menu-close";
-  close.title = "Close";
-  close.setAttribute("aria-label", "Close");
-  close.innerHTML = CLOSE;
-  close.addEventListener("click", (e) => {
-    e.preventDefault();
-    menu.dispatchEvent(new Event(MENU_CLOSE));
-  });
-  heading.append(close);
+  heading.append(
+    el(doc, "button", { class: "swt-menu-close", title: "Close", attrs: { "aria-label": "Close" }, html: CLOSE, run: () => menu.dispatchEvent(new Event(MENU_CLOSE)) }),
+  );
 
   // One bubble for the menu's details, beside it: right, or left where the right has no room
   let bubble: HTMLElement | undefined;
   const showDetail = (item: HTMLElement, detail: MenuDetail) => {
     if (!bubble) {
-      bubble = doc.createElement("div");
-      bubble.className = "swt-menu-detail";
-      bubble.setAttribute("role", "tooltip");
+      bubble = el(doc, "div", { class: "swt-menu-detail", attrs: { role: "tooltip" } });
       menu.append(bubble);
     }
-    const title = doc.createElement("div");
-    title.className = "swt-menu-detail-title";
-    title.textContent = detail.title;
-    const parts: HTMLElement[] = [title];
-    if (detail.code?.length) {
-      const code = doc.createElement("div");
-      code.className = "swt-menu-detail-code";
-      for (const form of detail.code) {
-        const c = doc.createElement("code");
-        c.textContent = form;
-        code.append(c);
-      }
-      parts.push(code);
-    }
-    if (detail.text) {
-      const text = doc.createElement("p");
-      text.textContent = detail.text;
-      parts.push(text);
-    }
-    for (const note of detail.notes ?? []) {
-      const p = doc.createElement("p");
-      p.className = "swt-menu-detail-note";
-      p.textContent = note;
-      parts.push(p);
-    }
-    if (detail.content) parts.push(detail.content());
-    bubble.replaceChildren(...parts);
+    const parts = [
+      el(doc, "div", { class: "swt-menu-detail-title", text: detail.title }),
+      detail.code?.length && el(doc, "div", "swt-menu-detail-code", ...detail.code.map((form) => el(doc, "code", { text: form }))),
+      detail.text && el(doc, "p", { text: detail.text }),
+      ...(detail.notes ?? []).map((note) => el(doc, "p", { class: "swt-menu-detail-note", text: note })),
+      detail.content?.(),
+    ];
+    bubble.replaceChildren(...parts.filter((part): part is HTMLElement => part instanceof Node));
     bubble.hidden = false;
     bubble.classList.remove("swt-left");
     bubble.style.top = `${item.offsetTop}px`;
@@ -151,123 +99,125 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
     if (bubble) bubble.hidden = true;
   };
 
-  const button = (className: string, run: () => void, disabled?: string) => {
-    const b = doc.createElement("button");
-    b.type = "button";
-    b.className = className;
-    if (disabled) {
-      b.setAttribute("aria-disabled", "true");
-      b.title = disabled;
-    }
-    b.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (!disabled) run();
-    });
-    return b;
-  };
+  // An entry's button; a disabled one says why in its title and does nothing
+  const button = (className: string, run: () => void, disabled?: string, props: Omit<ElementProps, "class" | "run"> = {}, ...children: ElementChild[]) =>
+    el(
+      doc,
+      "button",
+      {
+        ...props,
+        class: className,
+        ...(disabled ? { title: props.title ?? disabled } : {}),
+        attrs: { ...props.attrs, "aria-disabled": disabled ? "true" : undefined },
+        run: () => {
+          if (!disabled) run();
+        },
+      },
+      ...children,
+    );
+  const icon = (svg: string) => el(doc, "span", { class: "swt-icon", html: svg });
 
   for (const entry of entries) {
     if (entry.kind === "separator") {
-      const separator = doc.createElement("div");
-      separator.className = "swt-menu-separator";
-      separator.setAttribute("role", "separator");
-      menu.append(separator);
+      menu.append(el(doc, "div", { class: "swt-menu-separator", attrs: { role: "separator" } }));
     } else if (entry.kind === "item") {
-      const item = button("swt-menu-item", entry.run, entry.disabled);
-      item.setAttribute("role", entry.checked === undefined ? "menuitem" : "menuitemcheckbox");
-      if (entry.checked !== undefined) item.setAttribute("aria-checked", String(entry.checked));
-      if (entry.danger) item.classList.add("swt-danger");
       const detail = entry.detail;
-      if (detail && !entry.disabled) {
+      const shows = detail && !entry.disabled;
+      const value = entry.value;
+      const item = button(
+        `swt-menu-item${entry.danger ? " swt-danger" : ""}`,
+        entry.run,
+        entry.disabled,
+        {
+          ...(!shows && entry.hint && !entry.disabled ? { title: entry.hint } : {}),
+          attrs: { role: entry.checked === undefined ? "menuitem" : "menuitemcheckbox", "aria-checked": pressed(entry.checked) },
+        },
+        icon(entry.icon),
+        el(
+          doc,
+          "span",
+          "swt-label",
+          entry.label,
+          value && ": ",
+          value?.icon && el(doc, "span", { class: "swt-menu-value-icon", html: value.icon }),
+          value?.text,
+        ),
+      );
+      if (shows) {
         item.addEventListener("mouseenter", () => showDetail(item, detail));
         item.addEventListener("focus", () => showDetail(item, detail));
         item.addEventListener("mouseleave", hideDetail);
         item.addEventListener("blur", hideDetail);
-      } else if (entry.hint && !entry.disabled) item.title = entry.hint;
-      item.innerHTML = `<span class="swt-icon">${entry.icon}</span>`;
-      const label = doc.createElement("span");
-      label.className = "swt-label";
-      label.textContent = entry.label;
-      if (entry.value) {
-        label.append(": ");
-        if (entry.value.icon) {
-          const icon = doc.createElement("span");
-          icon.className = "swt-menu-value-icon";
-          icon.innerHTML = entry.value.icon;
-          label.append(icon);
-        }
-        label.append(entry.value.text);
       }
-      item.append(label);
       menu.append(item);
     } else if (entry.kind === "names") {
-      const row = doc.createElement("div");
-      row.className = "swt-menu-names";
-      row.setAttribute("role", "group");
-      for (const n of entry.names) {
-        const slot = doc.createElement("span");
-        slot.className = `swt-menu-name-slot${n.key ? ` swt-menu-name-${n.key}` : ""}`;
-        if (n.icon) {
-          const b = button("swt-menu-name-icon", n.icon.run);
-          b.setAttribute("role", "menuitem");
-          b.setAttribute("aria-label", n.icon.label);
-          b.title = n.icon.title;
-          if (n.icon.pressed !== undefined) b.setAttribute("aria-pressed", String(n.icon.pressed));
-          b.innerHTML = n.icon.icon;
-          slot.append(b);
-        }
-        if (n.name !== undefined && n.run) {
-          const b = button(`swt-menu-name-button${n.muted ? " swt-muted" : ""}`, n.run);
-          b.setAttribute("role", "menuitem");
-          b.title = n.title ?? n.name;
-          b.textContent = n.name;
-          slot.append(b);
-        }
-        row.append(slot);
-      }
-      menu.append(row);
+      menu.append(
+        el(
+          doc,
+          "div",
+          { class: "swt-menu-names", attrs: { role: "group" } },
+          ...entry.names.map((n) =>
+            el(
+              doc,
+              "span",
+              `swt-menu-name-slot${n.key ? ` swt-menu-name-${n.key}` : ""}`,
+              n.icon &&
+                button("swt-menu-name-icon", n.icon.run, undefined, {
+                  title: n.icon.title,
+                  attrs: { role: "menuitem", "aria-label": n.icon.label, "aria-pressed": pressed(n.icon.pressed) },
+                  html: n.icon.icon,
+                }),
+              n.name !== undefined &&
+                n.run &&
+                button(`swt-menu-name-button${n.muted ? " swt-muted" : ""}`, n.run, undefined, { title: n.title ?? n.name, attrs: { role: "menuitem" }, text: n.name }),
+            ),
+          ),
+        ),
+      );
     } else if (entry.kind === "actions") {
-      const bar = doc.createElement("div");
-      bar.className = "swt-menu-actions";
-      bar.setAttribute("role", "group");
-      for (const option of entry.options) {
-        const b = button("swt-action", option.run, option.disabled);
-        b.setAttribute("role", "menuitem");
-        b.setAttribute("aria-label", option.title);
-        // As a row's buttons say it: the action, and why it cannot be used now
-        b.title = option.disabled ? `${option.title}: ${option.disabled}` : option.title;
-        b.innerHTML = `<span class="swt-icon">${option.icon}</span>`;
-        const caption = doc.createElement("span");
-        caption.className = "swt-action-caption";
-        caption.textContent = option.caption;
-        b.append(caption);
-        bar.append(b);
-      }
-      menu.append(bar);
+      menu.append(
+        el(
+          doc,
+          "div",
+          { class: "swt-menu-actions", attrs: { role: "group" } },
+          ...entry.options.map((option) =>
+            button(
+              "swt-action",
+              option.run,
+              option.disabled,
+              // As a row's buttons say it: the action, and why it cannot be used now
+              { title: option.disabled ? `${option.title}: ${option.disabled}` : option.title, attrs: { role: "menuitem", "aria-label": option.title } },
+              icon(option.icon),
+              el(doc, "span", { class: "swt-action-caption", text: option.caption }),
+            ),
+          ),
+        ),
+      );
     } else {
-      const row = doc.createElement("div");
-      row.className = "swt-menu-segmented";
-      const label = doc.createElement("span");
-      label.className = "swt-label";
-      label.textContent = entry.label;
-      const group = doc.createElement("div");
-      group.className = "swt-segments";
-      group.setAttribute("role", "group");
-      group.setAttribute("aria-label", entry.label);
-      for (const option of entry.options) {
-        const b = button("swt-segment", option.run, option.disabled);
-        if (option.active === undefined) b.setAttribute("role", "menuitem");
-        else {
-          b.setAttribute("role", "menuitemradio");
-          b.setAttribute("aria-checked", String(option.active));
-        }
-        b.title = option.disabled ? `${option.title}: ${option.disabled}` : option.title;
-        b.setAttribute("aria-label", option.title);
-        b.innerHTML = option.icon;
-        group.append(b);
-      }
-      row.append(label, group);
-      menu.append(row);
+      menu.append(
+        el(
+          doc,
+          "div",
+          "swt-menu-segmented",
+          el(doc, "span", { class: "swt-label", text: entry.label }),
+          el(
+            doc,
+            "div",
+            { class: "swt-segments", attrs: { role: "group", "aria-label": entry.label } },
+            ...entry.options.map((option) =>
+              button("swt-segment", option.run, option.disabled, {
+                title: option.disabled ? `${option.title}: ${option.disabled}` : option.title,
+                attrs: {
+                  role: option.active === undefined ? "menuitem" : "menuitemradio",
+                  "aria-checked": pressed(option.active),
+                  "aria-label": option.title,
+                },
+                html: option.icon,
+              }),
+            ),
+          ),
+        ),
+      );
     }
   }
 
@@ -309,33 +259,24 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
 
 /** The pencil after the title, and the field it turns the title into */
 function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, naming: MenuNaming): void {
-  const pencil = doc.createElement("button");
-  pencil.type = "button";
-  pencil.className = "swt-menu-rename";
-  pencil.innerHTML = PENCIL;
-  pencil.setAttribute("aria-label", naming.label);
-  pencil.title = naming.disabled ? `${naming.label}: ${naming.disabled}` : naming.label;
-  if (naming.disabled) pencil.setAttribute("aria-disabled", "true");
+  const pencil = el(doc, "button", {
+    class: "swt-menu-rename",
+    html: PENCIL,
+    title: naming.disabled ? `${naming.label}: ${naming.disabled}` : naming.label,
+    attrs: { "aria-label": naming.label, "aria-disabled": naming.disabled ? "true" : undefined },
+  });
   heading.append(pencil);
   // One save at a time, whichever field asked for it (Esc and the pencil again make a new one)
   let saving = false;
   pencil.addEventListener("click", (e) => {
     e.preventDefault();
     if (naming.disabled) return;
-    const field = doc.createElement("input");
-    field.type = "text";
-    field.className = "swt-menu-name";
+    const problem = el(doc, "div", { class: "swt-menu-name-problem", attrs: { id: `swt-menu-name-problem-${++problemIds}`, role: "alert", hidden: "" } });
+    const field = el(doc, "input", {
+      class: "swt-menu-name",
+      attrs: { type: "text", placeholder: "name", "aria-label": naming.label, autocomplete: "off", spellcheck: "false", "aria-describedby": problem.id },
+    });
     field.value = naming.name ?? "";
-    field.placeholder = "name";
-    field.setAttribute("aria-label", naming.label);
-    field.autocomplete = "off";
-    field.spellcheck = false;
-    const problem = doc.createElement("div");
-    problem.className = "swt-menu-name-problem";
-    problem.id = `swt-menu-name-problem-${++problemIds}`;
-    problem.setAttribute("role", "alert");
-    problem.hidden = true;
-    field.setAttribute("aria-describedby", problem.id);
     const titled = Array.from(heading.childNodes);
     heading.replaceChildren(field);
     heading.after(problem);
