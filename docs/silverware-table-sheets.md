@@ -30,7 +30,7 @@ interactions on the sheet is.
 
 - Each table is its own block, as now. Its metadata row says which sheet it
   is on and where its top left corner is (its header's first cell), and
-  names it: `<meta name='income' sheet='Budget' at='B3'>`. A page can have
+  names it: `<meta core.table core.name='income' sheet.name='Budget' sheet.at='B3'>`. A page can have
   several sheets, by name; a table is on one sheet at most.
 - Every table on a sheet has a name: a reference from another table, to a
   cell (`income!B2`) or to a named cell (`income!total`, as cell names are
@@ -50,7 +50,7 @@ interactions on the sheet is.
 A whole example, the sheet's first table, sorted:
 
 ```markdown
-| <meta name='costs' sheet='Budget' at='B3' sort.price='desc' sheet.width.E='120'> |
+| <meta core.table core.name='costs' sheet.name='Budget' sheet.at='B3' core.-c-price.sort='desc' sheet.width.E='120'> |
 ```
 
 ### Tables on a sheet

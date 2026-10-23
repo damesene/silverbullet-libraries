@@ -50,8 +50,22 @@ writing every module again.
   a panel at an anchor; the editor's text and caret); what to highlight,
   format or offer is the module's. Neither names a module, its classes or its
   settings in code (as CLAUDE.md asks of the core already).
+- **What tables keep is read and written through the host, each module its
+  own** (CLAUDE.md, *Modules and their data*): every module gets a host made
+  for it (`core/modulehost.ts`), whose metadata functions (`getMeta`,
+  `setMeta`, `columnsMeta`, `getCellTag`, `withCellTag`, `canStoreMeta`…) make
+  each attribute's name from the module's and its key (`metanames.ts`), so a
+  module names no attribute whole and cannot write another's; the names of
+  tables, columns, rows and cells are the core's, read and written by host
+  functions. Domain code (formulas, the sheet, Excel) reads none itself: its
+  module hands it what it needs (`FormulaCells`, `SheetMeta`, a table's name).
+  A module uses another's data through what that one offers (`offer`,
+  `offered`). The metadata setting off, the core stores nothing new
+  (`setMeta`, and a write step for cells' tags).
 - A test fails when a module refers to the rendered table (its element types,
-  its selectors and classes, the host's methods that hand out its elements).
+  its selectors and classes, the host's methods that hand out its elements),
+  or imports the core's functions for what tables keep (a guard against
+  calling them by mistake, not an enforcement).
 
 ## The types
 
@@ -86,8 +100,9 @@ What replaces what the modules do on the DOM (the inventory of 2026-10-22):
   are (`CellLook`: `display`, text or a link, `value` for sorting, `marks`,
   `title`) and headers (`HeaderLook`: icons after the name, marks, the type
   hashtag hidden); the core merges the modules' looks in their order
-  (`core/looks.ts`) and the adapter applies them. `Feature.tableLook(meta)`:
-  attributes of the table (the theme).
+  (`core/looks.ts`) and the adapter applies them. `Feature.tableLook(table)`:
+  how the table looks as a whole (the theme), from its metadata (as rendered,
+  before the table is read: a table of its metadata row only).
 - **Marks** that change without a new rendering (the selection, the column a
   grip hovers): `host.markLayer(mark).set(key, cells)`, `tableMark`,
   `pageMark`; kept by table key and cell, so a table rendered anew shows them
