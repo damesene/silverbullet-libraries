@@ -211,3 +211,11 @@ other pages on a sheet.
   metadata row or the setting (else for the view), a width not stored not
   left shown; the range hint names another table's column with its table;
   looks not made twice when a sheet opens.
+- 2026-10-23, branch `sheet-adjacent` (agreed with the user): a table grows
+  only by the row right under it or the column right next to it, as a
+  spreadsheet's table does (before, any cell in its rows or columns, however
+  far, grew it with empty rows between); a value farther makes a table of its
+  own; a table alone's sheet view becomes a sheet for it (`Sheet1`, at A1,
+  named, one edit: `insertTable`'s `also`). Fixed on the way: a paste into a
+  far cell's editor pasted cells into the table the editor belongs to
+  (`CellEditor.placed`), Esc there selected a cell past that table.
