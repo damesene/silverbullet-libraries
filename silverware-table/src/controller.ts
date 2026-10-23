@@ -2319,6 +2319,15 @@ export class Controller implements TableHost {
           pageNow = { ...pageNow, tables: pageNow.tables.map((t) => (t.range.from === other.range.from ? { range: t.range, table: other.table } : t)) };
         }
       }
+      // Another table the caller changes with it
+      if (options.also) {
+        const also = locateBySource(text, options.also.target.hint, options.also.target.source);
+        if (!also || also.from === range.from) {
+          void this.bridge.flash(NOT_SAVED, "error");
+          return "failed";
+        }
+        others.set(also.from, { range: also, table: options.also.change(others.get(also.from)?.table ?? parseTable(also.text)) });
+      }
       const updates: { readonly range: TableRange; readonly markdown: string }[] = [{ range, markdown }];
       for (const other of others.values()) updates.push({ range: other.range, markdown: serialize(other.table) });
       if (columnMap) {
@@ -2543,6 +2552,16 @@ export class Controller implements TableHost {
     return !!widget && !!now && this.openCellMenuAt(widget, now, at, point);
   }
 
+  /** A feature's own menu at a point in no table's cell; the others' menus end, as for the cell menu */
+  private openPointMenu(target: Element, point: { x: number; y: number }): boolean {
+    const taker = this.features.find((f) => f.pointMenu?.(target, point));
+    if (!taker) return false;
+    this.tableMenu.close(false);
+    for (const feature of this.features) if (feature !== taker) feature.cellMenuOpened?.();
+    if (this.pressedWith === "touch") this.takePress();
+    return true;
+  }
+
   private openCellMenuAt(widget: HTMLElement, info: WidgetInfo, at: CellRef, point: { x: number; y: number }): boolean {
     // A feature's own menu there instead (rows selected whole: theirs); the others' menus and picking end, as for the cell menu
     const taker = this.features.find((f) => f.cellMenu?.(info, at, point));
@@ -2619,6 +2638,11 @@ export class Controller implements TableHost {
       e.stopPropagation();
       return;
     }
+    if (!hit && e.target instanceof Element && this.openPointMenu(e.target, point)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     // Its press saved a cell being edited and the table was rendered anew, not enhanced yet: the menu once it is
     const widget = !hit && e.target instanceof Element ? e.target.closest<HTMLElement>(WIDGET_SELECTOR) : null;
     const table = widget && renderedTable(widget);
@@ -2642,11 +2666,14 @@ export class Controller implements TableHost {
     // A feature's own element in a cell (the fill handle) is no long press on the cell
     if (e.pointerType !== "touch" || (e.target instanceof Node && this.isFloating(e.target))) return;
     const hit = this.cellOfEvent(e.target);
-    if (!hit) return;
+    // In no table's cell: a feature's own menu there, if any feature has one
+    const target = !hit && e.target instanceof Element && this.features.some((f) => f.pointMenu) ? e.target : undefined;
+    if (!hit && !target) return;
     const point = { x: e.clientX, y: e.clientY };
     this.stopLongPress = watchPress(this.doc.defaultView!, e, {
       longPress: () => {
-        if (this.tableMenu.kind !== "cell") this.openCellMenuAt(hit[0], hit[1], hit[2], point);
+        if (hit && this.tableMenu.kind !== "cell") this.openCellMenuAt(hit[0], hit[1], hit[2], point);
+        else if (target) this.openPointMenu(target, point);
       },
     });
   };

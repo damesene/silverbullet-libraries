@@ -9,8 +9,8 @@ const drawn = (page: Page, text: string) => page.locator(".sb-table-widget.swt-d
 const grab = (page: Page) => page.locator(".swt-sheet-grab.swt-visible");
 const preview = (page: Page) => page.locator(".swt-sheet-move:not([hidden])");
 
-async function openPlan(page: Page): Promise<number> {
-  await page.locator("#source").fill(PAGE);
+async function openPlan(page: Page, more = ""): Promise<number> {
+  await page.locator("#source").fill(PAGE + more);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
   await hoverCell(page, cell(page, 1, 0));
@@ -144,5 +144,57 @@ test.describe("Deleting a table on the sheet", () => {
     await page.keyboard.press("Delete");
     await expect.poll(() => markdown(page)).not.toContain("City");
     await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(1);
+  });
+});
+
+test.describe("Adding a table of the page to the sheet", () => {
+  // A table of the page on no sheet: two columns, two rows
+  const CODES = "\n| Code | Kind |\n|---|---|\n| X1 | a |\n";
+
+  test("a right click on an empty cell: Add table here lists the page's other tables, hovered outlined; one picked goes there", async ({ page }) => {
+    const rowHeight = await openPlan(page, CODES);
+    const point = await sheetPoint(page, "F", 4, rowHeight);
+    await page.mouse.click(point.x, point.y, { button: "right" });
+    const menu = page.locator(".swt-menu");
+    await expect(menu.locator(".swt-menu-title-text")).toHaveText("Cell F4");
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
+    await menu.getByRole("menuitem", { name: "Add table here" }).click();
+    const item = page.locator(".swt-menu").getByRole("menuitem", { name: "Code, Kind" });
+    await item.hover();
+    await expect(preview(page)).toBeVisible();
+    await expect(preview(page).locator(".swt-sheet-move-tip")).toHaveText("F4");
+    await item.click();
+    await expect.poll(() => markdown(page)).toMatch(/\| X1 +\| a +\|\n\| <meta name='\w+' sheet='Plan' at='F4'> \|/);
+    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(3);
+    await expect(page.locator(".swt-menu")).toHaveCount(0);
+  });
+
+  test("on a table alone's board, both go on a new sheet in one edit: it at A1, the one added at the cell", async ({ page }) => {
+    await page.locator("#source").fill(`# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n${CODES}`);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
+    await hoverCell(page, cell(page, 1, 0));
+    await (await tableIcon(page, "Sheet view")).click();
+    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(1);
+    const rowHeight = (await drawn(page, "Pear").locator("tr[data-swt-row='1'] > td").first().boundingBox())!.height;
+    const point = await sheetPoint(page, "D", 2, rowHeight);
+    await page.mouse.click(point.x, point.y, { button: "right" });
+    await page.locator(".swt-menu").getByRole("menuitem", { name: "Add table here" }).click();
+    await page.locator(".swt-menu").getByRole("menuitem", { name: "Code, Kind" }).click();
+    await expect.poll(() => markdown(page)).toMatch(/\| Pear +\| 3 +\|\n\| <meta name='table1' sheet='Sheet1' at='A1'> \|/);
+    expect(await markdown(page)).toMatch(/\| X1 +\| a +\|\n\| <meta name='table2' sheet='Sheet1' at='D2'> \|/);
+    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(2);
+  });
+
+  test("a table that would cover another there is offered disabled, its outline marked", async ({ page }) => {
+    const rowHeight = await openPlan(page, CODES);
+    // C1: two columns reach b at D1
+    const point = await sheetPoint(page, "C", 1, rowHeight);
+    await page.mouse.click(point.x, point.y, { button: "right" });
+    await page.locator(".swt-menu").getByRole("menuitem", { name: "Add table here" }).click();
+    const item = page.locator(".swt-menu").getByRole("menuitem", { name: "Code, Kind" });
+    await expect(item).toHaveAttribute("aria-disabled", "true");
+    await item.hover();
+    await expect(preview(page)).toHaveClass(/swt-invalid/);
   });
 });

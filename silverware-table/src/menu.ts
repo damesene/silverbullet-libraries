@@ -31,6 +31,8 @@ export type MenuEntry =
       readonly detail?: MenuDetail;
       // What the item is set to, after its label and a colon (Type: ☆ Stars)
       readonly value?: { readonly text: string; readonly icon?: string };
+      // While it is hovered or focused (true), and no longer (false): what it would do shown elsewhere (where a table goes)
+      readonly highlight?: (on: boolean) => void;
     }
   | { readonly kind: "separator" }
   | {

@@ -401,6 +401,8 @@ export type WriteOptions = {
   // The rows and columns the edit adds take the empty cells past the table (a value typed or pasted there), rather
   // than being inserted: what lies past them need only make room where they reach it (a sheet's other tables)
   readonly claims?: boolean;
+  // Another table changed in the same edit (a table alone put on the sheet another table joins)
+  readonly also?: { readonly target: TableTarget; readonly change: (table: Table) => Table };
 };
 
 /**
@@ -1073,6 +1075,12 @@ export interface Feature {
 
 /** A module of the adapter (src/core/silverbullet/modules/): a module, and the hooks of the rendering */
 export interface AdapterFeature extends Feature {
+  /**
+   * A menu asked for at a point in no table's cell (a right click, a long
+   * press): true when the feature opens one of its own there (the sheet's
+   * empty cells)
+   */
+  pointMenu?(target: Element, point: { x: number; y: number }): boolean;
   /** The pointer is over a cell, or the page moved under it */
   cellHovered?(widget: HTMLElement, info: WidgetInfo, cell: HTMLTableCellElement): void;
   /** Marks on a table's cells, once its rows know their rows in the markdown (data-swt-row) */

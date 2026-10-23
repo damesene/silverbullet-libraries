@@ -43,6 +43,8 @@ import { parseClipboardCells } from "../../../paste.ts";
 import { placeProblem, roomFor } from "../../../sheet/layout.ts";
 import { watchPress } from "../../press.ts";
 import { growTo } from "../../structure.ts";
+import type { MenuEntry } from "../../../menu.ts";
+import { withoutTags } from "../../../tags.ts";
 import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
 import { drawTable } from "../drawn.ts";
 import type { TableKey } from "../../tables.ts";
@@ -124,6 +126,8 @@ export class Sheet implements AdapterFeature {
   // The empty cell edited that makes a table of its own (no table grows to it), and that table's key: made as Enter or
   // Tab saves a value, before the table is written (what follows it once it is drawn needs it)
   private making: { readonly at: SheetCell; key: TableKey | undefined } | undefined;
+  // The empty cell's menu (Add table here), by the point it opened at
+  private cellMenuOpen: { readonly element: HTMLElement; readonly at: SheetCell; readonly point: { x: number; y: number } } | undefined;
   // Drawings asked for, by table: only the last of each is put in
   private readonly drawing = new Map<TableKey, number>();
   // Tables drawn anew not shown yet, by key: a copy of what they replaced stands in their place until they are
@@ -233,7 +237,11 @@ export class Sheet implements AdapterFeature {
     const board: Board = { sheet: sheetOf(info.source), alone: info.key, box, content, tables: new Map(), widths: new Map(), preview: new Map(), reach: { width: 0, height: 0 } };
     this.board = board;
     claimWindow(this.host, this);
-    box.addEventListener("scroll", () => this.queuePlace());
+    box.addEventListener("scroll", () => {
+      // The empty cell's menu was for the cell where it opened
+      this.closeCellMenu(false);
+      this.queuePlace();
+    });
     doc.body.append(box);
     box.focus({ preventScroll: true });
     this.watching = new MutationObserver((records) => {
@@ -260,6 +268,7 @@ export class Sheet implements AdapterFeature {
     this.watching?.disconnect();
     this.watching = undefined;
     this.drawing.clear();
+    this.closeCellMenu(false);
     for (const key of [...this.standIns.keys()]) this.showDrawn(key);
     this.shownIndex = undefined;
     this.looksOrder.clear();
@@ -494,6 +503,13 @@ export class Sheet implements AdapterFeature {
         this.unselect();
         return true;
       }
+      if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = this.cell?.element.getBoundingClientRect();
+        if (rect) this.openCellMenu(at, { x: rect.left, y: rect.bottom });
+        return true;
+      }
       if (step) {
         e.preventDefault();
         e.stopPropagation();
@@ -558,6 +574,7 @@ export class Sheet implements AdapterFeature {
    * first. A press elsewhere unselects the empty cell.
    */
   beforeMouseDown(e: MouseEvent): void {
+    if (this.cellMenuOpen && !(e.target instanceof Node && this.cellMenuOpen.element.contains(e.target))) this.closeCellMenu(false);
     if (!this.inGrid(e.target)) {
       if (!(e.target instanceof Node && this.host.isFloating(e.target))) this.unselect();
       return;
@@ -567,6 +584,13 @@ export class Sheet implements AdapterFeature {
     e.preventDefault();
     const active = this.host.doc.activeElement;
     if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) this.board?.box.focus({ preventScroll: true });
+    // A right press: the empty cell selected, not edited (its menu opens on the contextmenu event, pointMenu)
+    if (e.button === 2) {
+      const at = this.cellAtPoint(e.clientX, e.clientY);
+      if (this.host.editing) void this.host.saveEditing();
+      if (at && !this.tableAt(at)) this.select(at);
+      return;
+    }
     if (this.host.editing) {
       this.pendingPress = { x: e.clientX, y: e.clientY };
       void this.host.saveEditing().then(() => this.queuePlace());
@@ -680,27 +704,32 @@ export class Sheet implements AdapterFeature {
 
   /** The outline of where a table would go (its address by it; marked where it cannot), or none */
   private previewPlace(key: TableKey, at: SheetCell | undefined): void {
-    const board = this.board;
-    const placed = board?.tables.get(key);
-    const grid = this.grid;
-    if (!board || !placed || !grid || !at) {
+    const placed = this.board?.tables.get(key);
+    if (!placed || !this.grid || !at) {
       if (this.preview) this.preview.hidden = true;
       return;
     }
+    const model = parseTable(placed.range.text);
+    this.outline(at, model.rows.length, model.align.length, this.placeProblemOf(key, at));
+  }
+
+  /** The outline of `rows` and `columns` from `at` (its address by it, marked where it cannot go: `problem`) */
+  private outline(at: SheetCell, rows: number, columns: number, problem: string | undefined): void {
+    const board = this.board;
+    const grid = this.grid;
+    if (!board || !grid) return;
     let preview = this.preview;
     if (!preview || !preview.isConnected) {
       preview = el(this.host.doc, "div", { class: `${UI_CLASS} swt-sheet-move`, attrs: { "aria-hidden": "true" } }, el(this.host.doc, "span", "swt-sheet-move-tip"));
       board.content.append(preview);
       this.preview = preview;
     }
-    const model = parseTable(placed.range.text);
     const left = this.leftOf(at.column);
-    const problem = this.placeProblemOf(key, at);
     Object.assign(preview.style, {
       left: `${left}px`,
       top: `${at.row * grid.rowHeight}px`,
-      width: `${this.leftOf(at.column + model.align.length) - left}px`,
-      height: `${model.rows.length * grid.rowHeight}px`,
+      width: `${this.leftOf(at.column + columns) - left}px`,
+      height: `${rows * grid.rowHeight}px`,
     });
     preview.classList.toggle("swt-invalid", !!problem);
     preview.firstElementChild!.textContent = problem ? `${formatAt(at)}: ${problem}` : formatAt(at);
@@ -720,6 +749,183 @@ export class Sheet implements AdapterFeature {
       return "failed";
     }
     return this.host.writeTable(info, (t) => withMeta(t, AT_ATTRIBUTE, formatAt(at)));
+  }
+
+  // ---- adding a table of the page ------------------------------------------------------------
+
+  /** A right click or a long press on an empty cell: it is selected, and its menu opens by the point */
+  pointMenu(target: Element, point: { x: number; y: number }): boolean {
+    if (!this.board || !this.inGrid(target)) return false;
+    const at = this.cellAtPoint(point.x, point.y);
+    if (!at || this.tableAt(at)) return false;
+    if (this.host.editing) void this.host.saveEditing();
+    this.select(at);
+    this.openCellMenu(at, point);
+    return true;
+  }
+
+  /** The empty cell's menu, titled by its address: Add table here, a list of the page's tables in its place */
+  private openCellMenu(at: SheetCell, point: { x: number; y: number }): void {
+    this.closeCellMenu(false);
+    const count = this.addable().length;
+    const entries: MenuEntry[] = [
+      {
+        kind: "item",
+        label: "Add table here",
+        icon: ICONS.table,
+        hint: "Put one of the page's tables on this sheet, its top left in this cell",
+        ...(this.board?.tables.size && count === 0 ? { disabled: "Every table of the page is on this sheet" } : {}),
+        ...(!this.host.metadataEnabled ? { disabled: "A table's sheet is kept in its metadata: turn on Store table metadata in the settings" } : {}),
+        run: () => this.showAddable(at),
+      },
+    ];
+    const element = this.host.floatingMenu(`Cell ${formatAt(at)}`, entries, { close: () => this.closeCellMenu(true), owner: this });
+    this.cellMenuOpen = { element, at, point };
+    this.placeCellMenu();
+    this.host.focusMenu(element);
+  }
+
+  /** The page's tables not on this sheet, in its order, each at the cell: hovered, where it would go outlined */
+  private showAddable(at: SheetCell): void {
+    const open = this.cellMenuOpen;
+    if (!open) return;
+    const previous = open.element;
+    const entries = this.addable().map((table): MenuEntry => {
+      const problem = this.addProblem(table, at);
+      return {
+        kind: "item",
+        label: table.label,
+        icon: ICONS.table,
+        hint: table.sheet ? `On the sheet ${table.sheet}: moved to this one` : "On no sheet",
+        ...(problem ? { disabled: `It would cover ${problem}` } : {}),
+        highlight: (on) => {
+          if (on) this.outline(at, table.rows, table.columns, problem && `${problem} is there`);
+          else if (this.preview) this.preview.hidden = true;
+        },
+        run: () => {
+          this.closeCellMenu(false);
+          void this.addTable(table.key, at);
+        },
+      };
+    });
+    const back = { icon: ICONS.arrowLeft, run: () => this.swapCellMenu(previous) };
+    this.swapCellMenu(this.host.floatingMenu("Add table here", entries, { back, close: () => this.closeCellMenu(true), owner: this }));
+  }
+
+  private swapCellMenu(element: HTMLElement): void {
+    const open = this.cellMenuOpen;
+    if (!open) return;
+    open.element.replaceWith(element);
+    this.cellMenuOpen = { ...open, element };
+    this.placeCellMenu();
+    this.host.focusMenu(element);
+  }
+
+  /** By the point it opened at, inside the window */
+  private placeCellMenu(): void {
+    const open = this.cellMenuOpen;
+    if (!open) return;
+    const win = this.host.doc.defaultView!;
+    const m = open.element.getBoundingClientRect();
+    const left = Math.max(4, Math.min(open.point.x, win.innerWidth - m.width - 4));
+    const top = open.point.y + m.height > win.innerHeight - 4 ? Math.max(4, win.innerHeight - m.height - 4) : open.point.y;
+    open.element.style.left = `${Math.round(left)}px`;
+    open.element.style.top = `${Math.round(top)}px`;
+  }
+
+  private closeCellMenu(refocus: boolean): void {
+    const open = this.cellMenuOpen;
+    if (!open) return;
+    this.cellMenuOpen = undefined;
+    open.element.remove();
+    if (this.preview) this.preview.hidden = true;
+    if (refocus) this.board?.box.focus({ preventScroll: true });
+  }
+
+  /** The menu of a table's cell opened: the empty cell's closes */
+  cellMenuOpened(): void {
+    this.closeCellMenu(false);
+  }
+
+  /**
+   * The page's tables the sheet can take: not on it (a table alone's board:
+   * any but that table), by their name, else their header's text; their size
+   * as in the markdown
+   */
+  private addable(): { key: TableKey; label: string; sheet: string | undefined; rows: number; columns: number }[] {
+    const board = this.board;
+    if (!board) return [];
+    const text = this.host.pageText;
+    const keys = this.host.tableKeys(this.host.currentPage, text);
+    return findTables(text).flatMap((range, i) => {
+      const key = keys[i]!;
+      if (board.tables.has(key) || key === board.alone) return [];
+      const model = parseTable(range.text);
+      const sheet = model.meta?.[SHEET_ATTRIBUTE];
+      if (board.sheet && sheet && sameSheet(sheet, board.sheet)) return [];
+      const header = (model.rows[0]?.cells ?? []).map((cell) => withoutTags(cell).trim()).filter(Boolean).join(", ");
+      const label = metaName(model) ?? (header.length > 40 ? `${header.slice(0, 39)}…` : header || "Table");
+      return [{ key, label, sheet, rows: model.rows.length, columns: model.align.length }];
+    });
+  }
+
+  /** What a table put at `at` would cover (a table of the sheet's), or nothing */
+  private addProblem(table: { rows: number; columns: number }, at: SheetCell): string | undefined {
+    const board = this.board;
+    if (!board) return undefined;
+    const laidOut = [...board.tables.values()].map((p) => {
+      const model = parseTable(p.range.text);
+      const name = metaName(model);
+      return { id: p.range.from, at: p.at, rows: model.rows.length, columns: model.align.length, ...(name ? { name } : {}) };
+    });
+    return placeProblem([...laidOut, { id: -1, at, rows: table.rows, columns: table.columns }], -1, at);
+  }
+
+  /**
+   * The page's table `key` put on the board's sheet with its top left at
+   * `at`: its sheet and place written, named if it has none, in one edit; the
+   * last table of another sheet asked first (that sheet goes with it). A table
+   * alone's board becomes a sheet with it, as a table made beside it does.
+   */
+  private async addTable(key: TableKey, at: SheetCell): Promise<void> {
+    const board = this.board;
+    if (!board) return;
+    const text = await this.host.bridge.getText();
+    const keys = this.host.tableKeys(this.host.currentPage, text);
+    const ranges = findTables(text);
+    const range = ranges[keys.indexOf(key)];
+    if (!range) return;
+    const model = parseTable(range.text);
+    const problem = this.addProblem({ rows: model.rows.length, columns: model.align.length }, at);
+    if (problem) {
+      void this.host.bridge.flash(`Silverware Table: the table cannot go to ${formatAt(at)}: it would cover ${problem}`, "info");
+      return;
+    }
+    const from = model.meta?.[SHEET_ATTRIBUTE];
+    if (from && sheetTables(text).filter((t) => sameSheet(t.sheet, from)).length === 1) {
+      if (!(await this.host.ask(`Move this table here from the sheet ${from}? It is that sheet's only table: the sheet goes with it.`))) return;
+    }
+    const alone = board.sheet ? undefined : ranges[keys.indexOf(board.alone)];
+    const sheet = board.sheet ?? freeSheetName(text);
+    const aloneName = alone && (metaName(parseTable(alone.text)) ?? freeName(text));
+    const name = metaName(model) ?? freeName(text, aloneName ? [aloneName] : []);
+    const also = alone && {
+      target: { key: board.alone, source: alone.text, hint: alone.from },
+      change: (t: Table) => withMeta(withMeta(withMetaName(t, aloneName!), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, "A1"),
+    };
+    const result = await this.host.writeTable(
+      { key, source: range.text, hint: range.from },
+      (t) => withMeta(withMeta(withMetaName(t, name), SHEET_ATTRIBUTE, sheet), AT_ATTRIBUTE, formatAt(at)),
+      also ? { also } : {},
+    );
+    if (result !== "written" || this.board !== board) return;
+    this.unselect();
+    if (also) {
+      // The board is the sheet's from now on: its tables, the new one too, as the page has them
+      board.sheet = sheet;
+      void this.host.bridge.flash(`Silverware Table: the table and the one added are on the sheet ${sheet} now (Ctrl+Z undoes it)`, "info");
+    }
+    this.queueRefresh();
   }
 
   /** The sheet's cell at a point, the point kept on the grid (left of it or above it: its first column or row) */

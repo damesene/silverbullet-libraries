@@ -143,6 +143,13 @@ export function renderMenu(doc: Document, title: string, entries: readonly MenuE
           value?.text,
         ),
       );
+      const highlight = entry.highlight;
+      if (highlight) {
+        item.addEventListener("mouseenter", () => highlight(true));
+        item.addEventListener("focus", () => highlight(true));
+        item.addEventListener("mouseleave", () => highlight(false));
+        item.addEventListener("blur", () => highlight(false));
+      }
       if (shows) {
         item.addEventListener("mouseenter", () => showDetail(item, detail));
         item.addEventListener("focus", () => showDetail(item, detail));

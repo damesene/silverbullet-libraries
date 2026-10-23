@@ -65,4 +65,28 @@ test.describe("Touch: moving a table on the sheet", () => {
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height * 4.5);
     await expect.poll(() => markdown(page)).toContain("<meta name='a' sheet='Plan' at='B6'>");
   });
+
+  test("a long press on an empty cell of the sheet opens its menu: Add table here", async ({ page }) => {
+    const pane = page.getByRole("button", { name: "M↓" });
+    await pane.click();
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| Code |\n|---|\n| X1 |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await pane.click();
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
+    await tap(page, cell(page, 1, 0));
+    await (await tableIcon(page, "Sheet view")).click();
+    const a = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)", { hasText: "Pear" });
+    await expect(a).toBeVisible();
+    // Three rows under a's last row, in its first column: A6
+    const box = (await a.locator("tr[data-swt-row='1'] > td").first().boundingBox())!;
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height * 3.5);
+    const empty = page.locator(".swt-sheet-cell");
+    await expect(empty).toBeVisible();
+    await longPress(page, empty);
+    await expect(menuTitle(page)).toHaveText("Cell A5");
+    await tap(page, page.locator(".swt-menu .swt-menu-item", { hasText: "Add table here" }));
+    await tap(page, page.locator(".swt-menu .swt-menu-item", { hasText: "Code" }));
+    await expect.poll(() => markdown(page)).toMatch(/<meta name='\w+' sheet='Plan' at='A5'>/);
+    await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
+  });
 });
