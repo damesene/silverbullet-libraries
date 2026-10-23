@@ -856,7 +856,8 @@ export class Controller implements TableHost {
 
   /** The table Silverware Table drew for a key (the sheet's), enhanced and in the page */
   private drawnFor(key: TableKey): HTMLElement | undefined {
-    return this.enhancedWidgets().find((w) => w.classList.contains(DRAWN_CLASS) && this.infos.get(w)!.key === key);
+    const widget = this.widgetForKey(key);
+    return widget?.classList.contains(DRAWN_CLASS) ? widget : undefined;
   }
 
   /** SilverBullet's tables a drawn one stood for, shown as themselves where that one is gone */
@@ -2231,9 +2232,9 @@ export class Controller implements TableHost {
     }
   }
 
-  /** A table written where `info` says it is in the page; `widget` its table rendered, if it is */
   /**
-   * A table's writes one after the other: each waits for the one before to be
+   * A table written where `given` says it is in the page; `shown` its table
+   * rendered, if it is. A table's writes one after the other: each waits for the one before to be
    * written and its table rendered anew (SilverBullet renders after the edit),
    * then writes the table as it is then; else it would look for the table as
    * it was before that write and find it changed. A cell editor open in the
