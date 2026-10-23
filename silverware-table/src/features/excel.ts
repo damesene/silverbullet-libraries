@@ -274,7 +274,8 @@ export class Excel implements Feature {
     const templates = excelTemplates(await this.host.bridge.getConfig?.(FUNCTIONS_PATH, {}));
     const skipped: Skipped[] = [];
     let formulas = 0;
-    const cells = this.host.offered<FormulasOffer>("formulas");
+    const cells = this.host.offered<FormulasOffer>("formulas")?.cells;
+    const own = cells && { table: model, name: metaName(model), cells };
     // Each markdown row in its place: Excel's row 2 is the first under the header, as formulas count them
     const rows: XlsxCell[][] = Array.from({ length: Math.max(0, model.rows.length - 1) }, () => []);
     for (const { row, values } of exported.rows) {
@@ -284,7 +285,7 @@ export class Excel implements Feature {
         const stored = cells?.formulaOf(model.rows[row]?.cells[column] ?? "");
         if (!stored) return { value };
         formulas++;
-        const formula = excelFormula(stored.formula, model, row - 1, column, templates);
+        const formula = excelFormula(stored.formula, own!, row - 1, column, templates);
         if ("reason" in formula) {
           skipped.push({ row: row - 1, column, formula: stored.formula, reason: formula.reason });
           return { value };

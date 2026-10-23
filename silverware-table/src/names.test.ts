@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { columnIdOf, columnKey, findColumn } from "./columns.ts";
-import { formulaCell, formulaOf, recalculate, referencedColumn } from "./formulas/index.ts";
+import {
+  referencedColumn,
+} from "./formulas/index.ts";
+import { formulaCell, formulaOf, recalculate } from "./testing/formulas.ts";
 import { parseMetaRow, parseTable } from "./markdown.ts";
 import { nameOf, nameProblem, withCellName, withName, withoutName } from "./names.ts";
 
@@ -58,7 +61,7 @@ describe("a column's fixed name", () => {
     const table = parseTable(`| A |\n|---|\n| 2 |\n| ${formulaCell("0", "=A1*2", "double")} |`);
     const cell = recalculate(table).rows[2]!.cells[0]!;
     expect(cell).toBe(`4 <meta f='=A1*2'> <meta cn='double'>`);
-    expect(formulaOf(cell)).toEqual({ formula: "=A1*2", value: "4", name: "double" });
+    expect(formulaOf(cell)).toEqual({ formula: "=A1*2", value: "4" });
   });
 
   it("is what [name] reads, after the header is renamed too", () => {

@@ -6,7 +6,6 @@
 // Anything that cannot be written so (another table or page, a function
 // Excel has no form of) makes the formula its cell's value, with the reason.
 import { type Table } from "../markdown.ts";
-import { namedCells, namedRows } from "../names.ts";
 import {
   columnLetters,
   type FormulaNode,
@@ -16,6 +15,9 @@ import {
   parseFormula,
   referencedColumn,
   totalRows,
+  cellsByName,
+  type FormulaCells,
+  rowsByName,
 } from "../formulas/index.ts";
 import { type ExcelTemplates, excelCall, hasTemplate } from "./functions.ts";
 
@@ -39,7 +41,10 @@ export function excelCell(row: number, column: number, fixed?: { readonly column
 type Written = { readonly text: string; readonly range: boolean };
 
 /** The formula (with its =) in the body cell `row`, `column` of `table`, as Excel writes it (without =) */
-export function excelFormula(formula: string, table: Table, row: number, column: number, templates: ExcelTemplates = {}): ExcelFormula {
+/** The table a formula is in, as formulas see it: its cells as they read them, its name */
+export type ExcelTable = { readonly table: Table; readonly name?: string; readonly cells: FormulaCells };
+
+export function excelFormula(formula: string, { table, name, cells }: ExcelTable, row: number, column: number, templates: ExcelTemplates = {}): ExcelFormula {
   const tree = parseFormula(formula);
   if (tree instanceof FormulaError) return { reason: `it cannot be read: ${tree.detail}` };
   const headers = table.rows[0]?.cells ?? [];
@@ -76,7 +81,7 @@ export function excelFormula(formula: string, table: Table, row: number, column:
         if (c === undefined) return { text: "#REF!", range: false };
         if (node.thisRow) return { text: excelCell(row, c), range: false };
         // The column's rows without the total rows, as [qty] takes them: one run in Excel
-        totals ??= totalRows(table);
+        totals ??= totalRows(cells, table);
         const rows = Array.from({ length: bodyRows }, (_, r) => r).filter((r) => !totals!.has(r));
         if (rows.length === 0) throw new NotInExcel(`[${node.name}] has no rows`);
         const first = rows[0]!;
@@ -86,18 +91,18 @@ export function excelFormula(formula: string, table: Table, row: number, column:
       }
       case "named": {
         // The table's own name before its cell (prices!vat in prices) is that cell
-        const ownName = table.meta?.name?.trim().toLowerCase();
+        const ownName = name?.trim().toLowerCase();
         if (node.table && (node.table.page !== undefined || node.table.name.toLowerCase() !== ownName)) {
           throw new NotInExcel(`it refers to the table ${node.table.name}`);
         }
         if (node.page !== undefined) throw new NotInExcel(`it refers to ${node.name} on another page`);
-        const found = namedCells(table).get(node.name.toLowerCase());
+        const found = cellsByName(cells, table).get(node.name.toLowerCase());
         if (!found) throw new NotInExcel(`${node.name} is not a cell of this table`);
         return { text: excelCell(found.row - 1, found.column), range: false };
       }
       case "rowCell": {
         if (node.table) throw new NotInExcel(`it refers to the table ${node.table.name}`);
-        const r = namedRows(table).get(node.row.toLowerCase());
+        const r = rowsByName(cells, table).get(node.row.toLowerCase());
         const c = columnOf(node.column);
         if (r === undefined || c === undefined) return { text: "#REF!", range: false };
         return { text: excelCell(r - 1, c), range: false };

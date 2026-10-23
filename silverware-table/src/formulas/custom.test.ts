@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { clearCustomFunctions, defineCustomFunctions, functionNamed, functionNames, customFunctionsAnew } from "./registry.ts";
 import { BUILT_IN_FUNCTIONS } from "./builtin/index.ts";
 import { HELPERS, customFunctions } from "./custom.ts";
-import { findFunctions, formulaChoices, formulaHelp, recalculate } from "./index.ts";
+import {
+  findFunctions,
+  formulaChoices,
+  formulaHelp,
+} from "./index.ts";
+import { recalculate } from "../testing/formulas.ts";
 import { parseTable } from "../markdown.ts";
 import { FormulaError, TimeValue, toNumber, type Value } from "./values.ts";
 

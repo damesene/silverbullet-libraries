@@ -4,7 +4,7 @@ The decisions behind it are in CLAUDE.md, *Modules and their data*. Stored markd
 
 ## Status
 
-Steps 1 and 2 done (a host per module; offer and offered).
+Steps 1 to 3 done (a host per module; offer and offered; the formulas domain given its cells and names). The formulas module still reads `f`, names and table names with core functions: step 4 moves that to its host.
 
 ## The format
 

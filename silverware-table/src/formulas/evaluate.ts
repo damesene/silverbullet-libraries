@@ -1,11 +1,10 @@
 // Calculating formulas: a table's cells as a sheet, the other tables they
 // refer to as a book, results and the reasons of errors.
 import { escapeCell, type Table, unescapeCell } from "../markdown.ts";
-import { namedCells, namedRows } from "../names.ts";
 import { setCell } from "../ops.ts";
-import { keepTags, withoutTags } from "../tags.ts";
+import { withoutTags } from "../tags.ts";
 import { asNumber } from "../view.ts";
-import { formulaCell, formulaOf, hasFormulas } from "./cell.ts";
+import { cellsByName, type FormulaCells, hasFormulas, rowsByName } from "./cell.ts";
 import { dateArithmetic, parseDate } from "./dates.ts";
 import { type Node, parse, wholeColumnNames } from "./parser.ts";
 import { type Area, areaText, cellName, formulaPages, referencedColumn, type TableRef } from "./references.ts";
@@ -28,15 +27,18 @@ export type TableSource = ((name: string, page?: string) => Table | undefined) &
   readonly unread?: (page: string) => boolean;
 };
 
-/** Where a named cell is: its table, and its row (of the markdown, header 0) and column */
-export type NamedCell = { readonly table: Table; readonly row: number; readonly column: number };
+/** Where a named cell is: its table (and the table's name, if it has one), and its row (of the markdown, header 0) and column */
+export type NamedCell = { readonly table: Table; readonly tableName?: string; readonly row: number; readonly column: number };
 
 /** The sheets of the tables formulas refer to, each made once: their results are computed once too */
 class Book {
   private readonly sheets = new Map<string, Sheet>();
   // The sheets by table, whether reached by the table's name or a named cell's
   private readonly tableSheets = new Map<Table, Sheet>();
-  constructor(private readonly source: TableSource | undefined) {}
+  constructor(
+    readonly cells: FormulaCells,
+    private readonly source: TableSource | undefined,
+  ) {}
 
   /** Whether a formula refers to a page formulas may not read: it keeps its stored result */
   keepsResult(formula: string): boolean {
@@ -53,10 +55,10 @@ class Book {
   }
 
   /** The table's sheet, made on its first use (by its name or by a named cell's) */
-  private sheetOf(table: Table, page: string | undefined): Sheet {
+  private sheetOf(table: Table, page: string | undefined, name: string): Sheet {
     let sheet = this.tableSheets.get(table);
     if (!sheet) {
-      sheet = new Sheet(table, this, page);
+      sheet = new Sheet(table, this, page, name);
       this.tableSheets.set(table, sheet);
     }
     return sheet;
@@ -71,7 +73,7 @@ class Book {
     if (!sheet) {
       const table = this.source?.(ref.name, page);
       if (!table) return new FormulaError("#REF!", `there is no table named ${ref.name}${page === undefined ? " on this page" : ` on ${page}`}`);
-      sheet = this.sheetOf(table, page);
+      sheet = this.sheetOf(table, page, ref.name);
       this.sheets.set(key, sheet);
     }
     return sheet;
@@ -84,12 +86,12 @@ class Book {
  * another column ([@qty] / SUM([qty]) in a Share column) does not make its row
  * one. [qty] leaves them out.
  */
-export function totalRows(table: Table): ReadonlySet<number> {
+export function totalRows(cells: FormulaCells, table: Table): ReadonlySet<number> {
   const headers = table.rows[0]?.cells ?? [];
   const totals = new Set<number>();
   table.rows.slice(1).forEach((row, r) => {
     row.cells.forEach((cell, column) => {
-      const stored = formulaOf(cell);
+      const stored = cells.formulaOf(cell);
       const tree = stored && parse(stored.formula);
       if (!tree || isError(tree)) return;
       if (Array.from(wholeColumnNames(tree, new Set())).some((name) => referencedColumn(headers, name) === column)) totals.add(r);
@@ -112,20 +114,25 @@ class Sheet {
   private cellNames: Map<string, { readonly row: number; readonly column: number }> | undefined;
   private rowNames: Map<string, number> | undefined;
 
-  /** `page`: the page the table is on, when it is not the formulas' own (its unnamed references are to tables there) */
+  /**
+   * `page`: the page the table is on, when it is not the formulas' own (its
+   * unnamed references are to tables there); `name`: the table's, by which
+   * its own formulas may refer to it too
+   */
   constructor(
     private readonly table: Table,
-    private readonly book: Book = new Book(undefined),
+    private readonly book: Book,
     readonly page?: string,
+    name?: string,
   ) {
-    this.name = table.meta?.name?.trim() || undefined;
+    this.name = name?.trim() || undefined;
     this.headers = table.rows[0]?.cells ?? [];
     this.body = table.rows.slice(1).map((r) => r.cells);
     let comma = 0;
     let point = 0;
     for (const cells of this.body) {
       for (const cell of cells) {
-        if (formulaOf(cell)) continue;
+        if (book.cells.formulaOf(cell)) continue;
         const text = unescapeCell(cell).trim();
         if (asNumber(text) === undefined) continue;
         if (DECIMAL_COMMA_RE.test(text)) comma++;
@@ -149,7 +156,7 @@ class Sheet {
     if (cell === undefined || column >= this.columns) {
       return new FormulaError("#REF!", `${cellName(row, column)} is outside the table`);
     }
-    const stored = formulaOf(cell);
+    const stored = this.book.cells.formulaOf(cell);
     if (!stored) {
       const text = unescapeCell(withoutTags(cell)).trim();
       if (text === "") return null;
@@ -170,7 +177,7 @@ class Sheet {
     // Refers to a page formulas may not read: the result stored, which
     // the formulas using the cell use too
     if (this.book.keepsResult(formula)) {
-      const shown = unescapeCell(formulaOf(this.body[row]?.[column] ?? "")?.value ?? "").trim();
+      const shown = unescapeCell(this.book.cells.formulaOf(this.body[row]?.[column] ?? "")?.value ?? "").trim();
       // None yet, or an error code written: an error, saying why it is not calculated
       const code = shown === "" ? "#REF!" : ERROR_CODES.find((c) => c === shown);
       const kept: Scalar = code ? new FormulaError(code, "the other page is not read (are links to other pages turned off?)") : (asNumber(shown) ?? parseClock(shown) ?? shown);
@@ -202,12 +209,12 @@ class Sheet {
 
   /** The cell of the row named `row` in the column `column` */
   rowCellValue(row: string, column: string, prefix = ""): Value {
-    this.rowNames ??= namedRows(this.table);
+    this.rowNames ??= rowsByName(this.book.cells, this.table);
     const r = this.rowNames.get(row.toLowerCase());
     if (r === undefined) return new FormulaError("#REF!", `there is no row named ${row}${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
     const c = referencedColumn(this.headers, column);
     if (c === undefined) return new FormulaError("#REF!", `there is no column named "${column}"${prefix ? ` in ${prefix.slice(0, -1)}` : ""}`);
-    // namedRows counts the header as row 0, the body starts at 0 here
+    // rowsByName counts the header as row 0, the body starts at 0 here
     return this.value(r - 1, c);
   }
 
@@ -241,7 +248,7 @@ class Sheet {
 
   /** The total rows (see totalRows), once */
   private totalRows(): ReadonlySet<number> {
-    this.totals ??= totalRows(this.table);
+    this.totals ??= totalRows(this.book.cells, this.table);
     return this.totals;
   }
 
@@ -276,9 +283,9 @@ class Sheet {
     const own = this.name?.toLowerCase();
     const others = this.book
       .cellsNamed(name, page ?? this.page)
-      .filter((cell) => cell.row > 0 && cell.table !== this.table && !(page === undefined && own && cell.table.meta?.name?.trim().toLowerCase() === own));
+      .filter((cell) => cell.row > 0 && cell.table !== this.table && !(page === undefined && own && cell.tableName?.trim().toLowerCase() === own));
     if (others.length === 0) return `there is no cell named ${name} ${page === undefined ? "in this table" : `on ${page}`}`;
-    const names = others.map((cell) => cell.table.meta?.name?.trim() || undefined);
+    const names = others.map((cell) => cell.tableName?.trim() || undefined);
     if (others.length > 1) {
       const named = names.filter((n): n is string => !!n);
       return `${name} is a cell of several tables${named.length ? ` (${named.join(", ")})` : ""}: write which, as ${named[0] ?? "table"}!${name}`;
@@ -291,9 +298,9 @@ class Sheet {
 
   /** The body cell of this table named so (ignoring case), if any */
   private cellNamed(name: string): { row: number; column: number } | undefined {
-    this.cellNames ??= namedCells(this.table);
+    this.cellNames ??= cellsByName(this.book.cells, this.table);
     const found = this.cellNames.get(name.toLowerCase());
-    // namedCells counts the header as row 0, the body starts at 0 here
+    // cellsByName counts the header as row 0, the body starts at 0 here
     return found && { row: found.row - 1, column: found.column };
   }
 
@@ -436,36 +443,39 @@ function compare(a: Scalar, b: Scalar): number {
  * same table when all results are up to date. Formulas in the header row are
  * left alone: a header is a column's name.
  */
-export function recalculate(table: Table, tables?: TableSource): Table {
-  if (!hasFormulas(table)) return table;
-  const book = new Book(tables);
-  const sheet = new Sheet(table, book);
+/** What a table's formulas are calculated with: its cells as the formulas read them, the other tables, its own name */
+export type Calculation = { readonly cells: FormulaCells; readonly tables?: TableSource; readonly name?: string };
+
+export function recalculate(table: Table, { cells, tables, name }: Calculation): Table {
+  if (!hasFormulas(cells, table)) return table;
+  const book = new Book(cells, tables);
+  const sheet = new Sheet(table, book, undefined, name);
   let result = table;
   table.rows.forEach((row, r) => {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
-      const stored = formulaOf(cell);
+      const stored = cells.formulaOf(cell);
       // A result kept as it is written (a link to a page not read)
       if (!stored || (book.keepsResult(stored.formula) && stored.value.trim() !== "")) return;
       // Up to date when the result written is the one calculated: the cell's tag as
       // written stays (a table written before tags' values went into apostrophes too)
       const text = sheet.text(r - 1, c, stored.formula);
       if (escapeCell(text) === stored.value) return;
-      result = setCell(result, r, c, keepTags(formulaCell(text, stored.formula), cell));
+      result = setCell(result, r, c, cells.formulaCell(text, stored.formula, cell));
     });
   });
   return result;
 }
 
 /** Why formula cells show errors: "row,column" (rows of the markdown, header 0) → code and detail */
-export function formulaErrors(table: Table, tables?: TableSource): Map<string, string> {
+export function formulaErrors(table: Table, { cells, tables, name }: Calculation): Map<string, string> {
   const errors = new Map<string, string>();
-  if (!hasFormulas(table)) return errors;
-  const sheet = new Sheet(table, new Book(tables));
+  if (!hasFormulas(cells, table)) return errors;
+  const sheet = new Sheet(table, new Book(cells, tables), undefined, name);
   table.rows.forEach((row, r) => {
     if (r === 0) return;
     row.cells.forEach((cell, c) => {
-      const stored = formulaOf(cell);
+      const stored = cells.formulaOf(cell);
       const result = stored && sheet.result(r - 1, c, stored.formula);
       if (isError(result)) errors.set(`${r},${c}`, `${result.code} ${result.detail}`);
     });

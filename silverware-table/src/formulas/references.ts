@@ -3,8 +3,7 @@
 // tables and pages; what a table's formulas refer to.
 import { type ColumnId, columnIdOf, columnKey, findColumn } from "../columns.ts";
 import type { Table } from "../markdown.ts";
-import { namedCells } from "../names.ts";
-import { forFormulas } from "./cell.ts";
+import { cellsByName, type FormulaCells, forFormulas } from "./cell.ts";
 import { isBuiltInFunction, isCustomFunction } from "./registry.ts";
 import { type Token, tokenize } from "./tokens.ts";
 
@@ -199,14 +198,14 @@ export function namedReferences(formula: string): NamedReference[] {
 }
 
 /** The names (lowercase) of a table's named body cells */
-export function cellNamesOf(table: Table): Set<string> {
-  return new Set(namedCells(table).keys());
+export function cellNamesOf(cells: FormulaCells, table: Table): Set<string> {
+  return new Set(cellsByName(cells, table).keys());
 }
 
 /** The other pages whose tables a table's formulas refer to ([[Page]]prices!B2) */
-export function referredPages(table: Table): Set<string> {
+export function referredPages(cells: FormulaCells, table: Table): Set<string> {
   const pages = new Set<string>();
-  forFormulas(table, (formula) => {
+  forFormulas(cells, table, (formula) => {
     for (const page of formulaPages(formula)) pages.add(page);
   });
   return pages;
@@ -225,9 +224,9 @@ export function formulaPages(formula: string): string[] {
  * built in (it may be defined later): their results change when the custom
  * functions are defined anew
  */
-export function callsCustomFunctions(table: Table): boolean {
+export function callsCustomFunctions(cells: FormulaCells, table: Table): boolean {
   let calls = false;
-  forFormulas(table, (formula) => {
+  forFormulas(cells, table, (formula) => {
     const { tokens } = tokenize(formula);
     tokens.forEach((token, i) => {
       const next = tokens[i + 1];
@@ -240,9 +239,9 @@ export function callsCustomFunctions(table: Table): boolean {
 }
 
 /** The names (lowercase) of the tables on the page that a table's formulas refer to, so they change when those do */
-export function referredTableNames(table: Table): Set<string> {
+export function referredTableNames(cells: FormulaCells, table: Table): Set<string> {
   const names = new Set<string>();
-  forFormulas(table, (formula) => {
+  forFormulas(cells, table, (formula) => {
     // Table tokens, not references: prices!#REF! is to prices too
     for (const token of tokenize(formula).tokens) {
       if (token.kind === "table" && token.page === undefined) names.add(token.name.toLowerCase());

@@ -1,7 +1,7 @@
 // Fixing a formula typed with a common slip (a missing ")"), saying what was
 // fixed; and names of cells written as before they were their table's.
 import type { Table } from "../markdown.ts";
-import { namedCells } from "../names.ts";
+import { cellsByName, type FormulaCells } from "./cell.ts";
 import type { TableSource } from "./evaluate.ts";
 import { parse } from "./parser.ts";
 import { namedReferences } from "./references.ts";
@@ -79,18 +79,18 @@ export function autofixFormula(formula: string): FormulaFix {
  * the name and that table has a name; others stay as written (their error
  * says why).
  */
-export function qualifyCellNames(formula: string, own: Table, tables: TableSource): FormulaFix {
-  const ownNames = namedCells(own);
-  const ownName = own.meta?.name?.trim().toLowerCase();
+export function qualifyCellNames(formula: string, own: { readonly table: Table; readonly name?: string }, tables: TableSource, cells: FormulaCells): FormulaFix {
+  const ownNames = cellsByName(cells, own.table);
+  const ownName = own.name?.trim().toLowerCase();
   let fixed = formula;
   const fixes: string[] = [];
   for (const ref of namedReferences(formula).reverse()) {
     if (ref.table || (ref.page === undefined && ownNames.has(ref.name.toLowerCase()))) continue;
     // Other tables' cells (the page's copy of the table edited is its own, maybe as it was)
     const found = (tables.cellsNamed?.(ref.name, ref.page) ?? []).filter(
-      (cell) => cell.row > 0 && cell.table !== own && !(ref.page === undefined && ownName && cell.table.meta?.name?.trim().toLowerCase() === ownName),
+      (cell) => cell.row > 0 && cell.table !== own.table && !(ref.page === undefined && ownName && cell.tableName?.trim().toLowerCase() === ownName),
     );
-    const table = found.length === 1 ? found[0]!.table.meta?.name?.trim() : undefined;
+    const table = found.length === 1 ? found[0]!.tableName?.trim() : undefined;
     // A name a formula can write (not one typed by hand into the metadata row), which reaches that very table
     if (!table || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(table) || tables(table, ref.page) !== found[0]!.table) continue;
     const text = `${ref.page === undefined ? "" : `[[${ref.page}]]`}${table}!${ref.name}`;

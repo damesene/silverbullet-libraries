@@ -7,8 +7,9 @@
 // Turned off, no page is read, and formulas referring to one keep their
 // results (formula/page.ts: pages not read are `unread`).
 import type { Feature, ModelHost, TableTarget, TableInfo, WritePage } from "../core/feature.ts";
-import { referredPages } from "../formulas/index.ts";
+import { type FormulaCells, type FormulasOffer, referredPages } from "../formulas/index.ts";
 import { tablesWritten } from "../formulas/page.ts";
+import { metaName } from "../meta.ts";
 import { type OtherPages, type PageTable, pageTablesOf, parseTable, type Table } from "../markdown.ts";
 
 // At most this many other pages are read for one page's formulas (pages that refer on and on)
@@ -27,6 +28,11 @@ export class PageLinks implements Feature {
   }
 
   /** A table shown: the pages its formulas read, if not read yet; then its formulas are checked again */
+  /** The cells as the formulas module reads them: none while it is off (the pages are read for formulas only) */
+  private cells(): FormulaCells | undefined {
+    return this.host.offered<FormulasOffer>("formulas")?.cells;
+  }
+
   enhanced(info: TableInfo): void {
     void this.load([parseTable(info.source)], false).then((read) => {
       if (read) this.host.tablesChanged();
@@ -35,7 +41,10 @@ export class PageLinks implements Feature {
 
   /** Before a write reads the page: the pages the tables it recalculates refer to, read again */
   async prepareWrite(info: TableTarget): Promise<void> {
-    await this.load(tablesWritten(pageTablesOf(this.host.pageText), info.source), true);
+    const cells = this.cells();
+    if (!cells) return;
+    const tables = pageTablesOf(this.host.pageText).map((t) => ({ ...t, name: metaName(t.table) }));
+    await this.load(tablesWritten(cells, tables, info.source), true);
   }
 
   /** After the edit: pages the page's tables and the edited one refer to, if not read yet */
@@ -71,9 +80,10 @@ export class PageLinks implements Feature {
    */
   private async load(tables: Iterable<Table>, fresh: boolean | ReadonlySet<string>): Promise<boolean> {
     // Read for formulas only
-    if (!this.host.bridge.readPage || !this.host.moduleOn("formulas")) return false;
+    const cells = this.cells();
+    if (!this.host.bridge.readPage || !cells) return false;
     const queue = new Set<string>();
-    for (const table of tables) for (const page of referredPages(table)) queue.add(page);
+    for (const table of tables) for (const page of referredPages(cells, table)) queue.add(page);
     const done = new Set<string>();
     let read = false;
     for (const page of queue) {
@@ -84,7 +94,7 @@ export class PageLinks implements Feature {
         await this.read(page);
         read = true;
       }
-      for (const { table } of this.pages.get(page) ?? []) for (const next of referredPages(table)) queue.add(next);
+      for (const { table } of this.pages.get(page) ?? []) for (const next of referredPages(cells, table)) queue.add(next);
     }
     return read;
   }

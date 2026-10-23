@@ -2,34 +2,24 @@ import { describe, expect, it } from "vitest";
 import {
   areaText,
   autofixFormula,
-  calculatedFormula,
-  cellNamesOf,
   columnLetters,
   argumentSpan,
   cycleFixed,
   filledFormula,
   findFunctions,
   needsOperator,
-  followTable,
-  formulaCell,
-  formulaErrors,
   formulaHelp,
   formulaChoices,
-  formulaOf,
   isFormulaInput,
   type IndexMap,
   namedReferences,
-  qualifyCellNames,
-  recalculate,
   references,
-  referredTableNames,
   type TableSource,
   REFERENCE_HELP,
   referenceSlot,
-  shiftReferences,
-  withCalculatedCells,
   withColumnKeys,
 } from "./index.ts";
+import { calculatedFormula, cellNamesOf, followTable, formulaCell, formulaErrors, formulaOf, qualifyCellNames, recalculate, referredTableNames, shiftReferences, withCalculatedCells } from "../testing/formulas.ts";
 import { parseMetaRow, parseTable, serializeTable, splitRow } from "../markdown.ts";
 import { withMeta } from "../meta.ts";
 import { cellNameOf, namedRows, nameOf, rowNameIn, withCellName, withName, withoutName } from "../names.ts";
@@ -848,7 +838,7 @@ describe("named cells", () => {
       list(page).flatMap((table) =>
         table.rows.flatMap((row, r) => {
           const column = row.cells.findIndex((cell) => cellNameOf(cell)?.toLowerCase() === name.toLowerCase());
-          return r > 0 && column >= 0 ? [{ table, row: r, column }] : [];
+          return r > 0 && column >= 0 ? [{ table, tableName: table.meta?.name, row: r, column }] : [];
         }),
       );
     return Object.assign((name: string, page?: string) => list(page).find((table) => table.meta?.name?.toLowerCase() === name.toLowerCase()), {

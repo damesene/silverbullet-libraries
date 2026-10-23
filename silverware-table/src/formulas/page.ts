@@ -1,13 +1,19 @@
 // The tables of a page as formulas see them: by their names and their named
 // cells (formulas refer to them: prices!B2, vat), with those of other pages
 // the pageLinks module read; and which tables a write recalculates (those
-// referring by name to the table written, in turn).
-import type { OtherPages, PageTable, Table } from "../markdown.ts";
-import { metaName } from "../meta.ts";
-import { cellNameOf, namedCells, rowNameIn } from "../names.ts";
+// referring by name to the table written, in turn). The tables' names come with
+// them, from the formulas module (its host): the domain reads no metadata.
+import type { PageTable, Table } from "../markdown.ts";
+import { cellsByName, type FormulaCells } from "./cell.ts";
 import type { NamedCell, TableSource } from "./evaluate.ts";
 import type { FormulaChoice } from "./help.ts";
 import { referredTableNames } from "./references.ts";
+
+/** A table of a page with its name (undefined: none), as the formulas module gives it */
+export type NamedPageTable = PageTable & { readonly name: string | undefined };
+
+/** The other pages read, their tables with their names (null: no such page; undefined: not read) */
+export type NamedOtherPages = { readonly tables: (page: string) => readonly NamedPageTable[] | null | undefined };
 
 /** A page's tables by their names, and its named cells by their names (lowercase), of every table (a name is unique in its table only) */
 type PageNames = { readonly tables: Map<string, Table>; readonly cells: Map<string, NamedCell[]> };
@@ -18,10 +24,11 @@ type PageNames = { readonly tables: Map<string, Table>; readonly cells: Map<stri
  * and `others` has those of other pages. `tables` is read on the first lookup.
  */
 export function pageTables(
-  tables: () => readonly PageTable[],
+  cells: FormulaCells,
+  tables: () => readonly NamedPageTable[],
   here: string,
-  replace?: { readonly from: number; readonly table: Table },
-  others?: OtherPages,
+  replace?: { readonly from: number; readonly table: Table; readonly name: string | undefined },
+  others?: NamedOtherPages,
 ): TableSource {
   const pages = new Map<string, PageNames>();
   const namesOf = (page: string | undefined): PageNames | undefined => {
@@ -32,14 +39,15 @@ export function pageTables(
       const list = isHere ? tables() : others?.tables(page);
       if (!list) return undefined;
       names = { tables: new Map(), cells: new Map() };
-      for (const { range, table: parsed } of list) {
-        const table = isHere && replace && range.from === replace.from ? replace.table : parsed;
-        const own = metaName(table)?.toLowerCase();
+      for (const given of list) {
+        const { table, name: tableName } = isHere && replace && given.range.from === replace.from ? replace : given;
+        const own = tableName?.toLowerCase();
         if (own && !names.tables.has(own)) names.tables.set(own, table);
-        for (const [name, cell] of namedCells(table)) {
-          const cells = names.cells.get(name);
-          if (cells) cells.push({ table, ...cell });
-          else names.cells.set(name, [{ table, ...cell }]);
+        for (const [name, cell] of cellsByName(cells, table)) {
+          const found: NamedCell = { table, tableName, ...cell };
+          const list = names.cells.get(name);
+          if (list) list.push(found);
+          else names.cells.set(name, [found]);
         }
       }
       pages.set(key, names);
@@ -65,10 +73,6 @@ function once(choices: readonly FormulaChoice[]): FormulaChoice[] {
   });
 }
 
-/** The names of a table's body cells, as written */
-function cellNames(table: Table): string[] {
-  return table.rows.slice(1).flatMap((row) => row.cells.map(cellNameOf).filter((name): name is string => !!name));
-}
 
 /**
  * The page's names any formula of it can refer to, as written, to offer while
@@ -76,22 +80,18 @@ function cellNames(table: Table): string[] {
  * name is its table's; the cells of a table without a name cannot be referred
  * to from another)
  */
-export function pageNameChoices(tables: readonly PageTable[]): FormulaChoice[] {
+export function pageNameChoices(cells: FormulaCells, tables: readonly NamedPageTable[]): FormulaChoice[] {
   return once(
-    tables.flatMap(({ table }): FormulaChoice[] => {
-      const own = metaName(table);
-      return own ? [{ kind: "table", name: own }, ...cellNames(table).map((name): FormulaChoice => ({ kind: "cell", name, table: own }))] : [];
-    }),
+    tables.flatMap(({ table, name: own }): FormulaChoice[] =>
+      own ? [{ kind: "table", name: own }, ...cells.cellNames(table).map(({ name }): FormulaChoice => ({ kind: "cell", name, table: own }))] : [],
+    ),
   );
 }
 
 /** The names a table's own formulas refer to bare, as written: its named cells (vat) and rows (`pear[price]`) */
-export function ownNameChoices(table: Table): FormulaChoice[] {
-  const rows = table.rows.slice(1).flatMap((row): FormulaChoice[] => {
-    const name = rowNameIn(row.cells)?.name;
-    return name ? [{ kind: "row", name }] : [];
-  });
-  return once([...cellNames(table).map((name): FormulaChoice => ({ kind: "cell", name })), ...rows]);
+export function ownNameChoices(cells: FormulaCells, table: Table): FormulaChoice[] {
+  const rows = cells.rowNames(table).map(({ name }): FormulaChoice => ({ kind: "row", name }));
+  return once([...cells.cellNames(table).map(({ name }): FormulaChoice => ({ kind: "cell", name })), ...rows]);
 }
 
 /**
@@ -101,20 +101,20 @@ export function ownNameChoices(table: Table): FormulaChoice[] {
  */
 export type Affected = { readonly tables: Set<string> };
 
-export function affectedBy(...tables: Table[]): Affected {
+/** What writing tables of these names (undefined: unnamed) affects */
+export function affectedBy(...names: (string | undefined)[]): Affected {
   const affected: Affected = { tables: new Set() };
-  for (const table of tables) addAffected(affected, table);
+  for (const name of names) addAffected(affected, name);
   return affected;
 }
 
-export function addAffected(affected: Affected, table: Table): void {
-  const name = metaName(table)?.toLowerCase();
-  if (name) affected.tables.add(name);
+export function addAffected(affected: Affected, name: string | undefined): void {
+  if (name) affected.tables.add(name.toLowerCase());
 }
 
 /** What a table's formulas refer to on the page: tables by name */
-export function referredBy(table: Table): Affected {
-  return { tables: referredTableNames(table) };
+export function referredBy(cells: FormulaCells, table: Table): Affected {
+  return { tables: referredTableNames(cells, table) };
 }
 
 export function isAffected(referred: Affected, affected: Affected): boolean {
@@ -126,18 +126,19 @@ export function isAffected(referred: Affected, affected: Affected): boolean {
  * tables that refer to it by name, or in turn to those. All of the page's when
  * the table is not found.
  */
-export function tablesWritten(all: readonly PageTable[], source: string): Table[] {
-  const own = all.find((t) => t.range.text === source)?.table;
-  if (!own) return all.map((t) => t.table);
+export function tablesWritten(cells: FormulaCells, all: readonly NamedPageTable[], source: string): Table[] {
+  const found = all.find((t) => t.range.text === source);
+  if (!found) return all.map((t) => t.table);
+  const own = found.table;
   const result = [own];
-  const affected = affectedBy(own);
-  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, referred: referredBy(t.table) }));
+  const affected = affectedBy(found.name);
+  const rest = all.filter((t) => t.table !== own).map((t) => ({ table: t.table, name: t.name, referred: referredBy(cells, t.table) }));
   for (let found = true; found; ) {
     found = false;
     for (let i = rest.length - 1; i >= 0; i--) {
       if (!isAffected(rest[i]!.referred, affected)) continue;
       result.push(rest[i]!.table);
-      addAffected(affected, rest[i]!.table);
+      addAffected(affected, rest[i]!.name);
       rest.splice(i, 1);
       found = true;
     }

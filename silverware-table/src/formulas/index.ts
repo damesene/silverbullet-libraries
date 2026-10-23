@@ -18,19 +18,19 @@
 // This is the formulas' API for the rest of Silverware Table; the parts are the
 // files beside it, the functions in builtin/ (only functions: what a formula
 // can call), custom functions in custom.ts, which exist in registry.ts.
-export { formulaCell, formulaCount, formulaOf, isErrorText, isFormulaInput, type StoredFormula } from "./cell.ts";
+export { type CellNameAt, cellsByName, type FormulaCells, formulaCount, forFormulas, hasFormulas, isErrorText, isFormulaInput, type RowName, rowsByName, type StoredFormula } from "./cell.ts";
 
-/** What the formulas module offers other modules (ModelHost.offered("formulas")): the formula a cell holds */
-export type FormulasOffer = { readonly formulaOf: (cell: string) => import("./cell.ts").StoredFormula | undefined };
+/** What the formulas module offers other modules (ModelHost.offered("formulas")): its cells as the formulas read them */
+export type FormulasOffer = { readonly cells: import("./cell.ts").FormulaCells };
 export { type Area, areaText, callsCustomFunctions, type Fixed, cellName, cellNamesOf, columnLetters, columnRefText, type NamedReference, namedReferences, type Reference, referencedColumn, referencedColumnId, references, referredPages, referredTableNames, type TableRef, withColumnKeys } from "./references.ts";
 export { autofixFormula, type FormulaFix, qualifyCellNames } from "./autofix.ts";
-export { formulaErrors, type NamedCell, recalculate, type TableSource, totalRows } from "./evaluate.ts";
+export { type Calculation, formulaErrors, type NamedCell, recalculate, type TableSource, totalRows } from "./evaluate.ts";
 export { type Node as FormulaNode, parse as parseFormula } from "./parser.ts";
 export { parseDate, toUnit, type Unit } from "./dates.ts";
 export { ERROR_CODES, FormulaError, parseClock, type Scalar } from "./values.ts";
 export { withAreasWritten, type WrittenArea, writtenArea } from "./frame.ts";
 export { REF_ERROR } from "./tokens.ts";
-export { calculatedFormula, filledFormula, followTable, formulasAfterEdit, shiftReferences, withCalculatedCells, withoutFormulas } from "./edits.ts";
+export { calculatedFormula, filledFormula, followTable, type Following, formulasAfterEdit, shiftReferences, withCalculatedCells, withoutFormulas } from "./edits.ts";
 export { argumentSpan, type FormulaChoice, type FormulaChoices, choiceText, cycleFixed, findFunctions, type FormulaHelp, formulaChoices, formulaHelp, nameTyped, needsOperator, type PointedSpan, REFERENCE_HELP, referenceSlot } from "./help.ts";
 export { FUNCTION_CATEGORIES, type FormulaFunction, type FunctionCategory } from "./function.ts";
 export { functionNamed, isCustomFunction } from "./registry.ts";

@@ -4,7 +4,7 @@ import { parseTable } from "../markdown.ts";
 import { BUILT_IN_FUNCTIONS } from "../formulas/builtin/index.ts";
 import { clearCustomFunctions, defineCustomFunctions } from "../formulas/registry.ts";
 import { excelHtml, excelText } from "./clipboard.ts";
-import { excelFormula } from "./formulas.ts";
+import { excelFormula } from "../testing/formulas.ts";
 import { EXCEL_FUNCTIONS, SAME_IN_EXCEL, withFutureNames } from "./functions.ts";
 import { excelValue, serialOf } from "./values.ts";
 import { crc32, sheetName, xlsxFile, xlsxParts, xmlText } from "./xlsx.ts";

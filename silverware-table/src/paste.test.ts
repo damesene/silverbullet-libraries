@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseTable, serializeTable } from "./markdown.ts";
 import { parseClipboardCells, pasteCells, planPaste } from "./paste.ts";
-import { formulaOf } from "./formulas/index.ts";
+import { formulaOf } from "./testing/formulas.ts";
 import { keepTags } from "./tags.ts";
 import { NO_PINS } from "./view.ts";
 
