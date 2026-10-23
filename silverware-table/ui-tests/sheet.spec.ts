@@ -177,6 +177,29 @@ test.describe("Sheet view", () => {
     await expect(page.locator(".swt-cell-editor")).toHaveCount(0);
   });
 
+  test("one row pasted into an empty cell: its values in that cell's row, the header above them; the keys stay the board's", async ({ page }) => {
+    await openSheet(page);
+    const point = await emptyCell(page, { below: 3, column: 0 });
+    await page.mouse.click(point.x, point.y);
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    await page.keyboard.press("Control+v");
+    const field = page.locator(".swt-sheet-cell .swt-cell-editor");
+    await expect(field).toBeFocused();
+    await field.evaluate((input) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "a\tb");
+      input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await expect.poll(() => markdown(page)).toMatch(/\| Column 1 +\| Column 2 +\|\n\|[- |]+\|\n\| a +\| b +\|\n\| <meta name='table2' sheet='Sheet1' at='A(\d+)'> \|/);
+    // The first table takes the sheet's rows 1 to N (its header and body), the cell pasted into is row N + 4 (three
+    // empty rows under it): the new table starts on the row above, so its value is in that cell
+    const first = await sheetTable(page).first().locator("tr[data-swt-row], thead tr").count();
+    const at = Number(/name='table2' sheet='Sheet1' at='A(\d+)'/.exec(await markdown(page))![1]);
+    expect(at).toBe(first + 4 - 1);
+    expect(await page.evaluate(() => document.activeElement?.classList.contains("swt-sheet-board"))).toBe(true);
+  });
+
   test("Esc unselects an empty cell, a second Esc closes the view", async ({ page }) => {
     await openSheet(page);
     const point = await emptyCell(page, { right: 0, row: 1 });

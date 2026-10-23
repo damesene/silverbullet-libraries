@@ -38,6 +38,7 @@ import { ICONS } from "../../../icons.ts";
 import { escapeCell, findTables, parseTable, type Table, type TableRange } from "../../../markdown.ts";
 import { metaName, sameTableName, withMeta, withMetaName } from "../../../meta.ts";
 import { AT_ATTRIBUTE, formatAt, freeName, freeSheetName, parseAt, SHEET_ATTRIBUTE, SHEET_WIDTH_PREFIX, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { nameEmptyHeaders } from "../../../ops.ts";
 import { parseClipboardCells } from "../../../paste.ts";
 import { placeProblem, roomFor } from "../../../sheet/layout.ts";
 import { watchPress } from "../../press.ts";
@@ -1219,32 +1220,31 @@ export class Sheet implements AdapterFeature {
     const columns = Math.max(...data.map((row) => row.length));
     const header = data.length > 1 ? data[0]! : [];
     const body = data.length > 1 ? data.slice(1) : data;
+    // One row: the values where they were pasted, the header above them, as for a value typed (writeNew)
+    const top = data.length > 1 ? at.row : Math.max(0, at.row - 1);
     const rows = body.length + 1;
     const inWay = [...board.tables.values()].find((p) => {
       const e = this.extent(p);
-      return at.column + columns - 1 >= e.left && at.column <= e.right && at.row + rows - 1 >= e.top && at.row <= e.bottom;
+      return at.column + columns - 1 >= e.left && at.column <= e.right && top + rows - 1 >= e.top && top <= e.bottom;
     });
-    // The editor opened for the paste goes, nothing of it written
+    // The editor opened for the paste goes, nothing of it written; the keys stay the board's (not the page's under it)
     this.host.takeEditor();
     this.making = undefined;
+    board.box.focus({ preventScroll: true });
     if (inWay) {
       // (The cell stays selected)
       this.go(at, false);
       const name = metaName(parseTable(inWay.range.text));
-      void this.host.bridge.flash(`Silverware Table: there is no room here for the ${rows} rows and ${columns} columns pasted: they would cover ${name ?? `the table at ${formatAt(inWay.at)}`}`, "info");
+      const what = `${data.length} row${data.length === 1 ? "" : "s"} and ${columns} column${columns === 1 ? "" : "s"}`;
+      void this.host.bridge.flash(`Silverware Table: there is no room here for the ${what} pasted: they would cover ${name ?? `the table at ${formatAt(inWay.at)}`}`, "info");
       return;
     }
     // The table takes the cell's place
     this.unselect();
-    const line = (cells: readonly string[], blank: (c: number) => string) =>
-      `| ${Array.from({ length: columns }, (_, c) => escapeCell((cells[c] ?? "").trim()) || blank(c)).join(" | ")} |`;
-    const markdown = [
-      line(header, (c) => `Column ${c + 1}`),
-      `|${"---|".repeat(columns)}`,
-      ...body.map((cells) => line(cells, () => "")),
-    ].join("\n");
-    const result = await this.insertNew(await this.host.bridge.getText(), parseTable(markdown), at, undefined);
-    if (result === "written") void this.host.bridge.flash(`Silverware Table: pasted as a new table (Ctrl+Z undoes it)`, "info");
+    const line = (cells: readonly string[]) => `| ${Array.from({ length: columns }, (_, c) => escapeCell((cells[c] ?? "").trim())).join(" | ")} |`;
+    const markdown = [line(header), `|${"---|".repeat(columns)}`, ...body.map(line)].join("\n");
+    // Empty header cells named as a new column is, each name once
+    await this.insertNew(await this.host.bridge.getText(), nameEmptyHeaders(parseTable(markdown)), { row: top, column: at.column }, undefined);
   }
 
   /** The module's td over an empty cell (the one selected or edited), where that cell is now */
