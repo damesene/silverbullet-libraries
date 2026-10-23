@@ -635,6 +635,56 @@ test.describe("Sheet view", () => {
     expect(await markdown(page)).toMatch(/\| Kiwi +\| +3 \|\n\| Plum +\| +4 \|/);
   });
 
+  test("a column's width dragged on the sheet is the sheet's column's, for every table in it", async ({ page }) => {
+    await page
+      .locator("#source")
+      .fill(
+        "# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta name='prices' sheet='Plan' at='A1'> |\n\n| City | Zip |\n|---|---|\n| Brno | 602 |\n| <meta name='cities' sheet='Plan' at='A5'> |\n",
+      );
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
+    await openSheet(page);
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    await expect(drawn).toHaveCount(2);
+    const letterA = page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: /^A$/ });
+    const head = drawn.nth(0).locator("thead tr > *").first();
+    const startWidth = (await head.boundingBox())!.width;
+    await head.hover();
+    const handle = drawn.nth(0).locator(".swt-col-resize").first();
+    const h = (await handle.boundingBox())!;
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(h.x + h.width / 2 + 60, h.y + h.height / 2, { steps: 5 });
+    await page.mouse.up();
+    // Stored as the sheet's column A, in its first table; the table's own width is not written
+    await expect.poll(() => markdown(page)).toMatch(/<meta name='prices' sheet='Plan' at='A1' sheet\.width\.A='\d+'>/);
+    expect(await markdown(page)).not.toContain("width.item");
+    const width = Number((await markdown(page)).match(/sheet\.width\.A='(\d+)'/)![1]);
+    expect(Math.abs(width - (startWidth + 60))).toBeLessThan(3);
+    // Both tables' first columns, and the letter A, that wide
+    await expect.poll(async () => Math.round((await drawn.nth(1).locator("thead tr > *").first().boundingBox())!.width)).toBe(width);
+    expect(Math.round((await letterA.boundingBox())!.width)).toBe(width);
+    // A double-click on the handle: automatic again
+    await head.hover();
+    const again = (await handle.boundingBox())!;
+    await page.mouse.dblclick(again.x + again.width / 2, again.y + again.height / 2);
+    await expect.poll(() => markdown(page)).not.toContain("sheet.width.A");
+  });
+
+  test("a column's width dragged on a table alone is its own", async ({ page }) => {
+    await openSheet(page);
+    const head = sheetTable(page).locator("thead tr > *").first();
+    await head.hover();
+    const h = (await sheetTable(page).locator(".swt-col-resize").first().boundingBox())!;
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(h.x + h.width / 2 + 50, h.y + h.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(() => markdown(page)).toMatch(/width\.name='\d+'/);
+    const width = Number((await markdown(page)).match(/width\.name='(\d+)'/)![1]);
+    await expect.poll(async () => Math.round((await head.boundingBox())!.width)).toBe(width);
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");

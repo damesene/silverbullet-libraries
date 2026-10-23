@@ -33,8 +33,8 @@ import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
 import { columnLetters } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 import { escapeCell, findTables, parseTable, type TableRange } from "../../../markdown.ts";
-import { metaName, sameTableName, withMeta, withMetaName } from "../../../meta.ts";
-import { AT_ATTRIBUTE, formatAt, freeName, parseAt, SHEET_ATTRIBUTE, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
+import { columnMeta, metaName, sameTableName, withColumnMeta, withMeta, withMetaName } from "../../../meta.ts";
+import { AT_ATTRIBUTE, formatAt, freeName, parseAt, SHEET_ATTRIBUTE, SHEET_WIDTH_PREFIX, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
 import { roomFor } from "../../../sheet/layout.ts";
 import { growTo } from "../../structure.ts";
 import { type CellRenderer, StaticCellRenderer } from "../cells.ts";
@@ -75,8 +75,10 @@ type Board = {
   readonly box: HTMLElement;
   readonly content: HTMLElement;
   readonly tables: Map<string, Placed>;
-  // The sheet's own widths (its first table's sheet.width.*), by column
+  // The sheet's own widths (its first table's sheet.width.*; a table alone: its own width.*), by column
   widths: ReadonlyMap<number, number>;
+  // A column's width while it is dragged (AddressFrame.previewColumnWidth), by column
+  readonly preview: Map<number, number>;
 };
 
 export class Sheet implements AdapterFeature {
@@ -169,7 +171,7 @@ export class Sheet implements AdapterFeature {
     content.className = "swt-sheet-content";
     content.append(this.columnLines);
     box.append(content);
-    const board: Board = { sheet: sheetOf(info.source), alone: info.key, box, content, tables: new Map(), widths: new Map() };
+    const board: Board = { sheet: sheetOf(info.source), alone: info.key, box, content, tables: new Map(), widths: new Map(), preview: new Map() };
     this.board = board;
     claimWindow(doc, this);
     box.addEventListener("scroll", () => this.queuePlace());
@@ -237,7 +239,11 @@ export class Sheet implements AdapterFeature {
     } else {
       const range = findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
       if (range) wanted.set(board.alone, { range, at: { row: 0, column: 0 } });
+      // A table alone at A1: the grid's columns are its own (the widths module's width.<column>)
+      board.widths = range ? ownWidths(parseTable(range.text)) : new Map();
     }
+    // A width dragged and stored: shown as stored from now on
+    for (const [column, width] of board.preview) if (board.widths.get(column) === width) board.preview.delete(column);
     if (wanted.size === 0) {
       this.end();
       return;
@@ -520,7 +526,45 @@ export class Sheet implements AdapterFeature {
         return { top: placed.at.row + top, left: placed.at.column + area.left, bottom: placed.at.row + top + area.bottom - area.top, right: placed.at.column + area.right };
       },
       inward: (area) => this.inward(info.key, area),
+      columnWidth: (column) => board.widths.get(mine.at.column + column),
+      previewColumnWidth: (column, width) => {
+        if (width === undefined) board.preview.delete(mine.at.column + column);
+        else board.preview.set(mine.at.column + column, width);
+        this.queuePlace();
+      },
+      setColumnWidth: (column, width) => this.setColumnWidth(board, mine.at.column + column, width),
     };
+  }
+
+  /**
+   * A grid's column's width stored: the sheet's (sheet.width.<letters> in its
+   * first table), else (a table alone, at A1) the table's own (width.<column>);
+   * the preview kept until the table is drawn anew with it
+   */
+  private async setColumnWidth(board: Board, column: number, width: number | undefined): Promise<void> {
+    const text = await this.host.bridge.getText();
+    const page = this.host.currentPage;
+    const target = (range: TableRange) => ({ key: `${page}#${range.ordinal}`, source: range.text, hint: range.from });
+    let result: string;
+    if (board.sheet) {
+      const first = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables[0];
+      if (!first) return;
+      result = await this.host.writeTable(target(first.range), (t) => withMeta(t, `${SHEET_WIDTH_PREFIX}${columnLetters(column)}`, width === undefined ? undefined : String(width)));
+    } else {
+      const range = findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
+      if (!range) return;
+      result = await this.host.writeTable(target(range), (t) => {
+        const widths = columnMeta(t, "width");
+        if (width === undefined) widths.delete(column);
+        else widths.set(column, String(width));
+        return withColumnMeta(t, "width", widths);
+      });
+    }
+    // Not written (unchanged, refused): shown as it is again
+    if (result !== "written") {
+      board.preview.delete(column);
+      this.queuePlace();
+    }
   }
 
   /** The table of the board holding a sheet's area whole, as one area of its body rows (in the markdown's order) */
@@ -808,10 +852,10 @@ export class Sheet implements AdapterFeature {
 
   // ---- the layout -------------------------------------------------------------------------
 
-  /** A sheet column's width: the sheet's own, else the widest of the tables' columns there, else an empty one's */
+  /** A sheet column's width: as dragged, else the sheet's own, else the widest of the tables' columns there, else an empty one's */
   private columnWidth(column: number): number {
     const board = this.board!;
-    const own = board.widths.get(column);
+    const own = board.preview.get(column) ?? board.widths.get(column);
     if (own) return own;
     let width = 0;
     for (const placed of board.tables.values()) {
@@ -983,4 +1027,14 @@ function sheetOf(source: string): string | undefined {
 /** Whether two sheet's cells are the same */
 function same(a: SheetCell, b: SheetCell): boolean {
   return a.row === b.row && a.column === b.column;
+}
+
+/** A table's own widths (the widths module's width.<column>), by column: a table alone's grid */
+function ownWidths(table: ReturnType<typeof parseTable>): ReadonlyMap<number, number> {
+  const widths = new Map<number, number>();
+  for (const [column, value] of columnMeta(table, "width")) {
+    const width = Number(value);
+    if (Number.isFinite(width) && width > 0) widths.set(column, Math.round(width));
+  }
+  return widths;
 }

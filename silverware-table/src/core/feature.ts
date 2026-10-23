@@ -42,7 +42,8 @@ export type CellArea = { readonly top: number; readonly left: number; readonly b
 
 /**
  * Where a feature lays the page's tables out on a grid of its own (the sheet
- * view): the addresses their cells have there, as formulas write them. A
+ * view): the addresses their cells have there, as formulas write them, and
+ * the widths of its columns, which a table's own widths give way to. A
  * table's area is in its body rows in the markdown's order (row 0: its first
  * under the header, A1 of its formulas); the frame's in its own rows and
  * columns (row 0 written 1).
@@ -54,6 +55,12 @@ export type AddressFrame = {
   outward(table: string | undefined, area: CellArea): CellArea | undefined;
   /** The table holding an area of the frame whole, as one area (its name; undefined: the one the frame is for), and the area in it */
   inward(area: CellArea): { readonly table: string | undefined; readonly area: CellArea } | undefined;
+  /** The width the grid's column under a column of the table (its own index) is set to; undefined: automatic */
+  columnWidth(column: number): number | undefined;
+  /** That width shown while it is dragged (undefined: as set), not stored */
+  previewColumnWidth(column: number, width: number | undefined): void;
+  /** That width stored (undefined: automatic), for every table in the grid's column */
+  setColumnWidth(column: number, width: number | undefined): Promise<void>;
 };
 
 /** What a cell shows in place of what its markdown renders to: a text, or a link (opened in a new tab) */

@@ -5,6 +5,10 @@
 // and moves (metadataAfterEdit); without it, it holds for the view only.
 // "Reset column widths" in the table's menu makes every column automatic.
 //
+// Where a feature lays the table out on a grid of its own (TableHost.addressFrame:
+// the sheet view), the columns are the grid's: a handle sets the grid's column
+// (for every table in it), the table's own widths give way.
+//
 // While dragging, the width is the width at the press plus how far the pointer
 // moved since, never measured again: a scrollbar showing or going, or the
 // table moving as it gets narrower, cannot feed back into it. The widths are
@@ -64,7 +68,8 @@ export class Widths implements Feature {
   }
 
   columnWidths(info: TableInfo): ReadonlyMap<number, number> {
-    return this.widthsOf(info);
+    // Laid out on a grid of a feature's: its columns' widths, not the table's own
+    return this.host.addressFrame(info) ? new Map() : this.widthsOf(info);
   }
 
   // ---- the handles ----------------------------------------------------------------
@@ -119,7 +124,9 @@ export class Widths implements Feature {
     const show = () => {
       frame = 0;
       const now = this.host.tableFor(info.key);
-      if (this.drag && now) this.host.showColumnWidth(now, column, width);
+      const grid = now && this.host.addressFrame(now);
+      if (this.drag && grid) grid.previewColumnWidth(column, width);
+      else if (this.drag && now) this.host.showColumnWidth(now, column, width);
     };
     const stop = this.host.drag(e, {
       key: info.key,
@@ -141,6 +148,7 @@ export class Widths implements Feature {
         }
         // Not moved: a double-click makes the column automatic again; a click shows it as it was
         if (double) void this.set(now, column, undefined);
+        else if (this.host.addressFrame(now)) this.host.addressFrame(now)!.previewColumnWidth(column, undefined);
         else this.host.showColumnWidth(now, column, undefined);
       },
     });
@@ -154,9 +162,10 @@ export class Widths implements Feature {
     return true;
   }
 
-  /** A column's width set (undefined: automatic) */
+  /** A column's width set (undefined: automatic): the grid's, where a feature lays the table out on one */
   private set(info: TableInfo, column: number, width: number | undefined): Promise<void> {
-    return this.setAll(info, new Map([[column, width]]));
+    const grid = this.host.addressFrame(info);
+    return grid ? grid.setColumnWidth(column, width) : this.setAll(info, new Map([[column, width]]));
   }
 
   /** Columns' widths set (undefined: automatic): stored in the table where they can be, else for the view */
@@ -197,7 +206,8 @@ export class Widths implements Feature {
   // Before Remove metadata (the widths module comes before it), which would remove them too
   toolbarButtons(info: TableInfo): ToolbarButton[] {
     const widths = this.widthsOf(info);
-    if (!widths.size) return [];
+    // On a grid of a feature's the table's own widths do not show: nothing to reset there
+    if (!widths.size || this.host.addressFrame(info)) return [];
     return [
       {
         label: "Reset column widths",
@@ -214,7 +224,8 @@ export class Widths implements Feature {
   }
 
   columnMenuEntries(info: TableInfo, column: number): MenuEntry[] {
-    const width = this.widthsOf(info).get(column);
+    const grid = this.host.addressFrame(info);
+    const width = grid ? grid.columnWidth(column) : this.widthsOf(info).get(column);
     if (width === undefined) return [];
     return [
       {
