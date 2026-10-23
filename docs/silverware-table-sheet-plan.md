@@ -186,3 +186,11 @@ other pages on a sheet.
   refuses only a layout that overlaps already (`refusesWrite`: tables that do
   not overlap never meet so, which the agreed exception for a table beside
   turned out to be).
+- 2026-10-23, phase 3: a value typed into an empty cell no table grows to
+  makes a table of its own (agreed: the value is a value, *Column 1* above it;
+  on the sheet's first row the table starts there and the value goes a row
+  lower; named `tableN`; written after the sheet's last table; a formula
+  saved as text, `'=…` in its editor, a formula once the ' is removed in the
+  sheet view; on a table alone, said to put it on a sheet first). The core
+  got `editBeyond`'s `place` and `insertTable`. Next: selection, copying,
+  AutoFill, filters, sorting, widths, pins on the sheet.
