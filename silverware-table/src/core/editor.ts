@@ -440,7 +440,7 @@ export class CellEditing {
     if (changed && !held && !growth && !closed.place) {
       result = await this.host.write(closed.widget, (t) => this.withCellEdit(t, closed), { focus: sameTable ? next : undefined });
     }
-    if (next && (result === "unchanged" || !sameTable)) {
+    if (next && (result === "unchanged" || !sameTable || closed.place)) {
       // The other table was not re-rendered by this edit unless they share text
       const info = this.host.infoOf(next.widget);
       const cell = info && this.host.cellAt(info, next);

@@ -1948,8 +1948,10 @@ export class Controller implements TableHost {
       const insert = `${at > 0 ? "\n\n" : ""}${markdown}${text.slice(at).startsWith("\n") || at === text.length ? "" : "\n\n"}`;
       const replace = { from: at, to: at, insert };
       const thens: ((editFrom: number, lengthChange: number) => void)[] = [];
+      // The span the features see: the table it goes after (the history marker goes outside it, so outside both)
+      const spanFrom = range ? range.from : at;
       for (const feature of this.features) {
-        const then = await feature.beforeWrite?.(text, at, at, replace);
+        const then = await feature.beforeWrite?.(text, spanFrom, at, replace);
         if (then) thens.push(then);
       }
       await this.bridge.replaceRange(at, at, insert);

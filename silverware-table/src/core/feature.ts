@@ -446,7 +446,9 @@ export interface ModelHost {
   writeTable(target: TableTarget, change: (table: Table) => Table | undefined, options?: WriteOptions): Promise<WriteResult>;
   /**
    * A new table written into the page, in one edit: after the table `after`
-   * (an empty line between), else at the page's end
+   * (an empty line between), else at the page's end. Tables are known by their
+   * place among the page's (their keys): put after the page's last table, it
+   * moves no other table's key.
    */
   insertTable(table: Table, after?: TableTarget): Promise<WriteResult>;
   /** A table shown, by its key, as it is now (rendered anew after a write: its new info) */

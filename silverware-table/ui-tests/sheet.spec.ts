@@ -594,6 +594,30 @@ test.describe("Sheet view", () => {
     await expect.poll(() => markdown(page)).toMatch(/\| 24 <meta f='=prices!B1\*2'> +\|\n\| <meta name='table2'/);
   });
 
+  test("far from the tables: '= is text as elsewhere, and a cell pressed meanwhile is pressed once the table is made", async ({ page }) => {
+    await page
+      .locator("#source")
+      .fill("# Test\n\n| Item | Price |\n|---|---|\n| Pear | 12 |\n| <meta name='prices' sheet='Plan' at='A3'> |\n\n| Other |\n|---|\n| x |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
+    await openSheet(page);
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const letter = (text: string) => page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: new RegExp(`^${text}$`) });
+    const prices = (await drawn.nth(0).boundingBox())!;
+    const rowHeight = (await drawn.nth(0).locator("tr[data-swt-row='1'] > td").first().boundingBox())!.height;
+    const d = (await letter("D").boundingBox())!;
+    await page.mouse.click(d.x + d.width / 2, prices.y + 5 * rowHeight + rowHeight / 2);
+    await page.keyboard.type("'=total");
+    // A press on Pear's price while it is edited: the table made, then the press acts on Pear's price (select mode: selected)
+    await drawn.nth(0).locator("tr[data-swt-row='1'] > td").nth(1).click();
+    await expect(drawn).toHaveCount(2);
+    const text = await markdown(page);
+    // Its text =total, without the '; written after the page's last table (Other), no flash about a formula
+    expect(text).toMatch(/\| Other \|\n\|---\|\n\| x \|\n\n\| Column 1 +\|\n\| -+ \|\n\| =total +\|\n\| <meta name='table1' sheet='Plan' at='D7'> \|/);
+    await expect(page.locator("#flash > div", { hasText: "saved as text" })).toHaveCount(0);
+    await expect(drawn.nth(0).locator("tr[data-swt-row='1'] > td").nth(1)).toHaveClass(/swt-selected/);
+  });
+
   test("a value typed far from a table on no sheet makes nothing, says why, and reaches no page", async ({ page }) => {
     await openSheet(page);
     const before = await markdown(page);

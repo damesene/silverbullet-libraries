@@ -10,8 +10,8 @@
 // in one edit (TableHost.editBeyond), the tables beyond moved as far as it
 // reaches into them (sheet/layout.ts, in the sheets module's write); a value
 // typed elsewhere makes a table of its own there (header *Column 1* above it,
-// named, on the sheet: TableHost.insertTable, after the sheet's last table in
-// the page), a formula as text until its table exists.
+// named, on the sheet: TableHost.insertTable, after the page's last table, so
+// no other table's key moves), a formula as text until its table exists.
 // The same icon or Esc closes it.
 //
 // The tables are drawn by the module itself from the markdown (drawn.ts, their
@@ -30,7 +30,7 @@ import type { AdapterFeature, AddressFrame, CellArea, CellRef, RenderedEditor, T
 import { oncePerFrame } from "../../frame.ts";
 import { claimWindow, releaseWindow } from "../../overwindow.ts";
 import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
-import { columnLetters } from "../../../formulas/index.ts";
+import { columnLetters, isFormulaInput } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 import { escapeCell, findTables, parseTable, type TableRange } from "../../../markdown.ts";
 import { metaName, sameTableName, withMeta, withMetaName } from "../../../meta.ts";
@@ -292,6 +292,8 @@ export class Sheet implements AdapterFeature {
     else board.content.append(widget);
     board.tables.set(key, { key, range, at, widget, natural: before?.natural ?? [], rowHeight: before?.rowHeight ?? 0 });
     this.shownIndex = undefined;
+    // Its looks are made by its rows as in the markdown (then sorted or filtered: viewApplied asks for them again)
+    if (!before) this.looksOrder.set(key, Array.from(parseTable(range.text).rows, (_, i) => i).join(","));
   }
 
   /** A table of the board as enhanced now, by its key */
@@ -542,19 +544,28 @@ export class Sheet implements AdapterFeature {
    * the preview kept until the table is drawn anew with it
    */
   private async setColumnWidth(board: Board, column: number, width: number | undefined): Promise<void> {
-    const text = await this.host.bridge.getText();
-    const page = this.host.currentPage;
-    const target = (range: TableRange) => ({ key: `${page}#${range.ordinal}`, source: range.text, hint: range.from });
-    const range = board.sheet
-      ? sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables[0]?.range
-      : findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
-    if (!range) return;
-    const result = await this.host.writeTable(target(range), (t) => withMeta(t, `${SHEET_WIDTH_PREFIX}${columnLetters(column)}`, width === undefined ? undefined : String(width)));
-    // Not written (unchanged, refused): shown as it is again
-    if (result !== "written") {
-      board.preview.delete(column);
-      this.queuePlace();
+    try {
+      const text = await this.host.bridge.getText();
+      const page = this.host.currentPage;
+      const range = board.sheet
+        ? sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables[0]?.range
+        : findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
+      // Without a metadata row and the setting (a table alone): for the view only, as the widths module keeps them
+      if (range && !parseTable(range.text).meta && !this.host.metadataEnabled) {
+        if (width === undefined) board.preview.delete(column);
+        else board.preview.set(column, width);
+        this.queuePlace();
+        return;
+      }
+      const target = range && { key: `${page}#${range.ordinal}`, source: range.text, hint: range.from };
+      const result = target && (await this.host.writeTable(target, (t) => withMeta(t, `${SHEET_WIDTH_PREFIX}${columnLetters(column)}`, width === undefined ? undefined : String(width))));
+      if (result === "written") return;
+    } catch (e) {
+      console.error("Silverware Table: could not store the column's width", e);
     }
+    // Not stored (unchanged, refused, failed): shown as it is again
+    board.preview.delete(column);
+    this.queuePlace();
   }
 
   /** The table of the board holding a sheet's area whole, as one area of its body rows (in the markdown's order) */
@@ -770,7 +781,8 @@ export class Sheet implements AdapterFeature {
     const top = Math.max(0, at.row - 1);
     const last = [...board.tables.values()].sort((a, b) => b.range.from - a.range.from)[0];
     const host = last && this.infoOfKey(last.key);
-    if (!last || !host) return;
+    const pageTables = findTables(this.host.pageText);
+    if (!last || !host || !pageTables.length) return;
     const inWay = [...board.tables.values()].some((p) => {
       const e = this.extent(p);
       return at.column >= e.left && at.column <= e.right && top + 1 >= e.top && top <= e.bottom;
@@ -781,10 +793,11 @@ export class Sheet implements AdapterFeature {
     }
     const cell = this.showCell(at);
     if (!cell) return;
-    // The new table's key: the next after the sheet's last table, where it is written
-    this.making = { at, key: `${this.host.currentPage}#${last.range.ordinal + 1}` };
-    // The editor belongs to a table of the sheet (what the features ask of it), past its rows: nothing of it is written
-    this.host.editBeyond(this.host.widgetOf(host), host, { row: host.rows, column: 0 }, cell, (typed) => this.writeNew(at, typed));
+    // The new table's key: the next after the page's last table, where it is written
+    this.making = { at, key: `${this.host.currentPage}#${pageTables.length}` };
+    // The editor belongs to a table of the sheet (what the features ask of it), past its rows and columns (so no
+    // column's type applies): nothing of it is written
+    this.host.editBeyond(this.host.widgetOf(host), host, { row: host.rows, column: host.columns }, cell, (typed) => this.writeNew(at, typed));
     if ((this.host.editing as RenderedEditor | undefined)?.cell !== cell) {
       this.chosen = undefined;
       this.making = undefined;
@@ -794,26 +807,29 @@ export class Sheet implements AdapterFeature {
 
   /**
    * A table made of a value typed into an empty cell: `| Column 1 |`, the value
-   * under it, its name, sheet and place; written after the sheet's last table
-   * in the page. A formula is written as text (its references are the sheet's,
-   * and its table does not exist yet): said so.
+   * under it, its name, sheet and place; written after the page's last table.
+   * As a cell's text is read elsewhere: '=… is the text =…; a formula is
+   * written as text too (its references are the sheet's, and its table does not
+   * exist yet), said so.
    */
   private async writeNew(at: SheetCell, typed: string): Promise<"written" | "unchanged" | "failed"> {
     const board = this.board;
     if (!board?.sheet) return "failed";
     const text = await this.host.bridge.getText();
-    const tables = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables ?? [];
-    const last = tables[tables.length - 1];
+    const ranges = findTables(text);
+    const last = ranges[ranges.length - 1];
     if (!last) return "failed";
-    if (typed.trimStart().startsWith("=")) {
+    const trimmed = typed.trim();
+    const value = trimmed.startsWith("'=") ? trimmed.slice(1) : trimmed;
+    if (!trimmed.startsWith("'=") && isFormulaInput(trimmed)) {
       void this.host.bridge.flash(
         "Silverware Table: saved as text, as a formula needs its table first: edit the cell in the sheet view and remove the ' to make it a formula",
         "info",
       );
     }
-    let table = parseTable(`| Column 1 |\n|---|\n| ${escapeCell(typed.trim())} |`);
+    let table = parseTable(`| Column 1 |\n|---|\n| ${escapeCell(value)} |`);
     table = withMeta(withMeta(withMetaName(table, freeName(text)), SHEET_ATTRIBUTE, board.sheet), AT_ATTRIBUTE, formatAt({ row: Math.max(0, at.row - 1), column: at.column }));
-    return this.host.insertTable(table, { key: `${this.host.currentPage}#${last.range.ordinal}`, source: last.range.text, hint: last.range.from });
+    return this.host.insertTable(table, { key: `${this.host.currentPage}#${last.ordinal}`, source: last.text, hint: last.from });
   }
 
   /** The module's td over an empty cell (the one selected or edited), where that cell is now */
