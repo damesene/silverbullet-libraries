@@ -687,6 +687,61 @@ test.describe("Sheet view", () => {
     await expect.poll(async () => Math.round((await head.boundingBox())!.width)).toBe(width);
   });
 
+  test("cells pasted into another table of the sheet, and a filter that hides rows of its own table only", async ({ page }) => {
+    await page
+      .locator("#source")
+      .fill(
+        "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| Fig | 5 |\n| Kiwi | 4 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| City | Zip |\n|---|---|\n| Brno | 602 |\n| Zlín | 760 |\n| <meta name='b' sheet='Plan' at='D1'> |\n",
+      );
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(2);
+    await openSheet(page);
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    await expect(drawn).toHaveCount(2);
+    // Into b's Zip of Brno: two lines, two rows
+    await drawn.nth(1).locator("tr[data-swt-row='1'] > td").nth(1).click();
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    await page.keyboard.press("Control+v");
+    const field = page.locator(".swt-cell-editor");
+    await expect(field).toBeFocused();
+    await sheetRendersAnew(
+      page,
+      () =>
+        field.evaluate((input) => {
+          const data = new DataTransfer();
+          data.setData("text/plain", "100\n200");
+          input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        }),
+      1,
+    );
+    expect(await markdown(page)).toMatch(/\| Brno +\| 100 +\|\n\| Zlín +\| 200 +\|/);
+    // a filtered (Fig only): a shows one row; b stays where it was, its rows all shown
+    const bTop = (await drawn.nth(1).boundingBox())!.y;
+    await drawn.nth(0).locator("tr[data-swt-row='2'] > td").first().click({ button: "right" });
+    await page.locator(".swt-menu.swt-visible").getByText("Filter: = Fig").first().click();
+    await expect(drawn.nth(0).locator("tbody tr:visible")).toHaveCount(1);
+    await expect(drawn.nth(1).locator("tbody tr:visible")).toHaveCount(2);
+    expect((await drawn.nth(1).boundingBox())!.y).toBe(bTop);
+  });
+
+  test("a row pinned to the bottom stays last on the sheet, sorted or not", async ({ page }) => {
+    await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|--:|\n| Pear | 3 |\n| Fig | 5 |\n| Total | 8 |\n| <meta pin-bottom='1'> |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(3);
+    await openSheet(page);
+    // Rows pinned to the bottom are in the table's foot: every body row, in the order shown
+    const rows = sheetTable(page).locator("tr[data-swt-row]:not([data-swt-row='0'])");
+    await expect(rows.last()).toContainText("Total");
+    const head = sheetTable(page).locator("thead tr > *").nth(1);
+    await head.hover();
+    await head.locator(".swt-sort").click();
+    await head.locator(".swt-sort").click();
+    // Descending by Qty: Fig, Pear, then Total, pinned
+    await expect(rows.first()).toContainText("Fig");
+    await expect(rows.last()).toContainText("Total");
+  });
+
   test("Esc closes it", async ({ page }) => {
     await openSheet(page);
     await page.keyboard.press("Escape");
