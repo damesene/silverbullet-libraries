@@ -239,12 +239,14 @@ function settingsChanged(): void {
 
 // --- Chrome -------------------------------------------------------------------
 
-function flash(message: string, type: "info" | "error" = "info"): void {
+// As SilverBullet's: `timeout` 0 keeps it until it is clicked
+function flash(message: string, type: "info" | "error" = "info", options: { readonly timeout?: number } = {}): void {
   const note = document.createElement("div");
   note.textContent = message;
   if (type === "error") note.className = "error";
   flashBox.append(note);
-  window.setTimeout(() => note.remove(), 3000);
+  if (options.timeout === 0) note.addEventListener("click", () => note.remove());
+  else window.setTimeout(() => note.remove(), options.timeout ?? 3000);
 }
 
 document.querySelector("#reset")!.addEventListener("click", () => setText(sample, 0));

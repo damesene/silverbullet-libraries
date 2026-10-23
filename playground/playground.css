@@ -244,10 +244,12 @@ main {
   padding: 11px 8px;
 }
 
+/* At the top, under the top bar, as SilverBullet's notifications are */
 #flash {
   position: fixed;
   right: 16px;
-  bottom: 16px;
+  top: 60px;
+  align-items: flex-end;
   display: flex;
   flex-direction: column;
   gap: 6px;
