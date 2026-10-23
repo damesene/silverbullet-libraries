@@ -19,7 +19,7 @@ async function openPlan(page: Page): Promise<void> {
 }
 
 test.describe("The sheets' tabs", () => {
-  test("one tab per sheet of the page, the one shown selected; a click on another, or Ctrl+PageDown / PageUp, goes there", async ({ page }) => {
+  test("one tab per sheet of the page, the one shown selected; a click on another, or Ctrl+Shift+PageDown / PageUp, goes there", async ({ page }) => {
     await openPlan(page);
     await expect(page.locator(".swt-sheet-tabs .swt-sheet-tab")).toHaveText(["Plan", "Q3"]);
     await expect(tab(page, "Plan")).toHaveAttribute("aria-selected", "true");
@@ -27,9 +27,9 @@ test.describe("The sheets' tabs", () => {
     await expect(drawn(page)).toHaveCount(1);
     await expect(drawn(page)).toContainText("X1");
     await expect(tab(page, "Q3")).toHaveAttribute("aria-selected", "true");
-    await page.keyboard.press("Control+PageUp");
+    await page.keyboard.press("Control+Shift+PageUp");
     await expect(drawn(page)).toHaveCount(2);
-    await page.keyboard.press("Control+PageDown");
+    await page.keyboard.press("Control+Shift+PageDown");
     await expect(drawn(page)).toHaveCount(1);
   });
 
@@ -72,9 +72,33 @@ test.describe("The sheets' tabs", () => {
     await page.locator(".swt-menu .swt-menu-item", { hasText: "Remove sheet" }).click();
     await expect.poll(() => markdown(page)).toContain("| <meta name='a'> |");
     expect(await markdown(page)).toContain("| <meta name='b'> |");
-    // On to the page's other sheet
-    await expect(page.locator(".swt-sheet-tabs .swt-sheet-tab")).toHaveText(["Q3"]);
+    // On to the page's other sheet; the table the view was opened with, now on no sheet, has its tab again
+    await expect(page.locator(".swt-sheet-tabs .swt-sheet-tab")).toHaveText(["Table", "Q3"]);
+    await expect(tab(page, "Q3")).toHaveAttribute("aria-selected", "true");
     await expect(drawn(page)).toContainText("X1");
+  });
+
+  test("a table alone's board: its table's tab first, there to go back to from the page's sheets", async ({ page }) => {
+    await page.locator("#source").fill("# Test\n\n| Item |\n|---|\n| Pear |\n\n| Code |\n|---|\n| X1 |\n| <meta name='c' sheet='Q3' at='B2'> |\n");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
+    await hoverCell(page, cell(page, 1, 0));
+    await (await tableIcon(page, "Sheet view")).click();
+    await expect(page.locator(".swt-sheet-tabs .swt-sheet-tab")).toHaveText(["Table", "Q3"]);
+    await tab(page, "Q3").click();
+    await expect(drawn(page)).toContainText("X1");
+    await expect(page.locator(".swt-sheet-tabs .swt-sheet-tab")).toHaveText(["Table", "Q3"]);
+    await tab(page, "Table").click();
+    await expect(drawn(page)).toContainText("Pear");
+  });
+
+  test("a sheet renamed in another case only is renamed", async ({ page }) => {
+    await openPlan(page);
+    await tab(page, "Plan").click();
+    await page.locator(".swt-menu .swt-menu-rename").click();
+    await page.locator(".swt-menu .swt-menu-name").fill("PLAN");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => markdown(page)).toContain("<meta name='b' sheet='PLAN' at='D1'>");
   });
 
   test("a name another sheet has is refused under the field", async ({ page }) => {

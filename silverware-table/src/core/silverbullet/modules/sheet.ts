@@ -423,9 +423,17 @@ export class Sheet implements AdapterFeature {
     const board = this.board;
     if (!board) return [];
     const names: (string | undefined)[] = sheetsOf(sheetTables(text)).map((s) => s.name);
-    if (!board.sheet) names.unshift(undefined);
+    if (this.aloneOnNoSheet(text)) names.unshift(undefined);
     else if (board.fresh && !names.some((n) => n !== undefined && sameSheet(n, board.sheet!))) names.push(board.sheet);
     return names;
+  }
+
+  /** Whether the table the board was opened with is on no sheet (its tab, Table, there to go back to) */
+  private aloneOnNoSheet(text: string): boolean {
+    const board = this.board;
+    if (!board) return false;
+    const range = findTables(text)[this.host.tableKeys(this.host.currentPage, text).indexOf(board.alone)];
+    return !!range && !sheetTables(text).some((s) => s.range.from === range.from);
   }
 
   /** The tabs as the page's text has the sheets: the one shown selected; a click on it its menu, on another goes there */
@@ -482,6 +490,10 @@ export class Sheet implements AdapterFeature {
     this.hideGrab();
     this.unselect();
     this.dropCell();
+    this.putOff = false;
+    this.pendingPress = undefined;
+    this.after = undefined;
+    this.making = undefined;
     for (const placed of board.tables.values()) placed.widget.remove();
     board.tables.clear();
     for (const key of [...this.standIns.keys()]) this.showDrawn(key);
@@ -502,17 +514,18 @@ export class Sheet implements AdapterFeature {
   private async newSheet(): Promise<void> {
     const board = this.board;
     if (!board) return;
-    const text = await this.host.bridge.getText();
-    await this.switchTo(freeSheetName(text, board.fresh && board.sheet ? [board.sheet] : []), true);
+    await this.switchTo(freeSheetName(await this.host.bridge.getText()), true);
   }
 
   /** A tab's menu, above it: its name in the title (the pencil renames the sheet), Remove sheet */
   private openTabMenu(sheet: string, tab: HTMLElement): void {
     this.closeTabMenu();
+    this.closeCellMenu(false);
     const board = this.board;
     if (!board) return;
     const needs = "A sheet is kept in its tables' metadata: turn on Store table metadata in the settings";
     const disabled = this.host.metadataEnabled ? undefined : needs;
+    const fresh = board.fresh && !!board.sheet && sameSheet(board.sheet, sheet);
     const naming = namingThatCloses(
       { name: sheet, label: "Rename this sheet", ...(disabled ? { disabled } : {}), save: (name) => this.renameSheet(sheet, name) },
       () => this.closeTabMenu(),
@@ -522,8 +535,8 @@ export class Sheet implements AdapterFeature {
         kind: "item",
         label: "Remove sheet",
         icon: ICONS.clear,
-        hint: board.fresh ? "The new sheet goes (no table is on it)" : "Take its tables off the sheet: they stay in the page, where they are, with their names",
-        ...(disabled && !board.fresh ? { disabled } : {}),
+        hint: fresh ? "The new sheet goes (no table is on it)" : "Take its tables off the sheet: they stay in the page, where they are, with their names",
+        ...(disabled && !fresh ? { disabled } : {}),
         run: () => {
           this.closeTabMenu();
           void this.removeSheet(sheet);
@@ -564,12 +577,14 @@ export class Sheet implements AdapterFeature {
   private async renameSheet(sheet: string, typed: string): Promise<string | undefined> {
     const board = this.board;
     const name = typed.trim();
-    if (!board || sameSheet(name, sheet)) return undefined;
+    if (!board || name === sheet) return undefined;
     const problem = sheetNameProblem(name);
     if (problem) return problem;
     const text = await this.host.bridge.getText();
-    if (sheetsOf(sheetTables(text)).some((s) => sameSheet(s.name, name))) return `another sheet of this page is named ${name}`;
     const shown = !!board.sheet && sameSheet(board.sheet, sheet);
+    // (Its own name in another case: renamed)
+    const taken = sheetsOf(sheetTables(text)).some((s) => sameSheet(s.name, name) && !sameSheet(s.name, sheet)) || (board.fresh && !shown && !!board.sheet && sameSheet(board.sheet, name));
+    if (taken) return `another sheet of this page is named ${name}`;
     if (board.fresh && shown) {
       board.sheet = name;
       this.showTabs(text);
@@ -594,19 +609,23 @@ export class Sheet implements AdapterFeature {
     if (!board) return;
     const text = await this.host.bridge.getText();
     const shown = !!board.sheet && sameSheet(board.sheet, sheet);
-    if (!(board.fresh && shown)) {
+    const fresh = board.fresh && shown;
+    // Shown: the board goes to the next tab first (else it would end, seeing no table of it left, as it reads the page)
+    let ends = false;
+    if (shown) {
+      const rest = this.sheetNames(text).filter((s) => s === undefined || !sameSheet(s, sheet));
+      if (rest.length) await this.switchTo(rest[0], false);
+      else ends = true;
+    }
+    if (!fresh) {
       const tables = this.tablesOfSheet(text, sheet);
       const last = tables[tables.length - 1];
       if (!last) return;
       const off = (t: Table) => withMeta(withMeta(t, SHEET_ATTRIBUTE, undefined), AT_ATTRIBUTE, undefined);
       const bare = (t: Table) => Object.keys(t.meta ?? {}).filter((k) => k.startsWith(SHEET_WIDTH_PREFIX)).reduce((out, k) => withMeta(out, k, undefined), off(t));
-      const result = await this.host.writeTable(last.target, off, { also: tables.slice(0, -1).map((t) => ({ target: t.target, change: bare })) });
-      if (result !== "written" || this.board !== board) return;
+      await this.host.writeTable(last.target, off, { also: tables.slice(0, -1).map((t) => ({ target: t.target, change: bare })) });
     }
-    if (!shown) return;
-    const rest = sheetsOf(sheetTables(await this.host.bridge.getText())).map((s) => s.name);
-    if (rest[0] !== undefined) await this.switchTo(rest[0], false);
-    else this.end();
+    if (ends && this.board === board) this.end();
   }
 
   /** A table drawn anew shown, its stand-in gone */
@@ -709,7 +728,8 @@ export class Sheet implements AdapterFeature {
   keyDown(e: KeyboardEvent): boolean {
     if (!this.board) return false;
     const board = this.board;
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "PageUp" || e.key === "PageDown") && !this.host.editing) {
+    // Ctrl+Shift+PageUp / PageDown, as Google Sheets has them: a browser keeps Ctrl+PageUp / PageDown for its own tabs
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && (e.key === "PageUp" || e.key === "PageDown") && !this.host.editing) {
       e.preventDefault();
       e.stopPropagation();
       const sheets = this.sheetNames(this.host.pageText);
@@ -824,6 +844,7 @@ export class Sheet implements AdapterFeature {
    */
   beforeMouseDown(e: MouseEvent): void {
     if (this.cellMenuOpen && !(e.target instanceof Node && this.cellMenuOpen.element.contains(e.target))) this.closeCellMenu(false);
+    if (this.tabMenu && !(e.target instanceof Node && (this.tabMenu.element.contains(e.target) || this.tabs.contains(e.target)))) this.closeTabMenu();
     if (!this.inGrid(e.target)) {
       if (!(e.target instanceof Node && this.host.isFloating(e.target))) this.unselect();
       return;
@@ -1024,6 +1045,7 @@ export class Sheet implements AdapterFeature {
   /** The empty cell's menu, titled by its address: Add table here, a list of the page's tables in its place */
   private openCellMenu(at: SheetCell, point: { x: number; y: number }): void {
     this.closeCellMenu(false);
+    this.closeTabMenu();
     const count = this.addable().length;
     const entries: MenuEntry[] = [
       {
@@ -1577,7 +1599,11 @@ export class Sheet implements AdapterFeature {
     // (A new sheet no table is on: a table of the page shown, the board's covered one among them)
     const host = last ? this.infoOfKey(last.key) : this.host.shownTables().find((info) => this.host.widgetOf(info).isConnected);
     const pageTables = findTables(this.host.pageText);
-    if (!host || !pageTables.length) return;
+    if (!host || !pageTables.length) {
+      // (An editor belongs to a table: none of the page's is in the document, far from the part of the page in view)
+      if (!last) void this.host.bridge.flash("Silverware Table: no table of the page is at hand to type with: add one here from the cell's menu (right-click), or close the sheet view near a table of the page", "info");
+      return;
+    }
     const inWay = [...board.tables.values()].some((p) => {
       const e = this.extent(p);
       return at.column >= e.left && at.column <= e.right && top + 1 >= e.top && top <= e.bottom;
