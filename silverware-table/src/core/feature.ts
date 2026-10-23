@@ -788,8 +788,13 @@ export interface TableHost extends ModelHost {
    * columns); undefined when none of it is
    */
   shownPart(widget: HTMLElement, info: WidgetInfo, cell: HTMLElement): Rect | undefined;
-  /** The controls of the table hovered go (its toolbar, grips, the +, a menu open on it): what is under the pointer changed (core/overwindow.ts) */
-  hideControls(): void;
+  /**
+   * What is over the window changed (core/overwindow.ts): the controls of the
+   * table hovered go (its toolbar, grips, the +, a menu open on it), as what is
+   * under the pointer changed; SilverBullet's tables a drawn one stood for show
+   * as themselves once it is gone
+   */
+  windowChanged(): void;
   /** Where a table is in view: the table, cut to the box that scrolls it sideways */
   shownRect(widget: HTMLElement, info: WidgetInfo): Rect;
   /**

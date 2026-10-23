@@ -809,6 +809,28 @@ test.describe("Sheet view", () => {
   });
 });
 
+test("a write on the sheet lays out the sheet's table only: the page's under the board is decorated again once the sheet ends", async ({ page }) => {
+  await hoverCell(page, cell(page, 1, 0));
+  await (await tableIcon(page, "Sheet view")).click();
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  const first = drawn.locator("tr[data-swt-row='1'] > td").first();
+  await first.dblclick();
+  await page.locator(".swt-cell-editor").fill("Quince");
+  await page.keyboard.press("Enter");
+  await expect(drawn).toContainText("Quince");
+  // SilverBullet's table of that key, rendered anew under the board: not decorated meanwhile
+  const underneath = page.locator(".sb-table-widget:not(.swt-drawn)", { hasText: "Quince" });
+  await expect(underneath).toHaveCount(1);
+  await expect(underneath).not.toHaveClass(/swt-table/);
+  // (Enter edits the cell below: its editor left first)
+  await page.keyboard.press("Escape");
+  await drawn.locator("tr[data-swt-row='2'] > td").first().hover();
+  await (await tableIcon(page, "Exit sheet view")).click();
+  await expect(page.locator(".swt-sheet-board")).toHaveCount(0);
+  await expect(underneath).toHaveClass(/swt-table/);
+  await expect(underneath.locator(".swt-cell-content", { hasText: "Quince" })).toHaveCount(1);
+});
+
 test("a cell's text on the sheet sits in the middle of its row, not pushed to its bottom", async ({ page }) => {
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
@@ -851,3 +873,4 @@ test("the controls of the table clicked do not stay over the sheet or the full s
     await expect(quiet.first()).toBeVisible();
   }
 });
+

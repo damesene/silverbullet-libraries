@@ -81,14 +81,14 @@ export function claimWindow(host: TableHost, owner: WindowOwner): void {
   if (other === owner) return;
   other?.end();
   current.set(host.doc, owner);
-  host.hideControls();
+  host.windowChanged();
 }
 
 /** It no longer is: the page is under the pointer again, its controls shown by the next move */
 export function releaseWindow(host: TableHost, owner: WindowOwner): void {
   if (current.get(host.doc) !== owner) return;
   current.delete(host.doc);
-  host.hideControls();
+  host.windowChanged();
 }
 
 export class OverWindow {

@@ -282,6 +282,7 @@ export class Controller implements TableHost {
       menuOpen: () => this.tableMenu.kind !== undefined,
       floatingButton: (className, title, icon) => this.floatingButton(className, title, icon),
     });
+    this.queueUncover = oncePerFrame(doc, () => this.uncover());
     this.queueScan = oncePerFrame(doc, () => {
       void this.scan();
       // The page changed (e.g. the Configuration Manager opened or closed): settings may have too
@@ -782,6 +783,23 @@ export class Controller implements TableHost {
       const replaced = this.hoverWidget && !this.hoverWidget.isConnected && this.infos.get(this.hoverWidget)?.key === info.key;
       this.infos.set(widget, info);
       if (replaced) this.hoverWidget = widget;
+      // SilverBullet's table under one Silverware Table drew for its key (the sheet's): not decorated nor viewed while
+      // that one stands for it (each write would lay both out), only the features told (it follows the page);
+      // shown as itself once the drawn one is gone (windowChanged)
+      if (!widget.classList.contains(DRAWN_CLASS) && this.drawnFor(info.key)) {
+        this.covered.add(widget);
+        for (const feature of this.features) feature.enhanced?.(info);
+        return;
+      }
+      this.showEnhanced(widget, info);
+    } catch (e) {
+      console.error("Silverware Table: could not enhance a table", e);
+    }
+  }
+
+  /** A table enhanced shown as such: decorated, its view applied, what follows it across a write given back, the features told */
+  private showEnhanced(widget: HTMLElement, info: WidgetInfo): void {
+    try {
       this.decorate(widget, info);
       this.applyView(widget, info);
       // A table under one Silverware Table drew for its key (the sheet's) keeps its place and its own scroll:
@@ -806,7 +824,26 @@ export class Controller implements TableHost {
       this.queueStickyUpdate();
       void this.refreshSettings();
     } catch (e) {
-      console.error("Silverware Table: could not enhance a table", e);
+      console.error("Silverware Table: could not show a table", e);
+    }
+  }
+
+  /** The table Silverware Table drew for a key (the sheet's), enhanced and in the page */
+  private drawnFor(key: TableKey): HTMLElement | undefined {
+    return this.enhancedWidgets().find((w) => w.classList.contains(DRAWN_CLASS) && this.infos.get(w)!.key === key);
+  }
+
+  /** SilverBullet's tables a drawn one stood for, shown as themselves where that one is gone */
+  private uncover(): void {
+    for (const widget of [...this.covered]) {
+      const info = this.infos.get(widget);
+      if (!widget.isConnected || !info || renderedTable(widget) !== info.table) {
+        this.covered.delete(widget);
+        continue;
+      }
+      if (this.drawnFor(info.key)) continue;
+      this.covered.delete(widget);
+      this.showEnhanced(widget, info);
     }
   }
 
@@ -1885,8 +1922,10 @@ export class Controller implements TableHost {
     if (this.navigating) this.markNavigating();
   }
 
-  hideControls(): void {
+  windowChanged(): void {
     this.hideFloating(true);
+    // What the board drew is taken away after it: the tables it covered once that is done
+    this.queueUncover();
   }
 
   shownPart(widget: HTMLElement, info: WidgetInfo, cell: HTMLElement): Rect | undefined {
@@ -1958,6 +1997,10 @@ export class Controller implements TableHost {
     if (e.key === "Control") this.cellEditor.setNavigating(false);
     if (e.key === "Shift") this.holdShift(false);
   };
+
+  // SilverBullet's tables a drawn one stands for (not decorated meanwhile), and their showing once it is gone
+  private readonly covered = new Set<HTMLElement>();
+  private readonly queueUncover: () => void;
 
   // Drags going on that Esc cancels (host.drag with `escape`)
   private escapableDrags = 0;
