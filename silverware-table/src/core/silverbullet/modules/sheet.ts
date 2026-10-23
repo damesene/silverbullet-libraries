@@ -33,7 +33,7 @@ import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
 import { columnLetters } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
 import { escapeCell, findTables, parseTable, type TableRange } from "../../../markdown.ts";
-import { columnMeta, metaName, sameTableName, withColumnMeta, withMeta, withMetaName } from "../../../meta.ts";
+import { metaName, sameTableName, withMeta, withMetaName } from "../../../meta.ts";
 import { AT_ATTRIBUTE, formatAt, freeName, parseAt, SHEET_ATTRIBUTE, SHEET_WIDTH_PREFIX, sameSheet, type SheetCell, sheetsOf, sheetTables, sheetWidths } from "../../../sheet/page.ts";
 import { roomFor } from "../../../sheet/layout.ts";
 import { growTo } from "../../structure.ts";
@@ -75,7 +75,7 @@ type Board = {
   readonly box: HTMLElement;
   readonly content: HTMLElement;
   readonly tables: Map<string, Placed>;
-  // The sheet's own widths (its first table's sheet.width.*; a table alone: its own width.*), by column
+  // The sheet's own widths (its first table's sheet.width.*; a table alone: its own sheet.width.*), by column
   widths: ReadonlyMap<number, number>;
   // A column's width while it is dragged (AddressFrame.previewColumnWidth), by column
   readonly preview: Map<number, number>;
@@ -235,12 +235,12 @@ export class Sheet implements AdapterFeature {
     if (board.sheet) {
       const mine = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables ?? [];
       for (const t of mine) wanted.set(`${page}#${t.range.ordinal}`, { range: t.range, at: t.at });
-      board.widths = sheetWidths(mine);
+      board.widths = sheetWidths(mine[0]?.table);
     } else {
       const range = findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
       if (range) wanted.set(board.alone, { range, at: { row: 0, column: 0 } });
-      // A table alone at A1: the grid's columns are its own (the widths module's width.<column>)
-      board.widths = range ? ownWidths(parseTable(range.text)) : new Map();
+      // A table alone: its grid's widths are kept in it, as a sheet's are in its first table
+      board.widths = sheetWidths(range && parseTable(range.text));
     }
     // A width dragged and stored: shown as stored from now on
     for (const [column, width] of board.preview) if (board.widths.get(column) === width) board.preview.delete(column);
@@ -537,29 +537,19 @@ export class Sheet implements AdapterFeature {
   }
 
   /**
-   * A grid's column's width stored: the sheet's (sheet.width.<letters> in its
-   * first table), else (a table alone, at A1) the table's own (width.<column>);
+   * A grid's column's width stored: sheet.width.<letters> in the sheet's first
+   * table, or in the table alone (its own widths, width.*, are the page's);
    * the preview kept until the table is drawn anew with it
    */
   private async setColumnWidth(board: Board, column: number, width: number | undefined): Promise<void> {
     const text = await this.host.bridge.getText();
     const page = this.host.currentPage;
     const target = (range: TableRange) => ({ key: `${page}#${range.ordinal}`, source: range.text, hint: range.from });
-    let result: string;
-    if (board.sheet) {
-      const first = sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables[0];
-      if (!first) return;
-      result = await this.host.writeTable(target(first.range), (t) => withMeta(t, `${SHEET_WIDTH_PREFIX}${columnLetters(column)}`, width === undefined ? undefined : String(width)));
-    } else {
-      const range = findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
-      if (!range) return;
-      result = await this.host.writeTable(target(range), (t) => {
-        const widths = columnMeta(t, "width");
-        if (width === undefined) widths.delete(column);
-        else widths.set(column, String(width));
-        return withColumnMeta(t, "width", widths);
-      });
-    }
+    const range = board.sheet
+      ? sheetsOf(sheetTables(text)).find((s) => sameSheet(s.name, board.sheet!))?.tables[0]?.range
+      : findTables(text)[Number(board.alone.slice(board.alone.lastIndexOf("#") + 1))];
+    if (!range) return;
+    const result = await this.host.writeTable(target(range), (t) => withMeta(t, `${SHEET_WIDTH_PREFIX}${columnLetters(column)}`, width === undefined ? undefined : String(width)));
     // Not written (unchanged, refused): shown as it is again
     if (result !== "written") {
       board.preview.delete(column);
@@ -1027,14 +1017,4 @@ function sheetOf(source: string): string | undefined {
 /** Whether two sheet's cells are the same */
 function same(a: SheetCell, b: SheetCell): boolean {
   return a.row === b.row && a.column === b.column;
-}
-
-/** A table's own widths (the widths module's width.<column>), by column: a table alone's grid */
-function ownWidths(table: ReturnType<typeof parseTable>): ReadonlyMap<number, number> {
-  const widths = new Map<number, number>();
-  for (const [column, value] of columnMeta(table, "width")) {
-    const width = Number(value);
-    if (Number.isFinite(width) && width > 0) widths.set(column, Math.round(width));
-  }
-  return widths;
 }

@@ -89,10 +89,14 @@ export function sheetData(table: Table): [string, string][] {
   return Object.entries(table.meta ?? {}).filter(([name]) => name.startsWith(SHEET_WIDTH_PREFIX));
 }
 
-/** The widths a sheet's first table keeps for its columns (sheet.width.<letters>, in pixels) */
-export function sheetWidths(tables: readonly SheetTable[]): ReadonlyMap<number, number> {
+/**
+ * The widths a table keeps for its grid's columns (sheet.width.<letters>, in
+ * pixels): a sheet's first table for the sheet, a table alone for its own
+ * sheet view
+ */
+export function sheetWidths(table: Table | undefined): ReadonlyMap<number, number> {
   const widths = new Map<number, number>();
-  for (const [name, value] of Object.entries(tables[0]?.table.meta ?? {})) {
+  for (const [name, value] of Object.entries(table?.meta ?? {})) {
     if (!name.startsWith(SHEET_WIDTH_PREFIX)) continue;
     const at = parseAt(`${name.slice(SHEET_WIDTH_PREFIX.length)}1`);
     const width = Number(value);

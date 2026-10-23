@@ -52,7 +52,7 @@ describe("Sheets of a page", () => {
 
   it("keeps a sheet's columns' widths in its first table", () => {
     const budget = sheetsOf(sheetTables(PAGE))[0]!.tables;
-    expect([...sheetWidths(budget)]).toEqual([
+    expect([...sheetWidths(budget[0]?.table)]).toEqual([
       [1, 140],
       [26, 60],
     ]);

@@ -199,5 +199,5 @@ other pages on a sheet.
   sheet's tables as they are; fixed: the fill handle cut off by its cell
   (the cell's content clipped instead). Agreed: a column's width dragged on
   the sheet is the sheet's column's (`sheet.width.<letters>`, every table in
-  it, through the address frame's widths), a table alone's its own; a filter
+  it, through the address frame's widths), a table alone's kept in it the same way; a filter
   hides rows of its table only (not the sheet's whole rows, as Excel would).

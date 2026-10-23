@@ -671,7 +671,7 @@ test.describe("Sheet view", () => {
     await expect.poll(() => markdown(page)).not.toContain("sheet.width.A");
   });
 
-  test("a column's width dragged on a table alone is its own", async ({ page }) => {
+  test("a column's width dragged on a table alone is its sheet view's column's, as on a sheet", async ({ page }) => {
     await openSheet(page);
     const head = sheetTable(page).locator("thead tr > *").first();
     await head.hover();
@@ -680,8 +680,10 @@ test.describe("Sheet view", () => {
     await page.mouse.down();
     await page.mouse.move(h.x + h.width / 2 + 50, h.y + h.height / 2, { steps: 5 });
     await page.mouse.up();
-    await expect.poll(() => markdown(page)).toMatch(/width\.name='\d+'/);
-    const width = Number((await markdown(page)).match(/width\.name='(\d+)'/)![1]);
+    // Kept in the table as a sheet's first table keeps it; its own width (the page's) is not written
+    await expect.poll(() => markdown(page)).toMatch(/sheet\.width\.A='\d+'/);
+    expect(await markdown(page)).not.toMatch(/ width\.name=/);
+    const width = Number((await markdown(page)).match(/sheet\.width\.A='(\d+)'/)![1]);
     await expect.poll(async () => Math.round((await head.boundingBox())!.width)).toBe(width);
   });
 
