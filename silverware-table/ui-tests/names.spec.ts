@@ -60,6 +60,24 @@ test("by default the toolbar shows the names while Shift alone is held; the sett
   await expect(select).toHaveValue("shift");
 });
 
+test("Shift pressed over a table with a long name: the names beside the icons, the toolbar where it is without them", async ({ page }) => {
+  await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='averyveryverylongtablenameindeed'> |\n");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
+  await hoverCell(page, cell(page, 1, 0));
+  const bar = page.locator(".swt-bar.swt-visible");
+  const before = (await bar.boundingBox())!;
+  await page.keyboard.down("Shift");
+  await expect(bar.locator(".swt-bar-names")).toBeVisible();
+  // (Placed in the next frame)
+  await expect.poll(async () => (await bar.boundingBox())!.y).toBe(before.y);
+  const names = (await bar.locator(".swt-bar-names").boundingBox())!;
+  const main = (await bar.locator(".swt-bar-main").boundingBox())!;
+  expect(names.y).toBe(main.y);
+  expect(names.x + names.width).toBeLessThanOrEqual(main.x);
+  expect(main.x + main.width).toBeCloseTo(before.x + before.width, 0);
+});
+
 test("long names in the ⋯ menu are cut, whole in their tooltips, the table's in the title", async ({ page }) => {
   await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='asdasdasdasdasdasdasdasdasda' sheet='Sheet1withaverylongnameindeed' at='A1'> |\n");
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());

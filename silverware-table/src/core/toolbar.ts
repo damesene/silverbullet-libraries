@@ -325,6 +325,9 @@ export class Toolbar {
     // never narrower than its widest row, which keeps its width (a table narrower than that has it stick out)
     const right = Math.min(rect.right, tableRect.right, shown.right) - BAR_CLEAR;
     const left = Math.max(rect.left, tableRect.left, shown.left);
+    // Measured at the window's left edge: where it was (narrower without the names, at the right), a row put in since
+    // would wrap for want of room, and the toolbar's height taken for two rows would place it too high
+    bar.style.left = "0px";
     bar.style.maxWidth = "";
     bar.classList.add("swt-visible");
     const widest = Math.max(0, ...Array.from(bar.children, (row) => (row as HTMLElement).offsetWidth));
