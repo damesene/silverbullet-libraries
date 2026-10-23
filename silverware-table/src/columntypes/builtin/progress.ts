@@ -16,6 +16,6 @@ export default columnType({
   format: (text, { max }, locale) => {
     const share = numberOf(text)! / max;
     const filled = Math.round(share * 10);
-    return `${"▰".repeat(filled)}${"▱".repeat(10 - filled)} ${formatNumber(share, locale, { style: "percent" })}`;
+    return `${"█".repeat(filled)}${"░".repeat(10 - filled)} ${formatNumber(share, locale, { style: "percent" })}`;
   },
 });

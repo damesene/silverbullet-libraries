@@ -120,8 +120,8 @@ describe("the types", () => {
     ]);
     expect(type("check").sortValue!("7", paramsOf("check"))).toBe("1");
     expect(type("check").choices!(paramsOf("check")).map((c) => c.value)).toEqual(["yes", "no"]);
-    expect(show("progress", "30")).toBe("▰▰▰▱▱▱▱▱▱▱ 30%");
-    expect(show("progress", "5", "10")).toBe("▰▰▰▰▰▱▱▱▱▱ 50%");
+    expect(show("progress", "30")).toBe("███░░░░░░░ 30%");
+    expect(show("progress", "5", "10")).toBe("█████░░░░░ 50%");
   });
 
   it("shows dates as the locale writes them, and checks them", () => {
