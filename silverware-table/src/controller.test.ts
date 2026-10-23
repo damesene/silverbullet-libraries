@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { STICKY_GAP } from "./core/layout.ts";
-import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, edits, flashes, flush, inInsertBand, key, pointInsert, press, renderPage, setText, setup, tableMenuItem, text, useTablePage, tableKey } from "./testing/page.ts";
+import { PAGE, bodyTexts, cell, clickOn, controller, cursorMoves, editor, edits, flashes, flush, inInsertBand, key, pointInsert, press, renderPage, setText, setup, tableMenuItem, text, toolbarName, useTablePage, tableKey } from "./testing/page.ts";
 import { insertRowWith, pinRowAt } from "./core/structure.ts";
 
 describe("Controller", () => {
@@ -1110,6 +1110,11 @@ describe("A table name two tables of the page have", () => {
     }
     // A name of its own: not in the toolbar with the setting off
     expect(barName(2)).toBeNull();
+    // Remove name under the field: the table without one
+    toolbarName("table", 1);
+    document.querySelector<HTMLElement>(".swt-menu-name-clear")!.click();
+    await flush();
+    expect(text).not.toContain("name='Prices'");
     // Rendered anew: not said again
     await controller.scan();
     expect(flashes.filter((f) => f.includes("are named"))).toHaveLength(1);

@@ -35,6 +35,19 @@ describe("Sheets: a table put on a sheet, moved and taken off it by its sheet's 
     expect(tableMenuItem(/sheet/i, 1)).toBeUndefined();
   });
 
+  it("takes a table off its sheet by Remove from sheet under the field, its name kept; none on a table on no sheet", async () => {
+    await setup(PAGE, { "silverware.table.metadata": true });
+    toolbarName("container", 1);
+    expect(document.querySelector(".swt-menu-name-clear")).toBeNull();
+    toolbarName("container", 0);
+    const clear = document.querySelector<HTMLElement>(".swt-menu-name-clear")!;
+    expect(clear.textContent).toBe("Remove from sheet");
+    clear.click();
+    await flush();
+    expect(text).toContain("| <meta name='costs'> |");
+    expect(edits).toBe(1);
+  });
+
   it("puts a table on a sheet of the page by its name: named, in column A one empty row under the sheet's lowest table", async () => {
     await setup(PAGE, { "silverware.table.metadata": true });
     toolbarName("container", 1);

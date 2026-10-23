@@ -281,10 +281,36 @@ function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, namin
     heading.replaceChildren(field);
     heading.after(problem);
     heading.classList.add("swt-naming");
+    const save = (name: string) => {
+      saving = true;
+      problem.hidden = true;
+      field.removeAttribute("aria-invalid");
+      void naming.save(name).then((why) => {
+        saving = false;
+        // Left meanwhile (Esc, the menu closed): nothing to show
+        if (why === undefined || !field.isConnected) return;
+        problem.textContent = why;
+        problem.hidden = false;
+        field.setAttribute("aria-invalid", "true");
+        field.focus();
+      });
+    };
+    const clear =
+      naming.clear && naming.name
+        ? el(
+            doc,
+            "button",
+            { class: "swt-menu-item swt-danger swt-menu-name-clear", title: naming.clear.title, run: () => !saving && save("") },
+            el(doc, "span", { class: "swt-icon", html: CLOSE }),
+            el(doc, "span", "swt-label", naming.clear.label),
+          )
+        : undefined;
+    if (clear) problem.after(clear);
     const leave = () => {
       heading.classList.remove("swt-naming");
       heading.replaceChildren(...titled);
       problem.remove();
+      clear?.remove();
       menu.focus({ preventScroll: true });
     };
     field.addEventListener("keydown", (ev) => {
@@ -297,18 +323,7 @@ function addNaming(doc: Document, menu: HTMLElement, heading: HTMLElement, namin
       } else if (ev.key === "Enter" && !saving) {
         ev.preventDefault();
         ev.stopPropagation();
-        saving = true;
-        problem.hidden = true;
-        field.removeAttribute("aria-invalid");
-        void naming.save(field.value.trim()).then((why) => {
-          saving = false;
-          // Left meanwhile (Esc, the menu closed): nothing to show
-          if (why === undefined || !field.isConnected) return;
-          problem.textContent = why;
-          problem.hidden = false;
-          field.setAttribute("aria-invalid", "true");
-          field.focus();
-        });
+        save(field.value.trim());
       }
     });
     field.focus();

@@ -166,6 +166,7 @@ export class Names implements Feature {
       return {
         ...(name ? { name } : {}),
         label: name ? `Rename this table (formulas elsewhere refer to it as ${name}!A1)` : "Name this table, so formulas in other tables can refer to it (name!A1)",
+        clear: { label: "Remove name", title: "The table without a name: formulas in other tables that refer to it by it show #REF!" },
         ...(info.metaRow || this.host.metadataEnabled ? {} : { disabled: needs }),
         save: (next) => this.renameTable(info, next),
       };

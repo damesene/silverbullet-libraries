@@ -105,6 +105,8 @@ export type MenuNaming = {
   readonly label: string;
   // Why it cannot be named now
   readonly disabled?: string;
+  // A button under the field saving no name, where it has one (Remove name, Remove from sheet): what an empty field does
+  readonly clear?: { readonly label: string; readonly title: string };
   readonly save: (name: string) => Promise<string | undefined>;
 };
 

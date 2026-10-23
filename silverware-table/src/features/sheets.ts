@@ -69,6 +69,7 @@ export class Sheets implements Feature {
         naming: {
           ...(sheet ? { name: sheet } : {}),
           label: sheet ? "Move this table to another sheet (empty: off the sheet)" : "Put this table on a sheet",
+          clear: { label: "Remove from sheet", title: "The table off its sheet: its place in the page and its name stay" },
           ...(info.metaRow || this.host.metadataEnabled ? {} : { disabled: "A sheet is kept in the table's metadata: turn on Store table metadata in the settings" }),
           save: (name) => this.moveTo(info, name),
         },
