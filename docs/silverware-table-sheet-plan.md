@@ -378,3 +378,15 @@ other pages on a sheet.
   right of a column pinned right goes before it (as in the page), scenarios
   and the library page say so. Delete table says when another table of the
   same name takes the references over.
+  The sheet's scrollbars no longer move with writes that widen a column (the
+  user saw them jump while editing): the grid's reach only grows while the
+  board shows. Then, from the user's steps (a table at G4, G5 and G6 edited):
+  the board scrolled down by the table's place (the core's view anchor took
+  the drawn table's top before the sheet placed it: tables a feature draws
+  are not anchored now), and the column of the cell edited next grew wide and
+  shrank again (its editor held the cell to its width before the sheet laid
+  the table out: dropped while the sheet measures).
+  Also: Ctrl held over cells selected (select mode) shows the move cursor as in
+  a cell editor (Ctrl+arrows move the selection); a sheet's tables have a light
+  line round them (`--swt-sheet-table-line`), where each ends among the empty
+  cells.
