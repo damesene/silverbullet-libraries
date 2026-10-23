@@ -225,12 +225,26 @@ other pages on a sheet.
   the full screen's; a click on a name types it (a sheet's typed: the table
   moved there, its place kept where free, else under that sheet's lowest
   table, named if it has none; empty: off its sheet), a sheet view showing the
-  table going to its new sheet. *Add to sheet…*, *Remove from sheet* and the
-  pencil in the ⋯ menu's title went. The names are left of the icons where
-  both fit in the table's width, else above them; the room above a held header
-  (STICKY_GAP, the board's top border) went from 42 to 66px for the two rows.
-  Then (agreed): the names are the first row of the ⋯ menu always, in the
-  toolbar only by the setting *Names in the toolbar* (`toolbarNames`: never,
-  always, or while Shift alone is held, the default: names in every toolbar
-  were too much for tables nobody names); without them in the toolbar, their
-  icons are in the ⋯ menu only.
+  table going to its new sheet. *Add to sheet…* and *Remove from sheet* went.
+  The names are left of the icons where both fit in the table's width, else
+  above them; the room above a held header (STICKY_GAP, the board's top
+  border) went from 42 to 66px for the two rows.
+  Then (agreed): the names are in the ⋯ menu always: the table's as its title
+  (Table without one; the pencil after it names it, as in every menu of what
+  can be named; long names cut, whole in the tooltip), the table's icon (full
+  screen) before the title, in line with the sheet's icon in the first row
+  under it (the sheet's name, *No sheet* muted on none). In the toolbar only by
+  the setting *Names in the toolbar* (`toolbarNames`: never, always, or while
+  Shift alone is held, the default: names in every toolbar were too much for
+  tables nobody names); without them in the toolbar, their icons are in the ⋯
+  menu only. Fixed on the way: one menu open at a time (a cell's menu and the
+  ⋯ menu were both open), the toolbar measured where it will be placed (Shift
+  pressed over a table with a long name placed it a row too high). Merged
+  into `main` (with `sheet-adjacent`) without a click-through in SilverBullet.
+- Left of phases 1 to 3: a click-through in the local SilverBullet of
+  `sheet-adjacent` and `toolbar-names` (growth by the next row or column, a
+  table alone made a sheet, the names in the ⋯ menu and with Shift, a table
+  moved to another sheet by its name); pinning rows and columns of a table
+  on the sheet, not tried on purpose (only that pins scroll with the sheet).
+  Then *Later* above. Known: commit 929a04b is marked `!` though it breaks
+  nothing a space has.
