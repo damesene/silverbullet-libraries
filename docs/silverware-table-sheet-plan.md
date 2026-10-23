@@ -322,3 +322,9 @@ other pages on a sheet.
   written (made as the value is saved, given back if not written). Modules' state for a table stays theirs, in maps by key: with keys
   that never change, a state held by the core would be the same maps (weighed
   and left).
+- 2026-10-23, phase 5 (branch `table-delete`): *Delete table*, the core's,
+  last in every table's ⋯ menu: asked first (`tableDeleteWarning` of the
+  modules: the formulas of tables referring to it, a sheet whose only table
+  it is), one edit with the tables the modules change for it
+  (`otherTablesWritten` with no `after`: `#REF!`, the sheet's widths handed
+  on). Next: moving tables on the sheet.
