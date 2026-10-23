@@ -168,6 +168,8 @@ export type CellEditor = {
   readonly initial: string;
   // Edited in the cell's popup
   readonly popup: boolean;
+  // What is typed is the caller's to write (TableHost.editBeyond's `place`): no table's cells are pasted from it
+  readonly placed?: boolean;
 };
 
 /** The cell editor as rendered (the adapter's): its table's element, its cell, its field */
@@ -446,11 +448,12 @@ export interface ModelHost {
   writeTable(target: TableTarget, change: (table: Table) => Table | undefined, options?: WriteOptions): Promise<WriteResult>;
   /**
    * A new table written into the page, in one edit: after the table `after`
-   * (an empty line between), else at the page's end. Tables are known by their
-   * place among the page's (their keys): put after the page's last table, it
-   * moves no other table's key.
+   * (an empty line between), else at the page's end; `also`: a table of the
+   * page changed in the same edit (put on a sheet with it). Tables are known
+   * by their place among the page's (their keys): put after the page's last
+   * table, it moves no other table's key.
    */
-  insertTable(table: Table, after?: TableTarget): Promise<WriteResult>;
+  insertTable(table: Table, after?: TableTarget, also?: { readonly target: TableTarget; readonly change: (table: Table) => Table }): Promise<WriteResult>;
   /** A table shown, by its key, as it is now (rendered anew after a write: its new info) */
   tableFor(key: string): TableInfo | undefined;
   /** The tables shown on the page */

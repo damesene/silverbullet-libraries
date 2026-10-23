@@ -134,6 +134,8 @@ export class Paste implements Feature {
   editorPaste(editor: CellEditor, text: string): boolean {
     const insert = this.inserts;
     this.inserts = false;
+    // A value the caller writes (a table made of it): pasted into the field as text, no table's cells
+    if (editor.placed) return false;
     const info = this.host.tableFor(editor.key);
     if (!info) return false;
     // Cells cut move into an editor opened for the paste (its text selected whole: Ctrl+V on a selected cell), not one being typed in

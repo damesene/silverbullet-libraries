@@ -184,7 +184,7 @@ export class CellEditing {
       cellStyle,
       popup: !!popup,
       ...(panel ? { panel } : {}),
-      ...(beyond && place ? { place } : beyond ? { growth: growTo(info, beyond) } : {}),
+      ...(beyond && place ? { place, placed: true } : beyond ? { growth: growTo(info, beyond) } : {}),
       get text() {
         return field.value;
       },
@@ -493,7 +493,8 @@ export class CellEditing {
     const active = this.editor;
     const info = active && this.host.infoOf(active.widget);
     await this.finish(false);
-    if (active && info && !active.growth && this.host.selectsCells()) {
+    // (Past the table, beyond or the caller's to write: no cell of the table to select)
+    if (active && info && !active.growth && !active.place && this.host.selectsCells()) {
       const at = { row: active.row, column: active.column };
       this.host.selectCells(info, at, at);
     }
