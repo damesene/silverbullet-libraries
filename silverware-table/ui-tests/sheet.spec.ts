@@ -808,3 +808,13 @@ test.describe("Sheet view", () => {
     await expect(table(page)).not.toHaveClass(/swt-over-window/);
   });
 });
+
+test("a cell's text on the sheet sits in the middle of its row, not pushed to its bottom", async ({ page }) => {
+  await hoverCell(page, cell(page, 1, 0));
+  await (await tableIcon(page, "Sheet view")).click();
+  const td = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first().locator("tr[data-swt-row='1'] > td").first();
+  await expect(td).toBeVisible();
+  const box = (await td.boundingBox())!;
+  const content = (await td.locator(".swt-cell-content").boundingBox())!;
+  expect(Math.abs(content.y + content.height / 2 - (box.y + box.height / 2))).toBeLessThan(2);
+});

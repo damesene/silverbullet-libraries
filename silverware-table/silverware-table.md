@@ -1962,6 +1962,11 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The sheet's rows have their height: no zero-width space keeps an empty one tall, which before a block (the content
+   above) would be a line of its own and push the content to the row's bottom */
+.sb-table-widget.swt-sheet-table.swt-table td:not(.swt-editing)::before {
+  content: none;
+}
 .swt-sheet-content > td.swt-sheet-cell {
   position: absolute;
   z-index: 1;
