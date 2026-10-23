@@ -1972,7 +1972,11 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
    line cut at the cell's width, as the sheet's rows have one height */
 .sb-table-widget.swt-sheet-table tr > td > .swt-cell-content {
   display: block;
+  box-sizing: border-box;
   max-height: var(--swt-sheet-row);
+  /* Room above and below the line, the same (the text stays in the row's middle): what is drawn under the text, a
+     formula result's underline, is within the box its overflow clips to */
+  padding-block: 0.35em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

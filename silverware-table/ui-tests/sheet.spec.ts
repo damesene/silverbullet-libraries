@@ -928,6 +928,23 @@ test("editing a table placed lower on the sheet scrolls nothing, its column as w
   }
 });
 
+test("a formula's result on the sheet is marked as in the page: its underline is not cut off", async ({ page }) => {
+  await page.locator("#source").fill("# Test\n\n| Item | Qty | Double |\n|---|---|---|\n| Pear | 3 | 6 <meta f='=B1*2'> |\n");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
+  await hoverCell(page, cell(page, 1, 0));
+  await (await tableIcon(page, "Sheet view")).click();
+  const result = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table tr[data-swt-row='1'] > td").nth(2);
+  await expect(result).toHaveClass(/swt-formula/);
+  // The box its overflow clips to reaches past the underline (0.3em under the text, 2px thick)
+  const room = await result.locator(".swt-cell-content").evaluate((box) => {
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    return box.getBoundingClientRect().bottom - range.getBoundingClientRect().bottom;
+  });
+  expect(room).toBeGreaterThanOrEqual(5);
+});
+
 test.describe("Pins on the sheet", () => {
   // A table on a sheet, at B2, its first row pinned to the top, its last (Total) to the bottom, its first column left
   const rows = Array.from({ length: 30 }, (_, i) => `| item ${i} | ${i} | ${i * 2} |`).join("\n");
