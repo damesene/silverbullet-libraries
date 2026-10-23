@@ -52,7 +52,7 @@ test.describe("Touch: moving a table on the sheet", () => {
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
     await tap(page, cell(page, 1, 0));
     await (await tableIcon(page, "Sheet view")).click();
-    const a = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table", { hasText: "Pear" });
+    const a = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)", { hasText: "Pear" });
     await expect(a).toBeVisible();
     // (Not the cell selected in the page, which a tap would edit)
     const first = a.locator("tr[data-swt-row='1'] > td").nth(1);

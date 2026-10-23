@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 import { cell, expect, hoverCell, markdown, rendersAnew, table, tableIcon, test } from "./playground.ts";
 
 /** The table the sheet shows: the one it drew itself (in SilverBullet's form), standing for the page's */
-const sheetTable = (page: Page) => page.locator(".sb-table-widget.swt-table.swt-drawn");
+const sheetTable = (page: Page) => page.locator(".sb-table-widget.swt-table.swt-drawn:not(.swt-stand-in)");
 
 /** A body cell of the sheet's table by its row in the markdown and its column */
 const sheetCell = (page: Page, row: number, column: number) => sheetTable(page).locator(`tr[data-swt-row="${row}"] > td`).nth(column);
@@ -12,7 +12,7 @@ const sheetCell = (page: Page, row: number, column: number) => sheetTable(page).
 async function sheetRendersAnew(page: Page, action: () => Promise<unknown>, index = 0): Promise<void> {
   await sheetTable(page).nth(index).locator("table").evaluate((t) => t.setAttribute("data-test-old", ""));
   await action();
-  await expect(page.locator(".swt-drawn table[data-test-old]")).toHaveCount(0);
+  await expect(page.locator(".swt-drawn:not(.swt-stand-in) table[data-test-old]")).toHaveCount(0);
   await expect(sheetTable(page).locator("table:not([data-test-old]) tr[data-swt-row]").first()).toBeAttached();
 }
 
@@ -79,7 +79,7 @@ test.describe("Sheet view", () => {
     // The table on the sheet Sheet1 at A1, named; the new one at A8 (the table takes rows 1 to 7), in the same edit
     expect(text).toMatch(/\| Šípek .*\|\n\| <meta name='table1' sheet='Sheet1' at='A1'> \|/);
     expect(text).toMatch(/\| Column 1 +\|\n\| -+ \|\n\| Plum +\|\n\| <meta name='table2' sheet='Sheet1' at='A8'> \|/);
-    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table")).toHaveCount(2);
+    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(2);
   });
 
   test("a click elsewhere: on a table's cell selects it, on another empty cell selects that one, an edit saved first", async ({ page }) => {
@@ -338,7 +338,7 @@ test.describe("Sheet view", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
     await openSheet(page);
-    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)");
     await expect(drawn).toHaveCount(2);
     const letter = (text: string) => page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: new RegExp(`^${text}$`) });
     // The second at B4: under the letter B, three rows below the first's top
@@ -377,7 +377,7 @@ test.describe("Sheet view", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 2).locator("tr[data-swt-row]")).toHaveCount(1);
     await openSheet(page);
-    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table")).toHaveCount(3);
+    await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(3);
     // Tab on the last cell of the last row: a new row (inserted), then Esc leaves its editor
     await sheetCell(page, 1, 1).dblclick();
     await sheetRendersAnew(page, () => page.keyboard.press("Tab"));
@@ -395,7 +395,7 @@ test.describe("Sheet view", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
     await openSheet(page);
-    const totals = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").nth(1);
+    const totals = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)").nth(1);
     const total = totals.locator("tr[data-swt-row='1'] > td").nth(1);
     // prices!B1 (its first row, under its header in row 1 of the sheet) is B2 there
     await expect(total).toHaveAttribute("title", "=B2*2");
@@ -464,7 +464,7 @@ test.describe("Sheet view", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
     await openSheet(page);
-    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)");
     await expect(drawn).toHaveCount(2);
     const letter = (text: string) => page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: new RegExp(`^${text}$`) });
     const second = (await drawn.nth(1).boundingBox())!;
@@ -531,7 +531,7 @@ test.describe("Sheet view", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
     await openSheet(page);
-    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)");
     await expect(drawn).toHaveCount(2);
     const prices = drawn.nth(0);
     const totals = drawn.nth(1);
@@ -566,7 +566,7 @@ test.describe("Sheet view", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
     await openSheet(page);
-    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)");
     const letter = (text: string) => page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: new RegExp(`^${text}$`) });
     const prices = (await drawn.nth(0).boundingBox())!;
     const rowHeight = (await drawn.nth(0).locator("tr[data-swt-row='1'] > td").first().boundingBox())!.height;
@@ -609,7 +609,7 @@ test.describe("Sheet view", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
     await openSheet(page);
-    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)");
     const letter = (text: string) => page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: new RegExp(`^${text}$`) });
     const prices = (await drawn.nth(0).boundingBox())!;
     const rowHeight = (await drawn.nth(0).locator("tr[data-swt-row='1'] > td").first().boundingBox())!.height;
@@ -702,7 +702,7 @@ test.describe("Sheet view", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
     await openSheet(page);
-    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)");
     await expect(drawn).toHaveCount(2);
     const letterA = page.locator(".swt-sheet-letters > span:not([hidden])", { hasText: /^A$/ });
     const head = drawn.nth(0).locator("thead tr > *").first();
@@ -754,7 +754,7 @@ test.describe("Sheet view", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(2);
     await openSheet(page);
-    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)");
     await expect(drawn).toHaveCount(2);
     // Into b's Zip of Brno: two lines, two rows
     await drawn.nth(1).locator("tr[data-swt-row='1'] > td").nth(1).click();
@@ -812,7 +812,7 @@ test.describe("Sheet view", () => {
 test("a write on the sheet lays out the sheet's table only: the page's under the board is decorated again once the sheet ends", async ({ page }) => {
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
-  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)").first();
   const first = drawn.locator("tr[data-swt-row='1'] > td").first();
   await first.dblclick();
   await page.locator(".swt-cell-editor").fill("Quince");
@@ -837,7 +837,7 @@ test("a formula's result on the sheet is marked as in the page: its underline is
   await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
-  const result = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table tr[data-swt-row='1'] > td").nth(2);
+  const result = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in) tr[data-swt-row='1'] > td").nth(2);
   await expect(result).toHaveClass(/swt-formula/);
   // The box its overflow clips to reaches past the underline (0.3em under the text, 2px thick)
   const room = await result.locator(".swt-cell-content").evaluate((box) => {
@@ -851,7 +851,7 @@ test("a formula's result on the sheet is marked as in the page: its underline is
 test("a cell's text on the sheet sits in the middle of its row, not pushed to its bottom", async ({ page }) => {
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
-  const td = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first().locator("tr[data-swt-row='1'] > td").first();
+  const td = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)").first().locator("tr[data-swt-row='1'] > td").first();
   await expect(td).toBeVisible();
   const box = (await td.boundingBox())!;
   const content = (await td.locator(".swt-cell-content").boundingBox())!;
@@ -898,7 +898,7 @@ test("the sheet's scrollbars stay as they are through writes that widen a column
   await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(60);
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
-  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)").first();
   await expect(drawn).toBeVisible();
   const board = page.locator(".swt-sheet-board");
   await board.evaluate((b) => {
@@ -926,7 +926,7 @@ test("editing a table placed lower on the sheet scrolls nothing, its column as w
   await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(2);
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
-  const second = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table", { hasText: "Column 1" });
+  const second = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)", { hasText: "Column 1" });
   await expect(second).toBeVisible();
   const board = page.locator(".swt-sheet-board");
   const header = second.locator("tr").first().locator("th, td").first();
@@ -948,7 +948,7 @@ test("editing a table placed lower on the sheet scrolls nothing, its column as w
 test("a table shown as a sheet but on none says so in its toolbar, red, its name a click away", async ({ page }) => {
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
-  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)").first();
   await drawn.locator("tr[data-swt-row='1'] > td").first().hover();
   // In the toolbar whatever the names setting (Shift not held), in the danger color
   const missing = page.locator(".swt-bar.swt-visible .swt-bar-name-container .swt-bar-name");
@@ -968,7 +968,7 @@ test("a table shown as a sheet but on none says so in its toolbar, red, its name
 test("Enter in the last row's cell editor on the sheet adds a row under it", async ({ page }) => {
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
-  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)").first();
   const rows = drawn.locator("tbody tr[data-swt-row]");
   const count = await rows.count();
   await rows.last().locator("td").first().dblclick();
@@ -984,7 +984,7 @@ test("the + pressed again and again on a sheet's table adds a row each time, wit
   await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(2);
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
-  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+  const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)").first();
   await drawn.locator("tr[data-swt-row='1'] > td").first().click();
   for (let i = 1; i <= 3; i++) {
     const first = drawn.locator("tr[data-swt-row='1'] > td").first();
@@ -1010,7 +1010,7 @@ test.describe("Pins on the sheet", () => {
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(rows);
     await hoverCell(page, cell(page, 1, 0));
     await (await tableIcon(page, "Sheet view")).click();
-    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table").first();
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)").first();
     await expect(drawn).toBeVisible();
     return drawn;
   };
@@ -1066,5 +1066,35 @@ test.describe("Pins on the sheet", () => {
     await page.keyboard.press("Enter");
     await expect.poll(() => markdown(page)).toContain("| Name | A   | Column 4 | Sum |");
     expect(await markdown(page)).toContain("| x    | 1   | note     | 1   |");
+  });
+});
+
+test.describe("A sheet's table drawn anew", () => {
+  test("shows only laid out on the grid and enhanced, its copy standing in meanwhile: no frame without them", async ({ page }) => {
+    await openSheet(page);
+    // Each frame as painted (after its callbacks): any table of the board seen unplaced, unsized or not enhanced
+    await page.evaluate(() => {
+      const seen: string[] = [];
+      (window as unknown as { unplaced: string[] }).unplaced = seen;
+      const look = () => {
+        setTimeout(() => {
+          for (const t of document.querySelectorAll<HTMLElement>(".swt-sheet-board .swt-sheet-table")) {
+            if (getComputedStyle(t).opacity === "0") continue;
+            if (!t.style.left || !t.classList.contains("swt-table") || !t.querySelector("colgroup.swt-sheet-cols")) seen.push(t.className);
+          }
+        });
+        requestAnimationFrame(look);
+      };
+      requestAnimationFrame(look);
+    });
+    for (const value of ["7", "8", "9"]) {
+      await sheetCell(page, 1, 1).dblclick();
+      await page.keyboard.press("Control+a");
+      await page.keyboard.type(value);
+      await sheetRendersAnew(page, () => page.keyboard.press("Enter"));
+      await expect(page.locator(".swt-stand-in")).toHaveCount(0);
+    }
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => (window as unknown as { unplaced: string[] }).unplaced)).toEqual([]);
   });
 });

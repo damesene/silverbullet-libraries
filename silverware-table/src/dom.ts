@@ -42,6 +42,10 @@ export const UI_CLASS = "swt-ui";
 // (under it) left out
 export const DRAWN_CLASS = "swt-drawn";
 
+// A copy of a table shown in its place while the table is drawn anew (the
+// sheet), so it does not flicker: no table of the page's, the core leaves it out
+export const STAND_IN_CLASS = "swt-stand-in";
+
 // Those of them in a header cell that sit out of its line (positioned at the
 // cell's edge: the pin mark, a module's handle): the header's layout leaves them where they are
 export const OUT_OF_LINE_CLASS = "swt-out-of-line";

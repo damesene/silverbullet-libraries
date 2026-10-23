@@ -139,7 +139,7 @@ test.describe("Names in the toolbar", () => {
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(4);
     await hoverCell(page, cell(page, 1, 0));
     await (await tableIcon(page, "Sheet view")).click();
-    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)");
     await expect(drawn).toHaveCount(1);
     // Sorted (a chip in the toolbar): the toolbar wider than the table
     const head = drawn.locator("thead tr > *").nth(1);
@@ -180,7 +180,7 @@ test.describe("Names in the toolbar", () => {
     await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
     await hoverCell(page, cell(page, 1, 0));
     await (await tableIcon(page, "Sheet view")).click();
-    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table");
+    const drawn = page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)");
     await expect(drawn).toHaveCount(2);
     // b's sheet named Other: b moves there (its place kept, free there), the view follows it
     await drawn.nth(1).locator("tr[data-swt-row='1'] > td").first().hover();

@@ -31,7 +31,7 @@
 import { CELL_MENU_ORDER, type AdapterFeature, type AddressFrame, type CellArea, type CellMenuGroup, type CellRef, type RenderedEditor, type TableHost, type TableInfo, type ToolbarButton, type WidgetInfo, type WriteResult } from "../../feature.ts";
 import { oncePerFrame } from "../../frame.ts";
 import { claimWindow, releaseWindow } from "../../overwindow.ts";
-import { DRAWN_CLASS, UI_CLASS } from "../../../dom.ts";
+import { DRAWN_CLASS, STAND_IN_CLASS, UI_CLASS } from "../../../dom.ts";
 import { el } from "../../../elements.ts";
 import { columnLetters, isFormulaInput } from "../../../formulas/index.ts";
 import { ICONS } from "../../../icons.ts";
@@ -48,6 +48,8 @@ import type { TableKey } from "../../tables.ts";
 // An empty column's width, a row's height when no table gives one
 const COLUMN_WIDTH = 100;
 const ROW_HEIGHT = 36;
+// How long a copy stands in at most for a table drawn anew that is not enhanced
+const STAND_IN_MS = 1000;
 // The room for the rows' numbers (left) and the columns' letters (above): as the full screen's
 const NUMBERS_ROOM = 28;
 const LETTERS_ROOM = 66;
@@ -122,6 +124,9 @@ export class Sheet implements AdapterFeature {
   private making: { readonly at: SheetCell; key: TableKey | undefined } | undefined;
   // Drawings asked for, by table: only the last of each is put in
   private readonly drawing = new Map<TableKey, number>();
+  // Tables drawn anew not shown yet, by key: a copy of what they replaced stands in their place until they are
+  // enhanced and laid out on the grid (a frame or two: unplaced, unsized and undecorated meanwhile, the sheet flickered)
+  private readonly standIns = new Map<TableKey, { readonly copy: HTMLElement; readonly timer: ReturnType<typeof setTimeout>; ready: boolean }>();
   // A drawing put off while a cell of a table drawn is edited (swapping it would take the editor's cell away)
   private putOff = false;
   // Moving a table: the handle at the top left corner of the table hovered (a touch: with a cell selected), the
@@ -253,6 +258,7 @@ export class Sheet implements AdapterFeature {
     this.watching?.disconnect();
     this.watching = undefined;
     this.drawing.clear();
+    for (const key of [...this.standIns.keys()]) this.showDrawn(key);
     this.shownIndex = undefined;
     this.looksOrder.clear();
     this.putOff = false;
@@ -351,12 +357,30 @@ export class Sheet implements AdapterFeature {
       void navigate(link.dataset.ref);
     });
     widget.classList.add("swt-sheet-table");
-    if (before) before.widget.replaceWith(widget);
-    else board.content.append(widget);
+    if (before) {
+      // (Drawn anew again before shown: the copy of what was shown stays)
+      if (!this.standIns.has(key)) {
+        const copy = before.widget.cloneNode(true) as HTMLElement;
+        copy.classList.add(STAND_IN_CLASS);
+        before.widget.before(copy);
+        // Shown at the latest after a while, should it not be enhanced
+        this.standIns.set(key, { copy, timer: setTimeout(() => this.showDrawn(key), STAND_IN_MS), ready: false });
+      }
+      before.widget.replaceWith(widget);
+    } else board.content.append(widget);
     board.tables.set(key, { key, range, at, widget, natural: before?.natural ?? [], rowHeight: before?.rowHeight ?? 0 });
     this.shownIndex = undefined;
     // Its looks are made by its rows as in the markdown (then sorted or filtered: viewApplied asks for them again)
     if (!before) this.looksOrder.set(key, Array.from(parseTable(range.text).rows, (_, i) => i).join(","));
+  }
+
+  /** A table drawn anew shown, its stand-in gone */
+  private showDrawn(key: TableKey): void {
+    const standIn = this.standIns.get(key);
+    if (!standIn) return;
+    this.standIns.delete(key);
+    clearTimeout(standIn.timer);
+    standIn.copy.remove();
   }
 
   /** A table of the board as enhanced now, by its key */
@@ -378,6 +402,9 @@ export class Sheet implements AdapterFeature {
     }
     const placed = board.tables.get(info.key);
     if (!placed || placed.widget !== widget) return;
+    // Shown in place of its stand-in once laid out (place)
+    const standIn = this.standIns.get(info.key);
+    if (standIn) standIn.ready = true;
     // Its columns and rows as drawn, before the sheet's widths and height are applied
     // (As wide as its content: SilverBullet's tables are as wide as their box, which would spread the columns)
     // Without a cell editor opened in it meanwhile (the cell to edit next): its field, and the width its cell was held
@@ -1281,6 +1308,7 @@ export class Sheet implements AdapterFeature {
       table.style.tableLayout = "fixed";
       table.style.width = `${width}px`;
       Object.assign(placed.widget.style, { left: `${this.leftOf(placed.at.column)}px`, top: `${placed.at.row * rowHeight}px`, width: `${width}px` });
+      if (this.standIns.get(placed.key)?.ready) this.showDrawn(placed.key);
     }
     // The column lines no gradient can draw (the columns' widths differ); the rows' lines are a gradient (CSS)
     let shown = 0;

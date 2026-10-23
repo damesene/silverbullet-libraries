@@ -30,6 +30,7 @@ import {
   cellValue,
   DRAWN_CLASS,
   EDITOR_SELECTOR,
+  STAND_IN_CLASS,
   INTERACTIVE_SELECTOR,
   layOutHeaderCell,
   OUT_OF_LINE_CLASS,
@@ -708,9 +709,9 @@ export class Controller implements TableHost {
     }
   }
 
-  /** A table in one of Silverware Table's floating elements (a theme's preview in a menu): not one of the page's */
+  /** A table in one of Silverware Table's floating elements (a theme's preview in a menu), or a stand-in: not one of the page's */
   private ownTable(widget: HTMLElement): boolean {
-    return this.isFloating(widget);
+    return this.isFloating(widget) || widget.classList.contains(STAND_IN_CLASS);
   }
 
   /** Enhances every rendered table that is not enhanced yet */

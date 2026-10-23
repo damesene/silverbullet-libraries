@@ -5,7 +5,7 @@ import { center, cell, drag, expect, hoverCell, markdown, table, tableIcon, test
 // a at A1 (its header and one row, two columns), b at D1
 const PAGE = "# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n| <meta name='a' sheet='Plan' at='A1'> |\n\n| City |\n|---|\n| Brno |\n| <meta name='b' sheet='Plan' at='D1'> |\n";
 
-const drawn = (page: Page, text: string) => page.locator(".sb-table-widget.swt-drawn.swt-sheet-table", { hasText: text });
+const drawn = (page: Page, text: string) => page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)", { hasText: text });
 const grab = (page: Page) => page.locator(".swt-sheet-grab.swt-visible");
 const preview = (page: Page) => page.locator(".swt-sheet-move:not([hidden])");
 
@@ -15,7 +15,7 @@ async function openPlan(page: Page): Promise<number> {
   await expect(table(page, 1).locator("tr[data-swt-row]")).toHaveCount(1);
   await hoverCell(page, cell(page, 1, 0));
   await (await tableIcon(page, "Sheet view")).click();
-  await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table")).toHaveCount(2);
+  await expect(page.locator(".sb-table-widget.swt-drawn.swt-sheet-table:not(.swt-stand-in)")).toHaveCount(2);
   // The sheet's rows are of one height
   return (await drawn(page, "Pear").locator("tr[data-swt-row='1'] > td").first().boundingBox())!.height;
 }

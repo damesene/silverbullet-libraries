@@ -1955,6 +1955,14 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
 /* Held by the browser against the board (its scrolling box, under the letters' room, right of the numbers'):
    the header with the rows pinned to the top at its top (not STICKY_GAP below it: the toolbar has the room above),
    the rows pinned to the bottom at its bottom, pinned columns at its sides (their offsets the core's) */
+/* A table drawn anew, until it is laid out: the copy of what it replaced shows in its place (presses go through
+   to the table, unseen under it) */
+.sb-table-widget.swt-stand-in {
+  pointer-events: none;
+}
+.sb-table-widget.swt-stand-in + .sb-table-widget.swt-sheet-table {
+  opacity: 0;
+}
 .sb-table-widget.swt-table.swt-sheet-table :is(thead, thead.swt-stuck) {
   position: sticky !important;
   top: 0 !important;
