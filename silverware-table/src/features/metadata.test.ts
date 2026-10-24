@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { parseTable } from "../markdown.ts";
-import { PAGE, bodyTexts, cell, clickOn, controller, editor, flashes, flush, key, nameInMenu, setup, tableMenuItem, text, toolbarName, useTablePage } from "../testing/page.ts";
+import { PAGE, bodyTexts, buttonLabel, cell, cellMenuItem, clickOn, controller, editor, flashes, flush, key, menuButtons, nameInMenu, setup, tableMenuItem, text, toolbarName, useTablePage } from "../testing/page.ts";
 
 describe("Table metadata", () => {
   useTablePage();
@@ -202,6 +202,70 @@ describe("Table metadata", () => {
     await controller.removeAllMetadata();
     await controller.scan();
     expect(bodyTexts()).toEqual(["Pear", "apple"]);
+  });
+
+  describe("of cells, rows and columns, from their menu", () => {
+    const PAGE_TAGS =
+      `| Name <meta core.n='who'> | Qty |\n|---|---|\n| Pear <meta core.n='pear'> | 3 <meta core.cn='three'> |\n| apple | 10 |\n| Total | 13 <meta formulas.f='=SUM([qty])'> |\n` +
+      `| <meta core.table core.name='fruit'> |\n`;
+    // A column's attributes in the metadata row: Qty's sorting, the filter of the column named who
+    const WITH_COLUMNS = PAGE_TAGS.replace("core.name='fruit'>", "core.name='fruit' core.-c-qty.sort='desc' filters.-c-who.condition='p'>");
+    const answering = (answer: boolean) => {
+      const questions: string[] = [];
+      (controller as unknown as { bridge: Record<string, unknown> }).bridge.confirm = (message: string) => {
+        questions.push(message);
+        return answer;
+      };
+      return questions;
+    };
+    const info = () => controller.infoOf(editor.querySelector<HTMLElement>(".sb-table-widget")!)!;
+    const rowGrip = () => document.querySelector<HTMLElement>(".swt-grip:not(.swt-grip-column)")!;
+
+    it("of the cells selected, once confirmed: their hidden tags only, the others' and the metadata row kept", async () => {
+      const page = `| Name | Qty |\n|---|---|\n| Pear <meta core.n='pear'> | 3 <meta core.cn='three'> |\n| apple | 10 <meta formulas.f='=1+9'> |\n| <meta core.table core.name='fruit'> |\n`;
+      await setup(page);
+      controller.selectCells(info(), { row: 1, column: 1 }, { row: 2, column: 1 });
+      let questions = answering(false);
+      cellMenuItem(cell(1, 1), /^Remove metadata$/)!.click();
+      await flush();
+      expect(questions).toEqual(["Remove the metadata of these 2 cells, what Silverware Table (1 cell) and Formulas (1 cell) keep in them? Cells keep their text, a formula's cell its result. Ctrl+Z brings it back."]);
+      expect(text).toBe(page);
+      questions = answering(true);
+      await controller.scan();
+      controller.selectCells(info(), { row: 1, column: 1 }, { row: 2, column: 1 });
+      cellMenuItem(cell(1, 1), /^Remove metadata$/)!.click();
+      await flush();
+      expect(text).toBe(`| Name | Qty |\n|---|---|\n| Pear <meta core.n='pear'> | 3 |\n| apple | 10 |\n| <meta core.table core.name='fruit'> |\n`);
+    });
+
+    it("is not offered for cells without metadata", async () => {
+      await setup(PAGE_TAGS);
+      expect(cellMenuItem(cell(2, 0), /^Remove metadata$/)).toBeUndefined();
+      expect(cellMenuItem(cell(1, 0), /^Remove metadata$/)).toBeDefined();
+    });
+
+    it("of a row, from its grip's menu: every cell of it", async () => {
+      await setup(PAGE_TAGS);
+      const questions = answering(true);
+      cell(1, 0).dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      rowGrip().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+      menuButtons().find((b) => buttonLabel(b) === "Remove metadata")!.click();
+      await flush();
+      expect(questions[0]).toBe("Remove the metadata of this row, what Silverware Table (2 cells) keeps in it? Cells keep their text, a formula's cell its result. Ctrl+Z brings it back.");
+      expect(text).toBe(PAGE_TAGS.replace("| Pear <meta core.n='pear'> | 3 <meta core.cn='three'> |", "| Pear | 3 |"));
+    });
+
+    it("of a column, from its menu: its cells, its header's too, and its attributes in the metadata row", async () => {
+      await setup(WITH_COLUMNS);
+      const questions = answering(true);
+      cellMenuItem(cell(0, 1), /^Remove metadata$/)!.click();
+      await flush();
+      expect(questions[0]).toBe("Remove the metadata of this column, what Silverware Table (1 cell) and Formulas (1 cell) keep in it? Cells keep their text, a formula's cell its result. Ctrl+Z brings it back.");
+      expect(text).toBe(
+        `| Name <meta core.n='who'> | Qty |\n|---|---|\n| Pear <meta core.n='pear'> | 3 |\n| apple | 10 |\n| Total | 13 |\n| <meta core.table core.name='fruit' filters.-c-who.condition='p'> |\n`,
+      );
+    });
   });
 
   it("says it removes what a module turned off keeps in cells too", async () => {

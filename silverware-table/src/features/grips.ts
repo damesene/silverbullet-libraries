@@ -734,7 +734,7 @@ export class Grips implements Feature {
         ],
       },
       { kind: "separator" },
-      ...this.section(this.host.rowMenuEntries(info, row, column)),
+      ...this.section([...this.host.rowMenuEntries(info, row, column), ...this.host.lineMenuEndEntries(info, "row", this.selectedLines(info, "row", row))]),
       this.deleteEntry(info, "row", row),
     ];
   }
@@ -888,7 +888,7 @@ export class Grips implements Feature {
         ],
       },
       { kind: "separator" },
-      ...this.section(host.columnMenuTopEntries(info, column)),
+      ...this.section([...host.columnMenuTopEntries(info, column), ...host.lineMenuEndEntries(info, "column", this.selectedLines(info, "column", column))]),
       this.deleteEntry(info, "column", column),
     ];
     return entries;

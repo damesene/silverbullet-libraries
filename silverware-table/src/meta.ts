@@ -100,6 +100,16 @@ export function columnAttributeOf(table: Table, owner: Owner, key: string, colum
   return columnAttributeName(table.rows[0]?.cells ?? [], attributeName(owner, key), column);
 }
 
+/** The whole names of the attributes of `columns` in the metadata row, whoever's they are */
+export function columnsAttributes(table: Table, columns: ReadonlySet<number>): string[] {
+  const headers = table.rows[0]?.cells ?? [];
+  return Object.keys(table.meta ?? {}).filter((name) => {
+    const attribute = parseColumnAttribute(name);
+    const column = attribute && findColumn(headers, attribute.id);
+    return column !== undefined && columns.has(column);
+  });
+}
+
 /**
  * Keeps the columns' attributes on their columns through an edit: each one
  * the table before had, unchanged by the edit, names its column as moved by

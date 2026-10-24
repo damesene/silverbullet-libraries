@@ -1551,6 +1551,10 @@ export class Controller implements TableHost {
     return this.features.flatMap((f) => f.lineMenuEntries?.(info, axis, lines) ?? []);
   }
 
+  lineMenuEndEntries(info: WidgetInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+    return this.features.flatMap((f) => f.lineMenuEndEntries?.(info, axis, lines) ?? []);
+  }
+
   /** The element a table's info was rendered in (the hooks that still take it: docs/silverware-table-isolation.md) */
   widgetOf(info: WidgetInfo): HTMLElement {
     return info.table.closest<HTMLElement>(WIDGET_SELECTOR) ?? info.table;

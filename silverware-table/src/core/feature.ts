@@ -788,6 +788,8 @@ export interface ModelHost {
   rowMenuEntries(info: TableInfo, row: number, column: number): MenuEntry[];
   /** The entries features add first to the menu of rows (columns) `lines` (see Feature.lineMenuEntries) */
   lineMenuEntries(info: TableInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
+  /** The entries features add last to the menu of rows (columns) `lines`, before Delete (see Feature.lineMenuEndEntries) */
+  lineMenuEndEntries(info: TableInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
   /** A setting's value, its default when unset or not valid */
   setting<K extends keyof typeof SETTINGS>(name: K): Promise<SettingValue<K>>;
   /** The metadata setting as last read */
@@ -1003,6 +1005,12 @@ export interface Feature {
    * columns; they close the menu when run (the clipboard's: copy, cut, paste)
    */
   lineMenuEntries?(info: TableInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
+  /**
+   * Entries last in the menu of rows (columns) `lines` (as lineMenuEntries),
+   * in the section before Delete: what takes something off them (Remove
+   * metadata); they close the menu when run
+   */
+  lineMenuEndEntries?(info: TableInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[];
   /** Buttons for the table's toolbar, shown while the pointer is over the table */
   toolbarButtons?(info: TableInfo): ToolbarButton[];
   /** Before a write reads the page's text: what it needs read first (other pages the tables written refer to) */

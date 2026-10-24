@@ -107,6 +107,26 @@ test.describe("Grips", () => {
   });
 });
 
+test("Remove metadata in a cell's menu asks, then takes off that cell's hidden tags only", async ({ page }) => {
+  await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear <meta core.n='pear'> | 3 <meta formulas.f='=1+2'> |\n");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
+  const asked: string[] = [];
+  page.once("dialog", (dialog) => {
+    asked.push(dialog.message());
+    void dialog.accept();
+  });
+  await cell(page, 1, 1).click({ button: "right" });
+  const item = menu(page).locator(".swt-menu-item", { hasText: "Remove metadata" });
+  // Last, with deleting
+  await expect(menu(page).locator(".swt-menu-item").last()).toHaveText("Remove metadata");
+  await item.click();
+  // (The playground's tables are formatted as they are written: autoFormat)
+  await expect.poll(() => markdown(page)).not.toContain("formulas.f");
+  expect(await markdown(page)).toMatch(/\| Pear <meta core\.n='pear'> \| 3 +\|/);
+  expect(asked[0]).toBe("Remove the metadata of this cell, what Formulas (1 cell) keeps in it? Cells keep their text, a formula's cell its result. Ctrl+Z brings it back.");
+});
+
 test("Delete table, last in the ⋯ menu, asks and takes the table out of the page; No keeps it", async ({ page }) => {
   await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|---|\n| Pear | 3 |\n\nBetween.\n\n| City |\n|---|\n| Brno |\n");
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());

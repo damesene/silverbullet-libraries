@@ -4,11 +4,14 @@
 // is, from the attributes' names (`<owner>.…`, metanames.ts): nothing a module
 // says itself, a module turned off is named as well.
 // For one table from its toolbar, for all tables of the page with the
-// "Silverware Table: Remove table metadata" command.
+// "Silverware Table: Remove table metadata" command, for cells, rows or
+// columns from their menu (a column's attributes in the metadata row too).
 import { FEATURE_NAMES, MODULE_LABELS } from "../bridge.ts";
-import type { Feature, ModelHost, ToolbarButton, TableInfo } from "../core/feature.ts";
+import { CELL_MENU_ORDER, type CellMenuGroup, type CellRef, type Feature, type ModelHost, type ToolbarButton, type TableInfo } from "../core/feature.ts";
 import { ICONS } from "../icons.ts";
 import { findTables, minimalEdit, parseTable, serializeTable, type Table } from "../markdown.ts";
+import type { MenuEntry } from "../menu.ts";
+import { columnsAttributes } from "../meta.ts";
 import { CORE } from "../metanames.ts";
 import { attributesOf, cellTags, withoutTags } from "../tags.ts";
 
@@ -19,6 +22,30 @@ export function withoutMetadata(table: Table): Table {
 }
 
 const hasTags = (cell: string) => cellTags(cell).length > 0;
+
+/** Cells (markdown rows) and whole columns of a table whose metadata goes: the cells' hidden tags, the columns' attributes in the metadata row */
+export type MetadataPart = { readonly cells: readonly CellRef[]; readonly columns: ReadonlySet<number> };
+
+/** What a part holds, as a table of its own: its cells in one row, its columns' attributes as its metadata (for hasMetadata, metadataOwners) */
+function partOf(table: Table, part: MetadataPart): Table {
+  const { meta: _meta, metaSource: _source, ...rest } = table;
+  const names = columnsAttributes(table, part.columns);
+  const cells = { cells: part.cells.map((ref) => table.rows[ref.row]?.cells[ref.column] ?? "") };
+  return { ...rest, rows: [cells], ...(names.length ? { meta: Object.fromEntries(names.map((name) => [name, table.meta![name]!])) } : {}) };
+}
+
+/** A table without the metadata of a part of it: its cells' hidden tags (formula cells keep their results), its columns' attributes */
+export function withoutMetadataOf(table: Table, part: MetadataPart): Table {
+  const names = new Set(columnsAttributes(table, part.columns));
+  const taken = new Map<number, Set<number>>();
+  for (const ref of part.cells) taken.set(ref.row, (taken.get(ref.row) ?? new Set()).add(ref.column));
+  const rows = table.rows.map((row, r) => {
+    const columns = taken.get(r);
+    return columns && row.cells.some((cell, c) => columns.has(c) && hasTags(cell)) ? { ...row, cells: row.cells.map((cell, c) => (columns.has(c) ? withoutTags(cell) : cell)) } : row;
+  });
+  if (names.size === 0) return { ...table, rows };
+  return { ...table, rows, meta: Object.fromEntries(Object.entries(table.meta ?? {}).filter(([name]) => !names.has(name))) };
+}
 
 /** Whether a table holds metadata: a metadata row, or hidden tags in cells */
 function hasMetadata(table: Table): boolean {
@@ -90,6 +117,47 @@ export class Metadata implements Feature {
         run: () => void this.removeFromTable(info),
       },
     ];
+  }
+
+  /** Remove metadata in the menu of a cell or of the cells selected, last (with deleting) */
+  cellMenuEntries(info: TableInfo, cells: readonly CellRef[]): CellMenuGroup | undefined {
+    const entry = this.partEntry(info, { cells, columns: new Set() }, cells.length === 1 ? "this cell" : `these ${cells.length} cells`);
+    return entry && { order: CELL_MENU_ORDER.deleting, entries: [entry] };
+  }
+
+  /** Remove metadata in the menu of rows (columns): their cells, a column's header too, and the columns' attributes */
+  lineMenuEndEntries(info: TableInfo, axis: "row" | "column", lines: readonly number[]): MenuEntry[] {
+    const rows = axis === "row" ? lines : Array.from({ length: info.rows }, (_, row) => row);
+    const columns = axis === "row" ? Array.from({ length: info.columns }, (_, column) => column) : lines;
+    const part = { cells: rows.flatMap((row) => columns.map((column) => ({ row, column }))), columns: new Set(axis === "column" ? lines : []) };
+    const entry = this.partEntry(info, part, lines.length === 1 ? `this ${axis}` : `these ${lines.length} ${axis}s`);
+    return entry ? [entry] : [];
+  }
+
+  /** Remove metadata for a part of the table, where it has some */
+  private partEntry(info: TableInfo, part: MetadataPart, what: string): MenuEntry | undefined {
+    if (!hasMetadata(partOf(parseTable(info.source), part))) return undefined;
+    return {
+      kind: "item",
+      label: "Remove metadata",
+      icon: ICONS.trash,
+      danger: true,
+      hint: `Remove the <meta> tags of ${what}: formulas (their cells keep their results), names${part.columns.size ? ", the columns' stored settings (sorting, filters, widths)" : ""}`,
+      run: () => void this.removeFromPart(info, part, what),
+    };
+  }
+
+  /** Removes the metadata of a part of a table, once confirmed */
+  private async removeFromPart(shownInfo: TableInfo, part: MetadataPart, what: string): Promise<void> {
+    const shown = partOf(parseTable(shownInfo.source), part);
+    const owners = metadataOwners([shown]);
+    if (!(await this.host.ask(`Remove the metadata of ${what}${whose(owners, what.startsWith("this ") ? "it" : "them")}? ${KEPT} Ctrl+Z brings it back.`))) return;
+    // The table as rendered now: the dialog may have outlived the rendering it was asked from
+    const info = this.host.tableFor(shownInfo.key) ?? shownInfo;
+    if (columnsAttributes(parseTable(info.source), part.columns).length) this.host.forgetStoredView(info.key);
+    await this.host.writeTable(info, (table) => withoutMetadataOf(table, part));
+    // The dialog took the focus: back to the editor, so Ctrl+Z works right away
+    this.host.focusPage();
   }
 
   /**
