@@ -166,7 +166,7 @@ export const MODULE_DESCRIPTIONS: Readonly<Record<FeatureName, string>> = {
   autofill: "A square at the corner of the cells selected: drag it to fill the cells after them (1, 2 → 3, 4; Mon → Tue; formulas with their references moved), double-click it to fill down",
   lazy: "An icon in a table's toolbar switches it to saving its cells edited together, a moment after editing stops: quicker typing in large tables",
   themes: "How tables look (header, lines, stripes, spacing): a theme for every table, another one for a table from its ⋯ menu",
-  export: "Copy as CSV in a table's ⋯ menu",
+  export: "Copy as CSV and Copy as Markdown in a table's ⋯ menu",
   excel: "Export to Excel… in a table's ⋯ menu: copy for Excel (numbers and dates as Excel's), or download an .xlsx file with the formulas",
   paste: "Copy, Cut and Paste in the cell menu; Ctrl+X cuts cells (they move where they are pasted); Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows",
   handles: "Handles beside rows and above columns: drag to move them, click for their menu",

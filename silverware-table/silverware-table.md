@@ -83,7 +83,7 @@ Makes the markdown tables in your pages interactive: edit cells in place, sort, 
 * **Ctrl+Alt+arrows** move the rows of the selection up / down (PageUp / PageDown: 10 places) or its columns left / right (Home / End: to the start / end), together, as one edit; the selection goes with them. Rows do not move while the table is sorted or filtered, nor with the header selected; pinned and unpinned rows (columns) do not move together.
 * Typing, Enter or F2 edits the first cell selected (see [[#Editing cells]]). **Ctrl+Enter** adds a row under the cell selected and edits it in the same column, as in a cell editor (with the *Ctrl+Enter adds a row* setting; off, it edits the cell, as Enter does).
 * Esc or a click elsewhere ends the selection.
-* **Copy as CSV** in the ⋯ menu of the table's toolbar (the `export` module) copies the whole table as CSV (commas between cells, quotes where a cell needs them): its header and its rows as shown, sorted and filtered, cells as Ctrl+C copies them.
+* **Copy as CSV** in the ⋯ menu of the table's toolbar (the `export` module) copies the whole table as CSV (commas between cells, quotes where a cell needs them): its header and its rows as shown, sorted and filtered, cells as Ctrl+C copies them. **Copy as Markdown** beside it copies the same rows as a plain markdown table: each cell as written (links, formatting, a formula's result), without formulas, names and the table's other hidden data, so it can go into any page or tool as an ordinary table.
 * **Export to Excel…** in the same menu: see [[#Excel]].
 
 ## Excel
@@ -847,7 +847,7 @@ Each module can be turned off with `enabled = false`, e.g. `config.set("silverwa
 | `selection` | Dragging across cells, Shift+click and Shift+arrows select them; Ctrl+C copies them, Delete empties them (whole rows, columns or a whole table already empty: deletes them); *Copy*, *Clear* and *Delete N rows / columns* in the cell menu. A click selects a cell, a second one edits it; the toolbar's *Edit mode* button edits on the first click. Off: a click always edits; Shift+click opens the cell as Shift+Enter does. |
 | `themes` | Tables look as their theme sets: the *Theme* setting (`theme`, default `native`), or a table's own from *Theme* in its ⋯ menu; stripes from *Stripes* (`stripes`: `rows`, the default, `columns` or `none`), or as the icons in *Theme* in a table's ⋯ menu say. See [[#Themes]]. Off: tables look as SilverBullet shows them (striped); a theme stored in a table is kept but not used. |
 | `lazy` | The toolbar's lazy saving icon (a clock) switches a table to saving its cells edited together, a moment after editing stops. Setting `delay` (milliseconds, default `500`). See [[#Lazy saving]]. Off: every cell is saved as you leave it. |
-| `export` | *Copy as CSV* in the table's ⋯ menu copies the whole table. |
+| `export` | *Copy as CSV* and *Copy as Markdown* in the table's ⋯ menu copy the whole table. |
 | `autofill` | The fill handle at the corner of the cells selected: drag it to fill the cells after them, double-click it to fill down. See [[#AutoFill]]. Needs `selection`. Off: no handle. |
 | `excel` | *Export to Excel…* in the table's ⋯ menu: copy for Excel, or download an .xlsx file with the formulas. Setting `functions`: templates for your custom functions in the file. See [[#Excel]]. |
 | `paste` | Copy, Cut and Paste in the cell menu; Ctrl+X cuts cells (they move where they are pasted); Ctrl+V pastes cells copied from a spreadsheet over the table, Ctrl+Shift+V as new rows. Off: a paste goes into the cell editor as text, no Cut or Paste in the cell menu (Copy and Ctrl+C stay, with the `selection` module). |
@@ -1222,7 +1222,7 @@ config.define("silverware.table", {
             enabled = {
               type = "boolean",
               default = true,
-              description = "Copy as CSV in a table's ⋯ menu: the whole table, its rows as shown.",
+              description = "Copy as CSV and Copy as Markdown in a table's ⋯ menu: the whole table, its rows as shown.",
               ui = { category = "Silverware Table: Modules", label = "Export", priority = 5 },
             },
           },

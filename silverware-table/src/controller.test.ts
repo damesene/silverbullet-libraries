@@ -125,6 +125,7 @@ describe("Controller", () => {
       "—",
       "Theme: Native (global)",
       "Copy as CSV",
+      "Copy as Markdown",
       "Export to Excel…",
       "Format table",
       "Edit markdown",

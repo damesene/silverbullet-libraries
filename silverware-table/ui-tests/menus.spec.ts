@@ -15,6 +15,18 @@ test("one menu at a time: a column's menu open, the ⋯ menu closes it, and the 
   await expect(menuTitle(page)).toContainText("Column");
 });
 
+test("Copy as Markdown in the ⋯ menu: the table as plain markdown in the clipboard, no hidden tags", async ({ page }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.locator("#source").fill("# Test\n\n| Item | Qty |\n|---|--:|\n| **Pear** | 3 <meta formulas.f='=1+2'> |\n| <meta core.table core.name='fruit'> |\n");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(1);
+  await hoverCell(page, cell(page, 1, 0));
+  await page.locator(".swt-bar.swt-visible .swt-bar-more").click();
+  await menu(page).locator(".swt-menu-item", { hasText: "Copy as Markdown" }).click();
+  // (The system's clipboard on Windows gives its line breaks as CRLF)
+  await expect.poll(() => page.evaluate(async () => (await navigator.clipboard.readText()).replaceAll("\r\n", "\n"))).toBe("| Item | Qty |\n|---|---:|\n| **Pear** | 3 |\n");
+});
+
 test.describe("Toolbar and menus", () => {
   test("the toolbar shows over the table hovered; its ⋯ menu has the core's items and closes with Esc", async ({ page }) => {
     await hoverCell(page, cell(page, 2, 1));
