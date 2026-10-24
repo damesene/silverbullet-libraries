@@ -142,6 +142,24 @@ class Sheet {
     this.decimalComma = comma > point;
   }
 
+  /**
+   * [@a] and [@[a]:[b]] of this table: the cell of its row `row` (from 0) in
+   * column a, or its cells from a to b, either way round (`prefix`: the
+   * table's name as written, for the errors)
+   */
+  rowColumnsValue(row: number, name: string, last: string | undefined, prefix: string): Value {
+    const at = prefix ? ` in ${prefix.slice(0, -1)}` : "";
+    if (row >= this.rows) return new FormulaError("#REF!", `${prefix}[@…]: the row ${row + 1} is outside the table`);
+    const index = referencedColumn(this.headers, name);
+    if (index === undefined) return new FormulaError("#REF!", `there is no column named "${name}"${at}`);
+    if (last === undefined) return this.value(row, index);
+    const end = referencedColumn(this.headers, last);
+    if (end === undefined) return new FormulaError("#REF!", `there is no column named "${last}"${at}`);
+    const values: Scalar[] = [];
+    for (let c = Math.min(index, end); c <= Math.max(index, end); c++) values.push(this.value(row, c));
+    return values;
+  }
+
   get rows(): number {
     return this.body.length;
   }
@@ -343,17 +361,7 @@ class Sheet {
       case "column": {
         const sheet = this.sheetOf(node.table);
         if (isError(sheet)) return sheet;
-        if (node.thisRow) {
-          const index = referencedColumn(this.headers, node.name);
-          if (index === undefined) return new FormulaError("#REF!", `there is no column named "${node.name}"`);
-          if (node.last === undefined) return this.value(row, index);
-          // [@[a]:[b]]: the row's cells from a to b, either way round
-          const last = referencedColumn(this.headers, node.last);
-          if (last === undefined) return new FormulaError("#REF!", `there is no column named "${node.last}"`);
-          const values: Scalar[] = [];
-          for (let c = Math.min(index, last); c <= Math.max(index, last); c++) values.push(this.value(row, c));
-          return values;
-        }
+        if (node.thisRow) return sheet.rowColumnsValue(row, node.name, node.last, node.table ? `${node.table.name}!` : "");
         return sheet.columnValue(node.name, node.table ? `${node.table.name}!` : "");
       }
       case "named":

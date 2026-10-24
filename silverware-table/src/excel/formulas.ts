@@ -94,7 +94,10 @@ export function excelFormula(formula: string, { table, name, cells, structured, 
         return { text: one && start === end ? start : `${start}:${end}`, range: node.range && !one };
       }
       case "column": {
-        if (node.table) throw new NotInExcel(`it refers to the table ${node.table.name}`);
+        // The table's own name before it (mine![@a] in mine) is its own column
+        if (node.table && (node.table.page !== undefined || node.table.name.toLowerCase() !== name?.trim().toLowerCase())) {
+          throw new NotInExcel(`it refers to the table ${node.table.name}`);
+        }
         const c = columnOf(node.name);
         if (c === undefined) return { text: "#REF!", range: false };
         // An Excel table's column, as its header names it

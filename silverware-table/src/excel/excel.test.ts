@@ -141,6 +141,9 @@ describe("as an Excel table", () => {
     expect(excelFormula("=SUM([jan])", table, 2, 1, {}, structured)).toEqual({ text: "SUM(T[Jan])", array: false });
     expect(excelFormula("=[@jan]*2", table, 0, 3, {}, structured)).toEqual({ text: "T[[#This Row],[Jan]]*2", array: false });
     expect(excelFormula("=SUM([@[feb]:[jan]])", table, 0, 3, {}, structured)).toEqual({ text: "SUM(T[[#This Row],[Jan]:[Feb]])", array: false });
+    // The table's own name before it: its own column
+    expect(excelFormula("=SUM(T![@[jan]:[feb]])", { ...table, meta: { "core.name": "T" } }, 0, 3, {}, structured)).toEqual({ text: "SUM(T[[#This Row],[Jan]:[Feb]])", array: false });
+    expect(excelFormula("=other![@jan]", table, 0, 3, {}, structured)).toEqual({ reason: "it refers to the table other" });
     // In the totals row, which has no This Row of the table's: cells
     expect(excelFormula("=[@jan]*2", table, 2, 3, {}, structured)).toEqual({ text: "B4*2", array: false });
     // Its total row not its last one (no totals row): the column's cells as before

@@ -94,10 +94,8 @@ class Parser {
         }
         if (next?.kind === "column") {
           this.at++;
-          if (next.thisRow) {
-            throw new FormulaError("#ERROR!", `[@${next.name}] is a cell of the formula's own row: ${prefix}[${next.name}] is the other table's column`);
-          }
-          return { kind: "column", name: next.name, thisRow: false, table: tableRefOf(token) };
+          // prices![@price], prices![@[a]:[b]]: that table's row of the formula's row's number (its own: its row)
+          return { kind: "column", name: next.name, thisRow: next.thisRow, ...(next.last !== undefined ? { last: next.last } : {}), table: tableRefOf(token) };
         }
         if (next?.kind === "name" && isRowName(this.tokens, this.at)) {
           this.at++;

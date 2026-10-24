@@ -731,9 +731,23 @@ describe("other tables", () => {
     expect(errors("=SUM(prices![qty])")).toBe('#REF! there is no column named "qty" in prices');
     expect(errors('=XLOOKUP("fig", prices![qty], prices![price], 0)')).toBe('#REF! there is no column named "qty" in prices');
     expect(errors("=[[Other page]]prices!A1")).toBe("#REF! there is no table named prices on Other page");
-    expect(errors("=prices![@price]")).toContain("is a cell of the formula's own row");
+    expect(errors("=prices![@cost]")).toBe('#REF! there is no column named "cost" in prices');
     expect(errors("=prices!SUM(A1)")).toContain("is followed by a cell, a range, a [column] or a named cell");
     expect(errors("=prices!")).toBeDefined();
+  });
+
+  it("reads another table's row of the formula's row's number by [@…], and its own by its name too", () => {
+    const tables = tablesOf(PRICES);
+    // (The formula is in the one-cell table's first body row: prices' first row)
+    expect(result("=prices![@price]", tables)).toBe("12");
+    expect(result("=SUM(prices![@[name]:[price]])", tables)).toBe("12");
+    const own = parseTable(`| A | B | C |\n|---|---|---|\n| 2 | 3 | |\n| <meta core.table core.name='mine'> |`);
+    const written = setCell(own, 1, 2, formulaCell("", "=SUM(mine![@[a]:[b]])+mine![@a]"));
+    expect(formulaOf(recalculate(written).rows[1]!.cells[2]!)!.value).toBe("7");
+    // A row it does not have
+    const below = parseTable("| A |\n|---|\n| |\n| |\n| |\n| |");
+    const errorOf = formulaErrors(setCell(below, 4, 0, formulaCell("", "=prices![@price]")), tables).get("4,0");
+    expect(errorOf).toContain("the row 4 is outside the table");
   });
 
   it("refers to its own table by its name, and finds circles across tables", () => {
