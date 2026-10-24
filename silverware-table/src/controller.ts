@@ -261,6 +261,7 @@ export class Controller implements TableHost {
       releaseRow: () => this.releaseRow(),
       editingEnded: (widget) => this.editingEnded(widget),
       editingStarted: () => this.touchKeyboard.editorOpened(),
+      fieldClosing: (field) => this.touchKeyboard.keepKeyboard(field),
       navigating: (on) => {
         this.navigating = on;
         this.markNavigating();

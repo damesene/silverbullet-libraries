@@ -32,6 +32,28 @@ test.describe("Touch", () => {
     await expect(field).toBeFocused();
   });
 
+  test("Enter on the last row adds a row and edits it, the focus never let go of on the way: the keyboard stays", async ({ page }) => {
+    const rows = await table(page).locator("tr[data-swt-row]").count();
+    const last = cell(page, rows, 1);
+    await tap(page, last);
+    await tap(page, last);
+    const field = page.locator(".swt-cell-editor");
+    await expect(field).toBeFocused();
+    // Whether the focus ever went nowhere (to the page's body: the keyboard would go)
+    await page.evaluate(() => {
+      (window as unknown as { lost: number }).lost = 0;
+      document.addEventListener("focusout", (e) => {
+        if (!(e as FocusEvent).relatedTarget) (window as unknown as { lost: number }).lost++;
+      });
+    });
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("7");
+    await page.keyboard.press("Enter");
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(rows + 1);
+    await expect(page.locator(".swt-cell-editor")).toBeFocused();
+    expect(await page.evaluate(() => (window as unknown as { lost: number }).lost)).toBe(0);
+  });
+
   test("the selection's handles show after a touch, the fill handle does not", async ({ page }) => {
     await tap(page, cell(page, 2, 1));
     await expect(page.locator(".swt-select-handle").first()).toBeVisible();

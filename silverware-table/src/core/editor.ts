@@ -74,6 +74,8 @@ export type EditorContext = {
   editingEnded(widget: HTMLElement): void;
   // A cell's editor opened: its field's focus makes SilverBullet scroll elsewhere on a touch screen (core/touch-keyboard.ts)
   editingStarted(): void;
+  // A cell's field is about to go: the on-screen keyboard kept up for the next one (core/touch-keyboard.ts)
+  fieldClosing(field: HTMLElement): void;
   // Ctrl held (or let go) in a cell editor: arrows move between cells, the pointer shows it
   navigating(on: boolean): void;
 };
@@ -374,6 +376,8 @@ export class CellEditing {
       value = active.original;
       void this.host.bridge.flash("Silverware Table: a column needs a name; the old name was kept", "info");
     }
+    // (Before it goes: the focus it has, kept for the keyboard)
+    this.context.fieldClosing(active.field);
     active.field.remove();
     active.panel?.remove();
     active.cell.classList.remove("swt-editing");

@@ -16,12 +16,18 @@
 //   on a resize too.
 // - The on-screen keyboard shrinks the view (SilverBullet pins its layout to the
 //   area above it), which can leave the cell being edited behind it.
+// - Every write renders the table anew, its cell editor's field gone with it:
+//   the keyboard goes as nothing focused takes text, and comes back as the next
+//   cell's field opens (Enter going on, a row added), the page moving twice.
 //
 // So, on a touch screen: a touch in a table takes the focus from SilverBullet's
 // editor, and the focus is not handed back to it after editing (the keyboard
 // goes). Whenever the view resizes, the cell being edited is scrolled back into
 // it; for a moment after a cell's editor opens or the view resizes, any scroll
-// that is not the user's brings the cell back.
+// that is not the user's brings the cell back. A field closed while it has the
+// focus (its editor saved, the next cell's to open once the table is rendered
+// anew) hands the focus to a field of its own out of sight, which keeps the
+// keyboard up until the next one takes it, or KEEP_MS at most.
 import { EDITOR_SELECTOR } from "../dom.ts";
 
 // How long after a cell's editor opens or the view resizes the cell is brought
@@ -29,6 +35,9 @@ import { EDITOR_SELECTOR } from "../dom.ts";
 // renders and CodeMirror measures, within a few frames; the keyboard's
 // animation resizes the view several times, each starting it again)
 const HOLD_MS = 600;
+
+// How long the keyboard is kept up for a cell's field to come (after a write: the table rendered anew)
+const KEEP_MS = 3000;
 
 export type TouchKeyboardHost = {
   readonly doc: Document;
@@ -55,6 +64,9 @@ export class TouchKeyboard {
   private pressedByTouch = false;
   // Until when the cell being edited is brought back into view (HOLD_MS)
   private heldUntil = 0;
+  // The field out of sight that keeps the keyboard up between two cells' fields, and the timer letting it go
+  private keeper: HTMLInputElement | undefined;
+  private keeperTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly host: TouchKeyboardHost) {}
 
@@ -76,6 +88,35 @@ export class TouchKeyboard {
     win.removeEventListener("resize", this.onViewResize);
     win.visualViewport?.removeEventListener("resize", this.onViewResize);
     virtualKeyboard(win)?.removeEventListener("geometrychange", this.onViewResize);
+    clearTimeout(this.keeperTimer);
+    this.keeper?.remove();
+    this.keeper = undefined;
+  }
+
+  /**
+   * A cell's field is about to go (its editor closed): if it has the focus
+   * after a touch (the keyboard is up), a field of the keyboard's own takes it
+   * until the next cell's field does (or KEEP_MS), so the keyboard stays.
+   * Let go of by `letGoOfFocus` (editing ended: the keyboard goes).
+   */
+  keepKeyboard(field: HTMLElement): void {
+    const doc = this.host.doc;
+    if (!this.pressedByTouch || doc.activeElement !== field) return;
+    if (!this.keeper) {
+      const keeper = doc.createElement("input");
+      keeper.type = "text";
+      keeper.tabIndex = -1;
+      keeper.setAttribute("aria-hidden", "true");
+      // In view (a field out of it may not keep the keyboard), unseen, untouched; 16px: iOS zooms to a smaller one
+      keeper.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;border:0;padding:0;font-size:16px;pointer-events:none;";
+      doc.body.append(keeper);
+      this.keeper = keeper;
+    }
+    this.keeper.focus({ preventScroll: true });
+    clearTimeout(this.keeperTimer);
+    this.keeperTimer = setTimeout(() => {
+      if (doc.activeElement === this.keeper) this.keeper!.blur();
+    }, KEEP_MS);
   }
 
   /** A cell's editor opened: its field's focus makes SilverBullet scroll to its cursor */
