@@ -1,5 +1,6 @@
 // The header held at the top of the page's view as a long table scrolls past
-import { expect, table, test } from "./playground.ts";
+import type { Page } from "@playwright/test";
+import { expect, table, tableIcon, test } from "./playground.ts";
 
 test.describe("Rows pinned to the bottom", () => {
   test("a scroller with a bottom padding (as SilverBullet's, to scroll past the end): the row at the table's bottom while it is in view", async ({ page }) => {
@@ -71,22 +72,49 @@ test.describe("The held header", () => {
     await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(60);
     await page.evaluate(() => (document.querySelector(".cm-scroller")!.scrollTop = 913));
     await expect(table(page).locator("thead")).toHaveClass(/swt-stuck/);
-    // The view's top, the header's: the shadows its top cells cast (each as tall as the cell, moved up) reach from
-    // the one to the other without a gap
-    const covered = await table(page)
-      .locator("thead tr")
-      .first()
-      .locator("> td")
-      .first()
-      .evaluate((td) => {
-        const view = document.querySelector(".cm-scroller")!.getBoundingClientRect().top;
-        const cell = td.getBoundingClientRect();
-        const ups = Array.from(getComputedStyle(td).boxShadow.matchAll(/(-?\d+(?:\.\d+)?)px (-?\d+(?:\.\d+)?)px 0px 0px/g), (m) => -Number(m[2]));
-        // From the header's top up: each shadow covers [top - up, top - up + height]
-        let reach = 0;
-        for (const up of ups.sort((a, b) => a - b)) if (up - cell.height <= reach) reach = Math.max(reach, up);
-        return { gap: Math.round(cell.top - view), reach };
-      });
-    expect(covered.reach).toBeGreaterThanOrEqual(covered.gap);
+    const view = await page.locator(".cm-scroller").evaluate((s) => s.getBoundingClientRect().top);
+    await expectCovered(page, view);
+  });
+
+  test("full screen, a theme collapsing the table's borders: no row shows above the held header", async ({ page }) => {
+    const rows = Array.from({ length: 60 }, (_, i) => `| Row ${i + 1} | ${i * 3} |`).join("\n");
+    await page.locator("#source").fill(`# Test\n\n| Name | Qty |\n|---|---|\n${rows}\n`);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(table(page).locator("tr[data-swt-row]")).toHaveCount(60);
+    // (border-collapse: collapse, as a theme of the user's has it: the browser paints no box-shadow of a cell then)
+    await page.addStyleTag({ content: ".sb-table-widget table { border-collapse: collapse; }" });
+    await table(page).locator("tbody tr td").first().hover();
+    await (await tableIcon(page, "Full screen")).click();
+    const box = page.locator(".sb-table-widget.swt-over-window");
+    await expect(box).toBeVisible();
+    await box.evaluate((b) => (b.scrollTop = 600));
+    const top = await box.evaluate((b) => b.getBoundingClientRect().top);
+    await expectCovered(page, top);
   });
 });
+
+// From `top` down to the held header's top (but the columns' letters, which are drawn there), the page's color
+// alone: read from the pixels, as what failed was the browser not painting a cover it had
+async function expectCovered(page: Page, top: number): Promise<void> {
+  const head = (await table(page).locator("thead").boundingBox())!;
+  const first = (await table(page).locator("thead tr").first().locator("> td").first().boundingBox())!;
+  // The rows' band between the view's top and the letters (the letters sit just above the header)
+  const band = { x: Math.ceil(first.x + 2), y: Math.ceil(top + 1), width: Math.floor(head.width - 4), height: Math.floor(head.y - top - 30) };
+  expect(band.height).toBeGreaterThan(10);
+  const shot = (await page.screenshot({ clip: band })).toString("base64");
+  const colors = await page.evaluate(async (data) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${data}`;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, 0);
+    const px = ctx.getImageData(0, 0, img.width, img.height).data;
+    const seen = new Set<number>();
+    for (let i = 0; i < px.length; i += 4) seen.add((px[i]! << 16) | (px[i + 1]! << 8) | px[i + 2]!);
+    return seen.size;
+  }, shot);
+  expect(colors).toBe(1);
+}

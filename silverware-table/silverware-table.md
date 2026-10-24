@@ -1603,16 +1603,28 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   bottom: 0;
   z-index: 3;
 }
-/* The room above a held header (STICKY_GAP) covered in the page's color: the
-   header's top cells cast it, a shadow as tall as the cell moved up; three of
-   them (22, 44, 66px up) cover it all for a header of at least 22px (one moved
-   66px up left the 17px above a 49px header showing the rows under it) */
-.sb-table-widget {
-  --swt-held-cover: 0 -22px 0 0 var(--root-background-color, #fff), 0 -44px 0 0 var(--root-background-color, #fff), 0 -66px 0 0 var(--root-background-color, #fff);
+/* The room above a held header (STICKY_GAP) covered in the page's color: a
+   band above each of the header's top cells (positioned: relative, or sticky
+   where pinned), under the cell's own content (the columns' letters) as it is
+   behind it in the header's stacking context (z-index 3). Not a shadow of the
+   cells: a theme collapsing the table's borders (border-collapse: collapse)
+   has the browser paint no cell's box-shadow, and rows showed there. Only the
+   top row has it: from the filter row it would cover the header row. */
+.sb-table-widget.swt-sticky-box thead tr:first-child > td::after,
+.sb-table-widget thead.swt-stuck tr:first-child > td::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  bottom: 100%;
+  height: 66px;
+  background: var(--root-background-color, #fff);
+  pointer-events: none;
+  z-index: -1;
 }
-/* Its header opaque, and the room above it covered in the page's color, at
-   all times: the browser holds the header at once while the script marks it
-   held (swt-stuck) only a frame later, so a fast scroll showed rows there.
+/* Its header opaque, and the room above it covered, at all times: the browser
+   holds the header at once while the script marks it held (swt-stuck) only a
+   frame later, so a fast scroll showed rows there.
    (:where: a selected or edited header cell's own marks still win.) */
 .sb-table-widget.swt-sticky-box :where(thead td) {
   background: linear-gradient(
@@ -1620,9 +1632,6 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
       var(--editor-table-head-background-color, transparent)
     ),
     var(--root-background-color, #fff);
-}
-.sb-table-widget.swt-sticky-box :where(thead tr:first-child > td) {
-  box-shadow: var(--swt-held-cover);
 }
 
 /* Header held at the top of the view while the table scrolls past (moved by
@@ -1633,31 +1642,14 @@ body.swt-select-mode .sb-table-widget.swt-table td.swt-selected-alone {
   z-index: 3;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
 }
-/* The header color may be see-through (dark theme): lay it over the page color.
-   A shadow upwards fills the gap above the held header (STICKY_GAP in the
-   script) with the page color, so no row shows there. */
+/* The header color may be see-through (dark theme): lay it over the page color
+   (the gap above it is covered by the band above) */
 .sb-table-widget thead.swt-stuck td {
   background: linear-gradient(
       var(--editor-table-head-background-color, transparent),
       var(--editor-table-head-background-color, transparent)
     ),
     var(--root-background-color, #fff);
-}
-/* Only the top row casts it: from the filter row it would cover the header row */
-.sb-table-widget thead.swt-stuck tr:first-child td {
-  box-shadow: var(--swt-held-cover);
-}
-/* With the tint of a selected or edited cell, or of a hovered grip's line (inset shadows too) */
-.sb-table-widget.swt-table thead.swt-stuck tr:first-child td:is(.swt-selected, .swt-editing) {
-  box-shadow:
-    var(--swt-held-cover),
-    inset 0 0 0 1px color-mix(in srgb, var(--ui-accent-color) 45%, transparent),
-    inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 18%, transparent);
-}
-.sb-table-widget.swt-table thead.swt-stuck tr:first-child td.swt-handle-hover {
-  box-shadow:
-    var(--swt-held-cover),
-    inset 0 0 0 9999px color-mix(in srgb, var(--ui-accent-color) 10%, transparent);
 }
 
 /* Pinned rows and columns stay in view (moved there by script); they need an
